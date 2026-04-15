@@ -13,4 +13,4 @@ RUN npx nest build
 
 EXPOSE 3000
 
-CMD ["node", "dist/main.js"]
+CMD npx prisma migrate deploy && node dist/main.js
