@@ -3,13 +3,13 @@ FROM node:18-alpine
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
-RUN npm install -g @nestjs/cli ts-node typescript
+RUN npm install --include=dev
+
+COPY prisma ./prisma
+RUN npx prisma generate
 
 COPY . .
-RUN npx prisma generate
-RUN npm run build
-RUN ls -la dist/ || echo "dist not found"
+RUN npx nest build
 
 EXPOSE 3000
 
