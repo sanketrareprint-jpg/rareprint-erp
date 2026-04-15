@@ -4,11 +4,12 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm install
-RUN npm install -g @nestjs/cli
+RUN npm install -g @nestjs/cli ts-node typescript
 
 COPY . .
 RUN npx prisma generate
-RUN npx nest build
+RUN npm run build
+RUN ls -la dist/ || echo "dist not found"
 
 EXPOSE 3000
 
