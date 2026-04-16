@@ -19,13 +19,32 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-const nav = [
+type NavItem = { href: string; label: string; icon: React.ElementType };
+
+const ALL_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/orders", label: "Orders", icon: ShoppingCart },
   { href: "/accounts", label: "Accounts", icon: Calculator },
   { href: "/production", label: "Production", icon: Factory },
   { href: "/dispatch", label: "Dispatch", icon: Truck },
-] as const;
+];
+
+const NAV_BY_ROLE: Record<string, NavItem[]> = {
+  ADMIN: ALL_NAV,
+  SALES_AGENT: [
+    { href: "/orders", label: "Orders", icon: ShoppingCart },
+  ],
+  ACCOUNTS: [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/accounts", label: "Accounts", icon: Calculator },
+  ],
+  PRODUCTION: [
+    { href: "/production", label: "Production", icon: Factory },
+  ],
+  DISPATCH: [
+    { href: "/dispatch", label: "Dispatch", icon: Truck },
+  ],
+};
 
 function formatRole(role: string) {
   return role
@@ -62,10 +81,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const nav = NAV_BY_ROLE[user.role] ?? ALL_NAV;
+
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#f1f5f9" }}>
 
-      {/* FIXED SIDEBAR — never scrolls */}
+      {/* FIXED SIDEBAR */}
       <aside style={{
         width: "68px", minWidth: "68px", height: "100vh",
         position: "sticky", top: 0, left: 0, flexShrink: 0,
@@ -120,7 +141,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* MAIN CONTENT — only this scrolls */}
+      {/* MAIN CONTENT */}
       <main style={{ flex: 1, height: "100vh", overflowY: "auto", overflowX: "auto" }}>
         {children}
       </main>
