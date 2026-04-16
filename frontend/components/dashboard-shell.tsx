@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Role = "ADMIN" | "AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
+type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 
 interface NavItem {
   label: string;
@@ -44,6 +44,10 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Users",      href: "/users",      icon: Users },
   ],
   AGENT: [
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+  ],
+  SALES_AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
   ],
