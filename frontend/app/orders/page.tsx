@@ -591,7 +591,7 @@ export default function OrdersPage() {
         </div>
       </DashboardShell>
 
-      {/* ── Design File Upload Modal ─────────────────────────────────────── */}
+      {/* ── Design File Modal ─────────────────────────────────────────────── */}
       {fileModalOrder && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
           <div style={{ width: "100%", maxWidth: "34rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", maxHeight: "85vh", overflowY: "auto" }}>
@@ -608,30 +608,41 @@ export default function OrdersPage() {
                 const files = itemDesignFiles[item.id] ?? [];
                 const isLoading = filesLoading[item.id];
                 const isUploading = uploadingItemId === item.id;
-                const inputId = `file-input-${item.id}`;
 
                 return (
                   <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    {/* Item header */}
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">
-                          Item {idx + 1}
-                        </span>
-                        <span className="text-sm font-medium text-slate-800">{item.productName}</span>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">Item {idx + 1}</span>
+                      <span className="text-sm font-medium text-slate-800">{item.productName}</span>
+                    </div>
+
+                    {/* Visible file input — no programmatic trigger, no Chrome hang */}
+                    <div style={{
+                      border: "2px dashed #cbd5e1",
+                      borderRadius: "10px",
+                      padding: "12px",
+                      background: "white",
+                      marginBottom: "10px",
+                      position: "relative",
+                    }}>
+                      <div style={{ textAlign: "center", pointerEvents: "none", marginBottom: "4px" }}>
+                        {isUploading
+                          ? <p style={{ fontSize: "12px", color: "#3b82f6" }}>⏳ Uploading…</p>
+                          : <p style={{ fontSize: "12px", color: "#64748b" }}>
+                              <Upload style={{ display: "inline", width: 14, height: 14, marginRight: 4 }} />
+                              Choose or drag a file here
+                            </p>
+                        }
+                        <p style={{ fontSize: "11px", color: "#94a3b8" }}>PDF · AI · PSD · CDR · PNG · JPG · SVG · ZIP</p>
                       </div>
-                      {/* Upload button — uses <label> to avoid Chrome hang */}
-                      <label htmlFor={inputId}
-                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer transition ${isUploading ? "bg-blue-300 text-white cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}>
-                        {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                        {isUploading ? "Uploading…" : "Upload File"}
-                      </label>
                       <input
-                        id={inputId}
                         type="file"
-                        className="hidden"
                         disabled={isUploading}
                         accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
+                        style={{
+                          position: "absolute", inset: 0, width: "100%", height: "100%",
+                          opacity: 0, cursor: isUploading ? "not-allowed" : "pointer",
+                        }}
                         onChange={e => {
                           const file = e.target.files?.[0];
                           if (file) void uploadDesignFile(item.id, file);
@@ -642,13 +653,11 @@ export default function OrdersPage() {
 
                     {/* File list */}
                     {isLoading ? (
-                      <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading files…
-                      </div>
-                    ) : files.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic py-1">
-                        No files yet. Upload PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP.
+                      <p className="text-xs text-slate-400 py-1 flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Loading…
                       </p>
+                    ) : files.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No files attached yet.</p>
                     ) : (
                       <div className="space-y-1.5">
                         {files.map(f => (
@@ -662,12 +671,9 @@ export default function OrdersPage() {
                                 </p>
                               </div>
                             </div>
-                            <button
-                              onClick={() => void deleteDesignFile(item.id, f.filename)}
+                            <button onClick={() => void deleteDesignFile(item.id, f.filename)}
                               disabled={deletingFile === f.filename}
-                              className="p-1.5 rounded-md text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                              title="Delete file"
-                            >
+                              className="p-1.5 rounded-md text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
                               {deletingFile === f.filename
                                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 : <X className="h-3.5 w-3.5" />}
