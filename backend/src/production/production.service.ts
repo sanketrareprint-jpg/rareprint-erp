@@ -1,9 +1,8 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { OrderProductionStage, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class ProductionService {
@@ -17,6 +16,7 @@ export class ProductionService {
       orderBy: { updatedAt: 'desc' },
       include: {
         customer: true,
+        salesAgent: { select: { id: true, fullName: true } },
         items: { include: { product: true } },
       },
     });
@@ -26,6 +26,7 @@ export class ProductionService {
       orderNo: o.orderNumber,
       customerName: o.customer.businessName,
       customerPhone: o.customer.phone,
+      salesAgentName: o.salesAgent?.fullName ?? null,
       status: o.status,
       productionStage: o.productionStage,
       orderDate: o.orderDate.toISOString(),
@@ -40,8 +41,27 @@ export class ProductionService {
         productionNotes: i.productionNotes,
         artworkNotes: i.artworkNotes,
         itemProductionStage: i.itemProductionStage,
+        designFiles: this.getDesignFiles(i.id),
       })),
     }));
+  }
+
+  // Read design files from disk for a given item
+  private getDesignFiles(itemId: string): Array<{
+    filename: string;
+    originalName: string;
+    uploadedAt: string;
+    size: number;
+  }> {
+    try {
+      const uploadDir = path.join(process.cwd(), 'uploads', 'designs', itemId);
+      const metaPath = path.join(uploadDir, 'meta.json');
+      if (!fs.existsSync(metaPath)) return [];
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      return Array.isArray(meta) ? meta : [];
+    } catch {
+      return [];
+    }
   }
 
   async updateItemStage(
@@ -74,10 +94,7 @@ export class ProductionService {
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
     );
 
-    // Production ONLY moves order between APPROVED and IN_PRODUCTION
-    // READY_FOR_DISPATCH is set ONLY by Accounts after approving dispatch batch
     let newOrderStatus = item.order.status;
-
     if (anyInProgress || anyReady) {
       newOrderStatus = OrderStatus.IN_PRODUCTION;
     }

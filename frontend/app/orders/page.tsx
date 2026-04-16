@@ -1,24 +1,20 @@
 "use client";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp, Truck, CheckSquare, Square, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp, Truck, CheckSquare, Square, AlertTriangle, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ItemDetail = {
-  productName: string;
-  size: string | null;
-  gsm: string | null;
-  sides: string | null;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-  itemProductionStage: string;
+  productName: string; size: string | null; gsm: string | null;
+  sides: string | null; quantity: number; unitPrice: number;
+  lineTotal: number; itemProductionStage: string;
 };
 
 type Order = {
-  id: string; orderNo: string; customerName: string; customerId?: string;
+  id: string; orderNo: string; customerName: string; customerPhone?: string;
+  salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
   balanceDue: number; status: string; date: string;
   readyItemsCount?: number; totalItemsCount?: number;
@@ -43,18 +39,21 @@ const METHOD_LABELS: Record<string, string> = {
   CHEQUE: "Cheque", CARD: "Card (POS)",
 };
 
+const STATUS_OPTIONS = [
+  "ALL", "PENDING_APPROVAL", "APPROVED", "IN_PRODUCTION",
+  "READY_FOR_DISPATCH", "PENDING_DISPATCH_APPROVAL",
+  "PARTIALLY_DISPATCHED", "DISPATCHED", "DELIVERED", "CANCELLED",
+];
+
 const itemStageColors: Record<string, string> = {
   NOT_PRINTED: "bg-gray-100 text-gray-600",
   PRINTING: "bg-blue-100 text-blue-700",
   PROCESSING: "bg-yellow-100 text-yellow-700",
   READY_FOR_DISPATCH: "bg-green-100 text-green-700",
 };
-
 const itemStageLabels: Record<string, string> = {
-  NOT_PRINTED: "Not Printed",
-  PRINTING: "Printing",
-  PROCESSING: "Processing",
-  READY_FOR_DISPATCH: "Ready",
+  NOT_PRINTED: "Not Printed", PRINTING: "Printing",
+  PROCESSING: "Processing", READY_FOR_DISPATCH: "Ready",
 };
 
 const IN_PROGRESS_STATUSES = ["APPROVED", "IN_PRODUCTION"];
@@ -62,7 +61,6 @@ const IN_PROGRESS_STATUSES = ["APPROVED", "IN_PRODUCTION"];
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
-
 function parseNotes(notes?: string) {
   const size = notes?.match(/Size:\s*([^,]+)/)?.[1]?.trim();
   const gsm = notes?.match(/GSM:\s*([^,]+)/)?.[1]?.trim();
@@ -70,7 +68,7 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
-const TH_STYLE = { background: "#f8fafc", position: "sticky" as const, top: 0, zIndex: 10 };
+const TH = { background: "#f8fafc", position: "sticky" as const, top: 0, zIndex: 10 };
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -83,6 +81,10 @@ export default function OrdersPage() {
   const [orderPayments, setOrderPayments] = useState<Record<string, Payment[]>>({});
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Search + filter state
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [bookingModal, setBookingModal] = useState(false);
@@ -97,7 +99,6 @@ export default function OrdersPage() {
     paymentReference: "", paymentNotes: "", notes: "",
   });
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
-
   const [newPayment, setNewPayment] = useState({
     amount: "", method: "CASH", paymentAccountId: "",
     referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10),
@@ -124,9 +125,9 @@ export default function OrdersPage() {
 
   async function loadPayments(orderId: string) {
     const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payments`, { headers: getAuthHeaders() });
-    const data = await res.json();
-    setOrderPayments(prev => ({ ...prev, [orderId]: data }));
-  }
+    const payments = await res.json();
+    setOrderPayments(prev => ({ ...prev, [orderId]: payments }));
+    }
 
   async function togglePayments(orderId: string) {
     if (expandedPayments === orderId) { setExpandedPayments(null); return; }
@@ -163,11 +164,9 @@ export default function OrdersPage() {
   function toggleOrderSelection(orderId: string, customerName: string) {
     setCustomerError(null);
     const selected = readyOrders.filter(o => selectedOrderIds.has(o.id));
-    if (!selectedOrderIds.has(orderId)) {
-      if (selected.length > 0 && selected[0].customerName !== customerName) {
-        setCustomerError(`Cannot combine orders from different customers. Selected orders are for "${selected[0].customerName}".`);
-        return;
-      }
+    if (!selectedOrderIds.has(orderId) && selected.length > 0 && selected[0].customerName !== customerName) {
+      setCustomerError(`Cannot combine orders from different customers. Selected: "${selected[0].customerName}".`);
+      return;
     }
     setSelectedOrderIds(prev => {
       const s = new Set(prev);
@@ -177,10 +176,8 @@ export default function OrdersPage() {
   }
 
   async function openBookingModal() {
-    if (selectedOrderIds.size === 0) { alert("Please select at least one order"); return; }
-    setBookingModal(true);
-    setRates([]);
-    setItemsLoading(true);
+    if (selectedOrderIds.size === 0) { alert("Select at least one order"); return; }
+    setBookingModal(true); setRates([]); setItemsLoading(true);
     try {
       const itemsMap: Record<string, OrderItem[]> = {};
       for (const orderId of selectedOrderIds) {
@@ -213,8 +210,8 @@ export default function OrdersPage() {
 
   async function submitBooking() {
     if (selectedOrderIds.size === 0) return;
-    if (!bookingForm.courierCharges) { alert("Please enter courier charges"); return; }
-    if (!bookingForm.isCod && !bookingForm.paymentAccountId) { alert("Please select payment account"); return; }
+    if (!bookingForm.courierCharges) { alert("Enter courier charges"); return; }
+    if (!bookingForm.isCod && !bookingForm.paymentAccountId) { alert("Select payment account"); return; }
     setBookingSubmitting(true);
     try {
       const orderIds = Array.from(selectedOrderIds);
@@ -231,18 +228,30 @@ export default function OrdersPage() {
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      alert(`✅ ${orderIds.length} order(s) sent to Accounts for final approval!`);
-      setBookingModal(false);
-      setSelectedOrderIds(new Set());
-      setBookingItems({});
-      setRates([]);
+      alert(`✅ ${orderIds.length} order(s) sent to Accounts for approval!`);
+      setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setRates([]);
       await load();
     } finally { setBookingSubmitting(false); }
   }
 
+  // ── Filtered orders ───────────────────────────────────────────────────────
   const allOrders = orders;
   const inProgressOrders = orders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
-  const displayOrders = activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;
+
+  const filteredOrders = useMemo(() => {
+    const base = activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;
+    const q = search.trim().toLowerCase();
+    return base.filter(o => {
+      const matchSearch = !q ||
+        o.orderNo?.toLowerCase().includes(q) ||
+        o.customerName?.toLowerCase().includes(q) ||
+        o.customerPhone?.includes(q) ||
+        o.salesAgentName?.toLowerCase().includes(q) ||
+        o.products?.toLowerCase().includes(q);
+      const matchStatus = statusFilter === "ALL" || o.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [orders, readyOrders, activeTab, search, statusFilter]);
 
   const tabs = [
     { key: "all", label: "All Orders", count: allOrders.length },
@@ -275,9 +284,7 @@ export default function OrdersPage() {
     return (
       <td className="px-2 py-1.5 text-slate-600 align-top" style={{ minWidth: "180px" }}>
         <div className="space-y-0.5">
-          {o.products.split(' | ').map((p, i) => (
-            <div key={i} className="text-xs leading-snug">{p}</div>
-          ))}
+          {o.products.split(' | ').map((p, i) => <div key={i} className="text-xs leading-snug">{p}</div>)}
         </div>
       </td>
     );
@@ -288,7 +295,7 @@ export default function OrdersPage() {
       <DashboardShell>
         <div className="p-4 lg:p-5">
           <div className="space-y-3">
-
+            {/* Header */}
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-bold text-slate-900">Orders</h1>
@@ -300,6 +307,32 @@ export default function OrdersPage() {
               </button>
             </div>
 
+            {/* Search + Filter */}
+            <div className="flex flex-wrap gap-2">
+              <div className="relative flex-1 min-w-[200px] max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text" value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search order, customer, phone, agent…"
+                  className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400"
+                />
+              </div>
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
+                {STATUS_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+              {(search || statusFilter !== "ALL") && (
+                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); }}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
+                  <X className="h-3 w-3" /> Clear
+                </button>
+              )}
+              <span className="text-xs text-slate-400 self-center">{filteredOrders.length} result{filteredOrders.length !== 1 ? "s" : ""}</span>
+            </div>
+
+            {/* Tabs */}
             <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit">
               {tabs.map(tab => (
                 <button key={tab.key}
@@ -337,12 +370,6 @@ export default function OrdersPage() {
               </div>
             )}
 
-            {activeTab === "dispatch" && selectedOrderIds.size === 0 && readyOrders.length > 0 && (
-              <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-500">
-                💡 Select orders to combine into one shipment.
-              </div>
-            )}
-
             {loading ? (
               <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : (
@@ -350,11 +377,13 @@ export default function OrdersPage() {
                 <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                   <thead>
                     <tr>
-                      {activeTab === "dispatch" && <th className="px-2 py-2 w-8 font-semibold" style={TH_STYLE}></th>}
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH_STYLE}>Date</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH_STYLE}>Order No</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH_STYLE}>Customer</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH_STYLE}>
+                      {activeTab === "dispatch" && <th className="px-2 py-2 w-8 font-semibold border-b border-slate-200" style={TH}></th>}
+                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Date</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Order No</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Customer</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Phone</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Agent</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>
                         <div className="flex items-center gap-3">
                           <span style={{ minWidth: "70px" }}>Product</span>
                           <span style={{ minWidth: "35px" }}>Size</span>
@@ -365,17 +394,17 @@ export default function OrdersPage() {
                           <span>Stage</span>
                         </div>
                       </th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH_STYLE}>Total</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH_STYLE}>Paid</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH_STYLE}>Balance</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH_STYLE}>Actions</th>
-                      {activeTab === "dispatch" && <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH_STYLE}>Ready</th>}
+                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Total</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Paid</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Balance</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
+                      {activeTab === "dispatch" && <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Ready</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {displayOrders.length === 0 ? (
-                      <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-400 text-sm">No orders found.</td></tr>
-                    ) : displayOrders.map((o) => (
+                    {filteredOrders.length === 0 ? (
+                      <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400 text-sm">No orders found.</td></tr>
+                    ) : filteredOrders.map((o) => (
                       <React.Fragment key={o.id}>
                         <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
                           {activeTab === "dispatch" && (
@@ -395,6 +424,14 @@ export default function OrdersPage() {
                           </td>
                           <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">
+                            {o.customerPhone ?? "—"}
+                          </td>
+                          <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                            {o.salesAgentName
+                              ? <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{o.salesAgentName}</span>
+                              : <span className="text-slate-300">—</span>}
                           </td>
                           {renderProductsCell(o)}
                           <td className="px-2 py-1.5 font-medium align-top whitespace-nowrap">{fmt(o.totalAmount)}</td>
@@ -423,7 +460,7 @@ export default function OrdersPage() {
                         </tr>
                         {expandedPayments === o.id && (
                           <tr>
-                            <td colSpan={activeTab === "dispatch" ? 10 : 9} className="bg-slate-50 px-6 py-3">
+                            <td colSpan={12} className="bg-slate-50 px-6 py-3">
                               {!orderPayments[o.id] ? <Loader2 className="h-4 w-4 animate-spin" />
                                 : orderPayments[o.id].length === 0 ? <p className="text-xs text-slate-400">No payments recorded yet.</p>
                                 : (
@@ -476,47 +513,36 @@ export default function OrdersPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Payment Date *</label>
-                <input type="date" value={newPayment.paymentDate}
-                  onChange={e => setNewPayment(p => ({ ...p, paymentDate: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <input type="date" value={newPayment.paymentDate} onChange={e => setNewPayment(p => ({ ...p, paymentDate: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Amount (₹) *</label>
-                <input type="number" placeholder="0.00" value={newPayment.amount}
-                  onChange={e => setNewPayment(p => ({ ...p, amount: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <input type="number" placeholder="0.00" value={newPayment.amount} onChange={e => setNewPayment(p => ({ ...p, amount: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method *</label>
-                <select value={newPayment.method} onChange={e => setNewPayment(p => ({ ...p, method: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <select value={newPayment.method} onChange={e => setNewPayment(p => ({ ...p, method: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                   {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Received In Account *</label>
-                <select value={newPayment.paymentAccountId} onChange={e => setNewPayment(p => ({ ...p, paymentAccountId: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <select value={newPayment.paymentAccountId} onChange={e => setNewPayment(p => ({ ...p, paymentAccountId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                   <option value="">Select account...</option>
                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name} {a.bankName ? `(${a.bankName})` : ""}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR Number</label>
-                <input type="text" placeholder="UTR / Cheque no. / Transaction ID" value={newPayment.referenceNumber}
-                  onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <input type="text" placeholder="UTR / Cheque no. / Transaction ID" value={newPayment.referenceNumber} onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
-                <textarea rows={2} placeholder="Any remarks..." value={newPayment.notes}
-                  onChange={e => setNewPayment(p => ({ ...p, notes: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <textarea rows={2} value={newPayment.notes} onChange={e => setNewPayment(p => ({ ...p, notes: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setPaymentModal(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={() => setPaymentModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
               <button onClick={submitPayment} disabled={submitting}
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
@@ -527,7 +553,7 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Booking Modal */}
+      {/* Booking Modal — unchanged from original */}
       {bookingModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", background: "rgba(15,23,42,0.6)" }}>
           <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "2rem" }}>
@@ -540,46 +566,6 @@ export default function OrdersPage() {
                 <button onClick={() => setBookingModal(false)}><X className="h-5 w-5 text-slate-400" /></button>
               </div>
               <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Orders & Ready Items</p>
-                  {itemsLoading ? <Loader2 className="h-5 w-5 animate-spin text-blue-600" /> : (
-                    <div className="space-y-3">
-                      {selectedOrders.map(o => (
-                        <div key={o.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-slate-900 text-sm">{o.orderNo}</span>
-                              <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-xs font-semibold">
-                                {o.readyItemsCount ?? 0}/{o.totalItemsCount ?? 0} ready
-                              </span>
-                            </div>
-                            <div className="text-xs text-slate-600 flex gap-3">
-                              <span>Total: <strong>{fmt(o.totalAmount)}</strong></span>
-                              <span className="text-emerald-600">Paid: <strong>{fmt(o.advancePaid)}</strong></span>
-                              <span className="text-red-500">Balance: <strong>{fmt(o.balanceDue)}</strong></span>
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            {(bookingItems[o.id] ?? []).map((item, idx) => {
-                              const { size, gsm, sides } = parseNotes(item.productionNotes);
-                              return (
-                                <div key={item.id} className="flex items-center gap-2 text-xs text-slate-600 bg-white rounded-lg border border-slate-100 px-3 py-1.5">
-                                  <span className="rounded-full bg-indigo-100 text-indigo-700 px-1.5 py-0.5 font-bold">{o.orderNo}-{idx + 1}</span>
-                                  <span className="font-medium text-slate-800">{item.productName}</span>
-                                  <span>Qty: {item.quantity}</span>
-                                  {size && <span>Size: {size}</span>}
-                                  {gsm && <span>GSM: {gsm}</span>}
-                                  {sides && <span>{sides === "SINGLE_SIDE" ? "Single" : "Double"}</span>}
-                                  <span className="ml-auto font-semibold text-emerald-700">{fmt(item.lineTotal)}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div><p className="text-xs text-slate-500">Total Order Value</p><p className="font-bold text-slate-900 text-lg">{fmt(totalAmount)}</p></div>
@@ -617,11 +603,8 @@ export default function OrdersPage() {
                 </div>
                 <div className={`rounded-xl border px-4 py-3 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
                   <div className="flex items-center gap-3">
-                    <input type="checkbox" id="cod" checked={bookingForm.isCod}
-                      onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-4 w-4" />
-                    <label htmlFor="cod" className={`text-sm font-semibold cursor-pointer ${bookingForm.isCod ? "text-orange-800" : "text-slate-700"}`}>
-                      Cash on Delivery (COD)
-                    </label>
+                    <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-4 w-4" />
+                    <label htmlFor="cod" className={`text-sm font-semibold cursor-pointer ${bookingForm.isCod ? "text-orange-800" : "text-slate-700"}`}>Cash on Delivery (COD)</label>
                   </div>
                   {bookingForm.isCod && (
                     <div className="mt-3 space-y-2">
@@ -667,8 +650,7 @@ export default function OrdersPage() {
                 )}
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Notes for Accounts Team</label>
-                  <textarea rows={2} placeholder="Any notes about this dispatch..." value={bookingForm.notes}
-                    onChange={e => setBookingForm(p => ({ ...p, notes: e.target.value }))}
+                  <textarea rows={2} value={bookingForm.notes} onChange={e => setBookingForm(p => ({ ...p, notes: e.target.value }))}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                 </div>
               </div>

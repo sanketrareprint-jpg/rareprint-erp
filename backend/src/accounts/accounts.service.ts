@@ -8,14 +8,11 @@ export class AccountsService {
 
   async getPendingOrders() {
     const orders = await this.prisma.order.findMany({
-      where: {
-        status: OrderStatus.PENDING_APPROVAL,
-      },
+      where: { status: OrderStatus.PENDING_APPROVAL },
       include: {
         customer: true,
-        items: {
-          include: { product: true },
-        },
+        salesAgent: { select: { id: true, fullName: true } },
+        items: { include: { product: true } },
         payments: {
           include: { paymentAccount: true },
           orderBy: { paymentDate: 'desc' },
@@ -35,6 +32,7 @@ export class AccountsService {
         customerName: order.customer.businessName,
         customerPhone: order.customer.phone,
         customerEmail: order.customer.email,
+        salesAgentName: order.salesAgent?.fullName ?? null,
         products: order.items.map((i) => `${i.product.name} (×${i.quantity})`).join(', '),
         items: order.items.map((i) => ({
           productName: i.product.name,
@@ -65,14 +63,11 @@ export class AccountsService {
 
   async getPendingDispatchOrders() {
     const orders = await this.prisma.order.findMany({
-      where: {
-        status: OrderStatus.PENDING_DISPATCH_APPROVAL,
-      },
+      where: { status: OrderStatus.PENDING_DISPATCH_APPROVAL },
       include: {
         customer: true,
-        items: {
-          include: { product: true },
-        },
+        salesAgent: { select: { id: true, fullName: true } },
+        items: { include: { product: true } },
         payments: {
           include: { paymentAccount: true },
           orderBy: { paymentDate: 'desc' },
@@ -86,7 +81,6 @@ export class AccountsService {
       const grandTotal = Number(order.grandTotal);
       const balanceDue = Math.max(0, grandTotal - totalPaid);
 
-      // Extract courier charge and payment type from notes
       const courierMatch = order.notes?.match(/Courier:\s*₹?([\d.]+)/);
       const paymentTypeMatch = order.notes?.match(/\b(COD|Prepaid)\b/i);
 
@@ -96,6 +90,7 @@ export class AccountsService {
         customerName: order.customer.businessName,
         customerPhone: order.customer.phone,
         customerEmail: order.customer.email,
+        salesAgentName: order.salesAgent?.fullName ?? null,
         items: order.items.map((i) => ({
           productName: i.product.name,
           sku: i.product.sku,
@@ -128,7 +123,6 @@ export class AccountsService {
   async approveOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
-
     return this.prisma.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.APPROVED },
@@ -148,7 +142,6 @@ export class AccountsService {
     if (order.status !== OrderStatus.PENDING_DISPATCH_APPROVAL) {
       throw new NotFoundException('Order is not pending dispatch approval');
     }
-
     return this.prisma.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.READY_FOR_DISPATCH },
@@ -158,7 +151,6 @@ export class AccountsService {
   async rejectDispatch(orderId: string, reason: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
-
     return this.prisma.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.APPROVED },

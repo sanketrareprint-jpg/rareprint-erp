@@ -51,6 +51,7 @@ export class OrdersService {
       orderBy: { orderDate: 'desc' },
       include: {
         customer: true,
+        salesAgent: { select: { id: true, fullName: true } },
         items: { include: { product: true } },
         payments: true,
       },
@@ -73,6 +74,8 @@ export class OrdersService {
         id: o.id,
         orderNo: o.orderNumber,
         customerName: o.customer.businessName,
+        customerPhone: o.customer.phone ?? null,
+        salesAgentName: o.salesAgent?.fullName ?? null,
         products: productsSummary,
         totalAmount: total,
         advancePaid,
@@ -402,6 +405,7 @@ export class OrdersService {
       orderBy: { orderDate: 'desc' },
       include: {
         customer: true,
+        salesAgent: { select: { id: true, fullName: true } },
         items: { include: { product: true } },
         payments: true,
       },
@@ -417,6 +421,8 @@ export class OrdersService {
         id: o.id,
         orderNo: o.orderNumber,
         customerName: o.customer.businessName,
+        customerPhone: o.customer.phone ?? null,
+        salesAgentName: o.salesAgent?.fullName ?? null,
         customerId: o.customer.id,
         products: o.items.map((i) => `${i.product.name} (×${i.quantity})`).join(', '),
         totalAmount: total,
