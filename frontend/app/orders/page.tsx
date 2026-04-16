@@ -1,15 +1,23 @@
 "use client";
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp, Truck, CheckSquare, Square, AlertTriangle, Search } from "lucide-react";
+import {
+  Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp,
+  Truck, CheckSquare, Square, AlertTriangle, Search,
+  Paperclip, Upload, FileText,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ItemDetail = {
   productName: string; size: string | null; gsm: string | null;
   sides: string | null; quantity: number; unitPrice: number;
   lineTotal: number; itemProductionStage: string;
+};
+
+type OrderItemRef = {
+  id: string; productName: string; itemProductionStage: string;
 };
 
 type Order = {
@@ -19,6 +27,7 @@ type Order = {
   balanceDue: number; status: string; date: string;
   readyItemsCount?: number; totalItemsCount?: number;
   itemDetails?: ItemDetail[];
+  items?: OrderItemRef[];
 };
 
 type OrderItem = {
@@ -40,9 +49,9 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = [
-  "ALL", "PENDING_APPROVAL", "APPROVED", "IN_PRODUCTION",
-  "READY_FOR_DISPATCH", "PENDING_DISPATCH_APPROVAL",
-  "PARTIALLY_DISPATCHED", "DISPATCHED", "DELIVERED", "CANCELLED",
+  "ALL","PENDING_APPROVAL","APPROVED","IN_PRODUCTION",
+  "READY_FOR_DISPATCH","PENDING_DISPATCH_APPROVAL",
+  "PARTIALLY_DISPATCHED","DISPATCHED","DELIVERED","CANCELLED",
 ];
 
 const itemStageColors: Record<string, string> = {
@@ -62,10 +71,11 @@ function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
 function parseNotes(notes?: string) {
-  const size = notes?.match(/Size:\s*([^,]+)/)?.[1]?.trim();
-  const gsm = notes?.match(/GSM:\s*([^,]+)/)?.[1]?.trim();
-  const sides = notes?.match(/Sides:\s*([^,]+)/)?.[1]?.trim();
-  return { size, gsm, sides };
+  return {
+    size: notes?.match(/Size:\s*([^,]+)/)?.[1]?.trim(),
+    gsm: notes?.match(/GSM:\s*([^,]+)/)?.[1]?.trim(),
+    sides: notes?.match(/Sides:\s*([^,]+)/)?.[1]?.trim(),
+  };
 }
 
 const TH = { background: "#f8fafc", position: "sticky" as const, top: 0, zIndex: 10 };
@@ -82,10 +92,16 @@ export default function OrdersPage() {
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Search + filter state
+  // Search + filter
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
+  // File upload
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+  const [fileModalOrder, setFileModalOrder] = useState<Order | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Dispatch
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [bookingModal, setBookingModal] = useState(false);
   const [bookingItems, setBookingItems] = useState<Record<string, OrderItem[]>>({});
@@ -96,7 +112,7 @@ export default function OrdersPage() {
   const [bookingForm, setBookingForm] = useState({
     courierCharges: "", isCod: false, codAmount: "",
     paymentMethod: "CASH", paymentAccountId: "",
-    paymentReference: "", paymentNotes: "", notes: "",
+    paymentReference: "", notes: "",
   });
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [newPayment, setNewPayment] = useState({
@@ -125,9 +141,8 @@ export default function OrdersPage() {
 
   async function loadPayments(orderId: string) {
     const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payments`, { headers: getAuthHeaders() });
-    const payments = await res.json();
-    setOrderPayments(prev => ({ ...prev, [orderId]: payments }));
-    }
+    setOrderPayments(prev => ({ ...prev, [orderId]: await res.json() }));
+  }
 
   async function togglePayments(orderId: string) {
     if (expandedPayments === orderId) { setExpandedPayments(null); return; }
@@ -159,6 +174,23 @@ export default function OrdersPage() {
       setNewPayment({ amount: "", method: "CASH", paymentAccountId: accounts[0]?.id ?? "", referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10) });
       await load();
     } finally { setSubmitting(false); }
+  }
+
+  // ── File upload per item ────────────────────────────────────────────────────
+  async function uploadDesignFile(itemId: string, file: File) {
+    setUploadingItemId(itemId);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, {
+        method: "POST", headers: getAuthHeaders(), body: formData,
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Upload failed"); return; }
+      alert("✅ Design file uploaded!");
+    } finally {
+      setUploadingItemId(null);
+      if (fileInputRefs.current[itemId]) fileInputRefs.current[itemId]!.value = "";
+    }
   }
 
   function toggleOrderSelection(orderId: string, customerName: string) {
@@ -204,8 +236,8 @@ export default function OrdersPage() {
 
   const selectedOrders = readyOrders.filter(o => selectedOrderIds.has(o.id));
   const totalBalance = selectedOrders.reduce((s, o) => s + o.balanceDue, 0);
-  const totalAmount = selectedOrders.reduce((s, o) => s + o.totalAmount, 0);
-  const courierNum = Number(bookingForm.courierCharges || 0);
+  const totalAmount  = selectedOrders.reduce((s, o) => s + o.totalAmount, 0);
+  const courierNum   = Number(bookingForm.courierCharges || 0);
   const suggestedCod = totalBalance + courierNum;
 
   async function submitBooking() {
@@ -234,8 +266,8 @@ export default function OrdersPage() {
     } finally { setBookingSubmitting(false); }
   }
 
-  // ── Filtered orders ───────────────────────────────────────────────────────
-  const allOrders = orders;
+  // ── Filtered orders ────────────────────────────────────────────────────────
+  const allOrders        = orders;
   const inProgressOrders = orders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
 
   const filteredOrders = useMemo(() => {
@@ -254,16 +286,16 @@ export default function OrdersPage() {
   }, [orders, readyOrders, activeTab, search, statusFilter]);
 
   const tabs = [
-    { key: "all", label: "All Orders", count: allOrders.length },
-    { key: "inprogress", label: "In Progress", count: inProgressOrders.length },
-    { key: "dispatch", label: "Ready for Dispatch", count: readyOrders.length },
+    { key: "all",        label: "All Orders",         count: allOrders.length },
+    { key: "inprogress", label: "In Progress",         count: inProgressOrders.length },
+    { key: "dispatch",   label: "Ready for Dispatch",  count: readyOrders.length },
   ] as const;
 
   function renderProductsCell(o: Order) {
     if (o.itemDetails && o.itemDetails.length > 0) {
       return (
         <td className="px-2 py-1.5 align-top">
-          <div style={{ minWidth: "320px" }}>
+          <div style={{ minWidth: "300px" }}>
             {o.itemDetails.map((item, i) => (
               <div key={i} className="flex items-center gap-2 py-0.5 border-b border-slate-50 last:border-0 text-xs">
                 <span className="text-slate-800 font-medium" style={{ minWidth: "70px" }}>{item.productName}</span>
@@ -311,11 +343,9 @@ export default function OrdersPage() {
             <div className="flex flex-wrap gap-2">
               <div className="relative flex-1 min-w-[200px] max-w-xs">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text" value={search} onChange={e => setSearch(e.target.value)}
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Search order, customer, phone, agent…"
-                  className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400"
-                />
+                  className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
               </div>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
@@ -356,7 +386,7 @@ export default function OrdersPage() {
               <div className="flex items-center justify-between rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
                 <div className="text-xs text-indigo-800">
                   <strong>{selectedOrderIds.size}</strong> order{selectedOrderIds.size > 1 ? "s" : ""} selected
-                  {selectedOrders.length > 0 && <span className="ml-1.5 text-indigo-600">— {selectedOrders[0].customerName}</span>}
+                  {selectedOrders.length > 0 && <span className="ml-1.5">— {selectedOrders[0].customerName}</span>}
                   <span className="ml-2 font-semibold">Balance: {fmt(totalBalance)}</span>
                 </div>
                 <div className="flex gap-1.5">
@@ -410,24 +440,21 @@ export default function OrdersPage() {
                           {activeTab === "dispatch" && (
                             <td className="px-2 py-1.5 align-top">
                               <button onClick={() => toggleOrderSelection(o.id, o.customerName)}>
-                                {selectedOrderIds.has(o.id)
-                                  ? <CheckSquare className="h-4 w-4 text-indigo-600" />
-                                  : <Square className="h-4 w-4 text-slate-400" />}
+                                {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4 text-indigo-600" /> : <Square className="h-4 w-4 text-slate-400" />}
                               </button>
                             </td>
                           )}
                           <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">
                             {new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
                           </td>
-                          <td className="px-2 py-1.5 font-medium text-slate-800 align-top" style={{ maxWidth: "110px", wordBreak: "break-all" }}>
+                          {/* Short order number */}
+                          <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap">
                             {o.orderNo}
                           </td>
                           <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
                           </td>
-                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">
-                            {o.customerPhone ?? "—"}
-                          </td>
+                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
                           <td className="px-2 py-1.5 align-top whitespace-nowrap">
                             {o.salesAgentName
                               ? <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{o.salesAgentName}</span>
@@ -438,16 +465,25 @@ export default function OrdersPage() {
                           <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
                           <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
                           <td className="px-2 py-1.5 align-top">
-                            <div className="flex gap-1 flex-col">
+                            <div className="flex flex-col gap-1">
+                              {/* Pay button */}
                               <button onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
                                 className="inline-flex items-center gap-0.5 rounded-md bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-emerald-700">
                                 <Plus className="h-2.5 w-2.5" /> Pay
                               </button>
+                              {/* History */}
                               <button onClick={() => togglePayments(o.id)}
                                 className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-1.5 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
                                 {expandedPayments === o.id ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
                                 Hist
                               </button>
+                              {/* Attach design file */}
+                              {o.items && o.items.length > 0 && (
+                                <button onClick={() => setFileModalOrder(o)}
+                                  className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
+                                  <Paperclip className="h-2.5 w-2.5" /> Files
+                                </button>
+                              )}
                             </div>
                           </td>
                           {activeTab === "dispatch" && (
@@ -458,6 +494,8 @@ export default function OrdersPage() {
                             </td>
                           )}
                         </tr>
+
+                        {/* Payment history row */}
                         {expandedPayments === o.id && (
                           <tr>
                             <td colSpan={12} className="bg-slate-50 px-6 py-3">
@@ -467,7 +505,7 @@ export default function OrdersPage() {
                                   <table className="w-full text-xs">
                                     <thead>
                                       <tr className="text-slate-400 border-b border-slate-100">
-                                        {["Date", "Amount", "Method", "Account", "Reference", "Notes"].map(h => (
+                                        {["Date","Amount","Method","Account","Reference","Notes"].map(h => (
                                           <th key={h} className="pb-1 text-left font-medium">{h}</th>
                                         ))}
                                       </tr>
@@ -499,7 +537,70 @@ export default function OrdersPage() {
         </div>
       </DashboardShell>
 
-      {/* Payment Modal */}
+      {/* ── Design File Upload Modal ─────────────────────────────────────── */}
+      {fileModalOrder && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
+          <div style={{ width: "100%", maxWidth: "30rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Attach Design Files</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{fileModalOrder.orderNo} — {fileModalOrder.customerName}</p>
+              </div>
+              <button onClick={() => setFileModalOrder(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+
+            <div className="space-y-3">
+              {(fileModalOrder.items ?? []).map((item, idx) => (
+                <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">
+                        Item {idx + 1}
+                      </span>
+                      <span className="text-sm font-medium text-slate-800">{item.productName}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {uploadingItemId === item.id && (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      )}
+                      <input
+                        type="file"
+                        ref={el => { fileInputRefs.current[item.id] = el; }}
+                        className="hidden"
+                        accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadDesignFile(item.id, file);
+                        }}
+                      />
+                      <button
+                        onClick={() => fileInputRefs.current[item.id]?.click()}
+                        disabled={uploadingItemId === item.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {uploadingItemId === item.id ? "Uploading…" : "Upload File"}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    Accepted: PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setFileModalOrder(null)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payment Modal ──────────────────────────────────────────────────── */}
       {paymentModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
           <div style={{ width: "100%", maxWidth: "28rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
@@ -533,8 +634,8 @@ export default function OrdersPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR Number</label>
-                <input type="text" placeholder="UTR / Cheque no. / Transaction ID" value={newPayment.referenceNumber} onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR</label>
+                <input type="text" placeholder="UTR / Cheque no." value={newPayment.referenceNumber} onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
@@ -553,7 +654,7 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Booking Modal — unchanged from original */}
+      {/* ── Booking Modal ──────────────────────────────────────────────────── */}
       {bookingModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", background: "rgba(15,23,42,0.6)" }}>
           <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "2rem" }}>
