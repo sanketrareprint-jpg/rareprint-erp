@@ -9,8 +9,8 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY . .
-RUN npx nest build && ls -la dist/
+RUN npx nest build && find dist/ -name "*.js" | head -20
 
 EXPOSE 3000
 
-CMD npx prisma migrate deploy && node dist/main.js
+CMD npx prisma migrate deploy && node dist/src/main.js
