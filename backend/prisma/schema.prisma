@@ -182,6 +182,7 @@ model OrderItem {
   lineTotal           Decimal              @db.Decimal(14, 2)
   artworkNotes        String?
   productionNotes     String?
+  designFiles         Json                 @default("[]")
   itemProductionStage OrderProductionStage @default(NOT_PRINTED)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
