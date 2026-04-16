@@ -1,150 +1,219 @@
 "use client";
 
-import {
-  AUTH_TOKEN_KEY,
-  AUTH_USER_KEY,
-  type AuthUser,
-  clearAuth,
-} from "@/lib/auth";
-import {
-  Calculator,
-  Factory,
-  LayoutDashboard,
-  LogOut,
-  Printer,
-  ShoppingCart,
-  Truck,
-} from "lucide-react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  Truck,
+  DollarSign,
+  Users,
+  LogOut,
+  Menu,
+  X,
+  Printer,
+  ChevronRight,
+} from "lucide-react";
 
-type NavItem = { href: string; label: string; icon: React.ElementType };
+// ─── Types ────────────────────────────────────────────────────────────────────
+type Role = "ADMIN" | "AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 
-const ALL_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/orders", label: "Orders", icon: ShoppingCart },
-  { href: "/accounts", label: "Accounts", icon: Calculator },
-  { href: "/production", label: "Production", icon: Factory },
-  { href: "/dispatch", label: "Dispatch", icon: Truck },
-];
+interface NavItem {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+}
 
-const NAV_BY_ROLE: Record<string, NavItem[]> = {
-  ADMIN: ALL_NAV,
-  SALES_AGENT: [
-    { href: "/orders", label: "Orders", icon: ShoppingCart },
+interface StoredUser {
+  id: string;
+  fullName: string;
+  email: string;
+  role: Role;
+}
+
+// ─── Role → nav items ─────────────────────────────────────────────────────────
+const NAV_BY_ROLE: Record<Role, NavItem[]> = {
+  ADMIN: [
+    { label: "Dashboard",  href: "/dashboard",  icon: LayoutDashboard },
+    { label: "Orders",     href: "/orders",     icon: ShoppingCart },
+    { label: "Production", href: "/production", icon: Package },
+    { label: "Accounts",   href: "/accounts",   icon: DollarSign },
+    { label: "Dispatch",   href: "/dispatch",   icon: Truck },
+    { label: "Users",      href: "/users",      icon: Users },
+  ],
+  AGENT: [
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Orders",    href: "/orders",    icon: ShoppingCart },
   ],
   ACCOUNTS: [
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/accounts", label: "Accounts", icon: Calculator },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Accounts",  href: "/accounts",  icon: DollarSign },
   ],
   PRODUCTION: [
-    { href: "/production", label: "Production", icon: Factory },
+    { label: "Dashboard",  href: "/dashboard",  icon: LayoutDashboard },
+    { label: "Production", href: "/production", icon: Package },
   ],
   DISPATCH: [
-    { href: "/dispatch", label: "Dispatch", icon: Truck },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Dispatch",  href: "/dispatch",  icon: Truck },
   ],
 };
 
-function formatRole(role: string) {
-  return role
-    .split("_")
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-    .join(" ");
+// ─── Read user from localStorage ─────────────────────────────────────────────
+function getStoredUser(): StoredUser | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("rareprint_user");
+    if (raw) return JSON.parse(raw) as StoredUser;
+
+    // Fallback: decode from JWT
+    const token = localStorage.getItem("rareprint_token");
+    if (!token) return null;
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return {
+      id:       payload.sub,
+      email:    payload.email,
+      role:     payload.role,
+      fullName: payload.fullName ?? payload.email,
+    };
+  } catch {
+    return null;
+  }
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
 export function DashboardShell({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [ready, setReady] = useState(false);
+  const router   = useRouter();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [user, setUser]             = useState<StoredUser | null>(null);
 
+  // Read user on mount (client-only)
   useEffect(() => {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    const raw = localStorage.getItem(AUTH_USER_KEY);
-    if (!token || !raw) { router.replace("/login"); return; }
-    try { setUser(JSON.parse(raw) as AuthUser); }
-    catch { clearAuth(); router.replace("/login"); return; }
-    setReady(true);
+    const u = getStoredUser();
+    if (!u) {
+      router.replace("/login");
+      return;
+    }
+    setUser(u);
   }, [router]);
 
-  function logout() { clearAuth(); router.replace("/login"); }
+  const handleLogout = () => {
+    localStorage.removeItem("rareprint_user");
+    localStorage.removeItem("rareprint_token");
+    router.replace("/login");
+  };
 
-  if (!ready || !user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-          <p className="text-sm font-medium text-slate-600">Loading…</p>
+  const role     = user?.role ?? "AGENT";
+  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE["AGENT"];
+  const name     = user?.fullName ?? user?.email ?? "…";
+
+  // ── Sidebar content ──────────────────────────────────────────────────────────
+  const SidebarContent = () => (
+    <div className="flex flex-col h-full bg-white border-r border-gray-200">
+      {/* Logo */}
+      <div className="flex items-center gap-2.5 px-5 py-4 border-b border-gray-100">
+        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
+          <Printer className="w-4 h-4 text-white" />
         </div>
+        <span className="font-bold text-gray-900 text-base">RarePrint</span>
       </div>
-    );
-  }
 
-  const nav = NAV_BY_ROLE[user.role] ?? ALL_NAV;
+      {/* User badge */}
+      {user && (
+        <div className="mx-3 mt-3 mb-1 px-3 py-2.5 bg-blue-50 rounded-xl">
+          <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
+            {role}
+          </p>
+          <p className="text-sm font-semibold text-gray-900 truncate mt-0.5">
+            {name}
+          </p>
+          <p className="text-xs text-gray-400 truncate">{user.email}</p>
+        </div>
+      )}
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-2 overflow-y-auto">
+        {navItems.map((item) => {
+          const Icon   = item.icon;
+          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setMobileOpen(false)}
+              className={[
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium mb-0.5 transition-all",
+                active
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+              ].join(" ")}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {active && <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Logout */}
+      <div className="p-3 border-t border-gray-100">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#f1f5f9" }}>
-
-      {/* FIXED SIDEBAR */}
-      <aside style={{
-        width: "68px", minWidth: "68px", height: "100vh",
-        position: "sticky", top: 0, left: 0, flexShrink: 0,
-        background: "#1e293b", display: "flex", flexDirection: "column",
-        alignItems: "center", borderRight: "1px solid #334155", zIndex: 50,
-      }}>
-        {/* Logo */}
-        <div style={{ padding: "14px 0 10px", display: "flex", flexDirection: "column", alignItems: "center", borderBottom: "1px solid #334155", width: "100%" }}>
-          <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: "linear-gradient(135deg, #3b82f6, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Printer style={{ width: "18px", height: "18px", color: "white" }} strokeWidth={1.75} />
-          </div>
-          <span style={{ fontSize: "8px", color: "#94a3b8", marginTop: "5px", fontWeight: 700, letterSpacing: "0.06em", textAlign: "center", lineHeight: 1.2 }}>
-            RARE<br />PRINT
-          </span>
-        </div>
-
-        {/* Nav */}
-        <nav style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", padding: "8px 0", width: "100%" }}>
-          {nav.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
-            return (
-              <Link key={href} href={href}
-                style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px", width: "58px", padding: "8px 4px", borderRadius: "8px", textDecoration: "none", background: active ? "#3b82f6" : "transparent", transition: "background 0.15s" }}
-                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "#334155"; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-              >
-                <Icon style={{ width: "18px", height: "18px", color: active ? "white" : "#94a3b8", flexShrink: 0 }} />
-                <span style={{ fontSize: "8px", fontWeight: 600, color: active ? "white" : "#94a3b8", textAlign: "center", lineHeight: 1.2, letterSpacing: "0.03em" }}>
-                  {label}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* User + logout */}
-        <div style={{ borderTop: "1px solid #334155", width: "100%", padding: "8px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: "5px" }}>
-          <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "white" }}>
-            {user.fullName?.charAt(0)?.toUpperCase() ?? "U"}
-          </div>
-          <span style={{ fontSize: "7px", color: "#64748b", textAlign: "center", maxWidth: "60px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 4px" }}>
-            {formatRole(user.role)}
-          </span>
-          <button type="button" onClick={logout} title="Sign out"
-            style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", padding: "4px", borderRadius: "6px", width: "50px" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "#334155")}
-            onMouseLeave={e => (e.currentTarget.style.background = "none")}
-          >
-            <LogOut style={{ width: "14px", height: "14px", color: "#64748b" }} />
-            <span style={{ fontSize: "7px", color: "#64748b", fontWeight: 600 }}>Sign out</span>
-          </button>
-        </div>
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex flex-col w-64 shrink-0 h-screen sticky top-0">
+        <SidebarContent />
       </aside>
 
-      {/* MAIN CONTENT */}
-      <main style={{ flex: 1, height: "100vh", overflowY: "auto", overflowX: "auto" }}>
-        {children}
-      </main>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMobileOpen(false)}
+          />
+          <div className="relative z-10 w-64 h-full">
+            <SidebarContent />
+          </div>
+        </div>
+      )}
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-auto">
+        {/* Mobile top bar */}
+        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200 sticky top-0 z-30">
+          <button
+            onClick={() => setMobileOpen((o) => !o)}
+            className="p-1.5 rounded-lg hover:bg-gray-100"
+          >
+            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
+              <Printer className="w-3 h-3 text-white" />
+            </div>
+            <span className="font-bold text-sm text-gray-900">RarePrint</span>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <main className="flex-1">{children}</main>
+      </div>
     </div>
   );
 }
