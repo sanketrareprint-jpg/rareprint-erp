@@ -141,8 +141,9 @@ export default function OrdersPage() {
 
   async function loadPayments(orderId: string) {
     const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payments`, { headers: getAuthHeaders() });
-    setOrderPayments(prev => ({ ...prev, [orderId]: await res.json() }));
-  }
+    const payments = await res.json();
+    setOrderPayments(prev => ({ ...prev, [orderId]: payments }));
+    }
 
   async function togglePayments(orderId: string) {
     if (expandedPayments === orderId) { setExpandedPayments(null); return; }
