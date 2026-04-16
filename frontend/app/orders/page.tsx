@@ -20,6 +20,10 @@ type OrderItemRef = {
   id: string; productName: string; itemProductionStage: string;
 };
 
+type DesignFile = {
+  filename: string; originalName: string; uploadedAt: string; size: number;
+};
+
 type Order = {
   id: string; orderNo: string; customerName: string; customerPhone?: string;
   salesAgentName?: string; customerId?: string;
@@ -99,7 +103,9 @@ export default function OrdersPage() {
   // File upload
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   const [fileModalOrder, setFileModalOrder] = useState<Order | null>(null);
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [itemDesignFiles, setItemDesignFiles] = useState<Record<string, DesignFile[]>>({});
+  const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({});
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   // Dispatch
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
@@ -141,9 +147,9 @@ export default function OrdersPage() {
 
   async function loadPayments(orderId: string) {
     const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payments`, { headers: getAuthHeaders() });
-    const payments = await res.json();
-    setOrderPayments(prev => ({ ...prev, [orderId]: payments }));
-    }
+    const data = await res.json();
+    setOrderPayments(prev => ({ ...prev, [orderId]: data }));
+  }
 
   async function togglePayments(orderId: string) {
     if (expandedPayments === orderId) { setExpandedPayments(null); return; }
@@ -177,7 +183,29 @@ export default function OrdersPage() {
     } finally { setSubmitting(false); }
   }
 
-  // ── File upload per item ────────────────────────────────────────────────────
+  // ── Fetch design files for all items in an order ──────────────────────────
+  async function fetchItemFiles(itemId: string) {
+    setFilesLoading(prev => ({ ...prev, [itemId]: true }));
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setItemDesignFiles(prev => ({ ...prev, [itemId]: Array.isArray(data) ? data : [] }));
+      }
+    } finally {
+      setFilesLoading(prev => ({ ...prev, [itemId]: false }));
+    }
+  }
+
+  async function openFileModal(order: Order) {
+    setFileModalOrder(order);
+    // Fetch files for each item
+    for (const item of order.items ?? []) {
+      void fetchItemFiles(item.id);
+    }
+  }
+
+  // ── Upload design file ─────────────────────────────────────────────────────
   async function uploadDesignFile(itemId: string, file: File) {
     setUploadingItemId(itemId);
     try {
@@ -186,12 +214,37 @@ export default function OrdersPage() {
       const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, {
         method: "POST", headers: getAuthHeaders(), body: formData,
       });
-      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Upload failed"); return; }
-      alert("✅ Design file uploaded!");
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        alert(b.message || "Upload failed");
+        return;
+      }
+      // Refresh file list for this item
+      await fetchItemFiles(itemId);
     } finally {
       setUploadingItemId(null);
-      if (fileInputRefs.current[itemId]) fileInputRefs.current[itemId]!.value = "";
     }
+  }
+
+  // ── Delete design file ─────────────────────────────────────────────────────
+  async function deleteDesignFile(itemId: string, filename: string) {
+    if (!confirm("Delete this file?")) return;
+    setDeletingFile(filename);
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, {
+        method: "DELETE", headers: getAuthHeaders(),
+      });
+      if (!res.ok) { alert("Delete failed"); return; }
+      await fetchItemFiles(itemId);
+    } finally {
+      setDeletingFile(null);
+    }
+  }
+
+  function formatBytes(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   function toggleOrderSelection(orderId: string, customerName: string) {
@@ -480,7 +533,7 @@ export default function OrdersPage() {
                               </button>
                               {/* Attach design file */}
                               {o.items && o.items.length > 0 && (
-                                <button onClick={() => setFileModalOrder(o)}
+                                <button onClick={() => openFileModal(o)}
                                   className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
                                   <Paperclip className="h-2.5 w-2.5" /> Files
                                 </button>
@@ -541,60 +594,97 @@ export default function OrdersPage() {
       {/* ── Design File Upload Modal ─────────────────────────────────────── */}
       {fileModalOrder && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
-          <div style={{ width: "100%", maxWidth: "30rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+          <div style={{ width: "100%", maxWidth: "34rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", maxHeight: "85vh", overflowY: "auto" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Attach Design Files</h2>
+                <h2 className="text-base font-semibold text-slate-900">Design Files</h2>
                 <p className="text-xs text-slate-500 mt-0.5">{fileModalOrder.orderNo} — {fileModalOrder.customerName}</p>
               </div>
               <button onClick={() => setFileModalOrder(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
 
-            <div className="space-y-3">
-              {(fileModalOrder.items ?? []).map((item, idx) => (
-                <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">
-                        Item {idx + 1}
-                      </span>
-                      <span className="text-sm font-medium text-slate-800">{item.productName}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {uploadingItemId === item.id && (
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      )}
+            <div className="space-y-4">
+              {(fileModalOrder.items ?? []).map((item, idx) => {
+                const files = itemDesignFiles[item.id] ?? [];
+                const isLoading = filesLoading[item.id];
+                const isUploading = uploadingItemId === item.id;
+                const inputId = `file-input-${item.id}`;
+
+                return (
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    {/* Item header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">
+                          Item {idx + 1}
+                        </span>
+                        <span className="text-sm font-medium text-slate-800">{item.productName}</span>
+                      </div>
+                      {/* Upload button — uses <label> to avoid Chrome hang */}
+                      <label htmlFor={inputId}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer transition ${isUploading ? "bg-blue-300 text-white cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}>
+                        {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                        {isUploading ? "Uploading…" : "Upload File"}
+                      </label>
                       <input
+                        id={inputId}
                         type="file"
-                        ref={el => { fileInputRefs.current[item.id] = el; }}
                         className="hidden"
+                        disabled={isUploading}
                         accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
                         onChange={e => {
                           const file = e.target.files?.[0];
-                          if (file) uploadDesignFile(item.id, file);
+                          if (file) void uploadDesignFile(item.id, file);
+                          e.target.value = "";
                         }}
                       />
-                      <button
-                        onClick={() => fileInputRefs.current[item.id]?.click()}
-                        disabled={uploadingItemId === item.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        {uploadingItemId === item.id ? "Uploading…" : "Upload File"}
-                      </button>
                     </div>
+
+                    {/* File list */}
+                    {isLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading files…
+                      </div>
+                    ) : files.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic py-1">
+                        No files yet. Upload PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {files.map(f => (
+                          <div key={f.filename} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 text-orange-500 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-slate-800 truncate max-w-[200px]">{f.originalName}</p>
+                                <p className="text-xs text-slate-400">
+                                  {formatBytes(f.size)} · {new Date(f.uploadedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => void deleteDesignFile(item.id, f.filename)}
+                              disabled={deletingFile === f.filename}
+                              className="p-1.5 rounded-md text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                              title="Delete file"
+                            >
+                              {deletingFile === f.filename
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <X className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Accepted: PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="mt-4 flex justify-end">
               <button onClick={() => setFileModalOrder(null)}
                 className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Done
+                Close
               </button>
             </div>
           </div>

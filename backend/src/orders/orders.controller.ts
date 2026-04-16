@@ -117,8 +117,21 @@ export class OrdersController {
     return this.ordersService.submitForDispatch(id, req.user.id, body);
   }
 
-  // ── Design File Upload ──────────────────────────────────────────────
+  // ── Design Files ────────────────────────────────────────────────────────────
 
+  /** GET /orders/items/:itemId/design-files — list all files for an item */
+  @Get('items/:itemId/design-files')
+  @UseGuards(AuthGuard('jwt'))
+  async listDesignFiles(@Param('itemId') itemId: string) {
+    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+    if (!item) return [];
+    const files: DesignFile[] = Array.isArray((item as any).designFiles)
+      ? ((item as any).designFiles as DesignFile[])
+      : [];
+    return files;
+  }
+
+  /** POST /orders/items/:itemId/design-files — upload a file */
   @Post('items/:itemId/design-files')
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(
@@ -170,6 +183,7 @@ export class OrdersController {
     return { success: true, file: newFile };
   }
 
+  /** DELETE /orders/items/:itemId/design-files/:filename */
   @Delete('items/:itemId/design-files/:filename')
   @UseGuards(AuthGuard('jwt'))
   async deleteDesignFile(
@@ -198,6 +212,7 @@ export class OrdersController {
     return { success: true };
   }
 
+  /** GET /orders/items/:itemId/design-files/:filename — download a file */
   @Get('items/:itemId/design-files/:filename')
   @UseGuards(AuthGuard('jwt'))
   async downloadDesignFile(
