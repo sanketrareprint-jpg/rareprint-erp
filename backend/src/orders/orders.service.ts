@@ -46,13 +46,25 @@ function buildItemDetails(items: Array<{
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // ── Generate next RP/N order number ────────────────────────────────────────
+  private async generateOrderNumber(): Promise<string> {
+    // Count all existing orders to get the next sequence number
+    const count = await this.prisma.order.count();
+    const seq = count + 1;
+    return `RP/${seq}`;
+  }
+
   async findAllForTable() {
     const orders = await this.prisma.order.findMany({
       orderBy: { orderDate: 'desc' },
       include: {
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: { include: { product: true } },
+        items: {
+          include: {
+            product: true,
+          },
+        },
         payments: true,
       },
     });
@@ -83,6 +95,12 @@ export class OrdersService {
         status: o.status,
         date: o.orderDate.toISOString(),
         itemDetails: buildItemDetails(o.items),
+        // Return items with IDs so agent can upload design files per item
+        items: o.items.map((i) => ({
+          id: i.id,
+          productName: i.product.name,
+          itemProductionStage: i.itemProductionStage,
+        })),
       };
     });
   }
@@ -109,7 +127,8 @@ export class OrdersService {
     const shippingAddress = shippingParts.length > 0 ? shippingParts.join(', ') : undefined;
 
     const customerCode = `CUST-${Date.now()}-${randomSuffix()}`;
-    const orderNumber = `ORD-${Date.now()}-${randomSuffix()}`;
+    // Use RP/N format for new orders
+    const orderNumber = await this.generateOrderNumber();
 
     const itemsData = dto.items.map((i) => {
       const lineTotal = new Prisma.Decimal(i.quantity * i.unitPrice);
@@ -433,6 +452,11 @@ export class OrdersService {
         readyItemsCount: readyCount,
         totalItemsCount: o.items.length,
         itemDetails: buildItemDetails(o.items),
+        items: o.items.map((i) => ({
+          id: i.id,
+          productName: i.product.name,
+          itemProductionStage: i.itemProductionStage,
+        })),
       };
     });
   }

@@ -4,42 +4,20 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  Package,
-  Truck,
-  DollarSign,
-  Users,
-  LogOut,
-  Menu,
-  X,
-  Printer,
-  ChevronRight,
+  LayoutDashboard, ShoppingCart, Package,
+  Truck, DollarSign, Users, LogOut, Printer,
 } from "lucide-react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
+interface NavItem { label: string; href: string; icon: React.ElementType; }
+interface StoredUser { id: string; fullName: string; email: string; role: Role; }
 
-interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ElementType;
-}
-
-interface StoredUser {
-  id: string;
-  fullName: string;
-  email: string;
-  role: Role;
-}
-
-// ─── Role → nav items ─────────────────────────────────────────────────────────
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ADMIN: [
     { label: "Dashboard",  href: "/dashboard",  icon: LayoutDashboard },
     { label: "Orders",     href: "/orders",     icon: ShoppingCart },
-    { label: "Production", href: "/production", icon: Package },
     { label: "Accounts",   href: "/accounts",   icon: DollarSign },
+    { label: "Production", href: "/production", icon: Package },
     { label: "Dispatch",   href: "/dispatch",   icon: Truck },
     { label: "Users",      href: "/users",      icon: Users },
   ],
@@ -66,42 +44,26 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ],
 };
 
-// ─── Read user from localStorage ─────────────────────────────────────────────
 function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem("rareprint_user");
     if (raw) return JSON.parse(raw) as StoredUser;
-
-    // Fallback: decode from JWT
     const token = localStorage.getItem("rareprint_token");
     if (!token) return null;
     const payload = JSON.parse(atob(token.split(".")[1]));
-    return {
-      id:       payload.sub,
-      email:    payload.email,
-      role:     payload.role,
-      fullName: payload.fullName ?? payload.email,
-    };
-  } catch {
-    return null;
-  }
+    return { id: payload.sub, email: payload.email, role: payload.role, fullName: payload.fullName ?? payload.email };
+  } catch { return null; }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router   = useRouter();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [user, setUser]             = useState<StoredUser | null>(null);
+  const [user, setUser] = useState<StoredUser | null>(null);
 
-  // Read user on mount (client-only)
   useEffect(() => {
     const u = getStoredUser();
-    if (!u) {
-      router.replace("/login");
-      return;
-    }
+    if (!u) { router.replace("/login"); return; }
     setUser(u);
   }, [router]);
 
@@ -111,113 +73,97 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   };
 
-  const role     = user?.role ?? "AGENT";
-  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE["AGENT"];
-  const name     = user?.fullName ?? user?.email ?? "…";
-
-  // ── Sidebar content ──────────────────────────────────────────────────────────
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-white border-r border-gray-200">
-      {/* Logo */}
-      <div className="flex items-center gap-2.5 px-5 py-4 border-b border-gray-100">
-        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
-          <Printer className="w-4 h-4 text-white" />
-        </div>
-        <span className="font-bold text-gray-900 text-base">RarePrint</span>
-      </div>
-
-      {/* User badge */}
-      {user && (
-        <div className="mx-3 mt-3 mb-1 px-3 py-2.5 bg-blue-50 rounded-xl">
-          <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
-            {role}
-          </p>
-          <p className="text-sm font-semibold text-gray-900 truncate mt-0.5">
-            {name}
-          </p>
-          <p className="text-xs text-gray-400 truncate">{user.email}</p>
-        </div>
-      )}
-
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-2 overflow-y-auto">
-        {navItems.map((item) => {
-          const Icon   = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={[
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium mb-0.5 transition-all",
-                active
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-              ].join(" ")}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span className="flex-1">{item.label}</span>
-              {active && <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Logout */}
-      <div className="p-3 border-t border-gray-100">
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </button>
-      </div>
-    </div>
-  );
+  const role     = user?.role ?? "SALES_AGENT";
+  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE["SALES_AGENT"];
+  const name     = user?.fullName ?? "…";
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-64 shrink-0 h-screen sticky top-0">
-        <SidebarContent />
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+
+      {/* ── Dark navy icon sidebar ── */}
+      <aside style={{
+        width: "72px", minWidth: "72px",
+        background: "#1e3a5f",
+        display: "flex", flexDirection: "column", alignItems: "center",
+        paddingTop: "12px", paddingBottom: "12px",
+        height: "100vh", position: "sticky", top: 0,
+        overflowY: "auto", overflowX: "hidden",
+      }}>
+        {/* Logo */}
+        <div style={{
+          width: "44px", height: "44px", background: "#2563eb",
+          borderRadius: "10px", display: "flex", alignItems: "center",
+          justifyContent: "center", marginBottom: "6px", flexShrink: 0,
+        }}>
+          <Printer size={20} color="white" />
+        </div>
+
+        {/* Brand */}
+        <div style={{
+          fontSize: "7px", fontWeight: 700, color: "#93c5fd",
+          letterSpacing: "0.05em", textTransform: "uppercase",
+          marginBottom: "14px", textAlign: "center", lineHeight: 1.2,
+        }}>
+          RARE<br />PRINT
+        </div>
+
+        {/* Nav */}
+        <nav style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", width: "100%" }}>
+          {navItems.map((item) => {
+            const Icon   = item.icon;
+            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            return (
+              <Link key={item.href} href={item.href} style={{
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                width: "56px", height: "50px", borderRadius: "10px",
+                background: active ? "#2563eb" : "transparent",
+                color: active ? "#ffffff" : "#93c5fd",
+                textDecoration: "none", gap: "3px",
+                transition: "background 0.15s, color 0.15s",
+              }}
+                onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "#1d4ed8"; (e.currentTarget as HTMLElement).style.color = "#fff"; } }}
+                onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#93c5fd"; } }}
+              >
+                <Icon size={17} />
+                <span style={{ fontSize: "9px", fontWeight: 600, textAlign: "center", lineHeight: 1 }}>
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* User + logout */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginTop: "8px" }}>
+          <div style={{
+            width: "34px", height: "34px", borderRadius: "50%",
+            background: "#2563eb", display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white",
+          }}>
+            {name.charAt(0).toUpperCase()}
+          </div>
+          <span style={{ fontSize: "8px", color: "#93c5fd", textAlign: "center", maxWidth: "64px", wordBreak: "break-word", lineHeight: 1.2 }}>
+            {role.replace("_", " ")}
+          </span>
+          <button onClick={handleLogout} title="Sign out" style={{
+            marginTop: "2px", background: "transparent", border: "none", cursor: "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: "2px",
+            color: "#64748b", padding: "5px", borderRadius: "8px",
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
+          >
+            <LogOut size={15} />
+            <span style={{ fontSize: "9px", fontWeight: 600 }}>Sign out</span>
+          </button>
+        </div>
       </aside>
 
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div className="relative z-10 w-64 h-full">
-            <SidebarContent />
-          </div>
-        </div>
-      )}
-
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-auto">
-        {/* Mobile top bar */}
-        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200 sticky top-0 z-30">
-          <button
-            onClick={() => setMobileOpen((o) => !o)}
-            className="p-1.5 rounded-lg hover:bg-gray-100"
-          >
-            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
-              <Printer className="w-3 h-3 text-white" />
-            </div>
-            <span className="font-bold text-sm text-gray-900">RarePrint</span>
-          </div>
-        </header>
-
-        {/* Page content */}
-        <main className="flex-1">{children}</main>
-      </div>
+      {/* Main content */}
+      <main style={{ flex: 1, overflow: "auto", background: "#f8fafc" }}>
+        {children}
+      </main>
     </div>
   );
 }
