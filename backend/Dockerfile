@@ -9,7 +9,7 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY . .
-RUN npx nest build
+RUN npx nest build && echo "=== DIST CONTENTS ===" && ls -la dist/
 
 EXPOSE 3000
 
