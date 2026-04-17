@@ -1,872 +1,324 @@
 "use client";
-import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import {
-  Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp,
-  Truck, CheckSquare, Square, AlertTriangle, Search,
-  Paperclip, Upload, FileText,
-} from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type ItemDetail = {
-  productName: string; size: string | null; gsm: string | null;
-  sides: string | null; quantity: number; unitPrice: number;
-  lineTotal: number; itemProductionStage: string;
-};
+type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
+type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
 
-type OrderItemRef = {
-  id: string; productName: string; itemProductionStage: string;
-};
-
-type DesignFile = {
-  filename: string; originalName: string; uploadedAt: string; size: number;
-};
-
-type Order = {
-  id: string; orderNo: string; customerName: string; customerPhone?: string;
-  salesAgentName?: string; customerId?: string;
-  products: string; totalAmount: number; advancePaid: number;
-  balanceDue: number; status: string; date: string;
-  readyItemsCount?: number; totalItemsCount?: number;
-  itemDetails?: ItemDetail[];
-  items?: OrderItemRef[];
-};
-
-type OrderItem = {
-  id: string; productName: string; sku: string; quantity: number;
-  unitPrice: number; lineTotal: number; productionNotes?: string;
-  itemProductionStage: string;
-};
-type PaymentAccount = { id: string; name: string; accountType: string; bankName?: string; };
-type Payment = {
-  id: string; amount: number; method: string; referenceNumber?: string;
-  notes?: string; paymentDate: string; paymentAccount: { name: string };
-};
-type RateQuote = { carrierName: string; amount: number; estimatedDays: number; rateId?: string; };
-
-const METHOD_LABELS: Record<string, string> = {
-  CASH: "Cash", UPI: "UPI (GPay/PhonePe/Paytm)",
-  BANK_TRANSFER: "Bank Transfer / NEFT / RTGS",
-  CHEQUE: "Cheque", CARD: "Card (POS)",
-};
-
-const STATUS_OPTIONS = [
-  "ALL","PENDING_APPROVAL","APPROVED","IN_PRODUCTION",
-  "READY_FOR_DISPATCH","PENDING_DISPATCH_APPROVAL",
-  "PARTIALLY_DISPATCHED","DISPATCHED","DELIVERED","CANCELLED",
+const LEAD_SOURCES = [
+  { value: "", label: "Select source..." },
+  { value: "WALK_IN", label: "Walk In" },
+  { value: "REPEAT_PURCHASE", label: "Repeat Purchase" },
+  { value: "REFERRAL", label: "Referral" },
+  { value: "FB_AD", label: "FB Ad" },
+  { value: "GOOGLE_AD", label: "Google Ad" },
+  { value: "AISENSY_CAMPAIGN", label: "AiSensy Campaign" },
+  { value: "INSTAGRAM", label: "Instagram" },
+  { value: "WHATSAPP", label: "WhatsApp" },
+  { value: "OTHER", label: "Other" },
 ];
 
-const itemStageColors: Record<string, string> = {
-  NOT_PRINTED: "bg-gray-100 text-gray-600",
-  PRINTING: "bg-blue-100 text-blue-700",
-  PROCESSING: "bg-yellow-100 text-yellow-700",
-  READY_FOR_DISPATCH: "bg-green-100 text-green-700",
-};
-const itemStageLabels: Record<string, string> = {
-  NOT_PRINTED: "Not Printed", PRINTING: "Printing",
-  PROCESSING: "Processing", READY_FOR_DISPATCH: "Ready",
-};
-
-const IN_PROGRESS_STATUSES = ["APPROVED", "IN_PRODUCTION"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
-function parseNotes(notes?: string) {
-  return {
-    size: notes?.match(/Size:\s*([^,]+)/)?.[1]?.trim(),
-    gsm: notes?.match(/GSM:\s*([^,]+)/)?.[1]?.trim(),
-    sides: notes?.match(/Sides:\s*([^,]+)/)?.[1]?.trim(),
-  };
+
+function emptyLine(): LineItem {
+  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "" };
 }
 
-const TH = { background: "#f8fafc", position: "sticky" as const, top: 0, zIndex: 10 };
+const S = {
+  input: { width: "100%", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 10px", fontSize: "12px", boxSizing: "border-box" as const, background: "white" },
+  label: { display: "block", fontSize: "11px", fontWeight: 600, color: "#64748b", marginBottom: "3px", textTransform: "uppercase" as const, letterSpacing: "0.03em" },
+  section: { background: "white", borderRadius: "10px", border: "1px solid #e2e8f0", padding: "14px 16px", marginBottom: "10px" },
+  sectionTitle: { fontSize: "12px", fontWeight: 700, color: "#0f172a", marginBottom: "10px", paddingBottom: "6px", borderBottom: "1px solid #f1f5f9" },
+};
 
-export default function OrdersPage() {
+export default function CreateOrderPage() {
   const router = useRouter();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [readyOrders, setReadyOrders] = useState<Order[]>([]);
-  const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"all" | "inprogress" | "dispatch">("all");
-  const [expandedPayments, setExpandedPayments] = useState<string | null>(null);
-  const [orderPayments, setOrderPayments] = useState<Record<string, Payment[]>>({});
-  const [paymentModal, setPaymentModal] = useState<Order | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
+  const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
+  const [orderNotes, setOrderNotes] = useState("");
+  const [leadSource, setLeadSource] = useState("");
+  const [leadMonth, setLeadMonth] = useState(String(new Date().getMonth() + 1));
+  const [leadYear, setLeadYear] = useState(String(CURRENT_YEAR));
 
-  // Search + filter
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-
-  // File upload
-  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
-  const [fileModalOrder, setFileModalOrder] = useState<Order | null>(null);
-  const [itemDesignFiles, setItemDesignFiles] = useState<Record<string, DesignFile[]>>({});
-  const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({});
-  const [deletingFile, setDeletingFile] = useState<string | null>(null);
-
-  // Dispatch
-  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
-  const [bookingModal, setBookingModal] = useState(false);
-  const [bookingItems, setBookingItems] = useState<Record<string, OrderItem[]>>({});
-  const [itemsLoading, setItemsLoading] = useState(false);
-  const [rates, setRates] = useState<RateQuote[]>([]);
-  const [ratesLoading, setRatesLoading] = useState(false);
-  const [customerError, setCustomerError] = useState<string | null>(null);
-  const [bookingForm, setBookingForm] = useState({
-    courierCharges: "", isCod: false, codAmount: "",
-    paymentMethod: "CASH", paymentAccountId: "",
-    paymentReference: "", notes: "",
-  });
-  const [bookingSubmitting, setBookingSubmitting] = useState(false);
-  const [newPayment, setNewPayment] = useState({
-    amount: "", method: "CASH", paymentAccountId: "",
-    referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10),
-  });
+  const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
 
   const load = useCallback(async () => {
-    setLoading(true);
-    const headers = getAuthHeaders();
-    const [oRes, rRes, aRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/orders`, { headers }),
-      fetch(`${API_BASE_URL}/orders/ready-for-dispatch`, { headers }),
-      fetch(`${API_BASE_URL}/orders/payment-accounts`, { headers }),
-    ]);
-    if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-    setOrders(await oRes.json());
-    setReadyOrders(rRes.ok ? await rRes.json() : []);
-    const accs = await aRes.json();
-    setAccounts(accs);
-    if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
-    setLoading(false);
+    const res = await fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+    setProducts(await res.json());
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
 
-  async function loadPayments(orderId: string) {
-    const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payments`, { headers: getAuthHeaders() });
-    const data = await res.json();
-    setOrderPayments(prev => ({ ...prev, [orderId]: data }));
+  function updateLine(index: number, field: keyof LineItem, value: string | number) {
+    setLineItems(prev => {
+      const updated = [...prev];
+      const item = { ...updated[index] };
+
+      if (field === "productId" && typeof value === "string") {
+        const prod = products.find(p => p.id === value);
+        item.productId  = value;
+        item.sizeInches = prod?.sizeInches ?? "";
+        item.gsm        = prod?.gsm ?? 0;
+        item.sides      = prod?.sides ?? "SINGLE_SIDE";
+      } else if (field === "lineTotal" && typeof value === "number") {
+        // Direct total entry → back-calculate unitPrice
+        item.lineTotal  = value;
+        item.unitPrice  = item.quantity > 0 ? value / item.quantity : 0;
+      } else if (field === "quantity" && typeof value === "number") {
+        item.quantity   = value;
+        // Recalculate lineTotal from unitPrice
+        item.lineTotal  = value * item.unitPrice;
+      } else if (field === "unitPrice" && typeof value === "number") {
+        item.unitPrice  = value;
+        item.lineTotal  = item.quantity * value;
+      } else {
+        (item as any)[field] = value;
+      }
+
+      updated[index] = item;
+      return updated;
+    });
   }
 
-  async function togglePayments(orderId: string) {
-    if (expandedPayments === orderId) { setExpandedPayments(null); return; }
-    setExpandedPayments(orderId);
-    if (!orderPayments[orderId]) await loadPayments(orderId);
-  }
+  const orderTotal = lineItems.reduce((sum, i) => sum + (i.lineTotal || i.quantity * i.unitPrice), 0);
 
-  async function submitPayment() {
-    if (!paymentModal || !newPayment.amount || !newPayment.paymentAccountId) {
-      alert("Please fill amount and select account"); return;
+  async function submitOrder() {
+    if (!customer.name.trim()) { alert("Customer name is required"); return; }
+    if (lineItems.some(i => !i.productId || i.quantity <= 0)) {
+      alert("Please fill all product lines"); return;
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/orders/${paymentModal.id}/payments`, {
+      const leadSourceValue = leadSource
+        ? (needsDate ? `${leadSource}_${MONTHS[Number(leadMonth) - 1]}_${leadYear}` : leadSource)
+        : undefined;
+
+      const res = await fetch(`${API_BASE_URL}/orders`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: Number(newPayment.amount), method: newPayment.method,
-          paymentAccountId: newPayment.paymentAccountId,
-          referenceNumber: newPayment.referenceNumber || undefined,
-          notes: newPayment.notes || undefined,
-          paymentDate: newPayment.paymentDate,
+          customer,
+          items: lineItems.map(i => ({
+            productId:        i.productId,
+            quantity:         i.quantity,
+            unitPrice:        i.unitPrice || (i.lineTotal / i.quantity),
+            artworkNotes:     i.specialInstructions || undefined,
+            productionNotes:  `Size: ${i.sizeInches}, GSM: ${i.gsm}, Sides: ${i.sides}`,
+          })),
+          notes:      orderNotes || undefined,
+          leadSource: leadSourceValue,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      await loadPayments(paymentModal.id);
-      setExpandedPayments(paymentModal.id);
-      setPaymentModal(null);
-      setNewPayment({ amount: "", method: "CASH", paymentAccountId: accounts[0]?.id ?? "", referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10) });
-      await load();
+      router.push("/orders");
     } finally { setSubmitting(false); }
   }
 
-  // ── Fetch design files for all items in an order ──────────────────────────
-  async function fetchItemFiles(itemId: string) {
-    setFilesLoading(prev => ({ ...prev, [itemId]: true }));
-    try {
-      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        setItemDesignFiles(prev => ({ ...prev, [itemId]: Array.isArray(data) ? data : [] }));
-      }
-    } finally {
-      setFilesLoading(prev => ({ ...prev, [itemId]: false }));
-    }
-  }
-
-  async function openFileModal(order: Order) {
-    setFileModalOrder(order);
-    // Fetch files for each item
-    for (const item of order.items ?? []) {
-      void fetchItemFiles(item.id);
-    }
-  }
-
-  // ── Upload design file ─────────────────────────────────────────────────────
-  async function uploadDesignFile(itemId: string, file: File) {
-    setUploadingItemId(itemId);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, {
-        method: "POST", headers: getAuthHeaders(), body: formData,
-      });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        alert(b.message || "Upload failed");
-        return;
-      }
-      // Refresh file list for this item
-      await fetchItemFiles(itemId);
-    } finally {
-      setUploadingItemId(null);
-    }
-  }
-
-  // ── Delete design file ─────────────────────────────────────────────────────
-  async function deleteDesignFile(itemId: string, filename: string) {
-    if (!confirm("Delete this file?")) return;
-    setDeletingFile(filename);
-    try {
-      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, {
-        method: "DELETE", headers: getAuthHeaders(),
-      });
-      if (!res.ok) { alert("Delete failed"); return; }
-      await fetchItemFiles(itemId);
-    } finally {
-      setDeletingFile(null);
-    }
-  }
-
-  function formatBytes(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  function toggleOrderSelection(orderId: string, customerName: string) {
-    setCustomerError(null);
-    const selected = readyOrders.filter(o => selectedOrderIds.has(o.id));
-    if (!selectedOrderIds.has(orderId) && selected.length > 0 && selected[0].customerName !== customerName) {
-      setCustomerError(`Cannot combine orders from different customers. Selected: "${selected[0].customerName}".`);
-      return;
-    }
-    setSelectedOrderIds(prev => {
-      const s = new Set(prev);
-      if (s.has(orderId)) s.delete(orderId); else s.add(orderId);
-      return s;
-    });
-  }
-
-  async function openBookingModal() {
-    if (selectedOrderIds.size === 0) { alert("Select at least one order"); return; }
-    setBookingModal(true); setRates([]); setItemsLoading(true);
-    try {
-      const itemsMap: Record<string, OrderItem[]> = {};
-      for (const orderId of selectedOrderIds) {
-        const res = await fetch(`${API_BASE_URL}/orders/${orderId}/items`, { headers: getAuthHeaders() });
-        const items = await res.json();
-        itemsMap[orderId] = items.filter((i: OrderItem) => i.itemProductionStage === "READY_FOR_DISPATCH");
-      }
-      setBookingItems(itemsMap);
-    } finally { setItemsLoading(false); }
-  }
-
-  async function fetchRates() {
-    const firstOrderId = Array.from(selectedOrderIds)[0];
-    if (!firstOrderId) return;
-    setRatesLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${firstOrderId}`, { headers: getAuthHeaders() });
-      if (!res.ok) { alert("Could not fetch rates"); return; }
-      const data = await res.json();
-      setRates(data.rates ?? []);
-      if (data.rates?.length) setBookingForm(p => ({ ...p, courierCharges: data.rates[0].amount.toString() }));
-    } finally { setRatesLoading(false); }
-  }
-
-  const selectedOrders = readyOrders.filter(o => selectedOrderIds.has(o.id));
-  const totalBalance = selectedOrders.reduce((s, o) => s + o.balanceDue, 0);
-  const totalAmount  = selectedOrders.reduce((s, o) => s + o.totalAmount, 0);
-  const courierNum   = Number(bookingForm.courierCharges || 0);
-  const suggestedCod = totalBalance + courierNum;
-
-  async function submitBooking() {
-    if (selectedOrderIds.size === 0) return;
-    if (!bookingForm.courierCharges) { alert("Enter courier charges"); return; }
-    if (!bookingForm.isCod && !bookingForm.paymentAccountId) { alert("Select payment account"); return; }
-    setBookingSubmitting(true);
-    try {
-      const orderIds = Array.from(selectedOrderIds);
-      const res = await fetch(`${API_BASE_URL}/orders/submit-dispatch-batch`, {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderIds, courierCharges: courierNum, isCod: bookingForm.isCod,
-          codAmount: bookingForm.isCod ? Number(bookingForm.codAmount || suggestedCod) : undefined,
-          paymentMethod: bookingForm.isCod ? undefined : bookingForm.paymentMethod,
-          paymentAccountId: bookingForm.isCod ? undefined : bookingForm.paymentAccountId,
-          paymentReference: bookingForm.paymentReference || undefined,
-          notes: bookingForm.notes || undefined,
-        }),
-      });
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      alert(`✅ ${orderIds.length} order(s) sent to Accounts for approval!`);
-      setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setRates([]);
-      await load();
-    } finally { setBookingSubmitting(false); }
-  }
-
-  // ── Filtered orders ────────────────────────────────────────────────────────
-  const allOrders        = orders;
-  const inProgressOrders = orders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
-
-  const filteredOrders = useMemo(() => {
-    const base = activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;
-    const q = search.trim().toLowerCase();
-    return base.filter(o => {
-      const matchSearch = !q ||
-        o.orderNo?.toLowerCase().includes(q) ||
-        o.customerName?.toLowerCase().includes(q) ||
-        o.customerPhone?.includes(q) ||
-        o.salesAgentName?.toLowerCase().includes(q) ||
-        o.products?.toLowerCase().includes(q);
-      const matchStatus = statusFilter === "ALL" || o.status === statusFilter;
-      return matchSearch && matchStatus;
-    });
-  }, [orders, readyOrders, activeTab, search, statusFilter]);
-
-  const tabs = [
-    { key: "all",        label: "All Orders",         count: allOrders.length },
-    { key: "inprogress", label: "In Progress",         count: inProgressOrders.length },
-    { key: "dispatch",   label: "Ready for Dispatch",  count: readyOrders.length },
-  ] as const;
-
-  function renderProductsCell(o: Order) {
-    if (o.itemDetails && o.itemDetails.length > 0) {
-      return (
-        <td className="px-2 py-1.5 align-top">
-          <div style={{ minWidth: "300px" }}>
-            {o.itemDetails.map((item, i) => (
-              <div key={i} className="flex items-center gap-2 py-0.5 border-b border-slate-50 last:border-0 text-xs">
-                <span className="text-slate-800 font-medium" style={{ minWidth: "70px" }}>{item.productName}</span>
-                <span className="text-slate-500" style={{ minWidth: "35px" }}>{item.size ?? "—"}</span>
-                <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.gsm ?? "—"}</span>
-                <span className="text-slate-500" style={{ minWidth: "35px" }}>{item.sides ?? "—"}</span>
-                <span className="text-slate-500" style={{ minWidth: "20px" }}>{item.quantity}</span>
-                <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "60px" }}>{fmt(item.lineTotal)}</span>
-                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>
-                  {itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
-                </span>
-              </div>
-            ))}
-          </div>
-        </td>
-      );
-    }
-    return (
-      <td className="px-2 py-1.5 text-slate-600 align-top" style={{ minWidth: "180px" }}>
-        <div className="space-y-0.5">
-          {o.products.split(' | ').map((p, i) => <div key={i} className="text-xs leading-snug">{p}</div>)}
-        </div>
-      </td>
-    );
-  }
-
   return (
-    <>
-      <DashboardShell>
-        <div className="p-4 lg:p-5">
-          <div className="space-y-3">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900">Orders</h1>
-                <p className="text-xs text-slate-500 mt-0.5">Create and track sales orders.</p>
-              </div>
-              <button onClick={() => router.push("/orders/create")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
-                <Plus className="h-3.5 w-3.5" /> Create New Order
-              </button>
-            </div>
+    <DashboardShell>
+      <div style={{ padding: "1rem 1.5rem", maxWidth: "900px", margin: "0 auto" }}>
 
-            {/* Search + Filter */}
-            <div className="flex flex-wrap gap-2">
-              <div className="relative flex-1 min-w-[200px] max-w-xs">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Search order, customer, phone, agent…"
-                  className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
-              </div>
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
-                {STATUS_OPTIONS.map(s => (
-                  <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
-                ))}
-              </select>
-              {(search || statusFilter !== "ALL") && (
-                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); }}
-                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
-                  <X className="h-3 w-3" /> Clear
-                </button>
-              )}
-              <span className="text-xs text-slate-400 self-center">{filteredOrders.length} result{filteredOrders.length !== 1 ? "s" : ""}</span>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit">
-              {tabs.map(tab => (
-                <button key={tab.key}
-                  onClick={() => { setActiveTab(tab.key); setSelectedOrderIds(new Set()); setCustomerError(null); }}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-                  {tab.label}
-                  <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
-                    {tab.count}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {customerError && (
-              <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />{customerError}
-              </div>
-            )}
-
-            {activeTab === "dispatch" && selectedOrderIds.size > 0 && (
-              <div className="flex items-center justify-between rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
-                <div className="text-xs text-indigo-800">
-                  <strong>{selectedOrderIds.size}</strong> order{selectedOrderIds.size > 1 ? "s" : ""} selected
-                  {selectedOrders.length > 0 && <span className="ml-1.5">— {selectedOrders[0].customerName}</span>}
-                  <span className="ml-2 font-semibold">Balance: {fmt(totalBalance)}</span>
-                </div>
-                <div className="flex gap-1.5">
-                  <button onClick={() => { setSelectedOrderIds(new Set()); setCustomerError(null); }}
-                    className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">Clear</button>
-                  <button onClick={openBookingModal}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700">
-                    <Truck className="h-3.5 w-3.5" />Book Shipment
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
-            ) : (
-              <div className="rounded-xl border border-slate-200 bg-white shadow-sm" style={{ overflowX: "auto" }}>
-                <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
-                  <thead>
-                    <tr>
-                      {activeTab === "dispatch" && <th className="px-2 py-2 w-8 font-semibold border-b border-slate-200" style={TH}></th>}
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Date</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Order No</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Customer</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Phone</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Agent</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>
-                        <div className="flex items-center gap-3">
-                          <span style={{ minWidth: "70px" }}>Product</span>
-                          <span style={{ minWidth: "35px" }}>Size</span>
-                          <span style={{ minWidth: "28px" }}>GSM</span>
-                          <span style={{ minWidth: "35px" }}>Sides</span>
-                          <span style={{ minWidth: "20px" }}>Qty</span>
-                          <span style={{ minWidth: "60px" }}>Amt</span>
-                          <span>Stage</span>
-                        </div>
-                      </th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Total</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Paid</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Balance</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
-                      {activeTab === "dispatch" && <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Ready</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400 text-sm">No orders found.</td></tr>
-                    ) : filteredOrders.map((o) => (
-                      <React.Fragment key={o.id}>
-                        <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
-                          {activeTab === "dispatch" && (
-                            <td className="px-2 py-1.5 align-top">
-                              <button onClick={() => toggleOrderSelection(o.id, o.customerName)}>
-                                {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4 text-indigo-600" /> : <Square className="h-4 w-4 text-slate-400" />}
-                              </button>
-                            </td>
-                          )}
-                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">
-                            {new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
-                          </td>
-                          {/* Short order number */}
-                          <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap">
-                            {o.orderNo}
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
-                            <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
-                          <td className="px-2 py-1.5 align-top whitespace-nowrap">
-                            {o.salesAgentName
-                              ? <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{o.salesAgentName}</span>
-                              : <span className="text-slate-300">—</span>}
-                          </td>
-                          {renderProductsCell(o)}
-                          <td className="px-2 py-1.5 font-medium align-top whitespace-nowrap">{fmt(o.totalAmount)}</td>
-                          <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
-                          <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
-                          <td className="px-2 py-1.5 align-top">
-                            <div className="flex flex-col gap-1">
-                              {/* Pay button */}
-                              <button onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
-                                className="inline-flex items-center gap-0.5 rounded-md bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-emerald-700">
-                                <Plus className="h-2.5 w-2.5" /> Pay
-                              </button>
-                              {/* History */}
-                              <button onClick={() => togglePayments(o.id)}
-                                className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-1.5 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
-                                {expandedPayments === o.id ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
-                                Hist
-                              </button>
-                              {/* Attach design file */}
-                              {o.items && o.items.length > 0 && (
-                                <button onClick={() => openFileModal(o)}
-                                  className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
-                                  <Paperclip className="h-2.5 w-2.5" /> Files
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                          {activeTab === "dispatch" && (
-                            <td className="px-2 py-1.5 align-top">
-                              <span className="rounded-full bg-green-100 text-green-700 px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap">
-                                {o.readyItemsCount ?? 0}/{o.totalItemsCount ?? 0}
-                              </span>
-                            </td>
-                          )}
-                        </tr>
-
-                        {/* Payment history row */}
-                        {expandedPayments === o.id && (
-                          <tr>
-                            <td colSpan={12} className="bg-slate-50 px-6 py-3">
-                              {!orderPayments[o.id] ? <Loader2 className="h-4 w-4 animate-spin" />
-                                : orderPayments[o.id].length === 0 ? <p className="text-xs text-slate-400">No payments recorded yet.</p>
-                                : (
-                                  <table className="w-full text-xs">
-                                    <thead>
-                                      <tr className="text-slate-400 border-b border-slate-100">
-                                        {["Date","Amount","Method","Account","Reference","Notes"].map(h => (
-                                          <th key={h} className="pb-1 text-left font-medium">{h}</th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-50">
-                                      {orderPayments[o.id].map(p => (
-                                        <tr key={p.id}>
-                                          <td className="py-1">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</td>
-                                          <td className="py-1 font-semibold text-emerald-700">{fmt(Number(p.amount))}</td>
-                                          <td className="py-1">{METHOD_LABELS[p.method] ?? p.method}</td>
-                                          <td className="py-1">{p.paymentAccount.name}</td>
-                                          <td className="py-1 text-slate-400">{p.referenceNumber ?? "—"}</td>
-                                          <td className="py-1 text-slate-400">{p.notes ?? "—"}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                )}
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+          <div>
+            <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Create New Order</h1>
+            <p style={{ fontSize: "12px", color: "#64748b", margin: "2px 0 0" }}>Fill in customer and product details</p>
           </div>
+          <button onClick={() => router.push("/orders")}
+            style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 12px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
+            ← Back
+          </button>
         </div>
-      </DashboardShell>
 
-      {/* ── Design File Modal ─────────────────────────────────────────────── */}
-      {fileModalOrder && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
-          <div style={{ width: "100%", maxWidth: "34rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", maxHeight: "85vh", overflowY: "auto" }}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Design Files</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{fileModalOrder.orderNo} — {fileModalOrder.customerName}</p>
+        {/* ── Top row: Customer + Lead Source side by side ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: "10px", marginBottom: "10px" }}>
+
+          {/* Customer Details */}
+          <div style={S.section}>
+            <p style={S.sectionTitle}>Customer Details</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <div style={{ gridColumn: "span 2" }}>
+                <label style={S.label}>Full Name *</label>
+                <input value={customer.name} onChange={e => setCustomer(c => ({ ...c, name: e.target.value }))}
+                  placeholder="Customer / Business Name" style={S.input} />
               </div>
-              <button onClick={() => setFileModalOrder(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-
-            <div className="space-y-4">
-              {(fileModalOrder.items ?? []).map((item, idx) => {
-                const files = itemDesignFiles[item.id] ?? [];
-                const isLoading = filesLoading[item.id];
-                const isUploading = uploadingItemId === item.id;
-
-                return (
-                  <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">Item {idx + 1}</span>
-                      <span className="text-sm font-medium text-slate-800">{item.productName}</span>
-                    </div>
-
-                    {/* Visible file input — no programmatic trigger, no Chrome hang */}
-                    <div style={{
-                      border: "2px dashed #cbd5e1",
-                      borderRadius: "10px",
-                      padding: "12px",
-                      background: "white",
-                      marginBottom: "10px",
-                      position: "relative",
-                    }}>
-                      <div style={{ textAlign: "center", pointerEvents: "none", marginBottom: "4px" }}>
-                        {isUploading
-                          ? <p style={{ fontSize: "12px", color: "#3b82f6" }}>⏳ Uploading…</p>
-                          : <p style={{ fontSize: "12px", color: "#64748b" }}>
-                              <Upload style={{ display: "inline", width: 14, height: 14, marginRight: 4 }} />
-                              Choose or drag a file here
-                            </p>
-                        }
-                        <p style={{ fontSize: "11px", color: "#94a3b8" }}>PDF · AI · PSD · CDR · PNG · JPG · SVG · ZIP</p>
-                      </div>
-                      <input
-                        type="file"
-                        disabled={isUploading}
-                        accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
-                        style={{
-                          position: "absolute", inset: 0, width: "100%", height: "100%",
-                          opacity: 0, cursor: isUploading ? "not-allowed" : "pointer",
-                        }}
-                        onChange={e => {
-                          const file = e.target.files?.[0];
-                          if (file) void uploadDesignFile(item.id, file);
-                          e.target.value = "";
-                        }}
-                      />
-                    </div>
-
-                    {/* File list */}
-                    {isLoading ? (
-                      <p className="text-xs text-slate-400 py-1 flex items-center gap-1">
-                        <Loader2 className="h-3 w-3 animate-spin" /> Loading…
-                      </p>
-                    ) : files.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">No files attached yet.</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {files.map(f => (
-                          <div key={f.filename} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <FileText className="h-4 w-4 text-orange-500 shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-slate-800 truncate max-w-[200px]">{f.originalName}</p>
-                                <p className="text-xs text-slate-400">
-                                  {formatBytes(f.size)} · {new Date(f.uploadedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-                                </p>
-                              </div>
-                            </div>
-                            <button onClick={() => void deleteDesignFile(item.id, f.filename)}
-                              disabled={deletingFile === f.filename}
-                              className="p-1.5 rounded-md text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
-                              {deletingFile === f.filename
-                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                : <X className="h-3.5 w-3.5" />}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 flex justify-end">
-              <button onClick={() => setFileModalOrder(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Close
-              </button>
+              <div>
+                <label style={S.label}>Phone</label>
+                <input value={customer.phone} onChange={e => setCustomer(c => ({ ...c, phone: e.target.value }))}
+                  placeholder="09XXXXXXXXX" style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Email</label>
+                <input value={customer.email} onChange={e => setCustomer(c => ({ ...c, email: e.target.value }))}
+                  placeholder="email@example.com" style={S.input} />
+              </div>
+              <div style={{ gridColumn: "span 2" }}>
+                <label style={S.label}>Address</label>
+                <input value={customer.address} onChange={e => setCustomer(c => ({ ...c, address: e.target.value }))}
+                  placeholder="Street address" style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>City</label>
+                <input value={customer.city} onChange={e => setCustomer(c => ({ ...c, city: e.target.value }))} style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>State</label>
+                <input value={customer.state} onChange={e => setCustomer(c => ({ ...c, state: e.target.value }))} style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Pincode</label>
+                <input value={customer.pincode} onChange={e => setCustomer(c => ({ ...c, pincode: e.target.value }))} style={S.input} />
+              </div>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ── Payment Modal ──────────────────────────────────────────────────── */}
-      {paymentModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
-          <div style={{ width: "100%", maxWidth: "28rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Add Payment</h2>
-                <p className="text-sm text-slate-500">{paymentModal.orderNo} — Balance: {fmt(paymentModal.balanceDue)}</p>
-              </div>
-              <button onClick={() => setPaymentModal(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Payment Date *</label>
-                <input type="date" value={newPayment.paymentDate} onChange={e => setNewPayment(p => ({ ...p, paymentDate: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Amount (₹) *</label>
-                <input type="number" placeholder="0.00" value={newPayment.amount} onChange={e => setNewPayment(p => ({ ...p, amount: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method *</label>
-                <select value={newPayment.method} onChange={e => setNewPayment(p => ({ ...p, method: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                  {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Received In Account *</label>
-                <select value={newPayment.paymentAccountId} onChange={e => setNewPayment(p => ({ ...p, paymentAccountId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                  <option value="">Select account...</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name} {a.bankName ? `(${a.bankName})` : ""}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR</label>
-                <input type="text" placeholder="UTR / Cheque no." value={newPayment.referenceNumber} onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
-                <textarea rows={2} value={newPayment.notes} onChange={e => setNewPayment(p => ({ ...p, notes: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setPaymentModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={submitPayment} disabled={submitting}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
-                Save Payment
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Booking Modal ──────────────────────────────────────────────────── */}
-      {bookingModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", background: "rgba(15,23,42,0.6)" }}>
-          <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "2rem" }}>
-            <div style={{ width: "100%", maxWidth: "42rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", marginBottom: "2rem" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", padding: "1rem 1.5rem" }}>
+          {/* Lead Source + Notes stacked */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={S.section}>
+              <p style={S.sectionTitle}>Lead Source</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Book Shipment</h2>
-                  <p className="text-sm text-slate-500">{selectedOrders.length} order{selectedOrders.length > 1 ? "s" : ""} — {selectedOrders[0]?.customerName}</p>
+                  <label style={S.label}>Source</label>
+                  <select value={leadSource} onChange={e => setLeadSource(e.target.value)} style={S.input}>
+                    {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
                 </div>
-                <button onClick={() => setBookingModal(false)}><X className="h-5 w-5 text-slate-400" /></button>
-              </div>
-              <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div><p className="text-xs text-slate-500">Total Order Value</p><p className="font-bold text-slate-900 text-lg">{fmt(totalAmount)}</p></div>
-                    <div><p className="text-xs text-slate-500">Total Paid</p><p className="font-bold text-emerald-600 text-lg">{fmt(totalAmount - totalBalance)}</p></div>
-                    <div><p className="text-xs text-slate-500">Total Balance Due</p><p className="font-bold text-red-500 text-lg">{fmt(totalBalance)}</p></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
-                    <button onClick={fetchRates} disabled={ratesLoading}
-                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-60">
-                      {ratesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
-                      Fetch Shiprocket Rates
-                    </button>
-                  </div>
-                  {rates.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {rates.map((r, i) => (
-                        <button key={i} onClick={() => setBookingForm(p => ({ ...p, courierCharges: r.amount.toString() }))}
-                          className={`rounded-lg border p-2 text-xs text-left transition ${bookingForm.courierCharges === r.amount.toString() ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <p className="font-semibold text-slate-800">{r.carrierName}</p>
-                          <p className="text-blue-700 font-bold">{fmt(r.amount)}</p>
-                          <p className="text-slate-500">~{r.estimatedDays} days</p>
-                        </button>
-                      ))}
+                {needsDate && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    <div>
+                      <label style={S.label}>Month</label>
+                      <select value={leadMonth} onChange={e => setLeadMonth(e.target.value)} style={S.input}>
+                        {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
+                      </select>
                     </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Courier Charges (₹) *</label>
-                  <input type="number" placeholder="Enter courier charges" value={bookingForm.courierCharges}
-                    onChange={e => setBookingForm(p => ({ ...p, courierCharges: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-                <div className={`rounded-xl border px-4 py-3 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
-                  <div className="flex items-center gap-3">
-                    <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-4 w-4" />
-                    <label htmlFor="cod" className={`text-sm font-semibold cursor-pointer ${bookingForm.isCod ? "text-orange-800" : "text-slate-700"}`}>Cash on Delivery (COD)</label>
-                  </div>
-                  {bookingForm.isCod && (
-                    <div className="mt-3 space-y-2">
-                      <div className="rounded-lg bg-orange-100 border border-orange-200 px-3 py-2 text-xs text-orange-800">
-                        Suggested COD = Balance ({fmt(totalBalance)}) + Courier ({fmt(courierNum)}) = <strong>{fmt(suggestedCod)}</strong>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">COD Amount (₹)</label>
-                        <input type="number" placeholder={suggestedCod.toString()} value={bookingForm.codAmount}
-                          onChange={e => setBookingForm(p => ({ ...p, codAmount: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {!bookingForm.isCod && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="text-xs font-semibold text-emerald-800 mb-3 uppercase tracking-wide">Payment Receipt (Prepaid)</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method</label>
-                        <select value={bookingForm.paymentMethod} onChange={e => setBookingForm(p => ({ ...p, paymentMethod: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Received In Account</label>
-                        <select value={bookingForm.paymentAccountId} onChange={e => setBookingForm(p => ({ ...p, paymentAccountId: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          <option value="">Select account...</option>
-                          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR Number</label>
-                        <input type="text" placeholder="UTR / Transaction ID" value={bookingForm.paymentReference}
-                          onChange={e => setBookingForm(p => ({ ...p, paymentReference: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
-                      </div>
+                    <div>
+                      <label style={S.label}>Year</label>
+                      <select value={leadYear} onChange={e => setLeadYear(e.target.value)} style={S.input}>
+                        {YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                      </select>
                     </div>
                   </div>
                 )}
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Notes for Accounts Team</label>
-                  <textarea rows={2} value={bookingForm.notes} onChange={e => setBookingForm(p => ({ ...p, notes: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", borderTop: "1px solid #e2e8f0", padding: "1rem 1.5rem" }}>
-                <button onClick={() => setBookingModal(false)}
-                  style={{ borderRadius: "0.5rem", border: "1px solid #e2e8f0", padding: "0.5rem 1rem", fontSize: "0.875rem", fontWeight: 500, color: "#334155", background: "white", cursor: "pointer" }}>
-                  Cancel
-                </button>
-                <button onClick={submitBooking} disabled={bookingSubmitting}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", borderRadius: "0.5rem", border: "none", background: "#4f46e5", padding: "0.5rem 1.5rem", fontSize: "0.875rem", fontWeight: 600, color: "white", cursor: "pointer", opacity: bookingSubmitting ? 0.6 : 1 }}>
-                  {bookingSubmitting ? <Loader2 style={{ width: 16, height: 16 }} /> : <Truck style={{ width: 16, height: 16 }} />}
-                  Send to Accounts for Approval
-                </button>
-              </div>
+            </div>
+
+            <div style={S.section}>
+              <p style={S.sectionTitle}>Order Notes</p>
+              <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)} rows={4}
+                placeholder="Any additional notes or instructions..."
+                style={{ ...S.input, resize: "vertical" }} />
             </div>
           </div>
         </div>
-      )}
-    </>
+
+        {/* ── Products ── */}
+        <div style={S.section}>
+          <p style={S.sectionTitle}>Products / Line Items</p>
+
+          {/* Column headers */}
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
+            {["Product","Size","GSM","Sides","Qty","Rate/Unit","Amount",""].map(h => (
+              <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
+            ))}
+          </div>
+
+          {lineItems.map((item, idx) => (
+            <div key={idx}>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+                {/* Product */}
+                <select value={item.productId} onChange={e => updateLine(idx, "productId", e.target.value)}
+                  style={S.input}>
+                  <option value="">Select...</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+
+                {/* Size */}
+                <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)}
+                  placeholder="4x5" style={S.input} />
+
+                {/* GSM */}
+                <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))}
+                  placeholder="70" style={S.input} />
+
+                {/* Sides */}
+                <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
+                  <option value="SINGLE_SIDE">Single</option>
+                  <option value="DOUBLE_SIDE">Double</option>
+                </select>
+
+                {/* Quantity */}
+                <input type="number" min={1} value={item.quantity}
+                  onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
+
+                {/* Rate per unit */}
+                <input type="number" min={0} value={item.unitPrice || ""}
+                  onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))}
+                  placeholder="0.00" style={S.input} />
+
+                {/* Direct amount entry */}
+                <input type="number" min={0}
+                  value={item.lineTotal || (item.quantity * item.unitPrice) || ""}
+                  onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
+                  placeholder="Total ₹"
+                  style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }} />
+
+                {/* Remove */}
+                {lineItems.length > 1 ? (
+                  <button onClick={() => setLineItems(p => p.filter((_, i) => i !== idx))}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", padding: "2px" }}>
+                    <Trash2 style={{ width: 14, height: 14 }} />
+                  </button>
+                ) : <div />}
+              </div>
+
+              {/* Special instructions inline */}
+              <div style={{ marginBottom: "8px" }}>
+                <input value={item.specialInstructions}
+                  onChange={e => updateLine(idx, "specialInstructions", e.target.value)}
+                  placeholder={`Item ${idx + 1} — special instructions (optional)`}
+                  style={{ ...S.input, background: "#fffbeb", borderColor: "#fde68a", fontSize: "11px" }} />
+              </div>
+            </div>
+          ))}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => setLineItems(p => [...p, emptyLine()])}
+              style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px dashed #93c5fd", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#2563eb", background: "none", cursor: "pointer" }}>
+              <Plus style={{ width: 14, height: 14 }} /> Add Item
+            </button>
+            <div style={{ textAlign: "right" }}>
+              <span style={{ fontSize: "12px", color: "#64748b" }}>Order Total: </span>
+              <span style={{ fontSize: "20px", fontWeight: 700, color: "#0f172a" }}>{fmt(orderTotal)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Submit ── */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", paddingBottom: "24px" }}>
+          <button onClick={() => router.push("/orders")}
+            style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "#334155", background: "white", cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={submitOrder} disabled={submitting}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", borderRadius: "6px", border: "none", background: "#2563eb", padding: "8px 20px", fontSize: "13px", fontWeight: 600, color: "white", cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
+            {submitting ? <Loader2 style={{ width: 15, height: 15 }} /> : <Plus style={{ width: 15, height: 15 }} />}
+            Create Order
+          </button>
+        </div>
+      </div>
+    </DashboardShell>
   );
 }

@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -44,7 +45,10 @@ function buildItemDetails(items: Array<{
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsapp: WhatsAppService,
+  ) {}
 
   // ── Generate next RP/N order number ────────────────────────────────────────
   private async generateOrderNumber(): Promise<string> {
@@ -403,6 +407,35 @@ export class OrdersService {
       });
 
       results.push(orderId);
+
+      // ── WhatsApp: agent locked dispatch — balance/COD confirmed ───────────
+      const fullOrder = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          customer: true,
+          salesAgent: { select: { fullName: true } },
+          items: { include: { product: true } },
+          payments: true,
+        },
+      });
+      if (fullOrder?.customer.phone) {
+        const totalPaid  = fullOrder.payments.reduce((s, p) => s + Number(p.amount), 0);
+        const balance    = Math.max(0, Number(fullOrder.grandTotal) - totalPaid);
+        const products   = fullOrder.items.map(i => i.product.name).join(', ');
+        const paymentMsg = data.isCod
+          ? `COD ₹${data.codAmount ?? balance} to be collected on delivery`
+          : balance > 0 ? `Balance ₹${balance} received` : 'Fully paid';
+        const statusMsg  = `Shipment being arranged 🚚 | Courier: ₹${data.courierCharges} | ${paymentMsg}`;
+
+        void this.whatsapp.sendOrderUpdate({
+          customerName:  fullOrder.customer.businessName,
+          customerPhone: fullOrder.customer.phone,
+          orderNo:       fullOrder.orderNumber,
+          product:       products,
+          status:        statusMsg,
+          agentName:     fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
+        });
+      }
     }
     return { success: true, processedOrders: results.length };
   }

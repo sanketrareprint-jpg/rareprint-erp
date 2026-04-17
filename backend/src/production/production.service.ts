@@ -1,12 +1,23 @@
+// backend/src/production/production.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { OrderProductionStage, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import * as path from 'path';
-import * as fs from 'fs';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
+
+// Stage → human readable for WhatsApp
+const STAGE_LABEL: Record<string, string> = {
+  PRINTING:             'Printing 🖨️',
+  PROCESSING:           'Processing ⚙️',
+  READY_FOR_DISPATCH:   'Ready for Dispatch 📦',
+  NOT_PRINTED:          'Not Started',
+};
 
 @Injectable()
 export class ProductionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsapp: WhatsAppService,
+  ) {}
 
   async listInProduction() {
     const orders = await this.prisma.order.findMany({
@@ -41,27 +52,9 @@ export class ProductionService {
         productionNotes: i.productionNotes,
         artworkNotes: i.artworkNotes,
         itemProductionStage: i.itemProductionStage,
-        designFiles: this.getDesignFiles(i.id),
+        designFiles: (i as any).designFiles ?? [],
       })),
     }));
-  }
-
-  // Read design files from disk for a given item
-  private getDesignFiles(itemId: string): Array<{
-    filename: string;
-    originalName: string;
-    uploadedAt: string;
-    size: number;
-  }> {
-    try {
-      const uploadDir = path.join(process.cwd(), 'uploads', 'designs', itemId);
-      const metaPath = path.join(uploadDir, 'meta.json');
-      if (!fs.existsSync(metaPath)) return [];
-      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-      return Array.isArray(meta) ? meta : [];
-    } catch {
-      return [];
-    }
   }
 
   async updateItemStage(
@@ -71,7 +64,16 @@ export class ProductionService {
   ) {
     const item = await this.prisma.orderItem.findUnique({
       where: { id: itemId },
-      include: { order: true },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            salesAgent: { select: { fullName: true } },
+            items: { include: { product: true } },
+          },
+        },
+        product: true,
+      },
     });
     if (!item) throw new NotFoundException('Order item not found');
 
@@ -89,22 +91,18 @@ export class ProductionService {
         i.itemProductionStage === OrderProductionStage.PRINTING ||
         i.itemProductionStage === OrderProductionStage.PROCESSING,
     );
-
     const anyReady = allItems.some(
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
     );
 
     let newOrderStatus = item.order.status;
-    if (anyInProgress || anyReady) {
-      newOrderStatus = OrderStatus.IN_PRODUCTION;
-    }
+    if (anyInProgress || anyReady) newOrderStatus = OrderStatus.IN_PRODUCTION;
 
     if (newOrderStatus !== item.order.status) {
       await this.prisma.order.update({
         where: { id: item.orderId },
         data: { status: newOrderStatus },
       });
-
       await this.prisma.statusLog.create({
         data: {
           orderId: item.orderId,
@@ -113,6 +111,21 @@ export class ProductionService {
           changedById: userId,
           reason: `Item stage updated to ${stage}`,
         },
+      });
+    }
+
+    // ── WhatsApp: send on meaningful stage changes (not NOT_PRINTED) ─────────
+    if (stage !== OrderProductionStage.NOT_PRINTED && item.order.customer.phone) {
+      const stageLabel = STAGE_LABEL[stage] ?? stage.replace(/_/g, ' ');
+      const productNames = item.order.items.map(i => i.product.name).join(', ');
+
+      void this.whatsapp.sendOrderUpdate({
+        customerName:  item.order.customer.businessName,
+        customerPhone: item.order.customer.phone,
+        orderNo:       item.order.orderNumber,
+        product:       productNames,
+        status:        stageLabel,
+        agentName:     item.order.salesAgent?.fullName ?? 'Rareprint Team',
       });
     }
 

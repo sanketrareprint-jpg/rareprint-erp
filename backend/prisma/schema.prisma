@@ -23,6 +23,7 @@ model User {
   productionJobs    ProductionJob[] @relation("ProductionAssignedTo")
   shipmentsHandled  Shipment[]      @relation("ShipmentHandledBy")
   statusLogsCreated StatusLog[]     @relation("StatusChangedBy")
+  itemStageLogs     ItemStageLog[]  @relation("ItemStageChangedBy")
 }
 
 model Customer {
@@ -61,6 +62,7 @@ model Product {
   categoryId         String
   gsm                Int
   sizeInches         String
+  openSizeInches     String?           // e.g. "4x5" open flat size for sheet calc
   printingType       PrintingType
   sides              ProductSides
   weightPerUnitGrams Decimal           @db.Decimal(10, 3)
@@ -71,6 +73,7 @@ model Product {
   orderItems         OrderItem[]
   category           ProductCategory   @relation(fields: [categoryId], references: [id])
   costSlabs          ProductCostSlab[]
+  sheetItems         PrintSheetItem[]
 }
 
 model ProductCostSlab {
@@ -124,6 +127,99 @@ model PaymentAccount {
   payments       Payment[]
 }
 
+// ── Vendor model for Clubbing / jobwork ──────────────────────────────────────
+model Vendor {
+  id           String        @id @default(cuid())
+  name         String
+  phone        String?
+  email        String?
+  address      String?
+  gstNumber    String?
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  jobWorks     JobWork[]
+  sheetStages  SheetStageVendor[]
+}
+
+// ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
+model JobWork {
+  id            String      @id @default(cuid())
+  orderItemId   String
+  vendorId      String
+  description   String
+  cost          Decimal     @db.Decimal(12, 2)
+  vendorInvoiceNo String?
+  status        JobWorkStatus @default(PENDING)
+  completedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  orderItem     OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  vendor        Vendor      @relation(fields: [vendorId], references: [id])
+}
+
+// ── PrintSheet: Sheet Production ────────────────────────────────────────────
+model PrintSheet {
+  id            String          @id @default(cuid())
+  sheetNo       String          @unique  // auto-generated e.g. SHT-2024-001
+  gsm           Int
+  quality       SheetQuality
+  quantity      Int
+  sizeInches    String          // e.g. "18x23"
+  areaSqInches  Float           // computed: width * height
+  printing      ProductSides
+  status        SheetStatus     @default(INCOMPLETE)
+  usedAreaSqInches Float        @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  items         PrintSheetItem[]
+  stageVendors  SheetStageVendor[]
+}
+
+// ── Items placed on a sheet ──────────────────────────────────────────────────
+model PrintSheetItem {
+  id            String     @id @default(cuid())
+  sheetId       String
+  orderItemId   String
+  productId     String
+  multiple      Int        // how many times this item fits on sheet
+  quantityOnSheet Int      // quantity covered by this sheet placement
+  areaSqInches  Float      // open size area * multiple
+  createdAt     DateTime   @default(now())
+  sheet         PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  orderItem     OrderItem  @relation(fields: [orderItemId], references: [id])
+  product       Product    @relation(fields: [productId], references: [id])
+}
+
+// ── Stage-wise vendors for sheet production ──────────────────────────────────
+model SheetStageVendor {
+  id            String      @id @default(cuid())
+  sheetId       String
+  stage         SheetProductionStage
+  vendorId      String
+  description   String?
+  cost          Decimal     @db.Decimal(12, 2)
+  vendorInvoiceNo String?
+  createdAt     DateTime    @default(now())
+  sheet         PrintSheet  @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  vendor        Vendor      @relation(fields: [vendorId], references: [id])
+}
+
+// ── ItemStageLog: full history of each item's stage changes ─────────────────
+model ItemStageLog {
+  id          String               @id @default(cuid())
+  orderItemId String
+  fromStage   OrderProductionStage?
+  toStage     OrderProductionStage
+  changedById String?
+  note        String?
+  createdAt   DateTime             @default(now())
+  orderItem   OrderItem            @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  changedBy   User?                @relation("ItemStageChangedBy", fields: [changedById], references: [id])
+
+  @@index([orderItemId, createdAt])
+}
+
 model Godown {
   id             String          @id @default(cuid())
   name           String
@@ -156,6 +252,7 @@ model Order {
   shippingCharge   Decimal              @default(0) @db.Decimal(14, 2)
   grandTotal       Decimal              @db.Decimal(14, 2)
   notes            String?
+  leadSource       String?              // e.g. "WALK_IN", "FB_AD_Jan_2025"
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   productionStage  OrderProductionStage @default(NOT_PRINTED)
@@ -183,11 +280,15 @@ model OrderItem {
   artworkNotes        String?
   productionNotes     String?
   designFiles         Json                 @default("[]")
+  productionCategory  ProductionCategory?  // INHOUSE | CLUBBING | SHEET_PRODUCTION
   itemProductionStage OrderProductionStage @default(NOT_PRINTED)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product             Product              @relation(fields: [productId], references: [id])
+  stageLogs           ItemStageLog[]
+  jobWorks            JobWork[]
+  sheetItems          PrintSheetItem[]
 
   @@index([orderId, productId])
 }
@@ -297,6 +398,8 @@ model StatusLog {
   @@index([orderId, createdAt])
 }
 
+// ── Enums ────────────────────────────────────────────────────────────────────
+
 enum UserRole {
   ADMIN
   ACCOUNTS
@@ -367,4 +470,44 @@ enum OrderProductionStage {
   PRINTING
   PROCESSING
   READY_FOR_DISPATCH
+}
+
+// ── New enums for production overhaul ────────────────────────────────────────
+
+enum ProductionCategory {
+  INHOUSE
+  CLUBBING
+  SHEET_PRODUCTION
+}
+
+enum JobWorkStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SheetQuality {
+  MAPLITHO
+  STICKER
+  BOND
+  ART_CARD
+  DUPLEX_CARD_WB
+  DUPLEX_CARD_GB
+}
+
+enum SheetStatus {
+  INCOMPLETE
+  SETTING
+  PRINTING
+  PROCESSING
+  COMPLETE
+}
+
+enum SheetProductionStage {
+  PAPER_PURCHASE
+  PLATE_MAKING
+  PRINTING
+  BINDING
+  LAMINATION
+  EXTRA_PROCESSING
 }
