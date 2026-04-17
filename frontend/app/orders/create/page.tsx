@@ -69,7 +69,7 @@ export default function CreateOrderPage() {
 
   async function submitOrder() {
     if (!customer.name.trim()) { alert("Customer name is required"); return; }
-    if (lineItems.some(i => !i.productId || i.quantity <= 0 || i.unitPrice <= 0)) {
+    if (lineItems.some(i => !i.productId || i.quantity <= 0 || (i.unitPrice <= 0 && i.lineTotal <= 0))) {
       alert("Please fill all product lines"); return;
     }
     setSubmitting(true);
