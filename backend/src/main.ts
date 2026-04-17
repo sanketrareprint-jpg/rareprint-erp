@@ -13,7 +13,7 @@ app.use(require('express').urlencoded({ limit: '100mb', extended: true }));
     new ValidationPipe({
       whitelist: true,
       transform: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false,
     }),
   );
   app.enableCors({
