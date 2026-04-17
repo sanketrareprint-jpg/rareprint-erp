@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 
 type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
 type PaymentAccount = { id: string; name: string; bankName?: string; };
-type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; specialInstructions: string; };
+type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
 
 const METHOD_LABELS: Record<string, string> = {
   CASH: "Cash", UPI: "UPI (GPay/PhonePe/Paytm)",
@@ -16,12 +16,29 @@ const METHOD_LABELS: Record<string, string> = {
   CHEQUE: "Cheque", CARD: "Card (POS)",
 };
 
+const LEAD_SOURCES = [
+  { value: "", label: "Select source..." },
+  { value: "WALK_IN", label: "Walk In" },
+  { value: "REPEAT_PURCHASE", label: "Repeat Purchase" },
+  { value: "REFERRAL", label: "Referral" },
+  { value: "FB_AD", label: "FB Ad" },
+  { value: "GOOGLE_AD", label: "Google Ad" },
+  { value: "AISENSY_CAMPAIGN", label: "AiSensy Campaign" },
+  { value: "INSTAGRAM", label: "Instagram" },
+  { value: "WHATSAPP", label: "WhatsApp" },
+  { value: "OTHER", label: "Other" },
+];
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
 
 function emptyLine(): LineItem {
-  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, specialInstructions: "" };
+  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "" };
 }
 
 export default function CreateOrderPage() {
@@ -36,6 +53,11 @@ export default function CreateOrderPage() {
   const [advanceAccountId, setAdvanceAccountId] = useState("");
   const [advanceReference, setAdvanceReference] = useState("");
   const [orderNotes, setOrderNotes] = useState("");
+  const [leadSource, setLeadSource] = useState("");
+  const [leadMonth, setLeadMonth] = useState(String(new Date().getMonth() + 1));
+  const [leadYear, setLeadYear] = useState(String(CURRENT_YEAR));
+
+  const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
 
   const load = useCallback(async () => {
     const headers = getAuthHeaders();
@@ -55,32 +77,52 @@ export default function CreateOrderPage() {
   function updateLine(index: number, field: keyof LineItem, value: string | number) {
     setLineItems(prev => {
       const updated = [...prev];
+      const item = { ...updated[index] };
       if (field === "productId" && typeof value === "string") {
         const prod = products.find(p => p.id === value);
-        updated[index] = { ...updated[index], productId: value, sizeInches: prod?.sizeInches ?? "", gsm: prod?.gsm ?? 0, sides: prod?.sides ?? "SINGLE_SIDE" };
+        item.productId = value;
+        item.sizeInches = prod?.sizeInches ?? "";
+        item.gsm = prod?.gsm ?? 0;
+        item.sides = prod?.sides ?? "SINGLE_SIDE";
+      } else if (field === "lineTotal" && typeof value === "number") {
+        item.lineTotal = value;
+        item.unitPrice = item.quantity > 0 ? value / item.quantity : 0;
+      } else if (field === "quantity" && typeof value === "number") {
+        item.quantity = value;
+        item.lineTotal = value * item.unitPrice;
+      } else if (field === "unitPrice" && typeof value === "number") {
+        item.unitPrice = value;
+        item.lineTotal = item.quantity * value;
       } else {
-        (updated[index] as Record<string, unknown>)[field] = value;
+        (item as Record<string, unknown>)[field] = value;
       }
+      updated[index] = item;
       return updated;
     });
   }
 
-  const orderTotal = lineItems.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+  const orderTotal = lineItems.reduce((sum, i) => sum + (i.lineTotal || i.quantity * i.unitPrice), 0);
 
   async function submitOrder() {
     if (!customer.name.trim()) { alert("Customer name is required"); return; }
     if (lineItems.some(i => !i.productId || i.quantity <= 0 || (i.unitPrice <= 0 && i.lineTotal <= 0))) {
-      alert("Please fill all product lines"); return;
+      alert("Please fill all product lines with quantity and amount"); return;
     }
     setSubmitting(true);
     try {
+      const leadSourceValue = leadSource
+        ? (needsDate ? `${leadSource}_${MONTHS[Number(leadMonth) - 1]}_${leadYear}` : leadSource)
+        : undefined;
+
       const res = await fetch(`${API_BASE_URL}/orders`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           customer,
           items: lineItems.map(i => ({
-            productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice,
+            productId: i.productId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice > 0 ? i.unitPrice : (i.lineTotal / i.quantity),
             artworkNotes: i.specialInstructions || undefined,
             productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}, Sides: ${i.sides}`,
           })),
@@ -89,6 +131,7 @@ export default function CreateOrderPage() {
           paymentAccountId: advanceAccountId || undefined,
           referenceNumber: advanceReference || undefined,
           notes: orderNotes || undefined,
+          leadSource: leadSourceValue,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
@@ -117,9 +160,7 @@ export default function CreateOrderPage() {
 
         {/* Customer */}
         <div style={sectionStyle}>
-          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>
-            Customer Details
-          </h3>
+          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>Customer Details</h3>
           <div style={gridStyle}>
             <div style={{ gridColumn: "span 2" }}>
               <label style={labelStyle}>Full Name *</label>
@@ -152,11 +193,38 @@ export default function CreateOrderPage() {
           </div>
         </div>
 
+        {/* Lead Source */}
+        <div style={sectionStyle}>
+          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>Lead Source</h3>
+          <div style={{ display: "grid", gridTemplateColumns: needsDate ? "1fr 1fr 1fr" : "1fr", gap: "0.75rem" }}>
+            <div>
+              <label style={labelStyle}>Source</label>
+              <select value={leadSource} onChange={e => setLeadSource(e.target.value)} style={inputStyle}>
+                {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            {needsDate && (
+              <>
+                <div>
+                  <label style={labelStyle}>Month</label>
+                  <select value={leadMonth} onChange={e => setLeadMonth(e.target.value)} style={inputStyle}>
+                    {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Year</label>
+                  <select value={leadYear} onChange={e => setLeadYear(e.target.value)} style={inputStyle}>
+                    {YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Products */}
         <div style={sectionStyle}>
-          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>
-            Products / Line Items
-          </h3>
+          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>Products / Line Items</h3>
           {lineItems.map((item, idx) => (
             <div key={idx} style={{ background: "#f8fafc", borderRadius: "0.5rem", border: "1px solid #e2e8f0", padding: "1rem", marginBottom: "0.75rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.75rem" }}>
@@ -171,19 +239,18 @@ export default function CreateOrderPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                 <div style={{ gridColumn: "span 3" }}>
                   <label style={labelStyle}>Product *</label>
-                  <select value={item.productId} onChange={e => updateLine(idx, "productId", e.target.value)}
-                    style={{ ...inputStyle, background: "white" }}>
+                  <select value={item.productId} onChange={e => updateLine(idx, "productId", e.target.value)} style={{ ...inputStyle, background: "white" }}>
                     <option value="">Select product...</option>
                     {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={labelStyle}>Size (inches)</label>
-                  <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="e.g. 3.5x2" style={{ ...inputStyle, background: "white" }} />
+                  <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="e.g. 4x5" style={{ ...inputStyle, background: "white" }} />
                 </div>
                 <div>
                   <label style={labelStyle}>GSM</label>
-                  <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} placeholder="300" style={{ ...inputStyle, background: "white" }} />
+                  <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} placeholder="70" style={{ ...inputStyle, background: "white" }} />
                 </div>
                 <div>
                   <label style={labelStyle}>Sides</label>
@@ -197,13 +264,16 @@ export default function CreateOrderPage() {
                   <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={{ ...inputStyle, background: "white" }} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Rate per unit (₹) *</label>
+                  <label style={labelStyle}>Rate per unit (₹)</label>
                   <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} placeholder="0.00" style={{ ...inputStyle, background: "white" }} />
                 </div>
-                <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <div style={{ width: "100%", background: "#ecfdf5", border: "1px solid #d1fae5", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", fontWeight: 600, color: "#059669", fontSize: "0.875rem" }}>
-                    {fmt(item.quantity * item.unitPrice)}
-                  </div>
+                <div>
+                  <label style={labelStyle}>Total Amount (₹) *</label>
+                  <input type="number" min={0}
+                    value={item.lineTotal || ""}
+                    onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
+                    placeholder="Enter total"
+                    style={{ ...inputStyle, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600 }} />
                 </div>
                 <div style={{ gridColumn: "span 3" }}>
                   <label style={labelStyle}>Special Instructions</label>
@@ -226,9 +296,7 @@ export default function CreateOrderPage() {
 
         {/* Advance Payment */}
         <div style={sectionStyle}>
-          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>
-            Advance Payment (Optional)
-          </h3>
+          <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem", paddingBottom: "0.5rem", borderBottom: "1px solid #f1f5f9" }}>Advance Payment (Optional)</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
             <div>
               <label style={labelStyle}>Amount (₹)</label>
