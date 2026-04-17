@@ -177,6 +177,7 @@ export class OrdersService {
           orderNumber,
           customerId: customer.id,
           salesAgentId,
+          leadSource: dto.leadSource ?? null,
           status: OrderStatus.PENDING_APPROVAL,
           paymentStatus,
           subtotal,
