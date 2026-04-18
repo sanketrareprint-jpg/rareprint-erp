@@ -11,7 +11,7 @@ type OrderItem = { productName: string; sku: string; quantity: number; unitPrice
 
 type PendingOrder = {
   id: string; orderNo: string; customerName: string;
-  customerPhone?: string; customerEmail?: string; salesAgentName?: string;
+  customerPhone?: string; customerEmail?: string; customerAddress?: string; salesAgentName?: string;
   products: string; items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
   orderDate: string; notes?: string; payments: Payment[];
@@ -19,7 +19,7 @@ type PendingOrder = {
 
 type DispatchPendingOrder = {
   id: string; orderNo: string; customerName: string;
-  customerPhone?: string; customerEmail?: string; salesAgentName?: string;
+  customerPhone?: string; customerAddress?: string; customerEmail?: string; salesAgentName?: string;
   items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
   orderDate: string; notes?: string; payments: Payment[];
@@ -66,18 +66,6 @@ export default function AccountsPage() {
   const [dispatchRejectSubmitting, setDispatchRejectSubmitting] = useState(false);
   const [dispatchSearch, setDispatchSearch] = useState("");
 
-  const load = useCallback(async () => {
-    setError(null); setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/accounts/pending`, { headers: getAuthHeaders() });
-      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-      if (!res.ok) { setError("Could not load pending orders"); return; }
-      setOrders(Array.isArray(await res.json()) ? await res.json() : []);
-    } catch { setError("Network error."); }
-    finally { setLoading(false); }
-  }, [router]);
-
-  // Fix double-json fetch
   const loadOrders = useCallback(async () => {
     setError(null); setLoading(true);
     try {
@@ -223,6 +211,10 @@ export default function AccountsPage() {
                             <p className="text-xs text-slate-500">Customer</p>
                             <p className="font-semibold text-slate-900 text-sm mt-0.5">{o.customerName}</p>
                             {o.customerPhone && <p className="text-xs text-slate-500 mt-0.5">{o.customerPhone}</p>}
+                            {o.customerEmail && <p className="text-xs text-slate-500 mt-0.5">{o.customerEmail}</p>}
+                            {o.customerAddress && (
+                              <p className="text-xs text-slate-600 mt-0.5">📍 {o.customerAddress}</p>
+                            )}
                           </div>
                           <div>
                             <p className="text-xs text-slate-500">Sales Agent</p>
@@ -364,6 +356,10 @@ export default function AccountsPage() {
                             <p className="text-xs text-slate-500">Customer</p>
                             <p className="font-semibold text-slate-900 text-sm mt-0.5">{o.customerName}</p>
                             {o.customerPhone && <p className="text-xs text-slate-500 mt-0.5">{o.customerPhone}</p>}
+                            {o.customerEmail && <p className="text-xs text-slate-500 mt-0.5">{o.customerEmail}</p>}
+                            {o.customerAddress && (
+                              <p className="text-xs text-slate-600 mt-0.5">📍 {o.customerAddress}</p>
+                            )}
                           </div>
                           <div>
                             <p className="text-xs text-slate-500">Sales Agent</p>
