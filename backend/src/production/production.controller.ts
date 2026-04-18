@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { OrderProductionStage } from '@prisma/client';
+import { OrderProductionStage, ProductionCategory } from '@prisma/client';
 import type { Request } from 'express';
 import { ProductionService } from './production.service';
 
@@ -31,5 +31,14 @@ export class ProductionController {
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.productionService.updateItemStage(itemId, stage, req.user.id);
+  }
+
+  @Patch('items/:itemId/assign-category')
+  assignCategory(
+    @Param('itemId') itemId: string,
+    @Body('productionCategory') productionCategory: ProductionCategory,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.productionService.assignCategory(itemId, productionCategory, req.user.id);
   }
 }

@@ -1,15 +1,14 @@
-// backend/src/production/production.service.ts
+﻿// backend/src/production/production.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { OrderProductionStage, OrderStatus } from '@prisma/client';
+import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
-// Stage → human readable for WhatsApp
 const STAGE_LABEL: Record<string, string> = {
-  PRINTING:             'Printing 🖨️',
-  PROCESSING:           'Processing ⚙️',
-  READY_FOR_DISPATCH:   'Ready for Dispatch 📦',
-  NOT_PRINTED:          'Not Started',
+  PRINTING:           'Printing 🖨️',
+  PROCESSING:         'Processing ⚙️',
+  READY_FOR_DISPATCH: 'Ready for Dispatch 📦',
+  NOT_PRINTED:        'Not Started',
 };
 
 @Injectable()
@@ -52,9 +51,46 @@ export class ProductionService {
         productionNotes: i.productionNotes,
         artworkNotes: i.artworkNotes,
         itemProductionStage: i.itemProductionStage,
+        productionCategory: i.productionCategory ?? null,
         designFiles: (i as any).designFiles ?? [],
       })),
     }));
+  }
+
+  async assignCategory(
+    itemId: string,
+    productionCategory: ProductionCategory,
+    userId: string,
+  ) {
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { order: true },
+    });
+    if (!item) throw new NotFoundException('Order item not found');
+
+    await this.prisma.orderItem.update({
+      where: { id: itemId },
+      data: { productionCategory },
+    });
+
+    // Move order to IN_PRODUCTION if still APPROVED
+    if (item.order.status === OrderStatus.APPROVED) {
+      await this.prisma.order.update({
+        where: { id: item.orderId },
+        data: { status: OrderStatus.IN_PRODUCTION },
+      });
+      await this.prisma.statusLog.create({
+        data: {
+          orderId: item.orderId,
+          fromStatus: item.order.status,
+          toStatus: OrderStatus.IN_PRODUCTION,
+          changedById: userId,
+          reason: `Production category assigned: ${productionCategory}`,
+        },
+      });
+    }
+
+    return { success: true, itemId, productionCategory };
   }
 
   async updateItemStage(
@@ -114,11 +150,9 @@ export class ProductionService {
       });
     }
 
-    // ── WhatsApp: send on meaningful stage changes (not NOT_PRINTED) ─────────
     if (stage !== OrderProductionStage.NOT_PRINTED && item.order.customer.phone) {
       const stageLabel = STAGE_LABEL[stage] ?? stage.replace(/_/g, ' ');
       const productNames = item.order.items.map(i => i.product.name).join(', ');
-
       void this.whatsapp.sendOrderUpdate({
         customerName:  item.order.customer.businessName,
         customerPhone: item.order.customer.phone,
