@@ -1,323 +1,192 @@
-"use client";
-import React, { useCallback, useEffect, useState } from "react";
+﻿"use client";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
-type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
-
-const LEAD_SOURCES = [
-  { value: "", label: "Select source..." },
-  { value: "WALK_IN", label: "Walk In" },
-  { value: "REPEAT_PURCHASE", label: "Repeat Purchase" },
-  { value: "REFERRAL", label: "Referral" },
-  { value: "FB_AD", label: "FB Ad" },
-  { value: "GOOGLE_AD", label: "Google Ad" },
-  { value: "AISENSY_CAMPAIGN", label: "AiSensy Campaign" },
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "WHATSAPP", label: "WhatsApp" },
-  { value: "OTHER", label: "Other" },
-];
-
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
-
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
+interface Order {
+  id: string;
+  orderNo: string;
+  customerName: string;
+  customerPhone?: string;
+  status: string;
+  totalAmount: number;
+  createdAt: string;
+  agent?: { name: string };
+  items?: { productName: string; quantity: number }[];
 }
 
-function emptyLine(): LineItem {
-  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "" };
-}
-
-const S = {
-  input: { width: "100%", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 10px", fontSize: "12px", boxSizing: "border-box" as const, background: "white" },
-  label: { display: "block", fontSize: "11px", fontWeight: 600, color: "#64748b", marginBottom: "3px", textTransform: "uppercase" as const, letterSpacing: "0.03em" },
-  section: { background: "white", borderRadius: "10px", border: "1px solid #e2e8f0", padding: "14px 16px", marginBottom: "10px" },
-  sectionTitle: { fontSize: "12px", fontWeight: 700, color: "#0f172a", marginBottom: "10px", paddingBottom: "6px", borderBottom: "1px solid #f1f5f9" },
+const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  PENDING_APPROVAL:          { bg: "#fef9c3", color: "#854d0e" },
+  APPROVED:                  { bg: "#dbeafe", color: "#1e40af" },
+  IN_PRODUCTION:             { bg: "#f3e8ff", color: "#6b21a8" },
+  READY_FOR_DISPATCH:        { bg: "#dcfce7", color: "#166534" },
+  PENDING_DISPATCH_APPROVAL: { bg: "#ffedd5", color: "#9a3412" },
+  DISPATCHED:                { bg: "#f1f5f9", color: "#475569" },
+  CANCELLED:                 { bg: "#fee2e2", color: "#991b1b" },
 };
 
-export default function CreateOrderPage() {
+const ALL_STATUSES = [
+  "ALL","PENDING_APPROVAL","APPROVED","IN_PRODUCTION",
+  "READY_FOR_DISPATCH","PENDING_DISPATCH_APPROVAL","DISPATCHED","CANCELLED",
+];
+
+function fmt(n: number) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
+}
+
+export default function OrdersPage() {
   const router = useRouter();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
-  const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
-  const [orderNotes, setOrderNotes] = useState("");
-  const [leadSource, setLeadSource] = useState("");
-  const [leadMonth, setLeadMonth] = useState(String(new Date().getMonth() + 1));
-  const [leadYear, setLeadYear] = useState(String(CURRENT_YEAR));
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
-  const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
-
-  const load = useCallback(async () => {
-    const res = await fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() });
-    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-    setProducts(await res.json());
+  const loadOrders = useCallback(async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders`, { headers: getAuthHeaders() });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setOrders(Array.isArray(data) ? data : data.data ?? []);
+    } catch (err: any) {
+      setError(err.message || "Failed to load orders");
+    } finally {
+      setLoading(false);
+    }
   }, [router]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
 
-  function updateLine(index: number, field: keyof LineItem, value: string | number) {
-    setLineItems(prev => {
-      const updated = [...prev];
-      const item = { ...updated[index] };
-
-      if (field === "productId" && typeof value === "string") {
-        const prod = products.find(p => p.id === value);
-        item.productId  = value;
-        item.sizeInches = prod?.sizeInches ?? "";
-        item.gsm        = prod?.gsm ?? 0;
-        item.sides      = prod?.sides ?? "SINGLE_SIDE";
-      } else if (field === "lineTotal" && typeof value === "number") {
-        // Direct total entry → back-calculate unitPrice
-        item.lineTotal  = value;
-        item.unitPrice  = item.quantity > 0 ? value / item.quantity : 0;
-      } else if (field === "quantity" && typeof value === "number") {
-        item.quantity   = value;
-        // Recalculate lineTotal from unitPrice
-        item.lineTotal  = value * item.unitPrice;
-      } else if (field === "unitPrice" && typeof value === "number") {
-        item.unitPrice  = value;
-        item.lineTotal  = item.quantity * value;
-      } else {
-        (item as any)[field] = value;
-      }
-
-      updated[index] = item;
-      return updated;
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders.filter(o => {
+      const matchSearch = !q ||
+        o.orderNo?.toLowerCase().includes(q) ||
+        o.customerName?.toLowerCase().includes(q) ||
+        (o.customerPhone ?? "").includes(q);
+      const matchStatus = statusFilter === "ALL" || o.status === statusFilter;
+      return matchSearch && matchStatus;
     });
-  }
-
-  const orderTotal = lineItems.reduce((sum, i) => sum + (i.lineTotal || i.quantity * i.unitPrice), 0);
-
-  async function submitOrder() {
-    if (!customer.name.trim()) { alert("Customer name is required"); return; }
-    if (lineItems.some(i => !i.productId || i.quantity <= 0)) {
-      alert("Please fill all product lines"); return;
-    }
-    setSubmitting(true);
-    try {
-      const leadSourceValue = leadSource
-        ? (needsDate ? `${leadSource}_${MONTHS[Number(leadMonth) - 1]}_${leadYear}` : leadSource)
-        : undefined;
-
-      const res = await fetch(`${API_BASE_URL}/orders`, {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer,
-          items: lineItems.map(i => ({
-            productId:        i.productId,
-            quantity:         i.quantity,
-            unitPrice:        i.unitPrice || (i.lineTotal / i.quantity),
-            artworkNotes:     i.specialInstructions || undefined,
-            productionNotes:  `Size: ${i.sizeInches}, GSM: ${i.gsm}, Sides: ${i.sides}`,
-          })),
-          notes:      orderNotes || undefined,
-          leadSource: leadSourceValue,
-        }),
-      });
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      router.push("/orders");
-    } finally { setSubmitting(false); }
-  }
+  }, [orders, search, statusFilter]);
 
   return (
     <DashboardShell>
-      <div style={{ padding: "1rem 1.5rem", maxWidth: "900px", margin: "0 auto" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+      <div style={{ padding: "1.5rem 2rem", maxWidth: "1200px", margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
           <div>
-            <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Create New Order</h1>
-            <p style={{ fontSize: "12px", color: "#64748b", margin: "2px 0 0" }}>Fill in customer and product details</p>
+            <h1 style={{ fontSize: "20px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Orders</h1>
+            <p style={{ fontSize: "13px", color: "#64748b", margin: "2px 0 0" }}>{orders.length} total order{orders.length !== 1 ? "s" : ""}</p>
           </div>
-          <button onClick={() => router.push("/orders")}
-            style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 12px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
-            ← Back
+          <button onClick={() => router.push("/orders/create")}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#2563eb", color: "white", border: "none", borderRadius: "8px", padding: "8px 16px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+            <Plus style={{ width: 15, height: 15 }} /> New Order
           </button>
         </div>
 
-        {/* ── Top row: Customer + Lead Source side by side ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: "10px", marginBottom: "10px" }}>
-
-          {/* Customer Details */}
-          <div style={S.section}>
-            <p style={S.sectionTitle}>Customer Details</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <div style={{ gridColumn: "span 2" }}>
-                <label style={S.label}>Full Name *</label>
-                <input value={customer.name} onChange={e => setCustomer(c => ({ ...c, name: e.target.value }))}
-                  placeholder="Customer / Business Name" style={S.input} />
-              </div>
-              <div>
-                <label style={S.label}>Phone</label>
-                <input value={customer.phone} onChange={e => setCustomer(c => ({ ...c, phone: e.target.value }))}
-                  placeholder="09XXXXXXXXX" style={S.input} />
-              </div>
-              <div>
-                <label style={S.label}>Email</label>
-                <input value={customer.email} onChange={e => setCustomer(c => ({ ...c, email: e.target.value }))}
-                  placeholder="email@example.com" style={S.input} />
-              </div>
-              <div style={{ gridColumn: "span 2" }}>
-                <label style={S.label}>Address</label>
-                <input value={customer.address} onChange={e => setCustomer(c => ({ ...c, address: e.target.value }))}
-                  placeholder="Street address" style={S.input} />
-              </div>
-              <div>
-                <label style={S.label}>City</label>
-                <input value={customer.city} onChange={e => setCustomer(c => ({ ...c, city: e.target.value }))} style={S.input} />
-              </div>
-              <div>
-                <label style={S.label}>State</label>
-                <input value={customer.state} onChange={e => setCustomer(c => ({ ...c, state: e.target.value }))} style={S.input} />
-              </div>
-              <div>
-                <label style={S.label}>Pincode</label>
-                <input value={customer.pincode} onChange={e => setCustomer(c => ({ ...c, pincode: e.target.value }))} style={S.input} />
-              </div>
-            </div>
+        <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ position: "relative" }}>
+            <Search style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", width: 14, height: 14, color: "#94a3b8" }} />
+            <input type="text" placeholder="Search order no, name, phone..." value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ border: "1px solid #e2e8f0", borderRadius: "8px", paddingLeft: "32px", paddingRight: "12px", paddingTop: "7px", paddingBottom: "7px", fontSize: "13px", width: "280px", outline: "none" }} />
           </div>
-
-          {/* Lead Source + Notes stacked */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={S.section}>
-              <p style={S.sectionTitle}>Lead Source</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <div>
-                  <label style={S.label}>Source</label>
-                  <select value={leadSource} onChange={e => setLeadSource(e.target.value)} style={S.input}>
-                    {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
-                </div>
-                {needsDate && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                    <div>
-                      <label style={S.label}>Month</label>
-                      <select value={leadMonth} onChange={e => setLeadMonth(e.target.value)} style={S.input}>
-                        {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={S.label}>Year</label>
-                      <select value={leadYear} onChange={e => setLeadYear(e.target.value)} style={S.input}>
-                        {YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div style={S.section}>
-              <p style={S.sectionTitle}>Order Notes</p>
-              <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)} rows={4}
-                placeholder="Any additional notes or instructions..."
-                style={{ ...S.input, resize: "vertical" }} />
-            </div>
-          </div>
-        </div>
-
-        {/* ── Products ── */}
-        <div style={S.section}>
-          <p style={S.sectionTitle}>Products / Line Items</p>
-
-          {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
-            {["Product","Size","GSM","Sides","Qty","Rate/Unit","Amount",""].map(h => (
-              <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
-            ))}
-          </div>
-
-          {lineItems.map((item, idx) => (
-            <div key={idx}>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
-                {/* Product */}
-                <select value={item.productId} onChange={e => updateLine(idx, "productId", e.target.value)}
-                  style={S.input}>
-                  <option value="">Select...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-
-                {/* Size */}
-                <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)}
-                  placeholder="4x5" style={S.input} />
-
-                {/* GSM */}
-                <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))}
-                  placeholder="70" style={S.input} />
-
-                {/* Sides */}
-                <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
-                  <option value="SINGLE_SIDE">Single</option>
-                  <option value="DOUBLE_SIDE">Double</option>
-                </select>
-
-                {/* Quantity */}
-                <input type="number" min={1} value={item.quantity}
-                  onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
-
-                {/* Rate per unit */}
-                <input type="number" min={0} value={item.unitPrice || ""}
-                  onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))}
-                  placeholder="0.00" style={S.input} />
-
-                {/* Direct amount entry */}
-                <input type="number" min={0}
-                  value={item.lineTotal || (item.quantity * item.unitPrice) || ""}
-                  onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
-                  placeholder="Total ₹"
-                  style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }} />
-
-                {/* Remove */}
-                {lineItems.length > 1 ? (
-                  <button onClick={() => setLineItems(p => p.filter((_, i) => i !== idx))}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", padding: "2px" }}>
-                    <Trash2 style={{ width: 14, height: 14 }} />
-                  </button>
-                ) : <div />}
-              </div>
-
-              {/* Special instructions inline */}
-              <div style={{ marginBottom: "8px" }}>
-                <input value={item.specialInstructions}
-                  onChange={e => updateLine(idx, "specialInstructions", e.target.value)}
-                  placeholder={`Item ${idx + 1} — special instructions (optional)`}
-                  style={{ ...S.input, background: "#fffbeb", borderColor: "#fde68a", fontSize: "11px" }} />
-              </div>
-            </div>
-          ))}
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <button onClick={() => setLineItems(p => [...p, emptyLine()])}
-              style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px dashed #93c5fd", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#2563eb", background: "none", cursor: "pointer" }}>
-              <Plus style={{ width: 14, height: 14 }} /> Add Item
-            </button>
-            <div style={{ textAlign: "right" }}>
-              <span style={{ fontSize: "12px", color: "#64748b" }}>Order Total: </span>
-              <span style={{ fontSize: "20px", fontWeight: 700, color: "#0f172a" }}>{fmt(orderTotal)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Submit ── */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", paddingBottom: "24px" }}>
-          <button onClick={() => router.push("/orders")}
-            style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "#334155", background: "white", cursor: "pointer" }}>
-            Cancel
-          </button>
-          <button onClick={submitOrder} disabled={submitting}
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px", borderRadius: "6px", border: "none", background: "#2563eb", padding: "8px 20px", fontSize: "13px", fontWeight: 600, color: "white", cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
-            {submitting ? <Loader2 style={{ width: 15, height: 15 }} /> : <Plus style={{ width: 15, height: 15 }} />}
-            Create Order
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "7px 12px", fontSize: "13px", outline: "none", background: "white" }}>
+            {ALL_STATUSES.map(s => <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>)}
+          </select>
+          <button onClick={loadOrders}
+            style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "7px 14px", fontSize: "13px", background: "white", cursor: "pointer", color: "#334155" }}>
+            🔄 Refresh
           </button>
         </div>
+
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: "8px", padding: "12px 16px", marginBottom: "16px", fontSize: "13px" }}>
+            ⚠️ {error} <button onClick={loadOrders} style={{ background: "none", border: "none", cursor: "pointer", textDecoration: "underline", color: "#991b1b", fontSize: "13px" }}>Retry</button>
+          </div>
+        )}
+
+        {loading && (
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "200px" }}>
+            <Loader2 style={{ width: 32, height: 32, color: "#2563eb" }} className="animate-spin" />
+          </div>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
+          <div style={{ textAlign: "center", color: "#94a3b8", padding: "80px 0" }}>
+            <p style={{ fontSize: "40px", marginBottom: "12px" }}>📋</p>
+            <p style={{ fontSize: "16px", fontWeight: 600, color: "#64748b" }}>No orders found</p>
+            <p style={{ fontSize: "13px", marginTop: "4px" }}>
+              {orders.length === 0 ? "Create your first order to get started." : "Try adjusting the search or filter."}
+            </p>
+            {orders.length === 0 && (
+              <button onClick={() => router.push("/orders/create")}
+                style={{ marginTop: "16px", background: "#2563eb", color: "white", border: "none", borderRadius: "8px", padding: "8px 20px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+                + Create First Order
+              </button>
+            )}
+          </div>
+        )}
+
+        {!loading && filtered.length > 0 && (
+          <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e2e8f0", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                  {["Order No","Customer","Items","Amount","Status","Agent","Date",""].map(h => (
+                    <th key={h} style={{ textAlign: "left", padding: "10px 14px", fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((order, idx) => {
+                  const sc = STATUS_COLORS[order.status] ?? { bg: "#f1f5f9", color: "#475569" };
+                  return (
+                    <tr key={order.id}
+                      style={{ borderBottom: idx < filtered.length - 1 ? "1px solid #f1f5f9" : "none", cursor: "pointer" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#f8fafc")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "white")}
+                      onClick={() => router.push(`/orders/${order.id}`)}>
+                      <td style={{ padding: "12px 14px", fontFamily: "monospace", fontWeight: 600, color: "#2563eb" }}>{order.orderNo}</td>
+                      <td style={{ padding: "12px 14px" }}>
+                        <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{order.customerName}</p>
+                        {order.customerPhone && <p style={{ margin: 0, fontSize: "12px", color: "#64748b" }}>{order.customerPhone}</p>}
+                      </td>
+                      <td style={{ padding: "12px 14px", color: "#475569", maxWidth: "200px" }}>
+                        {order.items?.length ? order.items.map(i => `${i.productName} x${i.quantity}`).join(", ") : "—"}
+                      </td>
+                      <td style={{ padding: "12px 14px", fontWeight: 600, color: "#0f172a" }}>{fmt(order.totalAmount)}</td>
+                      <td style={{ padding: "12px 14px" }}>
+                        <span style={{ background: sc.bg, color: sc.color, borderRadius: "999px", padding: "3px 10px", fontSize: "11px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {order.status?.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px 14px", color: "#64748b" }}>{order.agent?.name ?? "—"}</td>
+                      <td style={{ padding: "12px 14px", color: "#94a3b8", fontSize: "12px", whiteSpace: "nowrap" }}>
+                        {new Date(order.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                      </td>
+                      <td style={{ padding: "12px 14px" }}>
+                        <button onClick={e => { e.stopPropagation(); router.push(`/orders/${order.id}`); }}
+                          style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 10px", fontSize: "12px", color: "#2563eb", cursor: "pointer", fontWeight: 500 }}>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ padding: "10px 14px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", fontSize: "12px", color: "#94a3b8" }}>
+              Showing {filtered.length} of {orders.length} orders
+            </div>
+          </div>
+        )}
       </div>
     </DashboardShell>
   );
