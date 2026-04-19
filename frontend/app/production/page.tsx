@@ -119,7 +119,7 @@ export default function ProductionPage() {
         fetch(`${API_BASE_URL}/vendors`, { headers: h }),
       ]);
       if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-      setOrders(Array.isArray(await oRes.json()) ? await oRes.clone().json() : []);
+      setOrders(oRes.ok ? await oRes.json() : []);
       setClubbingOrders(cRes.ok ? await cRes.json() : []);
       setSheets(sRes.ok ? await sRes.json() : []);
       setVendors(vRes.ok ? await vRes.json() : []);
@@ -959,3 +959,4 @@ export default function ProductionPage() {
     </>
   );
 }
+
