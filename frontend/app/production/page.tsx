@@ -80,7 +80,6 @@ export default function ProductionPage() {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"unassigned"|"inhouse"|"clubbing"|"sheets"|"all">("unassigned");
-  const [inhouseSubTab, setInhouseSubTab] = useState<"printing_pending"|"processing_pending">("printing_pending");
 
   // Assign modal
   const [assignModal, setAssignModal] = useState<{ orderId: string; orderNo: string; customerName: string; items: OrderItem[] } | null>(null);
@@ -91,6 +90,18 @@ export default function ProductionPage() {
   const [expandedClubbingItem, setExpandedClubbingItem] = useState<string | null>(null);
   const [jwForm, setJwForm] = useState<Record<string, { vendorId: string; description: string; cost: string; vendorInvoiceNo: string }>>({});
   const [savingJw, setSavingJw] = useState(false);
+  // Clubbing sub-tabs
+  const [clubSubTab, setClubSubTab] = useState<"unassigned"|"in_progress"|"received">("unassigned");
+  // Send dialog (assign vendor)
+  const [sendDialog, setSendDialog] = useState<{ itemId: string; productName: string; orderNo: string } | null>(null);
+  const [sendVendorId, setSendVendorId] = useState("");
+  const [sendDesc, setSendDesc] = useState("");
+  const [sendingSend, setSendingSend] = useState(false);
+  // Received dialog (fill cost + inv no)
+  const [receiveDialog, setReceiveDialog] = useState<{ jwId: string; vendorName: string; productName: string } | null>(null);
+  const [receiveCost, setReceiveCost] = useState("");
+  const [receiveInvNo, setReceiveInvNo] = useState("");
+  const [savingReceive, setSavingReceive] = useState(false);
 
   // Vendor modal
   const [vendorModal, setVendorModal] = useState(false);
@@ -119,7 +130,7 @@ export default function ProductionPage() {
         fetch(`${API_BASE_URL}/vendors`, { headers: h }),
       ]);
       if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-      setOrders(oRes.ok ? await oRes.json() : []);
+      setOrders(Array.isArray(await oRes.json()) ? await oRes.clone().json() : []);
       setClubbingOrders(cRes.ok ? await cRes.json() : []);
       setSheets(sRes.ok ? await sRes.json() : []);
       setVendors(vRes.ok ? await vRes.json() : []);
@@ -238,6 +249,49 @@ export default function ProductionPage() {
     } finally { setSavingJw(false); }
   }
 
+  async function sendToVendor() {
+    if (!sendDialog || !sendVendorId) { alert("Please select a vendor"); return; }
+    setSendingSend(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderItemId: sendDialog.itemId, vendorId: sendVendorId, description: sendDesc || "Job Work", cost: 0 }),
+      });
+      if (!res.ok) { alert("Failed to send to vendor"); return; }
+      // Set item stage to PRINTING
+      await fetch(`${API_BASE_URL}/production/items/${sendDialog.itemId}/stage`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: "PRINTING" }),
+      });
+      setSendDialog(null); setSendVendorId(""); setSendDesc("");
+      await loadAll();
+    } finally { setSendingSend(false); }
+  }
+
+  async function receiveFromVendor() {
+    if (!receiveDialog) return;
+    if (!receiveCost || !receiveInvNo) { alert("Cost and Invoice No are required to receive"); return; }
+    setSavingReceive(true);
+    try {
+      // Update job work with cost + invoice + status COMPLETED
+      await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${receiveDialog.jwId}`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "COMPLETED", cost: Number(receiveCost), vendorInvoiceNo: receiveInvNo }),
+      });
+      // Find the item and set stage to PROCESSING
+      const allItems = clubData.flatMap(o => o.items);
+      const item = allItems.find(i => i.jobWorks.some(j => j.id === receiveDialog.jwId));
+      if (item) {
+        await fetch(`${API_BASE_URL}/production/items/${item.id}/stage`, {
+          method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: "PROCESSING" }),
+        });
+      }
+      setReceiveDialog(null); setReceiveCost(""); setReceiveInvNo("");
+      await loadAll();
+    } finally { setSavingReceive(false); }
+  }
+
   async function updateJwStatus(jwId: string, status: string) {
     await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${jwId}`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -349,30 +403,21 @@ export default function ProductionPage() {
 
   // ── Derived counts ────────────────────────────────────────────────────────
   const unassignedCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => !i.productionCategory).length, 0), [ordersData]);
-  const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && i.itemProductionStage !== "READY_FOR_DISPATCH").length, 0), [ordersData]);
+  const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE").length, 0), [ordersData]);
   const allCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.length, 0), [ordersData]);
   const unassignedOrders = useMemo(() => ordersData.filter(o => o.items.some(i => !i.productionCategory)), [ordersData]);
-  const printingPendingCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && (i.itemProductionStage === "NOT_PRINTED" || i.itemProductionStage === "PRINTING")).length, 0), [ordersData]);
-  const processingPendingCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && i.itemProductionStage === "PROCESSING").length, 0), [ordersData]);
 
   type FlatItem = OrderItem & { orderId: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; isFirstInOrder: boolean; };
   const flatItems = useMemo<FlatItem[]>(() => {
     const q = search.trim().toLowerCase();
     const result: FlatItem[] = [];
     for (const o of ordersData) {
-      let items = activeTab === "inhouse"
-        ? o.items.filter(i => {
-            if (i.productionCategory !== "INHOUSE") return false;
-            if (inhouseSubTab === "printing_pending") return i.itemProductionStage === "NOT_PRINTED" || i.itemProductionStage === "PRINTING";
-            if (inhouseSubTab === "processing_pending") return i.itemProductionStage === "PROCESSING";
-            return true;
-          })
-        : o.items;
+      let items = activeTab === "inhouse" ? o.items.filter(i => i.productionCategory === "INHOUSE") : o.items;
       if (q) items = items.filter(i => o.orderNo.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q) || i.productName.toLowerCase().includes(q));
       items.forEach((item, idx) => result.push({ ...item, orderId: o.id, orderNo: o.orderNo, customerName: o.customerName, customerPhone: o.customerPhone, salesAgentName: o.salesAgentName, orderDate: o.orderDate, isFirstInOrder: idx === 0 }));
     }
     return result;
-  }, [ordersData, activeTab, search, inhouseSubTab]);
+  }, [ordersData, activeTab, search]);
 
   const IS = { input: { width: "100%", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 10px", fontSize: "12px", boxSizing: "border-box" as const, background: "white" } };
 
@@ -419,28 +464,6 @@ export default function ProductionPage() {
               </button>
             ))}
           </div>
-
-          {/* ── INHOUSE SUB-TABS ── */}
-          {activeTab === "inhouse" && (
-            <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
-              <button
-                onClick={() => setInhouseSubTab("printing_pending")}
-                className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "printing_pending" ? "bg-white text-blue-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                🖨️ Printing Pending
-                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "printing_pending" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
-                  {printingPendingCount}
-                </span>
-              </button>
-              <button
-                onClick={() => setInhouseSubTab("processing_pending")}
-                className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "processing_pending" ? "bg-white text-yellow-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                ⚙️ Processing Pending
-                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "processing_pending" ? "bg-yellow-100 text-yellow-700" : "bg-slate-200 text-slate-500"}`}>
-                  {processingPendingCount}
-                </span>
-              </button>
-            </div>
-          )}
 
           {loading && <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>}
           {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -539,27 +562,11 @@ export default function ProductionPage() {
                             <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden"
                               accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
                               onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
-                                className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                                {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                                {isUploading ? "..." : "Upload"}
-                              </button>
-                              {activeTab === "inhouse" && inhouseSubTab === "printing_pending" && (item.itemProductionStage === "NOT_PRINTED" || item.itemProductionStage === "PRINTING") && (
-                                <button onClick={() => updateItemStage(item.id, "PROCESSING")} disabled={isUpdating}
-                                  className="inline-flex items-center gap-0.5 rounded-md bg-yellow-500 px-2 py-0.5 text-xs font-semibold text-white hover:bg-yellow-600 disabled:opacity-60 whitespace-nowrap">
-                                  {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                  Move to Processing
-                                </button>
-                              )}
-                              {activeTab === "inhouse" && inhouseSubTab === "processing_pending" && item.itemProductionStage === "PROCESSING" && (
-                                <button onClick={() => updateItemStage(item.id, "READY_FOR_DISPATCH")} disabled={isUpdating}
-                                  className="inline-flex items-center gap-0.5 rounded-md bg-green-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60 whitespace-nowrap">
-                                  {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                  Mark Ready
-                                </button>
-                              )}
-                            </div>
+                            <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
+                              className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                              {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                              {isUploading ? "..." : "Upload"}
+                            </button>
                           </td>
                         </tr>
                         {isExpanded && designFiles.length > 0 && (
@@ -593,99 +600,119 @@ export default function ProductionPage() {
           {/* ── CLUBBING TAB ── */}
           {!loading && activeTab === "clubbing" && (
             <div className="space-y-3">
-              {clubData.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No clubbing items. Assign items as Clubbing from the Unassigned tab.</div>
-              ) : clubData.map(o => (
-                <div key={o.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-orange-50 border-b border-orange-100 cursor-pointer" onClick={() => setExpandedClubbingOrder(expandedClubbingOrder === o.id ? null : o.id)}>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="font-bold text-blue-700 text-sm">{o.orderNo}</span>
-                      <span className="text-slate-700 text-sm font-medium">{o.customerName}</span>
-                      {o.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{o.salesAgentName}</span>}
-                      <span className="rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-xs font-semibold">{o.items.length} item{o.items.length > 1 ? "s" : ""}</span>
-                      <span className="text-xs text-slate-500 font-semibold">Total cost: {fmt(o.items.reduce((s, i) => s + i.jobWorks.reduce((ss, j) => ss + j.cost, 0), 0))}</span>
-                    </div>
-                    {expandedClubbingOrder === o.id ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+              {/* Clubbing Sub-tabs */}
+              <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+                {([
+                  { key: "unassigned", label: "🏭 Unassigned", color: "text-slate-600" },
+                  { key: "in_progress", label: "⏳ In Progress", color: "text-blue-600" },
+                  { key: "received", label: "✅ Received", color: "text-green-600" },
+                ] as { key: "unassigned"|"in_progress"|"received"; label: string; color: string }[]).map(t => {
+                  const count = clubData.reduce((s, o) => s + o.items.filter(i => {
+                    if (t.key === "unassigned") return i.jobWorks.length === 0;
+                    if (t.key === "in_progress") return i.jobWorks.some(j => j.status === "PENDING" || j.status === "IN_PROGRESS");
+                    if (t.key === "received") return i.jobWorks.some(j => j.status === "COMPLETED");
+                    return false;
+                  }).length, 0);
+                  return (
+                    <button key={t.key} onClick={() => setClubSubTab(t.key)}
+                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${clubSubTab === t.key ? `bg-white shadow-sm border border-slate-200 ${t.color}` : "text-slate-500 hover:text-slate-700"}`}>
+                      {t.label}
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${clubSubTab === t.key ? "bg-orange-100 text-orange-700" : "bg-slate-200 text-slate-500"}`}>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Clubbing Items Table */}
+              {(() => {
+                const allItems = clubData.flatMap(o => o.items.filter(item => {
+                  if (clubSubTab === "unassigned") return item.jobWorks.length === 0;
+                  if (clubSubTab === "in_progress") return item.jobWorks.some(j => j.status === "PENDING" || j.status === "IN_PROGRESS");
+                  if (clubSubTab === "received") return item.jobWorks.some(j => j.status === "COMPLETED");
+                  return false;
+                }).map(item => ({ ...item, orderNo: o.orderNo, customerName: o.customerName, salesAgentName: o.salesAgentName, orderId: o.id })));
+
+                if (allItems.length === 0) return (
+                  <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">
+                    {clubSubTab === "unassigned" && "No unassigned clubbing items."}
+                    {clubSubTab === "in_progress" && "No items in progress."}
+                    {clubSubTab === "received" && "No received items."}
                   </div>
-                  {expandedClubbingOrder === o.id && (
-                    <div className="divide-y divide-slate-100">
-                      {o.items.map(item => {
-                        const { size, gsm } = parseNotes(item.productionNotes);
-                        const isExpItem = expandedClubbingItem === item.id;
-                        const f = jwForm[item.id] ?? { vendorId: "", description: "", cost: "", vendorInvoiceNo: "" };
-                        const totalCost = item.jobWorks.reduce((s, j) => s + j.cost, 0);
-                        return (
-                          <div key={item.id}>
-                            <div className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-slate-50" onClick={() => setExpandedClubbingItem(isExpItem ? null : item.id)}>
-                              <div className="flex items-center gap-3 text-xs flex-wrap">
-                                <span className="font-semibold text-slate-800">{item.productName}</span>
-                                <span className="text-slate-400">{size ?? "—"} · {gsm ?? "—"} GSM · Qty {item.quantity}</span>
-                                {item.artworkNotes && <span className="text-slate-400 italic">{item.artworkNotes}</span>}
-                                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${stageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>{item.itemProductionStage.replace(/_/g, " ")}</span>
-                                <span className="text-orange-700 font-semibold">{item.jobWorks.length} vendor{item.jobWorks.length !== 1 ? "s" : ""} · {fmt(totalCost)}</span>
-                              </div>
-                              {isExpItem ? <ChevronUp className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
-                            </div>
-                            {isExpItem && (
-                              <div className="px-4 pb-4 space-y-3 bg-orange-50/30">
-                                {/* Existing job works */}
-                                {item.jobWorks.length > 0 && (
-                                  <div className="space-y-1.5">
-                                    {item.jobWorks.map(jw => (
-                                      <div key={jw.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                                        <div className="flex-1 min-w-0">
-                                          <p className="font-semibold text-slate-800">{jw.vendorName}</p>
-                                          <p className="text-slate-500">{jw.description}</p>
-                                          {jw.vendorInvoiceNo && <p className="text-slate-400">Invoice: {jw.vendorInvoiceNo}</p>}
-                                        </div>
-                                        <span className="font-bold text-orange-700 whitespace-nowrap">{fmt(jw.cost)}</span>
-                                        <select value={jw.status} onChange={e => updateJwStatus(jw.id, e.target.value)}
-                                          className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${jwStatusColors[jw.status]}`}>
-                                          {JW_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-                                        </select>
-                                        <button onClick={() => deleteJobWork(jw.id)} className="text-slate-300 hover:text-red-500 p-1"><Trash2 className="h-3.5 w-3.5" /></button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {/* Add job work form */}
-                                <div className="rounded-lg border border-dashed border-orange-200 bg-white p-3">
-                                  <p className="text-xs font-semibold text-orange-700 mb-2">+ Add Vendor / Job Work</p>
-                                  <div className="grid grid-cols-2 gap-2 mb-2">
-                                    <div>
-                                      <label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                                      <select value={f.vendorId} onChange={e => setJwForm(p => ({ ...p, [item.id]: { ...f, vendorId: e.target.value } }))} style={IS.input}>
-                                        <option value="">Select vendor...</option>
-                                        {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs text-slate-500 mb-1">Cost (₹) *</label>
-                                      <input type="number" value={f.cost} onChange={e => setJwForm(p => ({ ...p, [item.id]: { ...f, cost: e.target.value } }))} placeholder="0.00" style={IS.input} />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs text-slate-500 mb-1">Description *</label>
-                                      <input value={f.description} onChange={e => setJwForm(p => ({ ...p, [item.id]: { ...f, description: e.target.value } }))} placeholder="e.g. Lamination, Die cut" style={IS.input} />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs text-slate-500 mb-1">Invoice No</label>
-                                      <input value={f.vendorInvoiceNo} onChange={e => setJwForm(p => ({ ...p, [item.id]: { ...f, vendorInvoiceNo: e.target.value } }))} placeholder="Optional" style={IS.input} />
-                                    </div>
-                                  </div>
-                                  <button onClick={() => addJobWork(item.id)} disabled={savingJw}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-60">
-                                    {savingJw ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Add
+                );
+
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                    <table className="w-full text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                      <thead>
+                        <tr className="bg-orange-50 border-b border-orange-100">
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Stage</th>
+                          {clubSubTab !== "unassigned" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Vendor</th>}
+                          {clubSubTab === "in_progress" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Cost</th>}
+                          {clubSubTab === "received" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Invoice</th>}
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {allItems.map((item: any) => {
+                          const { size, gsm } = parseNotes(item.productionNotes);
+                          const activeJw = item.jobWorks.find((j: JobWork) => j.status === "PENDING" || j.status === "IN_PROGRESS" || j.status === "COMPLETED");
+                          const completedJw = item.jobWorks.find((j: JobWork) => j.status === "COMPLETED");
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-50">
+                              <td className="px-3 py-2 font-bold text-blue-700 whitespace-nowrap">{item.orderNo}</td>
+                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{item.customerName}</td>
+                              <td className="px-3 py-2">
+                                <p className="font-semibold text-slate-800">{item.productName}</p>
+                                {item.artworkNotes && <p className="text-slate-400 text-xs">{item.artworkNotes}</p>}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600">{size ?? "—"}</td>
+                              <td className="px-3 py-2 text-slate-600">{gsm ?? "—"}</td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
+                              <td className="px-3 py-2">
+                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${stageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>
+                                  {item.itemProductionStage.replace(/_/g, " ")}
+                                </span>
+                              </td>
+                              {clubSubTab !== "unassigned" && (
+                                <td className="px-3 py-2 font-semibold text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "—"}</td>
+                              )}
+                              {clubSubTab === "in_progress" && (
+                                <td className="px-3 py-2 text-slate-600">{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</td>
+                              )}
+                              {clubSubTab === "received" && (
+                                <td className="px-3 py-2 text-slate-500">{completedJw?.vendorInvoiceNo ?? "—"}</td>
+                              )}
+                              <td className="px-3 py-2">
+                                {clubSubTab === "unassigned" && (
+                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }}
+                                    className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
+                                    Send →
                                   </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              ))}
+                                )}
+                                {clubSubTab === "in_progress" && activeJw && (
+                                  <button onClick={() => { setReceiveDialog({ jwId: activeJw.id, vendorName: activeJw.vendorName, productName: item.productName }); setReceiveCost(""); setReceiveInvNo(""); }}
+                                    className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700">
+                                    Received ✓
+                                  </button>
+                                )}
+                                {clubSubTab === "received" && (
+                                  <span className="text-xs text-green-600 font-semibold">✅ Done</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -846,6 +873,73 @@ export default function ProductionPage() {
         </div>
       </DashboardShell>
 
+      {/* ── Send to Vendor Dialog ── */}
+      {sendDialog && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Send to Vendor</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{sendDialog.orderNo} — {sendDialog.productName}</p>
+              </div>
+              <button onClick={() => setSendDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Vendor <span className="text-red-500">*</span></label>
+                <select value={sendVendorId} onChange={e => setSendVendorId(e.target.value)} style={IS.input}>
+                  <option value="">Select vendor...</option>
+                  {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Description <span className="text-slate-400 font-normal">(optional)</span></label>
+                <input value={sendDesc} onChange={e => setSendDesc(e.target.value)} placeholder="e.g. Lamination, Die cut" style={IS.input} />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setSendDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={sendToVendor} disabled={sendingSend || !sendVendorId}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60">
+                {sendingSend ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Receive from Vendor Dialog ── */}
+      {receiveDialog && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Mark as Received</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{receiveDialog.productName} — {receiveDialog.vendorName}</p>
+              </div>
+              <button onClick={() => setReceiveDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Cost (₹) <span className="text-red-500">*</span></label>
+                <input type="number" value={receiveCost} onChange={e => setReceiveCost(e.target.value)} placeholder="Enter amount paid to vendor" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice No <span className="text-red-500">*</span></label>
+                <input value={receiveInvNo} onChange={e => setReceiveInvNo(e.target.value)} placeholder="Vendor invoice number" style={IS.input} />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setReceiveDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={receiveFromVendor} disabled={savingReceive || !receiveCost || !receiveInvNo}
+                className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
+                {savingReceive ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm Received ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Assign Modal ── */}
       {assignModal && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
@@ -959,6 +1053,3 @@ export default function ProductionPage() {
     </>
   );
 }
-
-
-
