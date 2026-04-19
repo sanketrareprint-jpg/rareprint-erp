@@ -624,7 +624,7 @@ export default function ProductionPage() {
                   const count = clubData.reduce((s, o) => s + o.items.filter(i => {
                     if (t.key === "unassigned") return i.jobWorks.length === 0;
                     if (t.key === "in_progress") return i.jobWorks.some(j => j.status === "PENDING" || j.status === "IN_PROGRESS");
-                    if (t.key === "received") return i.jobWorks.some(j => j.status === "COMPLETED");
+                    if (t.key === "received") return i.jobWorks.some(j => j.status === "COMPLETED") && i.itemProductionStage !== "READY_FOR_DISPATCH";
                     return false;
                   }).length, 0);
                   return (
@@ -1067,6 +1067,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
