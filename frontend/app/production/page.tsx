@@ -427,7 +427,6 @@ export default function ProductionPage() {
   const tabs = [
     { key: "unassigned", label: "Unassigned", count: unassignedCount },
     { key: "clubbing",   label: "Clubbing",   count: clubData.reduce((s,o) => s + o.items.filter(i => i.itemProductionStage !== "READY_FOR_DISPATCH").length, 0) },
-    { key: "clubbing",   label: "Clubbing",   count: clubData.reduce((s,o) => s + o.items.length, 0) },
     { key: "sheets",     label: "Sheets",     count: sheetsData.length },
     { key: "all",        label: "All",        count: allCount },
   ] as const;
