@@ -642,7 +642,7 @@ export default function ProductionPage() {
                 const allItems = clubData.flatMap(o => o.items.filter(item => {
                   if (clubSubTab === "unassigned") return item.jobWorks.length === 0;
                   if (clubSubTab === "in_progress") return item.jobWorks.some(j => j.status === "PENDING" || j.status === "IN_PROGRESS");
-                  if (clubSubTab === "received") return item.jobWorks.some(j => j.status === "COMPLETED");
+                  if (clubSubTab === "received") return item.jobWorks.some(j => j.status === "COMPLETED") && item.itemProductionStage !== "READY_FOR_DISPATCH";
                   return false;
                 }).map(item => ({ ...item, orderNo: o.orderNo, customerName: o.customerName, salesAgentName: o.salesAgentName, orderId: o.id })));
 
@@ -1067,6 +1067,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
