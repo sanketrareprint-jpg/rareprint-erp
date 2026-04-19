@@ -716,7 +716,7 @@ export default function ProductionPage() {
                                   </button>
                                 )}
                                 {clubSubTab === "received" && (
-                                  <span className="text-xs text-green-600 font-semibold">✅ Done</span>
+                                  <button onClick={() => updateItemStage(item.id, "READY_FOR_DISPATCH")} disabled={updatingItemId === item.id} className="inline-flex items-center rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60">READY</button>
                                 )}
                               </td>
                             </tr>
