@@ -80,6 +80,7 @@ export default function ProductionPage() {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"unassigned"|"inhouse"|"clubbing"|"sheets"|"all">("unassigned");
+  const [inhouseSubTab, setInhouseSubTab] = useState<"printing_pending"|"processing_pending">("printing_pending");
 
   // Assign modal
   const [assignModal, setAssignModal] = useState<{ orderId: string; orderNo: string; customerName: string; items: OrderItem[] } | null>(null);
@@ -351,13 +352,22 @@ export default function ProductionPage() {
   const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE").length, 0), [ordersData]);
   const allCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.length, 0), [ordersData]);
   const unassignedOrders = useMemo(() => ordersData.filter(o => o.items.some(i => !i.productionCategory)), [ordersData]);
+  const printingPendingCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && (i.itemProductionStage === "NOT_PRINTED" || i.itemProductionStage === "PRINTING")).length, 0), [ordersData]);
+  const processingPendingCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && i.itemProductionStage === "PROCESSING").length, 0), [ordersData]);
 
   type FlatItem = OrderItem & { orderId: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; isFirstInOrder: boolean; };
   const flatItems = useMemo<FlatItem[]>(() => {
     const q = search.trim().toLowerCase();
     const result: FlatItem[] = [];
     for (const o of ordersData) {
-      let items = activeTab === "inhouse" ? o.items.filter(i => i.productionCategory === "INHOUSE") : o.items;
+      let items = activeTab === "inhouse"
+        ? o.items.filter(i => {
+            if (i.productionCategory !== "INHOUSE") return false;
+            if (inhouseSubTab === "printing_pending") return i.itemProductionStage === "NOT_PRINTED" || i.itemProductionStage === "PRINTING";
+            if (inhouseSubTab === "processing_pending") return i.itemProductionStage === "PROCESSING";
+            return true;
+          })
+        : o.items;
       if (q) items = items.filter(i => o.orderNo.toLowerCase().includes(q) || o.customerName.toLowerCase().includes(q) || i.productName.toLowerCase().includes(q));
       items.forEach((item, idx) => result.push({ ...item, orderId: o.id, orderNo: o.orderNo, customerName: o.customerName, customerPhone: o.customerPhone, salesAgentName: o.salesAgentName, orderDate: o.orderDate, isFirstInOrder: idx === 0 }));
     }
@@ -409,6 +419,28 @@ export default function ProductionPage() {
               </button>
             ))}
           </div>
+
+          {/* ── INHOUSE SUB-TABS ── */}
+          {activeTab === "inhouse" && (
+            <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+              <button
+                onClick={() => setInhouseSubTab("printing_pending")}
+                className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "printing_pending" ? "bg-white text-blue-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                🖨️ Printing Pending
+                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "printing_pending" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
+                  {printingPendingCount}
+                </span>
+              </button>
+              <button
+                onClick={() => setInhouseSubTab("processing_pending")}
+                className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "processing_pending" ? "bg-white text-yellow-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                ⚙️ Processing Pending
+                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "processing_pending" ? "bg-yellow-100 text-yellow-700" : "bg-slate-200 text-slate-500"}`}>
+                  {processingPendingCount}
+                </span>
+              </button>
+            </div>
+          )}
 
           {loading && <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>}
           {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -507,11 +539,27 @@ export default function ProductionPage() {
                             <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden"
                               accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
                               onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                            <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
-                              className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                              {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                              {isUploading ? "..." : "Upload"}
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
+                                className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                                {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                                {isUploading ? "..." : "Upload"}
+                              </button>
+                              {activeTab === "inhouse" && inhouseSubTab === "printing_pending" && (item.itemProductionStage === "NOT_PRINTED" || item.itemProductionStage === "PRINTING") && (
+                                <button onClick={() => updateItemStage(item.id, "PROCESSING")} disabled={isUpdating}
+                                  className="inline-flex items-center gap-0.5 rounded-md bg-yellow-500 px-2 py-0.5 text-xs font-semibold text-white hover:bg-yellow-600 disabled:opacity-60 whitespace-nowrap">
+                                  {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                  Move to Processing
+                                </button>
+                              )}
+                              {activeTab === "inhouse" && inhouseSubTab === "processing_pending" && item.itemProductionStage === "PROCESSING" && (
+                                <button onClick={() => updateItemStage(item.id, "READY_FOR_DISPATCH")} disabled={isUpdating}
+                                  className="inline-flex items-center gap-0.5 rounded-md bg-green-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60 whitespace-nowrap">
+                                  {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                  Mark Ready
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {isExpanded && designFiles.length > 0 && (
