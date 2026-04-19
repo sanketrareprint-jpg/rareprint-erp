@@ -130,7 +130,7 @@ export default function ProductionPage() {
         fetch(`${API_BASE_URL}/vendors`, { headers: h }),
       ]);
       if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-      setOrders(Array.isArray(await oRes.json()) ? await oRes.clone().json() : []);
+      setOrders(oRes.ok ? await oRes.json() : []);
       setClubbingOrders(cRes.ok ? await cRes.json() : []);
       setSheets(sRes.ok ? await sRes.json() : []);
       setVendors(vRes.ok ? await vRes.json() : []);
@@ -403,7 +403,7 @@ export default function ProductionPage() {
 
   // ── Derived counts ────────────────────────────────────────────────────────
   const unassignedCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => !i.productionCategory).length, 0), [ordersData]);
-  const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE").length, 0), [ordersData]);
+  const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && i.itemProductionStage !== "READY_FOR_DISPATCH").length, 0), [ordersData]);
   const allCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.length, 0), [ordersData]);
   const unassignedOrders = useMemo(() => ordersData.filter(o => o.items.some(i => !i.productionCategory)), [ordersData]);
 
@@ -417,7 +417,7 @@ export default function ProductionPage() {
       items.forEach((item, idx) => result.push({ ...item, orderId: o.id, orderNo: o.orderNo, customerName: o.customerName, customerPhone: o.customerPhone, salesAgentName: o.salesAgentName, orderDate: o.orderDate, isFirstInOrder: idx === 0 }));
     }
     return result;
-  }, [ordersData, activeTab, search]);
+  }, [ordersData, activeTab, search, inhouseSubTab]);
 
   const IS = { input: { width: "100%", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 10px", fontSize: "12px", boxSizing: "border-box" as const, background: "white" } };
 
@@ -1053,3 +1053,6 @@ export default function ProductionPage() {
     </>
   );
 }
+
+
+
