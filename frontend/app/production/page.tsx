@@ -349,7 +349,7 @@ export default function ProductionPage() {
 
   // ── Derived counts ────────────────────────────────────────────────────────
   const unassignedCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => !i.productionCategory).length, 0), [ordersData]);
-  const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE").length, 0), [ordersData]);
+  const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && i.itemProductionStage !== "READY_FOR_DISPATCH").length, 0), [ordersData]);
   const allCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.length, 0), [ordersData]);
   const unassignedOrders = useMemo(() => ordersData.filter(o => o.items.some(i => !i.productionCategory)), [ordersData]);
   const printingPendingCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && (i.itemProductionStage === "NOT_PRINTED" || i.itemProductionStage === "PRINTING")).length, 0), [ordersData]);
@@ -959,5 +959,6 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
