@@ -372,7 +372,7 @@ export default function ProductionPage() {
       items.forEach((item, idx) => result.push({ ...item, orderId: o.id, orderNo: o.orderNo, customerName: o.customerName, customerPhone: o.customerPhone, salesAgentName: o.salesAgentName, orderDate: o.orderDate, isFirstInOrder: idx === 0 }));
     }
     return result;
-  }, [ordersData, activeTab, search]);
+  }, [ordersData, activeTab, search, inhouseSubTab]);
 
   const IS = { input: { width: "100%", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 10px", fontSize: "12px", boxSizing: "border-box" as const, background: "white" } };
 
@@ -959,4 +959,5 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
