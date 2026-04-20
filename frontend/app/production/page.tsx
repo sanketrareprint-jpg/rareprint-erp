@@ -213,23 +213,27 @@ export default function ProductionPage() {
     const { sheet, item } = multipleDialog;
     const mult = Number(multipleValue);
     if (!mult || mult < 1) { alert("Enter a valid multiple"); return; }
-    const [w, h] = item.openSizeInches.split("x").map(Number);
-    const itemArea = w * h;
+    // Parse size from productionNotes or openSizeInches
+    const notes = item.productionNotes ?? "";
+    const sizeFromNotes = notes.match(/Size:\s*([^,]+)/)?.[1]?.trim();
+    const sizeStr = sizeFromNotes ?? item.openSizeInches ?? "0x0";
+    const [w, h] = sizeStr.split("x").map(Number);
+    const itemArea = (w && h) ? w * h : 0;
     setPlacingItem(item.id);
     try {
       const res = await fetch(`${API_BASE_URL}/production/sheets/${sheet.id}/items`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderItemId: item.id, productId: item.id,
+          orderItemId: item.id,
+          productId: item.productId || item.id,
           multiple: mult,
-          quantityOnSheet: Math.min(mult * Math.floor(sheet.quantity / 1), item.quantity),
-          areaSqInches: itemArea * mult,
+          quantityOnSheet: Math.min(mult * (sheet.quantity || item.quantity), item.quantity),
+          areaSqInches: itemArea > 0 ? itemArea * mult : 1,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setMultipleDialog(null); setMultipleValue("1");
       await loadAll();
-      await loadPlaceableItems(sheet.gsm);
     } finally { setPlacingItem(null); }
   }
 
