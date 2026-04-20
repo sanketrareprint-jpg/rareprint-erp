@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -133,7 +133,7 @@ export default function ProductionPage() {
   const [sheetStatusDesc, setSheetStatusDesc] = useState("");
   const [savingSheetStatus, setSavingSheetStatus] = useState(false);
   // Multiple dialog (when placing item that needs >1x)
-  const [multipleDialog, setMultipleDialog] = useState<{ sheet: any; item: PlaceableItem; maxFits: number } | null>(null);
+  const [selectedSheetId, setSelectedSheetId] = useState<Record<string, string>>({});
   const [multipleValue, setMultipleValue] = useState("1");
 
   const load = useCallback(async () => {
@@ -888,20 +888,21 @@ export default function ProductionPage() {
                                   <span className="text-xs text-slate-400">No matching sheets (GSM: {itemGsm || "unknown"})</span>
                                 ) : (
                                   <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2">
                                     <select
-                                      defaultValue=""
-                                      id={`sheet-select-${item.id}`}
+                                      value={selectedSheetId[item.id] ?? ""}
+                                      onChange={e => setSelectedSheetId(p => ({ ...p, [item.id]: e.target.value }))}
                                       style={{ border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "12px", background: "white", outline: "none" }}>
                                       <option value="" disabled>Select sheet...</option>
                                       {matchingSheets.map(sheet => {
-                                        const sizeStr = size ?? item.openSizeInches ?? "0x0";
+                                        const sizeStr = size ?? "0x0";
                                         const [w, h] = sizeStr.split("x").map(Number);
                                         const itemArea = (w && h) ? w * h : 0;
                                         const available = sheet.areaSqInches - sheet.usedAreaSqInches;
                                         const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
                                         return (
                                           <option key={sheet.id} value={sheet.id}>
-                                            {sheet.sheetNo} {fits > 0 ? `(${fits}×)` : "(Full)"}
+                                            {sheet.sheetNo} {fits > 0 ? `(${fits}\u00d7)` : "(Full)"}
                                           </option>
                                         );
                                       })}
@@ -909,11 +910,10 @@ export default function ProductionPage() {
                                     <button
                                       disabled={placingItem === item.id}
                                       onClick={() => {
-                                        const sel = document.getElementById(`sheet-select-${item.id}`) as HTMLSelectElement;
-                                        const sheetId = sel?.value;
+                                        const sheetId = selectedSheetId[item.id];
                                         if (!sheetId) { alert("Please select a sheet first"); return; }
                                         const sheet = sheetsData.find(s => s.id === sheetId)!;
-                                        const sizeStr = size ?? item.openSizeInches ?? "0x0";
+                                        const sizeStr = size ?? "0x0";
                                         const [w, h] = sizeStr.split("x").map(Number);
                                         const itemArea = (w && h) ? w * h : 0;
                                         const available = sheet.areaSqInches - sheet.usedAreaSqInches;
@@ -924,13 +924,29 @@ export default function ProductionPage() {
                                           setMultipleDialog({ sheet, item, maxFits });
                                           setMultipleValue(String(maxFits));
                                         } else {
-                                          placeItemOnSheet(sheet.id, item);
+                                          const qtyOnSheet = fits > 0 ? Math.min(item.quantity, fits) : item.quantity;
+                                          fetch(`${API_BASE_URL}/production/sheets/${sheet.id}/items`, {
+                                            method: "POST",
+                                            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                                            body: JSON.stringify({
+                                              orderItemId: item.id,
+                                              productId: item.id,
+                                              multiple: 1,
+                                              quantityOnSheet: qtyOnSheet,
+                                              areaSqInches: itemArea || 1,
+                                            }),
+                                          }).then(async res => {
+                                            if (!res.ok) { const b = await res.json(); alert(b.message || "Failed to assign"); return; }
+                                            setSelectedSheetId(p => { const n = {...p}; delete n[item.id]; return n; });
+                                            await loadAll();
+                                          }).catch(() => alert("Network error"));
                                         }
                                       }}
                                       className="inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50">
                                       {placingItem === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                                       Assign
                                     </button>
+                                  </div>
                                   </div>
                                 )}
                               </td>
