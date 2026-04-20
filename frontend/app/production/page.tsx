@@ -577,11 +577,12 @@ export default function ProductionPage() {
                               accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
                               onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                              {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                              {isUploading ? "..." : "Upload"}
-                              {isUploading ? "..." : "Upload"}
+                              <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
+                                className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                                {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                                {isUploading ? "..." : "Upload"}
                               </button>
+                              {activeTab === "inhouse" && inhouseSubTab === "printing_pending" && (item.itemProductionStage === "NOT_PRINTED" || item.itemProductionStage === "PRINTING") && (
                                 <button onClick={() => updateItemStage(item.id, "PROCESSING")} disabled={isUpdating}
                                   className="inline-flex items-center gap-0.5 rounded-md bg-yellow-500 px-2 py-0.5 text-xs font-semibold text-white hover:bg-yellow-600 disabled:opacity-60 whitespace-nowrap">
                                   {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Move to Processing
