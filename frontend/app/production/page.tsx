@@ -1026,7 +1026,7 @@ export default function ProductionPage() {
                                       <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
                                       <span className="text-slate-500">{si.orderItem.order.orderNumber} â€” {si.orderItem.order.customer.businessName}</span>
                                       <span className="text-slate-400">{si.orderItem.product.sizeInches}"</span>
-                                      <span className="text-cyan-700 font-semibold">Ã—{si.multiple} Â· Qty {si.quantityOnSheet}</span>
+                                      <span className="text-cyan-700 font-semibold">x{si.multiple} Â· Qty {si.quantityOnSheet}</span>
                                       <span className="text-slate-400">{si.areaSqInches.toFixed(1)} sq in</span>
                                       <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                                     </div>
@@ -1138,7 +1138,7 @@ export default function ProductionPage() {
                                 <span className="font-bold text-blue-700">{si.orderNo}</span>
                                 <span className="font-semibold text-slate-800">{si.productName}</span>
                                 <span className="text-slate-500">{si.customerName}</span>
-                                <span className="text-cyan-700 font-semibold">Sheet: {si.sheetNo} Ã—{si.multiple}</span>
+                                <span className="text-cyan-700 font-semibold">Sheet: {si.sheetNo} x{si.multiple}</span>
                                 <span className="text-slate-600">Qty on sheet: {si.quantityOnSheet}</span>
                               </div>
                             ))}
@@ -1341,11 +1341,11 @@ export default function ProductionPage() {
               <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
             <p className="text-xs text-slate-600 mb-3">
-              This item needs more space than one sheet slot. Enter how many times (Ã—) to place this item on the sheet.
-              Suggested: <strong>{multipleDialog.maxFits}Ã—</strong>
+              This item needs more space than one sheet slot. Enter how many times (x) to place this item on the sheet.
+              Suggested: <strong>{multipleDialog.maxFits}x</strong>
             </p>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (Ã—) <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (x) <span className="text-red-500">*</span></label>
               <input type="number" min="1" value={multipleValue} onChange={e => setMultipleValue(e.target.value)} style={IS.input} />
             </div>
             <div className="mt-4 flex justify-end gap-2">
@@ -1472,6 +1472,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
