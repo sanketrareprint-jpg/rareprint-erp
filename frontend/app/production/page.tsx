@@ -904,7 +904,7 @@ export default function ProductionPage() {
                                         const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
                                         return (
                                           <option key={sheet.id} value={sheet.id}>
-                                            {sheet.sheetNo} {fits > 0 ? `(${fits}x)` : "(Full)"}
+                                            {sheet.sheetNo} ({fits > 0 ? fits + "x" : "Full"})
                                           </option>
                                         );
                                       })}
