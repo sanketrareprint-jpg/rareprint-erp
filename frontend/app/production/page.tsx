@@ -904,7 +904,7 @@ export default function ProductionPage() {
                                         const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
                                         return (
                                           <option key={sheet.id} value={sheet.id}>
-                                            {sheet.sheetNo} {fits > 0 ? `(${fits}\u00d7)` : "(Full)"}
+                                            {sheet.sheetNo} {fits > 0 ? `(${fits}x)` : "(Full)"}
                                           </option>
                                         );
                                       })}
@@ -921,10 +921,10 @@ export default function ProductionPage() {
                                         const available = sheet.areaSqInches - sheet.usedAreaSqInches;
                                         const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
                                         const needsMultiple = fits > 0 && item.quantity > fits;
-                                        if (needsMultiple) {
-                                          const maxFits = Math.ceil(item.quantity / fits);
+                                        if (needsMultiple || true) {
+                                          const maxFits = Math.ceil(item.quantity / Math.max(fits, 1));
                                           setMultipleDialog({ sheet, item, maxFits });
-                                          setMultipleValue(String(maxFits));
+                                          setMultipleValue("1");
                                         } else {
                                           const qtyOnSheet = fits > 0 ? Math.min(item.quantity, fits) : item.quantity;
                                           setPlacingItem(item.id);
@@ -1472,6 +1472,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
