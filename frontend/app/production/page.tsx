@@ -119,6 +119,22 @@ export default function ProductionPage() {
   const [placingItem, setPlacingItem] = useState<string | null>(null);
   const [stageVendorForm, setStageVendorForm] = useState<Record<string, { stage: string; vendorId: string; cost: string; description: string; vendorInvoiceNo: string }>>({});
   const [savingStageVendor, setSavingStageVendor] = useState(false);
+  // Sheet sub-tabs
+  const [sheetSubTab, setSheetSubTab] = useState<"unassigned"|"created"|"processing">("unassigned");
+  const [processingSubTab, setProcessingSubTab] = useState<"printing"|"processing">("printing");
+  // Sheet order items (for processing tab)
+  const [sheetOrderItems, setSheetOrderItems] = useState<any[]>([]);
+  // Status-with-vendor dialog (COMPLETE → PRINTING)
+  const [sheetStatusDialog, setSheetStatusDialog] = useState<{ sheetId: string; sheetNo: string } | null>(null);
+  const [sheetStatusVendorId, setSheetStatusVendorId] = useState("");
+  const [sheetStatusActivity, setSheetStatusActivity] = useState("PRINTING");
+  const [sheetStatusCost, setSheetStatusCost] = useState("");
+  const [sheetStatusInvNo, setSheetStatusInvNo] = useState("");
+  const [sheetStatusDesc, setSheetStatusDesc] = useState("");
+  const [savingSheetStatus, setSavingSheetStatus] = useState(false);
+  // Multiple dialog (when placing item that needs >1x)
+  const [multipleDialog, setMultipleDialog] = useState<{ sheet: any; item: PlaceableItem; maxFits: number } | null>(null);
+  const [multipleValue, setMultipleValue] = useState("1");
 
   const load = useCallback(async () => {
     setError(null); setLoading(true);
@@ -151,20 +167,70 @@ export default function ProductionPage() {
     setError(null); setLoading(true);
     try {
       const h = getAuthHeaders();
-      const [oRes, cRes, sRes, vRes] = await Promise.all([
+      const [oRes, cRes, sRes, vRes, siRes] = await Promise.all([
         fetch(`${API_BASE_URL}/production/orders`, { headers: h }),
         fetch(`${API_BASE_URL}/production/clubbing/orders`, { headers: h }),
         fetch(`${API_BASE_URL}/production/sheets`, { headers: h }),
         fetch(`${API_BASE_URL}/vendors`, { headers: h }),
+        fetch(`${API_BASE_URL}/production/sheets/order-items`, { headers: h }),
       ]);
       if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
       setOrdersData(oRes.ok ? await oRes.json() : []);
       setClubData(cRes.ok ? await cRes.json() : []);
       setSheetsData(sRes.ok ? await sRes.json() : []);
       setVendorsData(vRes.ok ? await vRes.json() : []);
+      setSheetOrderItems(siRes.ok ? await siRes.json() : []);
     } catch { setError("Network error."); }
     finally { setLoading(false); }
   }, [router]);
+
+  async function updateSheetStatusWithVendor() {
+    if (!sheetStatusDialog || !sheetStatusVendorId) { alert("Please select a vendor"); return; }
+    setSavingSheetStatus(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/sheets/${sheetStatusDialog.sheetId}/status-with-vendor`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "PRINTING",
+          vendorId: sheetStatusVendorId,
+          activityType: sheetStatusActivity,
+          cost: sheetStatusCost ? Number(sheetStatusCost) : undefined,
+          vendorInvoiceNo: sheetStatusInvNo || undefined,
+          description: sheetStatusDesc || undefined,
+        }),
+      });
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
+      setSheetStatusDialog(null);
+      setSheetStatusVendorId(""); setSheetStatusActivity("PRINTING");
+      setSheetStatusCost(""); setSheetStatusInvNo(""); setSheetStatusDesc("");
+      await loadAll();
+    } finally { setSavingSheetStatus(false); }
+  }
+
+  async function confirmPlaceWithMultiple() {
+    if (!multipleDialog) return;
+    const { sheet, item } = multipleDialog;
+    const mult = Number(multipleValue);
+    if (!mult || mult < 1) { alert("Enter a valid multiple"); return; }
+    const [w, h] = item.openSizeInches.split("x").map(Number);
+    const itemArea = w * h;
+    setPlacingItem(item.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/sheets/${sheet.id}/items`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderItemId: item.id, productId: item.id,
+          multiple: mult,
+          quantityOnSheet: Math.min(mult * Math.floor(sheet.quantity / 1), item.quantity),
+          areaSqInches: itemArea * mult,
+        }),
+      });
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
+      setMultipleDialog(null); setMultipleValue("1");
+      await loadAll();
+      await loadPlaceableItems(sheet.gsm);
+    } finally { setPlacingItem(null); }
+  }
 
   useEffect(() => { void loadAll(); }, [loadAll]);
 
@@ -445,7 +511,6 @@ export default function ProductionPage() {
             </div>
             <div className="flex gap-2">
               <button onClick={() => setVendorModal(true)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">+ Vendor</button>
-              {activeTab === "sheets" && <button onClick={() => setCreateSheetModal(true)} className="rounded-lg bg-cyan-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-cyan-700">+ New Sheet</button>}
               <button onClick={loadAll} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
             </div>
           </div>
@@ -747,154 +812,363 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
-              {sheetsData.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets yet. Click "+ New Sheet" to create one.</div>
-              ) : sheetsData.map(sheet => {
-                const isExp = expandedSheet === sheet.id;
-                const usedPct = sheet.areaSqInches > 0 ? Math.round((sheet.usedAreaSqInches / sheet.areaSqInches) * 100) : 0;
-                const svf = stageVendorForm[sheet.id] ?? { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" };
-                return (
-                  <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    {/* Sheet header */}
-                    <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => {
-                      setExpandedSheet(isExp ? null : sheet.id);
-                      if (!isExp) loadPlaceableItems(sheet.gsm);
-                    }}>
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
-                        <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g, " ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
-                        <span className="text-xs text-slate-500">{sheet.printing === "SINGLE_SIDE" ? "Single" : "Double"} side</span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
-                        <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} item{sheet.items.length !== 1 ? "s" : ""}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
-                          className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
-                          {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
-                      </div>
-                    </div>
+              {/* Sheet Sub-tabs */}
+              <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+                {([
+                  { key: "unassigned", label: "📋 Unassigned", count: (() => { const placed = new Set(sheetOrderItems.map(si => si.orderItemId)); return ordersData.reduce((s, o) => s + o.items.filter((i: any) => i.productionCategory === "SHEET_PRODUCTION" && !placed.has(i.id)).length, 0); })() },
+                  { key: "created", label: "🗂️ Created Sheets", count: sheetsData.length },
+                  { key: "processing", label: "⚙️ Processing Sheets", count: sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length },
+                ] as { key: "unassigned"|"created"|"processing"; label: string; count: number }[]).map(t => (
+                  <button key={t.key} onClick={() => setSheetSubTab(t.key)}
+                    className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white text-cyan-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                    {t.label}
+                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? "bg-cyan-100 text-cyan-700" : "bg-slate-200 text-slate-500"}`}>{t.count}</span>
+                  </button>
+                ))}
+              </div>
 
-                    {isExp && (
-                      <div className="p-4 space-y-4">
-                        {/* Space bar */}
-                        <div>
-                          <div className="flex justify-between text-xs text-slate-500 mb-1">
-                            <span>Space used: {sheet.usedAreaSqInches.toFixed(1)} / {sheet.areaSqInches} sq in</span>
-                            <span>{usedPct}%</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                            <div className={`h-full rounded-full transition-all ${usedPct > 90 ? "bg-red-500" : usedPct > 70 ? "bg-yellow-500" : "bg-cyan-500"}`} style={{ width: `${usedPct}%` }} />
-                          </div>
-                        </div>
-
-                        {/* Items on sheet */}
-                        <div>
-                          <p className="text-xs font-semibold text-slate-600 mb-2">Items on this sheet</p>
-                          {sheet.items.length === 0 ? <p className="text-xs text-slate-400">No items placed yet.</p> : (
-                            <div className="space-y-1.5">
-                              {sheet.items.map(si => (
-                                <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                                  <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
-                                  <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
-                                  <span className="text-slate-400">{si.orderItem.product.sizeInches}"</span>
-                                  <span className="text-cyan-700 font-semibold">×{si.multiple} · Qty {si.quantityOnSheet}</span>
-                                  <span className="text-slate-400">{si.areaSqInches.toFixed(1)} sq in</span>
-                                  <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Placeable items */}
-                        <div>
-                          <p className="text-xs font-semibold text-slate-600 mb-2">Place items (GSM: {sheet.gsm})</p>
-                          {loadingPlaceable ? <Loader2 className="h-4 w-4 animate-spin text-cyan-600" /> : placeableItems.length === 0 ? (
-                            <p className="text-xs text-slate-400">No unplaced items with {sheet.gsm} GSM.</p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              {placeableItems.map(pi => {
-                                const [w, h] = pi.openSizeInches.split("x").map(Number);
-                                const itemArea = (w && h) ? w * h : 0;
-                                const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-                                const fits = itemArea > 0 ? Math.floor(available / itemArea) : 0;
-                                return (
-                                  <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
-                                    <span className="font-semibold text-slate-800">{pi.productName}</span>
-                                    <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
-                                    <span className="text-slate-400">{pi.openSizeInches}" · Qty {pi.quantity}</span>
-                                    <span className="text-cyan-700 font-semibold">Fits: {fits}×</span>
-                                    <button onClick={() => placeItemOnSheet(sheet.id, pi)} disabled={fits === 0 || placingItem === pi.id}
-                                      className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
-                                      {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
-                                    </button>
+              {/* ── UNASSIGNED SUB-TAB ── */}
+              {sheetSubTab === "unassigned" && (() => {
+                const placedItemIds = new Set(sheetOrderItems.map((si: any) => si.orderItemId));
+                const unassignedItems = ordersData.flatMap(o =>
+                  o.items.filter((i: any) => i.productionCategory === "SHEET_PRODUCTION" && !placedItemIds.has(i.id))
+                  .map((i: any) => ({ ...i, orderNo: o.orderNo, customerName: o.customerName, salesAgentName: o.salesAgentName }))
+                );
+                return unassignedItems.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No unassigned sheet items.</div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                    <table className="w-full text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                      <thead>
+                        <tr className="bg-cyan-50 border-b border-cyan-100">
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Assign Sheet</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {unassignedItems.map((item: any) => {
+                          const { gsm } = parseNotes(item.productionNotes);
+                          const itemGsm = Number(gsm ?? item.gsm ?? 0);
+                          const matchingSheets = sheetsData.filter(s => s.gsm === itemGsm && s.status === "INCOMPLETE" || s.status === "SETTING");
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-50">
+                              <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
+                              <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
+                              <td className="px-3 py-2 text-slate-600">{itemGsm || "—"}</td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
+                              <td className="px-3 py-2">
+                                {matchingSheets.length === 0 ? (
+                                  <span className="text-xs text-slate-400">No matching sheets (GSM: {itemGsm})</span>
+                                ) : (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {matchingSheets.map(sheet => {
+                                      const [w, h] = (item.openSizeInches || "0x0").split("x").map(Number);
+                                      const itemArea = w * h;
+                                      const available = sheet.areaSqInches - sheet.usedAreaSqInches;
+                                      const fits = itemArea > 0 ? Math.floor(available / itemArea) : 0;
+                                      const needsMultiple = item.quantity > fits;
+                                      return (
+                                        <button key={sheet.id}
+                                          onClick={() => {
+                                            if (needsMultiple) {
+                                              setMultipleDialog({ sheet, item, maxFits: Math.ceil(item.quantity / fits) });
+                                              setMultipleValue(String(Math.ceil(item.quantity / fits)));
+                                            } else {
+                                              placeItemOnSheet(sheet.id, item);
+                                            }
+                                          }}
+                                          disabled={fits === 0 || placingItem === item.id}
+                                          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${fits === 0 ? "bg-red-50 text-red-400 border border-red-200" : "bg-cyan-600 text-white hover:bg-cyan-700"}`}>
+                                          {placingItem === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                          {sheet.sheetNo} {fits > 0 ? `(${fits}×)` : "(Full)"}
+                                          {needsMultiple && fits > 0 ? " 📋" : ""}
+                                        </button>
+                                      );
+                                    })}
                                   </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Stage vendors */}
-                        <div>
-                          <p className="text-xs font-semibold text-slate-600 mb-2">Stage Vendors</p>
-                          {sheet.stageVendors.length > 0 && (
-                            <div className="space-y-1.5 mb-3">
-                              {sheet.stageVendors.map(sv => (
-                                <div key={sv.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                                  <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g, " ")}</span>
-                                  <span className="font-semibold text-slate-800">{sv.vendor.name}</span>
-                                  {sv.description && <span className="text-slate-400">{sv.description}</span>}
-                                  {sv.vendorInvoiceNo && <span className="text-slate-400">Inv: {sv.vendorInvoiceNo}</span>}
-                                  <span className="font-bold text-cyan-700 whitespace-nowrap">{fmt(sv.cost)}</span>
-                                  <button onClick={() => deleteStageVendor(sv.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50/50 p-3">
-                            <p className="text-xs font-semibold text-cyan-700 mb-2">+ Assign Stage Vendor</p>
-                            <div className="grid grid-cols-3 gap-2 mb-2">
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Stage *</label>
-                                <select value={svf.stage} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, stage: e.target.value } }))} style={IS.input}>
-                                  <option value="">Select...</option>
-                                  {SHEET_STAGES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                                <select value={svf.vendorId} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorId: e.target.value } }))} style={IS.input}>
-                                  <option value="">Select...</option>
-                                  {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Cost (₹) *</label>
-                                <input type="number" value={svf.cost} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, cost: e.target.value } }))} placeholder="0.00" style={IS.input} />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Description</label>
-                                <input value={svf.description} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, description: e.target.value } }))} placeholder="Optional" style={IS.input} />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Invoice No</label>
-                                <input value={svf.vendorInvoiceNo} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorInvoiceNo: e.target.value } }))} placeholder="Optional" style={IS.input} />
-                              </div>
-                            </div>
-                            <button onClick={() => addStageVendor(sheet.id)} disabled={savingStageVendor}
-                              className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                              {savingStageVendor ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Add
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 );
-              })}
+              })()}
+
+              {/* ── CREATED SHEETS SUB-TAB ── */}
+              {sheetSubTab === "created" && (
+                <div className="space-y-3">
+                  <div className="flex justify-end">
+                    <button onClick={() => setCreateSheetModal(true)} className="rounded-lg bg-cyan-600 text-white px-4 py-1.5 text-xs font-semibold hover:bg-cyan-700">+ New Sheet</button>
+                  </div>
+                  {sheetsData.length === 0 ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets yet. Click "+ New Sheet" to create one.</div>
+                  ) : sheetsData.map(sheet => {
+                    const isExp = expandedSheet === sheet.id;
+                    const usedPct = sheet.areaSqInches > 0 ? Math.round((sheet.usedAreaSqInches / sheet.areaSqInches) * 100) : 0;
+                    const svf = stageVendorForm[sheet.id] ?? { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" };
+                    return (
+                      <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => {
+                          setExpandedSheet(isExp ? null : sheet.id);
+                          if (!isExp) loadPlaceableItems(sheet.gsm);
+                        }}>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
+                            <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g, " ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                            <span className="text-xs text-slate-500">{sheet.printing === "SINGLE_SIDE" ? "Single" : "Double"} side</span>
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
+                            <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} item{sheet.items.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <select value={sheet.status} onClick={e => e.stopPropagation()}
+                              onChange={e => {
+                                const newStatus = e.target.value;
+                                if (sheet.status === "COMPLETE" && newStatus === "PRINTING") {
+                                  setSheetStatusDialog({ sheetId: sheet.id, sheetNo: sheet.sheetNo });
+                                  setSheetStatusVendorId(""); setSheetStatusActivity("PRINTING");
+                                  setSheetStatusCost(""); setSheetStatusInvNo(""); setSheetStatusDesc("");
+                                } else {
+                                  updateSheetStatus(sheet.id, newStatus);
+                                }
+                              }}
+                              className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
+                              {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                          </div>
+                        </div>
+                        {isExp && (
+                          <div className="p-4 space-y-4">
+                            {/* Space bar */}
+                            <div>
+                              <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                <span>Space used: {sheet.usedAreaSqInches.toFixed(1)} / {sheet.areaSqInches} sq in</span>
+                                <span>{usedPct}%</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${usedPct > 90 ? "bg-red-500" : usedPct > 70 ? "bg-yellow-500" : "bg-cyan-500"}`} style={{ width: `${usedPct}%` }} />
+                              </div>
+                            </div>
+                            {/* Items on sheet */}
+                            <div>
+                              <p className="text-xs font-semibold text-slate-600 mb-2">Items on this sheet</p>
+                              {sheet.items.length === 0 ? <p className="text-xs text-slate-400">No items placed yet.</p> : (
+                                <div className="space-y-1.5">
+                                  {sheet.items.map((si: any) => (
+                                    <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                                      <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
+                                      <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
+                                      <span className="text-slate-400">{si.orderItem.product.sizeInches}"</span>
+                                      <span className="text-cyan-700 font-semibold">×{si.multiple} · Qty {si.quantityOnSheet}</span>
+                                      <span className="text-slate-400">{si.areaSqInches.toFixed(1)} sq in</span>
+                                      <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {/* Placeable items */}
+                            <div>
+                              <p className="text-xs font-semibold text-slate-600 mb-2">Place items (GSM: {sheet.gsm})</p>
+                              {loadingPlaceable ? <Loader2 className="h-4 w-4 animate-spin text-cyan-600" /> : placeableItems.length === 0 ? (
+                                <p className="text-xs text-slate-400">No unplaced items with {sheet.gsm} GSM.</p>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {placeableItems.map(pi => {
+                                    const [w, h] = pi.openSizeInches.split("x").map(Number);
+                                    const itemArea = (w && h) ? w * h : 0;
+                                    const available = sheet.areaSqInches - sheet.usedAreaSqInches;
+                                    const fits = itemArea > 0 ? Math.floor(available / itemArea) : 0;
+                                    return (
+                                      <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
+                                        <span className="font-semibold text-slate-800">{pi.productName}</span>
+                                        <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
+                                        <span className="text-slate-400">{pi.openSizeInches}" · Qty {pi.quantity}</span>
+                                        <span className="text-cyan-700 font-semibold">Fits: {fits}×</span>
+                                        <button onClick={() => placeItemOnSheet(sheet.id, pi)} disabled={fits === 0 || placingItem === pi.id}
+                                          className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
+                                          {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            {/* Stage vendors */}
+                            <div>
+                              <p className="text-xs font-semibold text-slate-600 mb-2">Stage Vendors</p>
+                              {sheet.stageVendors.length > 0 && (
+                                <div className="space-y-1.5 mb-3">
+                                  {sheet.stageVendors.map((sv: any) => (
+                                    <div key={sv.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                                      <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g, " ")}</span>
+                                      <span className="font-semibold text-slate-800">{sv.vendor.name}</span>
+                                      {sv.description && <span className="text-slate-400">{sv.description}</span>}
+                                      {sv.vendorInvoiceNo && <span className="text-slate-400">Inv: {sv.vendorInvoiceNo}</span>}
+                                      <span className="font-bold text-cyan-700 whitespace-nowrap">{fmt(sv.cost)}</span>
+                                      <button onClick={() => deleteStageVendor(sv.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50/50 p-3">
+                                <p className="text-xs font-semibold text-cyan-700 mb-2">+ Assign Stage Vendor</p>
+                                <div className="grid grid-cols-3 gap-2 mb-2">
+                                  <div><label className="block text-xs text-slate-500 mb-1">Stage *</label>
+                                    <select value={svf.stage} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, stage: e.target.value } }))} style={IS.input}>
+                                      <option value="">Select...</option>
+                                      {SHEET_STAGES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+                                    </select>
+                                  </div>
+                                  <div><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
+                                    <select value={svf.vendorId} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorId: e.target.value } }))} style={IS.input}>
+                                      <option value="">Select...</option>
+                                      {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                                    </select>
+                                  </div>
+                                  <div><label className="block text-xs text-slate-500 mb-1">Cost (₹) *</label>
+                                    <input type="number" value={svf.cost} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, cost: e.target.value } }))} placeholder="0.00" style={IS.input} />
+                                  </div>
+                                  <div><label className="block text-xs text-slate-500 mb-1">Description</label>
+                                    <input value={svf.description} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, description: e.target.value } }))} placeholder="Optional" style={IS.input} />
+                                  </div>
+                                  <div><label className="block text-xs text-slate-500 mb-1">Invoice No</label>
+                                    <input value={svf.vendorInvoiceNo} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorInvoiceNo: e.target.value } }))} placeholder="Optional" style={IS.input} />
+                                  </div>
+                                </div>
+                                <button onClick={() => addStageVendor(sheet.id)} disabled={savingStageVendor}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                                  {savingStageVendor ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Add
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── PROCESSING SHEETS SUB-TAB ── */}
+              {sheetSubTab === "processing" && (
+                <div className="space-y-3">
+                  {/* Processing sub-tabs: Printing / Processing */}
+                  <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+                    <button onClick={() => setProcessingSubTab("printing")}
+                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "printing" ? "bg-white text-blue-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                      🖨️ Printing
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${processingSubTab === "printing" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
+                        {sheetOrderItems.filter((si: any) => si.sheetStatus === "PRINTING").length}
+                      </span>
+                    </button>
+                    <button onClick={() => setProcessingSubTab("processing")}
+                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "processing" ? "bg-white text-yellow-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                      ⚙️ Processing
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${processingSubTab === "processing" ? "bg-yellow-100 text-yellow-700" : "bg-slate-200 text-slate-500"}`}>
+                        {sheetOrderItems.filter((si: any) => si.sheetStatus === "PROCESSING").length}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* PRINTING sub-tab — grouped by sheet */}
+                  {processingSubTab === "printing" && (() => {
+                    const printingSheets = sheetsData.filter(s => s.status === "PRINTING");
+                    return printingSheets.length === 0 ? (
+                      <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets in printing stage.</div>
+                    ) : printingSheets.map(sheet => {
+                      const items = sheetOrderItems.filter((si: any) => si.sheetId === sheet.id);
+                      return (
+                        <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="font-bold text-blue-700 text-sm">{sheet.sheetNo}</span>
+                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g, " ")} · Qty {sheet.quantity}</span>
+                              <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-semibold">PRINTING</span>
+                              <span className="text-xs text-slate-500">{items.length} item{items.length !== 1 ? "s" : ""}</span>
+                            </div>
+                            <button onClick={() => updateSheetStatus(sheet.id, "PROCESSING")}
+                              className="rounded-lg bg-yellow-500 text-white px-3 py-1 text-xs font-semibold hover:bg-yellow-600">
+                              Move to Processing →
+                            </button>
+                          </div>
+                          <div className="divide-y divide-slate-100">
+                            {items.map((si: any) => (
+                              <div key={si.id} className="flex items-center gap-4 px-4 py-2 text-xs flex-wrap">
+                                <span className="font-bold text-blue-700">{si.orderNo}</span>
+                                <span className="font-semibold text-slate-800">{si.productName}</span>
+                                <span className="text-slate-500">{si.customerName}</span>
+                                <span className="text-cyan-700 font-semibold">Sheet: {si.sheetNo} ×{si.multiple}</span>
+                                <span className="text-slate-600">Qty on sheet: {si.quantityOnSheet}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+
+                  {/* PROCESSING sub-tab — ungrouped items with vendor assignment */}
+                  {processingSubTab === "processing" && (() => {
+                    const processingItems = sheetOrderItems.filter((si: any) => si.sheetStatus === "PROCESSING");
+                    return processingItems.length === 0 ? (
+                      <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No items in processing stage.</div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                        <table className="w-full text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                          <thead>
+                            <tr className="bg-yellow-50 border-b border-yellow-100">
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Stage</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Vendor</th>
+                              <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {processingItems.map((si: any) => {
+                              const latestVendor = si.stageVendors?.[si.stageVendors.length - 1];
+                              return (
+                                <tr key={si.id} className="hover:bg-slate-50">
+                                  <td className="px-3 py-2 font-bold text-blue-700">{si.orderNo}</td>
+                                  <td className="px-3 py-2 text-slate-700">{si.customerName}</td>
+                                  <td className="px-3 py-2 font-semibold text-slate-800">{si.productName}</td>
+                                  <td className="px-3 py-2 text-cyan-700 font-semibold">{si.sheetNo}</td>
+                                  <td className="px-3 py-2 font-semibold text-slate-800">{si.quantityOnSheet}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${stageColors[si.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>
+                                      {si.itemProductionStage.replace(/_/g, " ")}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-orange-700 font-semibold">{latestVendor?.vendorName ?? "—"}</td>
+                                  <td className="px-3 py-2">
+                                    <button onClick={() => updateItemStage(si.orderItemId, "READY_FOR_DISPATCH")}
+                                      className="rounded-lg bg-green-600 text-white px-3 py-1 text-xs font-semibold hover:bg-green-700">
+                                      Mark Ready
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           )}
 
@@ -962,6 +1236,92 @@ export default function ProductionPage() {
               <button onClick={receiveFromVendor} disabled={savingReceive || !receiveCost || !receiveInvNo}
                 className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
                 {savingReceive ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm Received ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sheet Status With Vendor Dialog (COMPLETE → PRINTING) ── */}
+      {sheetStatusDialog && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Assign Vendor for Printing</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{sheetStatusDialog.sheetNo} — Moving to PRINTING stage</p>
+              </div>
+              <button onClick={() => setSheetStatusDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Vendor <span className="text-red-500">*</span></label>
+                <select value={sheetStatusVendorId} onChange={e => setSheetStatusVendorId(e.target.value)} style={IS.input}>
+                  <option value="">Select vendor...</option>
+                  {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Activity Type <span className="text-red-500">*</span></label>
+                <select value={sheetStatusActivity} onChange={e => setSheetStatusActivity(e.target.value)} style={IS.input}>
+                  <option value="PLATE_MAKING">Plate Making</option>
+                  <option value="PRINTING">Printing</option>
+                  <option value="BINDING">Binding</option>
+                  <option value="LAMINATION">Lamination</option>
+                  <option value="EXTRA_PROCESSING">Extra Processing</option>
+                  <option value="PAPER_PURCHASE">Paper Purchase</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cost (₹) <span className="text-slate-400 font-normal">(optional)</span></label>
+                  <input type="number" value={sheetStatusCost} onChange={e => setSheetStatusCost(e.target.value)} placeholder="0.00" style={IS.input} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice No <span className="text-slate-400 font-normal">(optional)</span></label>
+                  <input value={sheetStatusInvNo} onChange={e => setSheetStatusInvNo(e.target.value)} placeholder="Optional" style={IS.input} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Description <span className="text-slate-400 font-normal">(optional)</span></label>
+                <input value={sheetStatusDesc} onChange={e => setSheetStatusDesc(e.target.value)} placeholder="Optional notes" style={IS.input} />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setSheetStatusDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={updateSheetStatusWithVendor} disabled={savingSheetStatus || !sheetStatusVendorId}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                {savingSheetStatus ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm & Move to Printing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Multiple Dialog (place item needing multiple sheets) ── */}
+      {multipleDialog && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Sheet Multiple Required</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} — Qty {multipleDialog.item.quantity}</p>
+              </div>
+              <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <p className="text-xs text-slate-600 mb-3">
+              This item needs more space than one sheet slot. Enter how many times (×) to place this item on the sheet.
+              Suggested: <strong>{multipleDialog.maxFits}×</strong>
+            </p>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (×) <span className="text-red-500">*</span></label>
+              <input type="number" min="1" value={multipleValue} onChange={e => setMultipleValue(e.target.value)} style={IS.input} />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmPlaceWithMultiple} disabled={placingItem !== null}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                {placingItem !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
               </button>
             </div>
           </div>

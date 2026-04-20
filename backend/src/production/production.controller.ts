@@ -71,6 +71,15 @@ export class ProductionController {
     return this.clubbingSheetService.updateSheetStatus(id, status);
   }
 
+  @Patch('sheets/:id/status-with-vendor')
+  updateSheetStatusWithVendor(
+    @Param('id') id: string,
+    @Body() body: { status: SheetStatus; vendorId: string; activityType: string; cost?: number; vendorInvoiceNo?: string; description?: string },
+  ) { return this.clubbingSheetService.updateSheetStatusWithVendor(id, body); }
+
+  @Get('sheets/order-items')
+  getSheetOrderItems() { return this.clubbingSheetService.getSheetOrderItems(); }
+
   @Get('sheets/:id/items')
   getSheetItems(@Param('id') id: string) { return this.clubbingSheetService.getSheetItems(id); }
 
