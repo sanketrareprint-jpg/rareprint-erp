@@ -444,6 +444,18 @@ export default function ProductionPage() {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    // Cascade: when sheet moves to PROCESSING, update all items on it to PROCESSING stage
+    if (status === "PROCESSING") {
+      const sheet = sheetsData.find(s => s.id === sheetId);
+      if (sheet?.items?.length) {
+        for (const si of sheet.items) {
+          await fetch(`${API_BASE_URL}/production/items/${si.orderItem.id}/stage`, {
+            method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify({ stage: "PROCESSING" }),
+          });
+        }
+      }
+    }
     await loadAll();
   }
 
@@ -843,50 +855,65 @@ export default function ProductionPage() {
                         <tr className="bg-cyan-50 border-b border-cyan-100">
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Agent</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Sides</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Assign Sheet</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {unassignedItems.map((item: any) => {
-                          const { gsm } = parseNotes(item.productionNotes);
-                          const itemGsm = Number(gsm ?? item.gsm ?? 0);
-                          const matchingSheets = sheetsData.filter(s => s.gsm === itemGsm && s.status === "INCOMPLETE" || s.status === "SETTING");
+                          const { gsm, size, sides } = parseNotes(item.productionNotes);
+                          const itemGsm = Number(gsm ?? 0);
+                          // Fix: correct filter with parentheses
+                          const matchingSheets = sheetsData.filter(s =>
+                            s.gsm === itemGsm && (s.status === "INCOMPLETE" || s.status === "SETTING")
+                          );
+                          const sidesLabel = sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "—";
                           return (
                             <tr key={item.id} className="hover:bg-slate-50">
                               <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
                               <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
+                              <td className="px-3 py-2 text-slate-600">{item.salesAgentName ?? "—"}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
+                              <td className="px-3 py-2 text-slate-600">{size ?? "—"}</td>
                               <td className="px-3 py-2 text-slate-600">{itemGsm || "—"}</td>
+                              <td className="px-3 py-2 text-slate-600">{sidesLabel}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
                               <td className="px-3 py-2">
                                 {matchingSheets.length === 0 ? (
-                                  <span className="text-xs text-slate-400">No matching sheets (GSM: {itemGsm})</span>
+                                  <span className="text-xs text-slate-400">No matching sheets (GSM: {itemGsm || "unknown"})</span>
                                 ) : (
                                   <div className="flex items-center gap-2 flex-wrap">
                                     {matchingSheets.map(sheet => {
-                                      const [w, h] = (item.openSizeInches || "0x0").split("x").map(Number);
-                                      const itemArea = w * h;
+                                      // Parse size from productionNotes since openSizeInches may not be on item
+                                      const sizeStr = size ?? item.openSizeInches ?? "0x0";
+                                      const [w, h] = sizeStr.split("x").map(Number);
+                                      const itemArea = (w && h) ? w * h : 0;
                                       const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-                                      const fits = itemArea > 0 ? Math.floor(available / itemArea) : 0;
-                                      const needsMultiple = item.quantity > fits;
+                                      // If itemArea is 0 (no size info), allow placement without space check
+                                      const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
+                                      const needsMultiple = fits > 0 && item.quantity > fits;
                                       return (
                                         <button key={sheet.id}
                                           onClick={() => {
                                             if (needsMultiple) {
-                                              setMultipleDialog({ sheet, item, maxFits: Math.ceil(item.quantity / fits) });
-                                              setMultipleValue(String(Math.ceil(item.quantity / fits)));
+                                              const maxFits = Math.ceil(item.quantity / fits);
+                                              setMultipleDialog({ sheet, item, maxFits });
+                                              setMultipleValue(String(maxFits));
                                             } else {
                                               placeItemOnSheet(sheet.id, item);
                                             }
                                           }}
-                                          disabled={fits === 0 || placingItem === item.id}
-                                          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${fits === 0 ? "bg-red-50 text-red-400 border border-red-200" : "bg-cyan-600 text-white hover:bg-cyan-700"}`}>
+                                          disabled={placingItem === item.id}
+                                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50">
                                           {placingItem === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                          {sheet.sheetNo} {fits > 0 ? `(${fits}×)` : "(Full)"}
-                                          {needsMultiple && fits > 0 ? " 📋" : ""}
+                                          {sheet.sheetNo}
+                                          {itemArea > 0 && fits > 0 ? ` (${fits}×)` : ""}
+                                          {needsMultiple ? " 📋" : ""}
                                         </button>
                                       );
                                     })}
