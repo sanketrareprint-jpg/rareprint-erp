@@ -926,6 +926,7 @@ export default function ProductionPage() {
                                           setMultipleValue(String(maxFits));
                                         } else {
                                           const qtyOnSheet = fits > 0 ? Math.min(item.quantity, fits) : item.quantity;
+                                          setPlacingItem(item.id);
                                           fetch(`${API_BASE_URL}/production/sheets/${sheet.id}/items`, {
                                             method: "POST",
                                             headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -940,14 +941,14 @@ export default function ProductionPage() {
                                             if (!res.ok) { const b = await res.json(); alert(b.message || "Failed to assign"); return; }
                                             setSelectedSheetId(p => { const n = {...p}; delete n[item.id]; return n; });
                                             await loadAll();
-                                          }).catch(() => alert("Network error"));
+                                          }).catch(() => alert("Network error"))
+                                          .finally(() => setPlacingItem(null));
                                         }
                                       }}
                                       className="inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50">
                                       {placingItem === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                                       Assign
                                     </button>
-                                  </div>
                                   </div>
                                 )}
                               </td>
