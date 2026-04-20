@@ -874,22 +874,21 @@ export default function ProductionPage() {
                           const matchingSheets = sheetsData.filter(s =>
                             s.gsm === itemGsm && (s.status === "INCOMPLETE" || s.status === "SETTING")
                           );
-                          const sidesLabel = sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "â€”";
+                          const sidesLabel = sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "-";
                           return (
                             <tr key={item.id} className="hover:bg-slate-50">
                               <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
                               <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
-                              <td className="px-3 py-2 text-slate-600">{item.salesAgentName ?? "â€”"}</td>
+                              <td className="px-3 py-2 text-slate-600">{item.salesAgentName ?? "-"}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
-                              <td className="px-3 py-2 text-slate-600">{size ?? "â€”"}</td>
-                              <td className="px-3 py-2 text-slate-600">{itemGsm || "â€”"}</td>
+                              <td className="px-3 py-2 text-slate-600">{size ?? "-"}</td>
+                              <td className="px-3 py-2 text-slate-600">{itemGsm || "-"}</td>
                               <td className="px-3 py-2 text-slate-600">{sidesLabel}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
                               <td className="px-3 py-2">
                                 {matchingSheets.length === 0 ? (
                                   <span className="text-xs text-slate-400">No matching sheets (GSM: {itemGsm || "unknown"})</span>
                                 ) : (
-                                  <div className="flex items-center gap-2">
                                   <div className="flex items-center gap-2">
                                     <select
                                       value={selectedSheetId[item.id] ?? ""}
