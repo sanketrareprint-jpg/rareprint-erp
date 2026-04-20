@@ -416,21 +416,18 @@ export default function ProductionPage() {
     } finally { setLoadingPlaceable(false); }
   }
 
-  async function placeItemOnSheet(sheetId: string, item: PlaceableItem) {
-    const [w, h] = item.openSizeInches.split("x").map(Number);
-    if (!w || !h) { alert("Invalid product size"); return; }
+  async function placeItemOnSheet(sheetId: string, item: any) {
+    const sizeStr = item.openSizeInches ?? item.size ?? "0x0";
+    const [w, h] = sizeStr.split("x").map(Number);
     const sheet = sheetsData.find(s => s.id === sheetId);
     if (!sheet) return;
-    const itemArea = w * h;
-    const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-    const multiple = Math.floor(available / itemArea);
-    if (multiple === 0) { alert("Not enough space on sheet"); return; }
-    const quantityOnSheet = Math.min(multiple, item.quantity);
+    const itemArea = (w && h) ? w * h : 0;
+    const quantityOnSheet = item.quantity;
     setPlacingItem(item.id);
     try {
       const res = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/items`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple, quantityOnSheet, areaSqInches: itemArea * multiple }),
+        body: JSON.stringify({ orderItemId: item.id, productId: item.productId || item.id, multiple: 1, quantityOnSheet, areaSqInches: itemArea || 1 }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       await loadAll();
