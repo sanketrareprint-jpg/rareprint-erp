@@ -887,36 +887,50 @@ export default function ProductionPage() {
                                 {matchingSheets.length === 0 ? (
                                   <span className="text-xs text-slate-400">No matching sheets (GSM: {itemGsm || "unknown"})</span>
                                 ) : (
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    {matchingSheets.map(sheet => {
-                                      // Parse size from productionNotes since openSizeInches may not be on item
-                                      const sizeStr = size ?? item.openSizeInches ?? "0x0";
-                                      const [w, h] = sizeStr.split("x").map(Number);
-                                      const itemArea = (w && h) ? w * h : 0;
-                                      const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-                                      // If itemArea is 0 (no size info), allow placement without space check
-                                      const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
-                                      const needsMultiple = fits > 0 && item.quantity > fits;
-                                      return (
-                                        <button key={sheet.id}
-                                          onClick={() => {
-                                            if (needsMultiple) {
-                                              const maxFits = Math.ceil(item.quantity / fits);
-                                              setMultipleDialog({ sheet, item, maxFits });
-                                              setMultipleValue(String(maxFits));
-                                            } else {
-                                              placeItemOnSheet(sheet.id, item);
-                                            }
-                                          }}
-                                          disabled={placingItem === item.id}
-                                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50">
-                                          {placingItem === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                          {sheet.sheetNo}
-                                          {itemArea > 0 && fits > 0 ? ` (${fits}×)` : ""}
-                                          {needsMultiple ? " 📋" : ""}
-                                        </button>
-                                      );
-                                    })}
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      defaultValue=""
+                                      id={`sheet-select-${item.id}`}
+                                      style={{ border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "12px", background: "white", outline: "none" }}>
+                                      <option value="" disabled>Select sheet...</option>
+                                      {matchingSheets.map(sheet => {
+                                        const sizeStr = size ?? item.openSizeInches ?? "0x0";
+                                        const [w, h] = sizeStr.split("x").map(Number);
+                                        const itemArea = (w && h) ? w * h : 0;
+                                        const available = sheet.areaSqInches - sheet.usedAreaSqInches;
+                                        const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
+                                        return (
+                                          <option key={sheet.id} value={sheet.id}>
+                                            {sheet.sheetNo} {fits > 0 ? `(${fits}×)` : "(Full)"}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                    <button
+                                      disabled={placingItem === item.id}
+                                      onClick={() => {
+                                        const sel = document.getElementById(`sheet-select-${item.id}`) as HTMLSelectElement;
+                                        const sheetId = sel?.value;
+                                        if (!sheetId) { alert("Please select a sheet first"); return; }
+                                        const sheet = sheetsData.find(s => s.id === sheetId)!;
+                                        const sizeStr = size ?? item.openSizeInches ?? "0x0";
+                                        const [w, h] = sizeStr.split("x").map(Number);
+                                        const itemArea = (w && h) ? w * h : 0;
+                                        const available = sheet.areaSqInches - sheet.usedAreaSqInches;
+                                        const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
+                                        const needsMultiple = fits > 0 && item.quantity > fits;
+                                        if (needsMultiple) {
+                                          const maxFits = Math.ceil(item.quantity / fits);
+                                          setMultipleDialog({ sheet, item, maxFits });
+                                          setMultipleValue(String(maxFits));
+                                        } else {
+                                          placeItemOnSheet(sheet.id, item);
+                                        }
+                                      }}
+                                      className="inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50">
+                                      {placingItem === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                      Assign
+                                    </button>
                                   </div>
                                 )}
                               </td>
