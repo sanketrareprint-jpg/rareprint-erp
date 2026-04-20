@@ -216,8 +216,8 @@ export default function ProductionPage() {
     // Parse size from productionNotes or openSizeInches
     const notes = item.productionNotes ?? "";
     const sizeFromNotes = notes.match(/Size:\s*([^,]+)/)?.[1]?.trim();
-    const sizeStr = sizeFromNotes ?? item.openSizeInches ?? "0x0";
-    const [w, h] = sizeStr.split("x").map(Number);
+    const sizeStr = (sizeFromNotes ?? item.openSizeInches ?? "0x0").replace("*", "x");
+    const [w, h] = sizeStr.replace("*","x").split("x").map(Number);
     const itemArea = (w && h) ? w * h : 0;
     setPlacingItem(item.id);
     try {
@@ -417,8 +417,8 @@ export default function ProductionPage() {
   }
 
   async function placeItemOnSheet(sheetId: string, item: any) {
-    const sizeStr = item.openSizeInches ?? item.size ?? "0x0";
-    const [w, h] = sizeStr.split("x").map(Number);
+    const sizeStr = (item.openSizeInches ?? item.size ?? "0x0").replace("*", "x");
+    const [w, h] = sizeStr.replace("*","x").split("x").map(Number);
     const sheet = sheetsData.find(s => s.id === sheetId);
     if (!sheet) return;
     const itemArea = (w && h) ? w * h : 0;
@@ -897,8 +897,8 @@ export default function ProductionPage() {
                                       style={{ border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "12px", background: "white", outline: "none" }}>
                                       <option value="" disabled>Select sheet...</option>
                                       {matchingSheets.map(sheet => {
-                                        const sizeStr = size ?? "0x0";
-                                        const [w, h] = sizeStr.split("x").map(Number);
+                                        const sizeStr = (size ?? "0x0").replace("*", "x");
+                                        const [w, h] = sizeStr.replace("*","x").split("x").map(Number);
                                         const itemArea = (w && h) ? w * h : 0;
                                         const available = sheet.areaSqInches - sheet.usedAreaSqInches;
                                         const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
@@ -915,8 +915,8 @@ export default function ProductionPage() {
                                         const sheetId = selectedSheetId[item.id];
                                         if (!sheetId) { alert("Please select a sheet first"); return; }
                                         const sheet = sheetsData.find(s => s.id === sheetId)!;
-                                        const sizeStr = size ?? "0x0";
-                                        const [w, h] = sizeStr.split("x").map(Number);
+                                        const sizeStr = (size ?? "0x0").replace("*", "x");
+                                        const [w, h] = sizeStr.replace("*","x").split("x").map(Number);
                                         const itemArea = (w && h) ? w * h : 0;
                                         const available = sheet.areaSqInches - sheet.usedAreaSqInches;
                                         const fits = itemArea > 0 ? Math.floor(available / itemArea) : sheet.quantity;
