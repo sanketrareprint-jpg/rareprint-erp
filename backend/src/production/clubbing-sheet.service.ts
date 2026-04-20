@@ -148,97 +148,6 @@ export class ClubbingSheetService {
     });
   }
 
-  // New: Update sheet status WITH vendor assignment (for COMPLETE→PRINTING transition)
-  async updateSheetStatusWithVendor(sheetId: string, data: {
-    status: SheetStatus;
-    vendorId: string;
-    activityType: string;
-    cost?: number;
-    vendorInvoiceNo?: string;
-    description?: string;
-  }) {
-    const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
-    if (!sheet) throw new NotFoundException('Sheet not found');
-
-    // Map activityType to SheetProductionStage
-    const stageMap: Record<string, SheetProductionStage> = {
-      PLATE_MAKING: SheetProductionStage.PLATE_MAKING,
-      PRINTING: SheetProductionStage.PRINTING,
-      BINDING: SheetProductionStage.BINDING,
-      LAMINATION: SheetProductionStage.LAMINATION,
-      EXTRA_PROCESSING: SheetProductionStage.EXTRA_PROCESSING,
-      PAPER_PURCHASE: SheetProductionStage.PAPER_PURCHASE,
-    };
-    const stage = stageMap[data.activityType] ?? SheetProductionStage.PRINTING;
-
-    return this.prisma.$transaction(async (tx) => {
-      // Update sheet status
-      const updatedSheet = await tx.printSheet.update({
-        where: { id: sheetId },
-        data: { status: data.status },
-      });
-      // Add stage vendor record
-      await tx.sheetStageVendor.create({
-        data: {
-          sheetId,
-          stage,
-          vendorId: data.vendorId,
-          description: data.description,
-          cost: data.cost ?? 0,
-          vendorInvoiceNo: data.vendorInvoiceNo,
-        },
-      });
-      // Cascade: update all order items on this sheet to PRINTING stage
-      const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId } });
-      for (const si of sheetItems) {
-        await tx.orderItem.update({
-          where: { id: si.orderItemId },
-          data: { itemProductionStage: 'PRINTING' },
-        });
-      }
-      return updatedSheet;
-    });
-  }
-
-  // New: Get all order items placed on sheets (for processing sub-tabs)
-  async getSheetOrderItems() {
-    const sheetItems = await this.prisma.printSheetItem.findMany({
-      include: {
-        sheet: { include: { stageVendors: { include: { vendor: true } } } },
-        orderItem: {
-          include: {
-            product: true,
-            order: { include: { customer: true, salesAgent: { select: { id: true, fullName: true } } } },
-          },
-        },
-      },
-    });
-    return sheetItems.map(si => ({
-      id: si.id,
-      sheetId: si.sheetId,
-      sheetNo: si.sheet.sheetNo,
-      sheetStatus: si.sheet.status,
-      sheetGsm: si.sheet.gsm,
-      multiple: si.multiple,
-      quantityOnSheet: si.quantityOnSheet,
-      orderItemId: si.orderItemId,
-      productName: si.orderItem.product.name,
-      productionNotes: si.orderItem.productionNotes,
-      artworkNotes: si.orderItem.artworkNotes,
-      itemProductionStage: si.orderItem.itemProductionStage,
-      quantity: si.orderItem.quantity,
-      orderNo: (si.orderItem.order as any).orderNumber,
-      customerName: (si.orderItem.order as any).customer.businessName,
-      salesAgentName: (si.orderItem.order as any).salesAgent?.fullName ?? null,
-      stageVendors: si.sheet.stageVendors.map(sv => ({
-        id: sv.id,
-        stage: sv.stage,
-        vendorName: sv.vendor.name,
-        cost: Number(sv.cost),
-      })),
-    }));
-  }
-
   async getSheetItems(sheetId: string) {
     return this.prisma.printSheetItem.findMany({
       where: { sheetId },
@@ -292,11 +201,27 @@ export class ClubbingSheetService {
     const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
     if (!sheet) throw new NotFoundException('Sheet not found');
 
-    const newUsed = sheet.usedAreaSqInches + data.areaSqInches;
-    if (newUsed > sheet.areaSqInches) throw new BadRequestException('Not enough space on sheet');
+    // Auto-lookup productId from orderItem if not provided or same as orderItemId
+    let productId = data.productId;
+    if (!productId || productId === data.orderItemId) {
+      const orderItem = await this.prisma.orderItem.findUnique({
+        where: { id: data.orderItemId },
+        select: { productId: true },
+      });
+      if (!orderItem) throw new NotFoundException('Order item not found');
+      productId = orderItem.productId;
+    }
+
+    // Only check space if areaSqInches > 1 (skip if no size info available)
+    if (data.areaSqInches > 1) {
+      const newUsed = sheet.usedAreaSqInches + data.areaSqInches;
+      if (newUsed > sheet.areaSqInches) throw new BadRequestException('Not enough space on sheet');
+    }
+
+    const newUsed = sheet.usedAreaSqInches + (data.areaSqInches > 1 ? data.areaSqInches : 0);
 
     const [item, updatedSheet] = await this.prisma.$transaction([
-      this.prisma.printSheetItem.create({ data: { sheetId, ...data } }),
+      this.prisma.printSheetItem.create({ data: { sheetId, orderItemId: data.orderItemId, productId, multiple: data.multiple, quantityOnSheet: data.quantityOnSheet, areaSqInches: data.areaSqInches } }),
       this.prisma.printSheet.update({
         where: { id: sheetId },
         data: { usedAreaSqInches: newUsed },

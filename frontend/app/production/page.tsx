@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -26,6 +26,7 @@ type OrderItem = {
   unitPrice: number; lineTotal: number; productionNotes?: string;
   artworkNotes?: string; itemProductionStage: ProductionStage;
   productionCategory: ProductionCategory | null;
+  productId: string;
   designFiles?: DesignFile[];
 };
 type ProductionOrder = {
@@ -124,7 +125,7 @@ export default function ProductionPage() {
   const [processingSubTab, setProcessingSubTab] = useState<"printing"|"processing">("printing");
   // Sheet order items (for processing tab)
   const [sheetOrderItems, setSheetOrderItems] = useState<any[]>([]);
-  // Status-with-vendor dialog (COMPLETE → PRINTING)
+  // Status-with-vendor dialog (COMPLETE â†’ PRINTING)
   const [sheetStatusDialog, setSheetStatusDialog] = useState<{ sheetId: string; sheetNo: string } | null>(null);
   const [sheetStatusVendorId, setSheetStatusVendorId] = useState("");
   const [sheetStatusActivity, setSheetStatusActivity] = useState("PRINTING");
@@ -300,7 +301,7 @@ export default function ProductionPage() {
     setAssignModal({ orderId: o.id, orderNo: o.orderNo, customerName: o.customerName, items });
   }
 
-  // ── Clubbing ─────────────────────────────────────────────────────────────
+  // â”€â”€ Clubbing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function addJobWork(itemId: string) {
     const f = jwForm[itemId];
     if (!f?.vendorId || !f?.description || !f?.cost) { alert("Fill vendor, description and cost"); return; }
@@ -373,7 +374,7 @@ export default function ProductionPage() {
     await loadAll();
   }
 
-  // ── Vendor ───────────────────────────────────────────────────────────────
+  // â”€â”€ Vendor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function createVendor() {
     if (!newVendor.name.trim()) { alert("Vendor name required"); return; }
     setSavingVendor(true);
@@ -388,7 +389,7 @@ export default function ProductionPage() {
     } finally { setSavingVendor(false); }
   }
 
-  // ── Sheet ─────────────────────────────────────────────────────────────────
+  // â”€â”€ Sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function createSheet() {
     if (!sheetForm.gsm || !sheetForm.quantity || !sheetForm.sizeInches) { alert("Fill GSM, quantity and size"); return; }
     setSavingSheet(true);
@@ -480,7 +481,7 @@ export default function ProductionPage() {
     await loadAll();
   }
 
-  // ── Derived counts ────────────────────────────────────────────────────────
+  // â”€â”€ Derived counts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const unassignedCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => !i.productionCategory).length, 0), [ordersData]);
   const inhouseCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.filter(i => i.productionCategory === "INHOUSE" && i.itemProductionStage !== "READY_FOR_DISPATCH").length, 0), [ordersData]);
   const allCount = useMemo(() => ordersData.reduce((s, o) => s + o.items.length, 0), [ordersData]);
@@ -530,7 +531,7 @@ export default function ProductionPage() {
           {/* Search */}
           <div className="relative max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order, customer, product…"
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order, customer, productâ€¦"
               className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
           </div>
 
@@ -559,11 +560,11 @@ export default function ProductionPage() {
           {loading && <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>}
           {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-          {/* ── UNASSIGNED TAB ── */}
+          {/* â”€â”€ UNASSIGNED TAB â”€â”€ */}
           {!loading && activeTab === "unassigned" && (
             <div className="space-y-2">
               {unassignedOrders.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">✅ All items assigned.</div>
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">âœ… All items assigned.</div>
               ) : unassignedOrders.map(o => (
                 <div key={o.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
@@ -581,9 +582,9 @@ export default function ProductionPage() {
                       return (
                         <div key={item.id} className="flex items-center gap-4 px-4 py-2 text-xs flex-wrap">
                           <span className="font-medium text-slate-800">{item.productName}</span>
-                          <span className="text-slate-400">{size ?? "—"}</span>
-                          <span className="text-slate-400">{gsm ?? "—"} GSM</span>
-                          <span className="text-slate-400">{sides ?? "—"}</span>
+                          <span className="text-slate-400">{size ?? "â€”"}</span>
+                          <span className="text-slate-400">{gsm ?? "â€”"} GSM</span>
+                          <span className="text-slate-400">{sides ?? "â€”"}</span>
                           <span className="text-slate-600 font-semibold">Qty: {item.quantity}</span>
                           <span className="rounded-full bg-red-50 text-red-600 px-2 py-0.5 font-semibold ml-auto">Not Assigned</span>
                         </div>
@@ -595,7 +596,7 @@ export default function ProductionPage() {
             </div>
           )}
 
-          {/* ── INHOUSE + ALL TAB ── */}
+          {/* â”€â”€ INHOUSE + ALL TAB â”€â”€ */}
           {!loading && (activeTab === "inhouse" || activeTab === "all") && (
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
               <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
@@ -630,8 +631,8 @@ export default function ProductionPage() {
                           <td className="px-3 py-1.5">{item.isFirstInOrder && <div><p className="font-medium text-slate-800 whitespace-nowrap">{item.customerName}</p>{item.customerPhone && <p className="text-slate-400">{item.customerPhone}</p>}</div>}</td>
                           <td className="px-3 py-1.5">{item.isFirstInOrder && item.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{item.salesAgentName}</span>}</td>
                           <td className="px-3 py-1.5"><p className="font-medium text-slate-900 whitespace-nowrap">{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate max-w-[120px]">{item.artworkNotes}</p>}</td>
-                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{size ?? "—"}</td>
-                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{gsm ?? "—"}</td>
+                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{size ?? "â€”"}</td>
+                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{gsm ?? "â€”"}</td>
                           <td className="px-3 py-1.5 font-semibold text-slate-800">{item.quantity}</td>
                           {activeTab === "all" && <td className="px-3 py-1.5">{item.productionCategory ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${categoryColors[item.productionCategory]}`}>{categoryLabels[item.productionCategory]}</span> : <span className="rounded-full bg-red-50 text-red-500 px-1.5 py-0.5 text-xs font-semibold">Unassigned</span>}</td>}
                           <td className="px-3 py-1.5">
@@ -702,15 +703,15 @@ export default function ProductionPage() {
             </div>
           )}
 
-          {/* ── CLUBBING TAB ── */}
+          {/* â”€â”€ CLUBBING TAB â”€â”€ */}
           {!loading && activeTab === "clubbing" && (
             <div className="space-y-3">
               {/* Clubbing Sub-tabs */}
               <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
                 {([
-                  { key: "unassigned", label: "🏭 Unassigned", color: "text-slate-600" },
-                  { key: "in_progress", label: "⏳ In Progress", color: "text-blue-600" },
-                  { key: "received", label: "✅ Received", color: "text-green-600" },
+                  { key: "unassigned", label: "ðŸ­ Unassigned", color: "text-slate-600" },
+                  { key: "in_progress", label: "â³ In Progress", color: "text-blue-600" },
+                  { key: "received", label: "âœ… Received", color: "text-green-600" },
                 ] as { key: "unassigned"|"in_progress"|"received"; label: string; color: string }[]).map(t => {
                   const count = clubData.reduce((s, o) => s + o.items.filter(i => {
                     if (t.key === "unassigned") return i.jobWorks.length === 0;
@@ -776,8 +777,8 @@ export default function ProductionPage() {
                                 <p className="font-semibold text-slate-800">{item.productName}</p>
                                 {item.artworkNotes && <p className="text-slate-400 text-xs">{item.artworkNotes}</p>}
                               </td>
-                              <td className="px-3 py-2 text-slate-600">{size ?? "—"}</td>
-                              <td className="px-3 py-2 text-slate-600">{gsm ?? "—"}</td>
+                              <td className="px-3 py-2 text-slate-600">{size ?? "â€”"}</td>
+                              <td className="px-3 py-2 text-slate-600">{gsm ?? "â€”"}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
                               <td className="px-3 py-2">
                                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${stageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>
@@ -785,25 +786,25 @@ export default function ProductionPage() {
                                 </span>
                               </td>
                               {clubSubTab !== "unassigned" && (
-                                <td className="px-3 py-2 font-semibold text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "—"}</td>
+                                <td className="px-3 py-2 font-semibold text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "â€”"}</td>
                               )}
                               {clubSubTab === "in_progress" && (
-                                <td className="px-3 py-2 text-slate-600">{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</td>
+                                <td className="px-3 py-2 text-slate-600">{activeJw?.cost > 0 ? fmt(activeJw.cost) : "â€”"}</td>
                               )}
                               {clubSubTab === "received" && (
-                                <td className="px-3 py-2 text-slate-500">{completedJw?.vendorInvoiceNo ?? "—"}</td>
+                                <td className="px-3 py-2 text-slate-500">{completedJw?.vendorInvoiceNo ?? "â€”"}</td>
                               )}
                               <td className="px-3 py-2">
                                 {clubSubTab === "unassigned" && (
                                   <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }}
                                     className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
-                                    Send →
+                                    Send â†’
                                   </button>
                                 )}
                                 {clubSubTab === "in_progress" && activeJw && (
                                   <button onClick={() => { setReceiveDialog({ jwId: activeJw.id, vendorName: activeJw.vendorName, productName: item.productName }); setReceiveCost(""); setReceiveInvNo(""); }}
                                     className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700">
-                                    Received ✓
+                                    Received âœ“
                                   </button>
                                 )}
                                 {clubSubTab === "received" && (
@@ -821,15 +822,15 @@ export default function ProductionPage() {
             </div>
           )}
 
-          {/* ── SHEETS TAB ── */}
+          {/* â”€â”€ SHEETS TAB â”€â”€ */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
               {/* Sheet Sub-tabs */}
               <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
                 {([
-                  { key: "unassigned", label: "📋 Unassigned", count: (() => { const placed = new Set(sheetOrderItems.map(si => si.orderItemId)); return ordersData.reduce((s, o) => s + o.items.filter((i: any) => i.productionCategory === "SHEET_PRODUCTION" && !placed.has(i.id)).length, 0); })() },
-                  { key: "created", label: "🗂️ Created Sheets", count: sheetsData.length },
-                  { key: "processing", label: "⚙️ Processing Sheets", count: sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length },
+                  { key: "unassigned", label: "ðŸ“‹ Unassigned", count: (() => { const placed = new Set(sheetOrderItems.map(si => si.orderItemId)); return ordersData.reduce((s, o) => s + o.items.filter((i: any) => i.productionCategory === "SHEET_PRODUCTION" && !placed.has(i.id)).length, 0); })() },
+                  { key: "created", label: "ðŸ—‚ï¸ Created Sheets", count: sheetsData.length },
+                  { key: "processing", label: "âš™ï¸ Processing Sheets", count: sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length },
                 ] as { key: "unassigned"|"created"|"processing"; label: string; count: number }[]).map(t => (
                   <button key={t.key} onClick={() => setSheetSubTab(t.key)}
                     className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white text-cyan-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
@@ -839,7 +840,7 @@ export default function ProductionPage() {
                 ))}
               </div>
 
-              {/* ── UNASSIGNED SUB-TAB ── */}
+              {/* â”€â”€ UNASSIGNED SUB-TAB â”€â”€ */}
               {sheetSubTab === "unassigned" && (() => {
                 const placedItemIds = new Set(sheetOrderItems.map((si: any) => si.orderItemId));
                 const unassignedItems = ordersData.flatMap(o =>
@@ -872,15 +873,15 @@ export default function ProductionPage() {
                           const matchingSheets = sheetsData.filter(s =>
                             s.gsm === itemGsm && (s.status === "INCOMPLETE" || s.status === "SETTING")
                           );
-                          const sidesLabel = sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "—";
+                          const sidesLabel = sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "â€”";
                           return (
                             <tr key={item.id} className="hover:bg-slate-50">
                               <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
                               <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
-                              <td className="px-3 py-2 text-slate-600">{item.salesAgentName ?? "—"}</td>
+                              <td className="px-3 py-2 text-slate-600">{item.salesAgentName ?? "â€”"}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
-                              <td className="px-3 py-2 text-slate-600">{size ?? "—"}</td>
-                              <td className="px-3 py-2 text-slate-600">{itemGsm || "—"}</td>
+                              <td className="px-3 py-2 text-slate-600">{size ?? "â€”"}</td>
+                              <td className="px-3 py-2 text-slate-600">{itemGsm || "â€”"}</td>
                               <td className="px-3 py-2 text-slate-600">{sidesLabel}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
                               <td className="px-3 py-2">
@@ -930,7 +931,7 @@ export default function ProductionPage() {
                                             headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
                                             body: JSON.stringify({
                                               orderItemId: item.id,
-                                              productId: item.id,
+                                              productId: item.productId || item.id,
                                               multiple: 1,
                                               quantityOnSheet: qtyOnSheet,
                                               areaSqInches: itemArea || 1,
@@ -959,7 +960,7 @@ export default function ProductionPage() {
                 );
               })()}
 
-              {/* ── CREATED SHEETS SUB-TAB ── */}
+              {/* â”€â”€ CREATED SHEETS SUB-TAB â”€â”€ */}
               {sheetSubTab === "created" && (
                 <div className="space-y-3">
                   <div className="flex justify-end">
@@ -978,10 +979,10 @@ export default function ProductionPage() {
                         }}>
                           <div className="flex items-center gap-3 flex-wrap">
                             <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
-                            <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g, " ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                            <span className="text-slate-600 text-xs">{sheet.gsm} GSM Â· {sheet.quality.replace(/_/g, " ")} Â· {sheet.sizeInches}" Â· Qty {sheet.quantity}</span>
                             <span className="text-xs text-slate-500">{sheet.printing === "SINGLE_SIDE" ? "Single" : "Double"} side</span>
                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
-                            <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} item{sheet.items.length !== 1 ? "s" : ""}</span>
+                            <span className="text-xs text-slate-500">{usedPct}% used Â· {sheet.items.length} item{sheet.items.length !== 1 ? "s" : ""}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <select value={sheet.status} onClick={e => e.stopPropagation()}
@@ -1021,9 +1022,9 @@ export default function ProductionPage() {
                                   {sheet.items.map((si: any) => (
                                     <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                                       <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
-                                      <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
+                                      <span className="text-slate-500">{si.orderItem.order.orderNumber} â€” {si.orderItem.order.customer.businessName}</span>
                                       <span className="text-slate-400">{si.orderItem.product.sizeInches}"</span>
-                                      <span className="text-cyan-700 font-semibold">×{si.multiple} · Qty {si.quantityOnSheet}</span>
+                                      <span className="text-cyan-700 font-semibold">Ã—{si.multiple} Â· Qty {si.quantityOnSheet}</span>
                                       <span className="text-slate-400">{si.areaSqInches.toFixed(1)} sq in</span>
                                       <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                                     </div>
@@ -1063,7 +1064,7 @@ export default function ProductionPage() {
                                       {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                     </select>
                                   </div>
-                                  <div><label className="block text-xs text-slate-500 mb-1">Cost (₹) *</label>
+                                  <div><label className="block text-xs text-slate-500 mb-1">Cost (â‚¹) *</label>
                                     <input type="number" value={svf.cost} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, cost: e.target.value } }))} placeholder="0.00" style={IS.input} />
                                   </div>
                                   <div><label className="block text-xs text-slate-500 mb-1">Description</label>
@@ -1087,28 +1088,28 @@ export default function ProductionPage() {
                 </div>
               )}
 
-              {/* ── PROCESSING SHEETS SUB-TAB ── */}
+              {/* â”€â”€ PROCESSING SHEETS SUB-TAB â”€â”€ */}
               {sheetSubTab === "processing" && (
                 <div className="space-y-3">
                   {/* Processing sub-tabs: Printing / Processing */}
                   <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
                     <button onClick={() => setProcessingSubTab("printing")}
                       className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "printing" ? "bg-white text-blue-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                      🖨️ Printing
+                      ðŸ–¨ï¸ Printing
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${processingSubTab === "printing" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
                         {sheetOrderItems.filter((si: any) => si.sheetStatus === "PRINTING").length}
                       </span>
                     </button>
                     <button onClick={() => setProcessingSubTab("processing")}
                       className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "processing" ? "bg-white text-yellow-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                      ⚙️ Processing
+                      âš™ï¸ Processing
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${processingSubTab === "processing" ? "bg-yellow-100 text-yellow-700" : "bg-slate-200 text-slate-500"}`}>
                         {sheetOrderItems.filter((si: any) => si.sheetStatus === "PROCESSING").length}
                       </span>
                     </button>
                   </div>
 
-                  {/* PRINTING sub-tab — grouped by sheet */}
+                  {/* PRINTING sub-tab â€” grouped by sheet */}
                   {processingSubTab === "printing" && (() => {
                     const printingSheets = sheetsData.filter(s => s.status === "PRINTING");
                     return printingSheets.length === 0 ? (
@@ -1120,13 +1121,13 @@ export default function ProductionPage() {
                           <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100">
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-blue-700 text-sm">{sheet.sheetNo}</span>
-                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g, " ")} · Qty {sheet.quantity}</span>
+                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM Â· {sheet.quality.replace(/_/g, " ")} Â· Qty {sheet.quantity}</span>
                               <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-semibold">PRINTING</span>
                               <span className="text-xs text-slate-500">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                             </div>
                             <button onClick={() => updateSheetStatus(sheet.id, "PROCESSING")}
                               className="rounded-lg bg-yellow-500 text-white px-3 py-1 text-xs font-semibold hover:bg-yellow-600">
-                              Move to Processing →
+                              Move to Processing â†’
                             </button>
                           </div>
                           <div className="divide-y divide-slate-100">
@@ -1135,7 +1136,7 @@ export default function ProductionPage() {
                                 <span className="font-bold text-blue-700">{si.orderNo}</span>
                                 <span className="font-semibold text-slate-800">{si.productName}</span>
                                 <span className="text-slate-500">{si.customerName}</span>
-                                <span className="text-cyan-700 font-semibold">Sheet: {si.sheetNo} ×{si.multiple}</span>
+                                <span className="text-cyan-700 font-semibold">Sheet: {si.sheetNo} Ã—{si.multiple}</span>
                                 <span className="text-slate-600">Qty on sheet: {si.quantityOnSheet}</span>
                               </div>
                             ))}
@@ -1145,7 +1146,7 @@ export default function ProductionPage() {
                     });
                   })()}
 
-                  {/* PROCESSING sub-tab — ungrouped items with vendor assignment */}
+                  {/* PROCESSING sub-tab â€” ungrouped items with vendor assignment */}
                   {processingSubTab === "processing" && (() => {
                     const processingItems = sheetOrderItems.filter((si: any) => si.sheetStatus === "PROCESSING");
                     return processingItems.length === 0 ? (
@@ -1180,7 +1181,7 @@ export default function ProductionPage() {
                                       {si.itemProductionStage.replace(/_/g, " ")}
                                     </span>
                                   </td>
-                                  <td className="px-3 py-2 text-orange-700 font-semibold">{latestVendor?.vendorName ?? "—"}</td>
+                                  <td className="px-3 py-2 text-orange-700 font-semibold">{latestVendor?.vendorName ?? "â€”"}</td>
                                   <td className="px-3 py-2">
                                     <button onClick={() => updateItemStage(si.orderItemId, "READY_FOR_DISPATCH")}
                                       className="rounded-lg bg-green-600 text-white px-3 py-1 text-xs font-semibold hover:bg-green-700">
@@ -1203,14 +1204,14 @@ export default function ProductionPage() {
         </div>
       </DashboardShell>
 
-      {/* ── Send to Vendor Dialog ── */}
+      {/* â”€â”€ Send to Vendor Dialog â”€â”€ */}
       {sendDialog && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Send to Vendor</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{sendDialog.orderNo} — {sendDialog.productName}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{sendDialog.orderNo} â€” {sendDialog.productName}</p>
               </div>
               <button onClick={() => setSendDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
@@ -1231,27 +1232,27 @@ export default function ProductionPage() {
               <button onClick={() => setSendDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
               <button onClick={sendToVendor} disabled={sendingSend || !sendVendorId}
                 className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60">
-                {sendingSend ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send →
+                {sendingSend ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send â†’
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Receive from Vendor Dialog ── */}
+      {/* â”€â”€ Receive from Vendor Dialog â”€â”€ */}
       {receiveDialog && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Mark as Received</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{receiveDialog.productName} — {receiveDialog.vendorName}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{receiveDialog.productName} â€” {receiveDialog.vendorName}</p>
               </div>
               <button onClick={() => setReceiveDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Cost (₹) <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Cost (â‚¹) <span className="text-red-500">*</span></label>
                 <input type="number" value={receiveCost} onChange={e => setReceiveCost(e.target.value)} placeholder="Enter amount paid to vendor" style={IS.input} />
               </div>
               <div>
@@ -1263,21 +1264,21 @@ export default function ProductionPage() {
               <button onClick={() => setReceiveDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
               <button onClick={receiveFromVendor} disabled={savingReceive || !receiveCost || !receiveInvNo}
                 className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
-                {savingReceive ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm Received ✓
+                {savingReceive ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm Received âœ“
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Sheet Status With Vendor Dialog (COMPLETE → PRINTING) ── */}
+      {/* â”€â”€ Sheet Status With Vendor Dialog (COMPLETE â†’ PRINTING) â”€â”€ */}
       {sheetStatusDialog && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Assign Vendor for Printing</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{sheetStatusDialog.sheetNo} — Moving to PRINTING stage</p>
+                <p className="text-xs text-slate-500 mt-0.5">{sheetStatusDialog.sheetNo} â€” Moving to PRINTING stage</p>
               </div>
               <button onClick={() => setSheetStatusDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
@@ -1302,7 +1303,7 @@ export default function ProductionPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cost (₹) <span className="text-slate-400 font-normal">(optional)</span></label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cost (â‚¹) <span className="text-slate-400 font-normal">(optional)</span></label>
                   <input type="number" value={sheetStatusCost} onChange={e => setSheetStatusCost(e.target.value)} placeholder="0.00" style={IS.input} />
                 </div>
                 <div>
@@ -1326,23 +1327,23 @@ export default function ProductionPage() {
         </div>
       )}
 
-      {/* ── Multiple Dialog (place item needing multiple sheets) ── */}
+      {/* â”€â”€ Multiple Dialog (place item needing multiple sheets) â”€â”€ */}
       {multipleDialog && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Sheet Multiple Required</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} — Qty {multipleDialog.item.quantity}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} â€” Qty {multipleDialog.item.quantity}</p>
               </div>
               <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
             <p className="text-xs text-slate-600 mb-3">
-              This item needs more space than one sheet slot. Enter how many times (×) to place this item on the sheet.
-              Suggested: <strong>{multipleDialog.maxFits}×</strong>
+              This item needs more space than one sheet slot. Enter how many times (Ã—) to place this item on the sheet.
+              Suggested: <strong>{multipleDialog.maxFits}Ã—</strong>
             </p>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (×) <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (Ã—) <span className="text-red-500">*</span></label>
               <input type="number" min="1" value={multipleValue} onChange={e => setMultipleValue(e.target.value)} style={IS.input} />
             </div>
             <div className="mt-4 flex justify-end gap-2">
@@ -1356,12 +1357,12 @@ export default function ProductionPage() {
         </div>
       )}
 
-      {/* ── Assign Modal ── */}
+      {/* â”€â”€ Assign Modal â”€â”€ */}
       {assignModal && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"36rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)",maxHeight:"90vh",overflowY:"auto" }}>
             <div className="flex items-center justify-between mb-4">
-              <div><h2 className="text-base font-semibold text-slate-900">Assign Production Type</h2><p className="text-xs text-slate-500 mt-0.5">{assignModal.orderNo} — {assignModal.customerName}</p></div>
+              <div><h2 className="text-base font-semibold text-slate-900">Assign Production Type</h2><p className="text-xs text-slate-500 mt-0.5">{assignModal.orderNo} â€” {assignModal.customerName}</p></div>
               <button onClick={() => setAssignModal(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
             <div className="space-y-3">
@@ -1370,7 +1371,7 @@ export default function ProductionPage() {
                 const selected = categorySelections[item.id];
                 return (
                   <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="mb-2"><p className="text-sm font-semibold text-slate-800">{item.productName}</p><p className="text-xs text-slate-400">{size ?? "—"} · {gsm ?? "—"} GSM · Qty {item.quantity}</p></div>
+                    <div className="mb-2"><p className="text-sm font-semibold text-slate-800">{item.productName}</p><p className="text-xs text-slate-400">{size ?? "â€”"} Â· {gsm ?? "â€”"} GSM Â· Qty {item.quantity}</p></div>
                     <div className="flex gap-2">
                       {(["INHOUSE","CLUBBING","SHEET_PRODUCTION"] as ProductionCategory[]).map(cat => (
                         <button key={cat} onClick={() => setCategorySelections(p => ({ ...p, [item.id]: cat }))}
@@ -1394,7 +1395,7 @@ export default function ProductionPage() {
         </div>
       )}
 
-      {/* ── Vendor Modal ── */}
+      {/* â”€â”€ Vendor Modal â”€â”€ */}
       {vendorModal && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"28rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
@@ -1421,7 +1422,7 @@ export default function ProductionPage() {
         </div>
       )}
 
-      {/* ── Create Sheet Modal ── */}
+      {/* â”€â”€ Create Sheet Modal â”€â”€ */}
       {createSheetModal && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
           <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
