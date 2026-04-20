@@ -959,7 +959,6 @@ export default function ProductionPage() {
                       <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                         <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => {
                           setExpandedSheet(isExp ? null : sheet.id);
-                          if (!isExp) loadPlaceableItems(sheet.gsm);
                         }}>
                           <div className="flex items-center gap-3 flex-wrap">
                             <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
@@ -1013,34 +1012,6 @@ export default function ProductionPage() {
                                       <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                                     </div>
                                   ))}
-                                </div>
-                              )}
-                            </div>
-                            {/* Placeable items */}
-                            <div>
-                              <p className="text-xs font-semibold text-slate-600 mb-2">Place items (GSM: {sheet.gsm})</p>
-                              {loadingPlaceable ? <Loader2 className="h-4 w-4 animate-spin text-cyan-600" /> : placeableItems.length === 0 ? (
-                                <p className="text-xs text-slate-400">No unplaced items with {sheet.gsm} GSM.</p>
-                              ) : (
-                                <div className="space-y-1.5">
-                                  {placeableItems.map(pi => {
-                                    const [w, h] = pi.openSizeInches.split("x").map(Number);
-                                    const itemArea = (w && h) ? w * h : 0;
-                                    const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-                                    const fits = itemArea > 0 ? Math.floor(available / itemArea) : 0;
-                                    return (
-                                      <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
-                                        <span className="font-semibold text-slate-800">{pi.productName}</span>
-                                        <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
-                                        <span className="text-slate-400">{pi.openSizeInches}" · Qty {pi.quantity}</span>
-                                        <span className="text-cyan-700 font-semibold">Fits: {fits}×</span>
-                                        <button onClick={() => placeItemOnSheet(sheet.id, pi)} disabled={fits === 0 || placingItem === pi.id}
-                                          className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
-                                          {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
-                                        </button>
-                                      </div>
-                                    );
-                                  })}
                                 </div>
                               )}
                             </div>
