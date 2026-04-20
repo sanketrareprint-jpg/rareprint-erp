@@ -135,6 +135,7 @@ export default function ProductionPage() {
   const [savingSheetStatus, setSavingSheetStatus] = useState(false);
   // Multiple dialog (when placing item that needs >1x)
   const [selectedSheetId, setSelectedSheetId] = useState<Record<string, string>>({});
+  const [multipleDialog, setMultipleDialog] = useState<{ sheet: any; item: any; maxFits: number } | null>(null);
   const [multipleValue, setMultipleValue] = useState("1");
 
   const load = useCallback(async () => {
