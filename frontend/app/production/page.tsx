@@ -837,10 +837,9 @@ export default function ProductionPage() {
               {/* Sheet Sub-tabs */}
               <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
                 {([
-                  { key: "unassigned", label: "ðŸ“‹ Unassigned", count: (() => { const placed = new Set(sheetOrderItems.map(si => si.orderItemId)); return ordersData.reduce((s, o) => s + o.items.filter((i: any) => i.productionCategory === "SHEET_PRODUCTION" && !placed.has(i.id)).length, 0); })() },
-                  { key: "unassigned", label: "ðŸ“‹ Unassigned", count: (() => { const assignedMap: Record<string,number> = {}; sheetOrderItems.forEach((si:any) => { assignedMap[si.orderItemId] = (assignedMap[si.orderItemId]??0)+si.quantityOnSheet; }); return ordersData.reduce((s,o) => s + o.items.filter((i:any) => i.productionCategory==="SHEET_PRODUCTION" && (i.quantity-(assignedMap[i.id]??0))>0).length, 0); })() },
-                  { key: "created", label: "ðŸ—‚ï¸ Created Sheets", count: sheetsData.length },
-                  { key: "processing", label: "âš™ï¸ Processing Sheets", count: sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length },
+                  { key: "unassigned", label: "Unassigned", count: (() => { const assignedMap: Record<string,number> = {}; sheetOrderItems.forEach((si:any) => { assignedMap[si.orderItemId] = (assignedMap[si.orderItemId]??0)+si.quantityOnSheet; }); return ordersData.reduce((s,o) => s + o.items.filter((i:any) => i.productionCategory===\"SHEET_PRODUCTION\" && (i.quantity-(assignedMap[i.id]??0))>0).length, 0); })() },
+                  { key: "created", label: "Created Sheets", count: sheetsData.length },
+                  { key: "processing", label: "Processing Sheets", count: sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length },
                   <button key={t.key} onClick={() => setSheetSubTab(t.key)}
                     className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white text-cyan-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                     {t.label}
