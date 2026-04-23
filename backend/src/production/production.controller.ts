@@ -1,4 +1,4 @@
-﻿// backend/src/production/production.controller.ts
+// backend/src/production/production.controller.ts
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards,
 } from '@nestjs/common';
@@ -66,16 +66,33 @@ export class ProductionController {
     return this.clubbingSheetService.createSheet(body);
   }
 
+  // ── Static routes MUST come before parameterized routes (:id) ──
+  @Get('sheets/placeable-items')
+  getPlaceableItems(@Query('gsm') gsm: string) { return this.clubbingSheetService.getPlaceableItems(Number(gsm)); }
+
+  @Get('sheets/order-items')
+  getSheetOrderItems() { return this.clubbingSheetService.getSheetOrderItems(); }
+
+  @Delete('sheets/sheet-items/:id')
+  removeItemFromSheet(@Param('id') id: string) { return this.clubbingSheetService.removeItemFromSheet(id); }
+
+  @Delete('sheets/stage-vendors/:id')
+  deleteSheetStageVendor(@Param('id') id: string) { return this.clubbingSheetService.deleteSheetStageVendor(id); }
+
+  // ── Parameterized routes ──
+  @Get('sheets/:id/items')
+  getSheetItems(@Param('id') id: string) { return this.clubbingSheetService.getSheetItems(id); }
+
   @Patch('sheets/:id/status')
   updateSheetStatus(@Param('id') id: string, @Body('status') status: SheetStatus) {
     return this.clubbingSheetService.updateSheetStatus(id, status);
   }
 
-  @Get('sheets/:id/items')
-  getSheetItems(@Param('id') id: string) { return this.clubbingSheetService.getSheetItems(id); }
-
-  @Get('sheets/placeable-items')
-  getPlaceableItems(@Query('gsm') gsm: string) { return this.clubbingSheetService.getPlaceableItems(Number(gsm)); }
+  @Patch('sheets/:id/status-with-vendor')
+  updateSheetStatusWithVendor(
+    @Param('id') id: string,
+    @Body() body: { status: SheetStatus; vendorId: string; activityType: string; cost?: number; vendorInvoiceNo?: string; description?: string },
+  ) { return this.clubbingSheetService.updateSheetStatusWithVendor(id, body); }
 
   @Post('sheets/:id/items')
   placeItemOnSheet(
@@ -83,15 +100,9 @@ export class ProductionController {
     @Body() body: { orderItemId: string; productId: string; multiple: number; quantityOnSheet: number; areaSqInches: number },
   ) { return this.clubbingSheetService.placeItemOnSheet(sheetId, body); }
 
-  @Delete('sheets/sheet-items/:id')
-  removeItemFromSheet(@Param('id') id: string) { return this.clubbingSheetService.removeItemFromSheet(id); }
-
   @Post('sheets/:id/stage-vendors')
   addSheetStageVendor(
     @Param('id') sheetId: string,
     @Body() body: { stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string },
   ) { return this.clubbingSheetService.addSheetStageVendor({ sheetId, ...body }); }
-
-  @Delete('sheets/stage-vendors/:id')
-  deleteSheetStageVendor(@Param('id') id: string) { return this.clubbingSheetService.deleteSheetStageVendor(id); }
 }
