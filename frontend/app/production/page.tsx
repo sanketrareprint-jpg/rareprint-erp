@@ -120,6 +120,10 @@ export default function ProductionPage() {
   const [stageVendorForm, setStageVendorForm] = useState<Record<string, { stage: string; vendorId: string; cost: string; description: string; vendorInvoiceNo: string }>>({});
   const [savingStageVendor, setSavingStageVendor] = useState(false);
 
+  // Multiple dialog state for sheet placement
+  const [multipleDialog, setMultipleDialog] = useState<{ sheetId: string; sheetNo: string; sheetQty: number; item: PlaceableItem; maxMultiple: number; suggestedMultiple: number } | null>(null);
+  const [multipleValue, setMultipleValue] = useState("1");
+
   const load = useCallback(async () => {
     setError(null); setLoading(true);
     try {
@@ -345,21 +349,66 @@ export default function ProductionPage() {
     } finally { setLoadingPlaceable(false); }
   }
 
-  async function placeItemOnSheet(sheetId: string, item: PlaceableItem) {
-    const [w, h] = item.openSizeInches.split("x").map(Number);
-    if (!w || !h) { alert("Invalid product size"); return; }
+  // Compute how much qty of an item is already assigned across all sheets
+  function getAssignedQty(orderItemId: string): number {
+    return sheetsData.reduce((total, sheet) =>
+      total + sheet.items.filter(si => si.orderItem.id === orderItemId).reduce((s, si) => s + (si.quantityOnSheet ?? si.multiple * sheet.quantity), 0), 0);
+  }
+
+  function openMultipleDialog(sheetId: string, item: PlaceableItem) {
     const sheet = sheetsData.find(s => s.id === sheetId);
     if (!sheet) return;
+    const sizeStr = (item.openSizeInches ?? "0x0").replace("*", "x");
+    const [w, h] = sizeStr.split("x").map(Number);
+    if (!w || !h) { alert("Invalid product size"); return; }
     const itemArea = w * h;
     const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-    const multiple = Math.floor(available / itemArea);
-    if (multiple === 0) { alert("Not enough space on sheet"); return; }
-    const quantityOnSheet = Math.min(multiple, item.quantity);
+    const fitsByArea = itemArea > 0 ? Math.floor(available / itemArea) : 0;
+    if (fitsByArea === 0) { alert("Not enough space on sheet"); return; }
+
+    // Balance qty = order qty minus what's already assigned on other sheets
+    const alreadyAssigned = getAssignedQty(item.id);
+    const balanceQty = item.quantity - alreadyAssigned;
+    if (balanceQty <= 0) { alert("This item is already fully assigned"); return; }
+
+    // Max multiple = limited by both area and balance qty
+    const maxByQty = Math.floor(balanceQty / sheet.quantity);
+    const maxMultiple = Math.min(fitsByArea, maxByQty > 0 ? maxByQty : 1);
+    // If balance < sheet.quantity, we still allow 1x but it will be capped at balanceQty
+    const effectiveMax = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty / sheet.quantity)) : 0;
+    if (effectiveMax === 0) { alert("Not enough space on sheet"); return; }
+
+    // Suggested multiple = exactly what fills the balance
+    const suggested = Math.min(effectiveMax, Math.ceil(balanceQty / sheet.quantity));
+
+    setMultipleDialog({ sheetId, sheetNo: sheet.sheetNo, sheetQty: sheet.quantity, item, maxMultiple: effectiveMax, suggestedMultiple: suggested });
+    setMultipleValue(String(suggested));
+  }
+
+  async function confirmPlaceWithMultiple() {
+    if (!multipleDialog) return;
+    const { sheetId, item, maxMultiple, sheetQty } = multipleDialog;
+    const val = parseInt(multipleValue);
+    if (!val || val < 1) { alert("Enter a valid multiple (minimum 1)"); return; }
+    if (val > maxMultiple) { alert(`Maximum allowed is ${maxMultiple}x — would exceed order balance or sheet space`); return; }
+
+    const sheet = sheetsData.find(s => s.id === sheetId);
+    if (!sheet) return;
+    const sizeStr = (item.openSizeInches ?? "0x0").replace("*", "x");
+    const [w, h] = sizeStr.split("x").map(Number);
+    const itemArea = w * h;
+
+    // Cap quantityOnSheet at balanceQty
+    const alreadyAssigned = getAssignedQty(item.id);
+    const balanceQty = item.quantity - alreadyAssigned;
+    const quantityOnSheet = Math.min(val * sheetQty, balanceQty);
+
     setPlacingItem(item.id);
+    setMultipleDialog(null);
     try {
       const res = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/items`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple, quantityOnSheet, areaSqInches: itemArea * multiple }),
+        body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple: val, quantityOnSheet, areaSqInches: itemArea * val }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       await loadAll();
@@ -802,17 +851,23 @@ export default function ProductionPage() {
                           ) : (
                             <div className="space-y-1.5">
                               {placeableItems.map(pi => {
-                                const [w, h] = pi.openSizeInches.split("x").map(Number);
+                                const sizeStr = (pi.openSizeInches ?? "0x0").replace("*", "x");
+                                const [w, h] = sizeStr.split("x").map(Number);
                                 const itemArea = (w && h) ? w * h : 0;
                                 const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-                                const fits = itemArea > 0 ? Math.floor(available / itemArea) : 0;
+                                const fitsByArea = itemArea > 0 ? Math.floor(available / itemArea) : 0;
+                                // Balance qty = order qty minus already assigned on all sheets
+                                const alreadyAssigned = getAssignedQty(pi.id);
+                                const balanceQty = pi.quantity - alreadyAssigned;
+                                const maxMultiple = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty / sheet.quantity)) : 0;
+                                const canPlace = maxMultiple > 0 && balanceQty > 0;
                                 return (
                                   <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
                                     <span className="font-semibold text-slate-800">{pi.productName}</span>
                                     <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
                                     <span className="text-slate-400">{pi.openSizeInches}" · Qty {pi.quantity}</span>
-                                    <span className="text-cyan-700 font-semibold">Fits: {fits}×</span>
-                                    <button onClick={() => placeItemOnSheet(sheet.id, pi)} disabled={fits === 0 || placingItem === pi.id}
+                                    <span className="text-cyan-700 font-semibold">Balance: {balanceQty} · Max: {maxMultiple}×</span>
+                                    <button onClick={() => openMultipleDialog(sheet.id, pi)} disabled={!canPlace || placingItem === pi.id}
                                       className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
                                       {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
                                     </button>
@@ -1013,6 +1068,64 @@ export default function ProductionPage() {
               <button onClick={createVendor} disabled={savingVendor}
                 className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60">
                 {savingVendor ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save Vendor
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sheet Multiple Dialog ── */}
+      {multipleDialog && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Place on Sheet</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} · {multipleDialog.sheetNo}</p>
+              </div>
+              <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            {(() => {
+              const alreadyAssigned = getAssignedQty(multipleDialog.item.id);
+              const balanceQty = multipleDialog.item.quantity - alreadyAssigned;
+              const val = parseInt(multipleValue) || 0;
+              const willPrint = Math.min(val * multipleDialog.sheetQty, balanceQty);
+              const remainingAfter = balanceQty - willPrint;
+              return (
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-slate-500">Order Qty</span><span className="font-semibold text-slate-800">{multipleDialog.item.quantity}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Already Assigned</span><span className="font-semibold text-orange-600">{alreadyAssigned}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Balance Qty</span><span className="font-semibold text-cyan-700">{balanceQty}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Sheet Qty</span><span className="font-semibold">{multipleDialog.sheetQty}</span></div>
+                    <div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-500">Will Print</span><span className="font-bold text-green-700">{willPrint}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Remaining After</span><span className={`font-bold ${remainingAfter > 0 ? "text-orange-500" : "text-green-600"}`}>{remainingAfter}</span></div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Multiple (×) <span className="text-red-500">*</span>
+                      <span className="text-slate-400 font-normal ml-1">Max: {multipleDialog.maxMultiple}×</span>
+                    </label>
+                    <input type="number" min={1} max={multipleDialog.maxMultiple} value={multipleValue}
+                      onChange={e => {
+                        const v = parseInt(e.target.value);
+                        if (!isNaN(v)) setMultipleValue(String(Math.min(Math.max(1, v), multipleDialog.maxMultiple)));
+                        else setMultipleValue(e.target.value);
+                      }}
+                      style={{ width:"100%",borderRadius:"6px",border:"1px solid #e2e8f0",padding:"8px 10px",fontSize:"14px",boxSizing:"border-box" as const }} />
+                    <p className="text-xs text-slate-400 mt-1">Suggested: {multipleDialog.suggestedMultiple}× (fills balance exactly)</p>
+                  </div>
+                  {val > multipleDialog.maxMultiple && (
+                    <p className="text-xs text-red-600 font-semibold">Exceeds max allowed ({multipleDialog.maxMultiple}×)</p>
+                  )}
+                </div>
+              );
+            })()}
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmPlaceWithMultiple} disabled={!!placingItem}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                {placingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
               </button>
             </div>
           </div>
