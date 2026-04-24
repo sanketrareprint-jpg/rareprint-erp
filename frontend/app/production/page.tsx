@@ -851,7 +851,7 @@ export default function ProductionPage() {
                                     <option value="">Select sheet...</option>
                                     {compatibleSheets.map(s => {
                                       const used = Math.round((s.usedAreaSqInches / s.areaSqInches) * 100);
-                                      return <option key={s.id} value={s.id}>{s.sheetNo} ({used}% used)</option>;
+                                      return <option key={s.id} value={s.id}>{s.sheetNo} - {s.quantity} Qty ({used}% used)</option>;
                                     })}
                                   </select>
                                   <button onClick={() => {
