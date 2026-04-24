@@ -104,11 +104,6 @@ export default function ProductionPage() {
   const [receiveInvNo, setReceiveInvNo] = useState("");
   const [savingReceive, setSavingReceive] = useState(false);
 
-  // Sheet sub-tabs
-  const [sheetSubTab, setSheetSubTab] = React.useState("unassigned");
-  const [multipleDialog, setMultipleDialog] = React.useState(null);
-  const [multipleValue, setMultipleValue] = React.useState("1");
-
   // Vendor modal
   const [vendorModal, setVendorModal] = useState(false);
   const [newVendor, setNewVendor] = useState({ name: "", phone: "", email: "", gstNumber: "" });
@@ -125,55 +120,214 @@ export default function ProductionPage() {
   const [stageVendorForm, setStageVendorForm] = useState<Record<string, { stage: string; vendorId: string; cost: string; description: string; vendorInvoiceNo: string }>>({});
   const [savingStageVendor, setSavingStageVendor] = useState(false);
 
+  // Multiple dialog state for sheet placement
+  const [multipleDialog, setMultipleDialog] = useState<{ sheetId: string; sheetNo: string; sheetQty: number; item: PlaceableItem; maxMultiple: number; suggestedMultiple: number } | null>(null);
+  const [multipleValue, setMultipleValue] = useState("1");
+  const [sheetSubTab, setSheetSubTab] = useState("unassigned");
 
-  function openMultipleDialog(sheetId, item) {
-    const sheet = sheetsData.find(s => s.id === sheetId);
-    if (!sheet) return;
-    const sizeStr = (item.openSizeInches || "0x0").replace("*", "x");
-    const parts = sizeStr.split("x").map(Number);
-    const w = parts[0]; const h = parts[1];
-    if (!w || !h) { alert("Invalid product size"); return; }
-    const itemArea = w * h;
-    const available = sheet.areaSqInches - sheet.usedAreaSqInches;
-    const fitsByArea = itemArea > 0 ? Math.floor(available / itemArea) : 0;
-    if (fitsByArea === 0) { alert("Not enough space on sheet"); return; }
-    const alreadyAssigned = getAssignedQty(item.id);
-    const balanceQty = item.quantity - alreadyAssigned;
-    if (balanceQty <= 0) { alert("This item is already fully assigned"); return; }
-    const effectiveMax = Math.min(fitsByArea, Math.ceil(balanceQty / sheet.quantity));
-    if (effectiveMax === 0) { alert("Not enough space on sheet"); return; }
-    const suggested = Math.min(effectiveMax, Math.ceil(balanceQty / sheet.quantity));
-    setMultipleDialog({ sheetId, sheetNo: sheet.sheetNo, sheetQty: sheet.quantity, item, maxMultiple: effectiveMax, suggestedMultiple: suggested });
-    setMultipleValue(String(suggested));
+  const load = useCallback(async () => {
+    setError(null); setLoading(true);
+    try {
+      const h = getAuthHeaders();
+      const [oRes, cRes, sRes, vRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/production/orders`, { headers: h }),
+        fetch(`${API_BASE_URL}/production/clubbing/orders`, { headers: h }),
+        fetch(`${API_BASE_URL}/production/sheets`, { headers: h }),
+        fetch(`${API_BASE_URL}/vendors`, { headers: h }),
+      ]);
+      if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+      setOrders(oRes.ok ? await oRes.json() : []);
+      setClubbingOrders(cRes.ok ? await cRes.json() : []);
+      setSheets(sRes.ok ? await sRes.json() : []);
+      setVendors(vRes.ok ? await vRes.json() : []);
+    } catch { setError("Network error."); }
+    finally { setLoading(false); }
+  }, [router]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // fix double-parse issue
+  const [ordersData, setOrdersData] = useState<ProductionOrder[]>([]);
+  const [clubData, setClubData] = useState<ClubbingOrder[]>([]);
+  const [sheetsData, setSheetsData] = useState<PrintSheet[]>([]);
+  const [vendorsData, setVendorsData] = useState<Vendor[]>([]);
+
+  const loadAll = useCallback(async () => {
+    setError(null); setLoading(true);
+    try {
+      const h = getAuthHeaders();
+      const [oRes, cRes, sRes, vRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/production/orders`, { headers: h }),
+        fetch(`${API_BASE_URL}/production/clubbing/orders`, { headers: h }),
+        fetch(`${API_BASE_URL}/production/sheets`, { headers: h }),
+        fetch(`${API_BASE_URL}/vendors`, { headers: h }),
+      ]);
+      if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+      setOrdersData(oRes.ok ? await oRes.json() : []);
+      setClubData(cRes.ok ? await cRes.json() : []);
+      setSheetsData(sRes.ok ? await sRes.json() : []);
+      setVendorsData(vRes.ok ? await vRes.json() : []);
+    } catch { setError("Network error."); }
+    finally { setLoading(false); }
+  }, [router]);
+
+  useEffect(() => { void loadAll(); }, [loadAll]);
+
+  async function updateItemStage(itemId: string, stage: ProductionStage) {
+    setUpdatingItemId(itemId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/items/${itemId}/stage`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ stage }),
+      });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Update failed"); }
+      await loadAll();
+    } finally { setUpdatingItemId(null); }
   }
 
-  async function confirmPlaceWithMultiple() {
-    if (!multipleDialog) return;
-    const { sheetId, item, maxMultiple, sheetQty } = multipleDialog;
-    const val = parseInt(multipleValue);
-    if (!val || val < 1) { alert("Enter a valid multiple (minimum 1)"); return; }
-    if (val > maxMultiple) { alert("Maximum allowed is " + maxMultiple + "x"); return; }
-    const sheet = sheetsData.find(s => s.id === sheetId);
-    if (!sheet) return;
-    const sizeStr = (item.openSizeInches || "0x0").replace("*", "x");
-    const parts = sizeStr.split("x").map(Number);
-    const itemArea = parts[0] * parts[1];
-    const alreadyAssigned = getAssignedQty(item.id);
-    const balanceQty = item.quantity - alreadyAssigned;
-    const quantityOnSheet = Math.min(val * sheetQty, balanceQty);
-    setPlacingItem(item.id);
-    setMultipleDialog(null);
+  async function assignCategory(itemId: string, productionCategory: ProductionCategory) {
+    setAssigningItemId(itemId);
     try {
-      const res = await fetch(API_BASE_URL + "/production/sheets/" + sheetId + "/items", {
-        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple: val, quantityOnSheet, areaSqInches: itemArea * val }),
+      const res = await fetch(`${API_BASE_URL}/production/items/${itemId}/assign-category`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ productionCategory }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      await loadAll();
-      await loadPlaceableItems(sheet.gsm);
-    } finally { setPlacingItem(null); }
+    } finally { setAssigningItemId(null); }
   }
 
+  async function submitAssignments() {
+    const entries = Object.entries(categorySelections);
+    if (entries.length === 0) { alert("Select a category for at least one item"); return; }
+    for (const [itemId, cat] of entries) await assignCategory(itemId, cat);
+    setAssignModal(null); setCategorySelections({});
+    await loadAll();
+  }
+
+  async function uploadFile(itemId: string, file: File) {
+    setUploadingItemId(itemId);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, { method: "POST", headers: getAuthHeaders(), body: formData });
+      if (!res.ok) { alert("Upload failed"); return; }
+      await loadAll();
+    } finally { setUploadingItemId(null); if (fileInputRefs.current[itemId]) fileInputRefs.current[itemId]!.value = ""; }
+  }
+
+  async function deleteFile(itemId: string, filename: string) {
+    if (!confirm("Delete this file?")) return;
+    setDeletingFile(filename);
+    try {
+      await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, { method: "DELETE", headers: getAuthHeaders() });
+      await loadAll();
+    } finally { setDeletingFile(null); }
+  }
+
+  function downloadFile(itemId: string, filename: string, originalName: string) {
+    fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, { headers: getAuthHeaders() })
+      .then(r => r.blob()).then(blob => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = originalName; a.click(); URL.revokeObjectURL(a.href); });
+  }
+
+  function openAssignModal(o: ProductionOrder) {
+    const items = o.items.filter(i => !i.productionCategory);
+    if (items.length === 0) { alert("All items already assigned"); return; }
+    const defaults: Record<string, ProductionCategory> = {};
+    items.forEach(i => { defaults[i.id] = "INHOUSE"; });
+    setCategorySelections(defaults);
+    setAssignModal({ orderId: o.id, orderNo: o.orderNo, customerName: o.customerName, items });
+  }
+
+  // ── Clubbing ─────────────────────────────────────────────────────────────
+  async function addJobWork(itemId: string) {
+    const f = jwForm[itemId];
+    if (!f?.vendorId || !f?.description || !f?.cost) { alert("Fill vendor, description and cost"); return; }
+    setSavingJw(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderItemId: itemId, vendorId: f.vendorId, description: f.description, cost: Number(f.cost), vendorInvoiceNo: f.vendorInvoiceNo || undefined }),
+      });
+      if (!res.ok) { alert("Failed to add job work"); return; }
+      setJwForm(p => ({ ...p, [itemId]: { vendorId: "", description: "", cost: "", vendorInvoiceNo: "" } }));
+      await loadAll();
+    } finally { setSavingJw(false); }
+  }
+
+  async function sendToVendor() {
+    if (!sendDialog || !sendVendorId) { alert("Please select a vendor"); return; }
+    setSendingSend(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderItemId: sendDialog.itemId, vendorId: sendVendorId, description: sendDesc || "Job Work", cost: 0 }),
+      });
+      if (!res.ok) { alert("Failed to send to vendor"); return; }
+      // Set item stage to PRINTING
+      await fetch(`${API_BASE_URL}/production/items/${sendDialog.itemId}/stage`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: "PRINTING" }),
+      });
+      setSendDialog(null); setSendVendorId(""); setSendDesc("");
+      await loadAll();
+    } finally { setSendingSend(false); }
+  }
+
+  async function receiveFromVendor() {
+    if (!receiveDialog) return;
+    if (!receiveCost || !receiveInvNo) { alert("Cost and Invoice No are required to receive"); return; }
+    setSavingReceive(true);
+    try {
+      // Update job work with cost + invoice + status COMPLETED
+      await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${receiveDialog.jwId}`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "COMPLETED", cost: Number(receiveCost), vendorInvoiceNo: receiveInvNo }),
+      });
+      // Find the item and set stage to PROCESSING
+      const allItems = clubData.flatMap(o => o.items);
+      const item = allItems.find(i => i.jobWorks.some(j => j.id === receiveDialog.jwId));
+      if (item) {
+        await fetch(`${API_BASE_URL}/production/items/${item.id}/stage`, {
+          method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: "PROCESSING" }),
+        });
+      }
+      setReceiveDialog(null); setReceiveCost(""); setReceiveInvNo("");
+      await loadAll();
+    } finally { setSavingReceive(false); }
+  }
+
+  async function updateJwStatus(jwId: string, status: string) {
+    await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${jwId}`, {
+      method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    await loadAll();
+  }
+
+  async function deleteJobWork(jwId: string) {
+    if (!confirm("Remove this job work?")) return;
+    await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${jwId}`, { method: "DELETE", headers: getAuthHeaders() });
+    await loadAll();
+  }
+
+  // ── Vendor ───────────────────────────────────────────────────────────────
+  async function createVendor() {
+    if (!newVendor.name.trim()) { alert("Vendor name required"); return; }
+    setSavingVendor(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/vendors`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(newVendor),
+      });
+      if (!res.ok) { alert("Failed"); return; }
+      setVendorModal(false); setNewVendor({ name: "", phone: "", email: "", gstNumber: "" });
+      await loadAll();
+    } finally { setSavingVendor(false); }
+  }
+
+  // ── Sheet ─────────────────────────────────────────────────────────────────
   async function createSheet() {
     if (!sheetForm.gsm || !sheetForm.quantity || !sheetForm.sizeInches) { alert("Fill GSM, quantity and size"); return; }
     setSavingSheet(true);
@@ -629,7 +783,6 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
-              {/* Sheet Sub-tabs */}
               <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
                 {[
                   { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
@@ -637,13 +790,10 @@ export default function ProductionPage() {
                   { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
                 ].map(t => {
                   const aqm = {};
-                  sheetsData.forEach(s => s.items.forEach(si => {
-                    aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity);
-                  }));
+                  sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
                   const count = t.key === "unassigned"
                     ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
-                    : t.key === "created"
-                    ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
+                    : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
                     : sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length;
                   return (
                     <button key={t.key} onClick={() => setSheetSubTab(t.key)}
@@ -654,57 +804,33 @@ export default function ProductionPage() {
                   );
                 })}
               </div>
-
-              {/* Unassigned sub-tab */}
               {sheetSubTab === "unassigned" && (() => {
                 const aqm = {};
-                sheetsData.forEach(s => s.items.forEach(si => {
-                  aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity);
-                }));
-                const items = ordersData.flatMap(o => o.items
-                  .filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0)
-                  .map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName }))
-                );
+                sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
+                const items = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName })));
                 if (items.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
                 return (
                   <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                     <table className="w-full text-xs">
                       <thead><tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Qty</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Assigned</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th><th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th><th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Qty</th><th className="px-3 py-2 text-left font-semibold text-slate-600">Assigned</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Balance</th>
                       </tr></thead>
-                      <tbody>
-                        {items.map(item => {
-                          const notes = parseNotes(item.productionNotes);
-                          const assigned = aqm[item.id] || 0;
-                          return (
-                            <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
-                              <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
-                              <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
-                              <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
-                              <td className="px-3 py-2 text-slate-500">{notes.gsm || "—"}</td>
-                              <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
-                              <td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
-                              <td className="px-3 py-2 text-cyan-700 font-bold">{item.quantity - assigned}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
+                      <tbody>{items.map(item => { const notes = parseNotes(item.productionNotes); const assigned = aqm[item.id] || 0; return (
+                        <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
+                          <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td><td className="px-3 py-2 text-slate-700">{item.customerName}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td><td className="px-3 py-2 text-slate-500">{notes.gsm || "—"}</td>
+                          <td className="px-3 py-2 font-semibold">{item.quantity}</td><td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
+                          <td className="px-3 py-2 text-cyan-700 font-bold">{item.quantity - assigned}</td>
+                        </tr>); })}</tbody>
                     </table>
                   </div>
                 );
               })()}
-
-              {/* Created / Processing sub-tabs */}
               {(sheetSubTab === "created" || sheetSubTab === "processing") && (() => {
-                const filtered = sheetsData.filter(s =>
-                  sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "SETTING") : (s.status === "PRINTING" || s.status === "PROCESSING")
-                );
+                const filtered = sheetsData.filter(s => sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "SETTING") : (s.status === "PRINTING" || s.status === "PROCESSING"));
                 if (filtered.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets in this stage.</div>;
                 return (
                   <div className="space-y-2">
@@ -714,8 +840,7 @@ export default function ProductionPage() {
                       const svf = stageVendorForm[sheet.id] || { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" };
                       return (
                         <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                          <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer"
-                            onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
                               <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
@@ -723,8 +848,7 @@ export default function ProductionPage() {
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
-                                className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
+                              <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
                                 {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
                               {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
@@ -739,16 +863,13 @@ export default function ProductionPage() {
                               <div>
                                 <p className="text-xs font-semibold text-slate-600 mb-2">Items on sheet</p>
                                 {sheet.items.length === 0 ? <p className="text-xs text-slate-400">No items placed yet.</p> : (
-                                  <div className="space-y-1.5">
-                                    {sheet.items.map(si => (
-                                      <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                                        <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
-                                        <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
-                                        <span className="text-cyan-700 font-semibold">x{si.multiple} · Qty {si.quantityOnSheet}</span>
-                                        <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  <div className="space-y-1.5">{sheet.items.map(si => (
+                                    <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                                      <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
+                                      <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
+                                      <span className="text-cyan-700 font-semibold">x{si.multiple} · Qty {si.quantityOnSheet}</span>
+                                      <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                                    </div>))}</div>
                                 )}
                               </div>
                               <div>
@@ -756,55 +877,45 @@ export default function ProductionPage() {
                                 {loadingPlaceable ? <Loader2 className="h-4 w-4 animate-spin text-cyan-600" /> : placeableItems.length === 0 ? (
                                   <p className="text-xs text-slate-400">No unplaced items with {sheet.gsm} GSM.</p>
                                 ) : (
-                                  <div className="space-y-1.5">
-                                    {placeableItems.map(pi => {
-                                      const sz = (pi.openSizeInches||"0x0").replace("*","x").split("x").map(Number);
-                                      const itemArea = (sz[0]&&sz[1]) ? sz[0]*sz[1] : 0;
-                                      const fitsByArea = itemArea > 0 ? Math.floor((sheet.areaSqInches-sheet.usedAreaSqInches)/itemArea) : 0;
-                                      const alreadyAssigned = getAssignedQty(pi.id);
-                                      const balanceQty = pi.quantity - alreadyAssigned;
-                                      const maxMultiple = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty/sheet.quantity)) : 0;
-                                      const canPlace = maxMultiple > 0 && balanceQty > 0;
-                                      return (
-                                        <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
-                                          <span className="font-semibold text-slate-800">{pi.productName}</span>
-                                          <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
-                                          <span className="text-cyan-700 font-semibold">Balance: {balanceQty} · Max: {maxMultiple}x</span>
-                                          <button onClick={() => openMultipleDialog(sheet.id, pi)} disabled={!canPlace || placingItem === pi.id}
-                                            className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
-                                            {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
-                                          </button>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                                  <div className="space-y-1.5">{placeableItems.map(pi => {
+                                    const sz = (pi.openSizeInches||"0x0").replace("*","x").split("x").map(Number);
+                                    const itemArea = (sz[0]&&sz[1]) ? sz[0]*sz[1] : 0;
+                                    const fitsByArea = itemArea > 0 ? Math.floor((sheet.areaSqInches-sheet.usedAreaSqInches)/itemArea) : 0;
+                                    const alreadyAssigned = getAssignedQty(pi.id);
+                                    const balanceQty = pi.quantity - alreadyAssigned;
+                                    const maxMultiple = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty/sheet.quantity)) : 0;
+                                    const canPlace = maxMultiple > 0 && balanceQty > 0;
+                                    return (
+                                      <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
+                                        <span className="font-semibold text-slate-800">{pi.productName}</span>
+                                        <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
+                                        <span className="text-cyan-700 font-semibold">Balance: {balanceQty} · Max: {maxMultiple}x</span>
+                                        <button onClick={() => openMultipleDialog(sheet.id, pi)} disabled={!canPlace || placingItem === pi.id}
+                                          className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
+                                          {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
+                                        </button>
+                                      </div>);
+                                  })}</div>
                                 )}
                               </div>
                               <div>
                                 <p className="text-xs font-semibold text-slate-600 mb-2">Stage Vendors</p>
-                                {sheet.stageVendors.length > 0 && (
-                                  <div className="space-y-1.5 mb-3">
-                                    {sheet.stageVendors.map(sv => (
-                                      <div key={sv.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                                        <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g," ")}</span>
-                                        <span className="font-semibold text-slate-800">{sv.vendor.name}</span>
-                                        <span className="font-bold text-cyan-700">{fmt(sv.cost)}</span>
-                                        <button onClick={() => deleteStageVendor(sv.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
+                                {sheet.stageVendors.length > 0 && (<div className="space-y-1.5 mb-3">{sheet.stageVendors.map(sv => (
+                                  <div key={sv.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                                    <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g," ")}</span>
+                                    <span className="font-semibold text-slate-800">{sv.vendor.name}</span>
+                                    <span className="font-bold text-cyan-700">{fmt(sv.cost)}</span>
+                                    <button onClick={() => deleteStageVendor(sv.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                                  </div>))}</div>)}
                                 <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50/50 p-3">
                                   <p className="text-xs font-semibold text-cyan-700 mb-2">+ Assign Stage Vendor</p>
                                   <div className="grid grid-cols-3 gap-2 mb-2">
                                     <div><label className="block text-xs text-slate-500 mb-1">Stage *</label>
                                       <select value={svf.stage} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, stage: e.target.value } }))} style={IS.input}>
-                                        <option value="">Select...</option>{SHEET_STAGES.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
-                                      </select></div>
+                                        <option value="">Select...</option>{SHEET_STAGES.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}</select></div>
                                     <div><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
                                       <select value={svf.vendorId} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorId: e.target.value } }))} style={IS.input}>
-                                        <option value="">Select...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                      </select></div>
+                                        <option value="">Select...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
                                     <div><label className="block text-xs text-slate-500 mb-1">Cost *</label>
                                       <input type="number" value={svf.cost} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, cost: e.target.value } }))} placeholder="0.00" style={IS.input} /></div>
                                     <div><label className="block text-xs text-slate-500 mb-1">Description</label>
@@ -812,8 +923,7 @@ export default function ProductionPage() {
                                     <div><label className="block text-xs text-slate-500 mb-1">Invoice No</label>
                                       <input value={svf.vendorInvoiceNo} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorInvoiceNo: e.target.value } }))} placeholder="Optional" style={IS.input} /></div>
                                   </div>
-                                  <button onClick={() => addStageVendor(sheet.id)} disabled={savingStageVendor}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                                  <button onClick={() => addStageVendor(sheet.id)} disabled={savingStageVendor} className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
                                     {savingStageVendor ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Add
                                   </button>
                                 </div>
@@ -893,100 +1003,6 @@ export default function ProductionPage() {
               <button onClick={receiveFromVendor} disabled={savingReceive || !receiveCost || !receiveInvNo}
                 className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
                 {savingReceive ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm Received ✓
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {/* Multiple Dialog */}
-      {multipleDialog && (
-        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-3">
-              <div><h2 className="text-base font-semibold text-slate-900">Place on Sheet</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} · {multipleDialog.sheetNo}</p></div>
-              <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            {(() => {
-              const alreadyAssigned = getAssignedQty(multipleDialog.item.id);
-              const balanceQty = multipleDialog.item.quantity - alreadyAssigned;
-              const val = parseInt(multipleValue) || 0;
-              const willPrint = Math.min(val * multipleDialog.sheetQty, balanceQty);
-              const remainingAfter = balanceQty - willPrint;
-              return (
-                <div className="space-y-3">
-                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
-                    <div className="flex justify-between"><span className="text-slate-500">Order Qty</span><span className="font-semibold">{multipleDialog.item.quantity}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Already Assigned</span><span className="font-semibold text-orange-600">{alreadyAssigned}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Balance Qty</span><span className="font-semibold text-cyan-700">{balanceQty}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Sheet Qty</span><span className="font-semibold">{multipleDialog.sheetQty}</span></div>
-                    <div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-500">Will Print</span><span className="font-bold text-green-700">{willPrint}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Remaining After</span><span className={`font-bold ${remainingAfter > 0 ? "text-orange-500" : "text-green-600"}`}>{remainingAfter}</span></div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (x) * <span className="text-slate-400 font-normal">Max: {multipleDialog.maxMultiple}x</span></label>
-                    <input type="number" min={1} max={multipleDialog.maxMultiple} value={multipleValue}
-                      onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v)) setMultipleValue(String(Math.min(Math.max(1, v), multipleDialog.maxMultiple))); else setMultipleValue(e.target.value); }}
-                      style={{ width:"100%",borderRadius:"6px",border:"1px solid #e2e8f0",padding:"8px 10px",fontSize:"14px",boxSizing:"border-box" }} />
-                    <p className="text-xs text-slate-400 mt-1">Suggested: {multipleDialog.suggestedMultiple}x</p>
-                  </div>
-                </div>
-              );
-            })()}
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={confirmPlaceWithMultiple} disabled={!!placingItem}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                {placingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      
-      {/* Multiple Dialog */}
-      {multipleDialog && (
-        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-3">
-              <div><h2 className="text-base font-semibold text-slate-900">Place on Sheet</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} · {multipleDialog.sheetNo}</p></div>
-              <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            {(() => {
-              const alreadyAssigned = getAssignedQty(multipleDialog.item.id);
-              const balanceQty = multipleDialog.item.quantity - alreadyAssigned;
-              const val = parseInt(multipleValue) || 0;
-              const willPrint = Math.min(val * multipleDialog.sheetQty, balanceQty);
-              const remainingAfter = balanceQty - willPrint;
-              return (
-                <div className="space-y-3">
-                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
-                    <div className="flex justify-between"><span className="text-slate-500">Order Qty</span><span className="font-semibold">{multipleDialog.item.quantity}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Already Assigned</span><span className="font-semibold text-orange-600">{alreadyAssigned}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Balance Qty</span><span className="font-semibold text-cyan-700">{balanceQty}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Sheet Qty</span><span className="font-semibold">{multipleDialog.sheetQty}</span></div>
-                    <div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-500">Will Print</span><span className="font-bold text-green-700">{willPrint}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Remaining After</span><span className={`font-bold ${remainingAfter > 0 ? "text-orange-500" : "text-green-600"}`}>{remainingAfter}</span></div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (x) * <span className="text-slate-400 font-normal">Max: {multipleDialog.maxMultiple}x</span></label>
-                    <input type="number" min={1} max={multipleDialog.maxMultiple} value={multipleValue}
-                      onChange={e => { const v=parseInt(e.target.value); if(!isNaN(v)) setMultipleValue(String(Math.min(Math.max(1,v),multipleDialog.maxMultiple))); else setMultipleValue(e.target.value); }}
-                      style={{ width:"100%",borderRadius:"6px",border:"1px solid #e2e8f0",padding:"8px 10px",fontSize:"14px",boxSizing:"border-box" }} />
-                    <p className="text-xs text-slate-400 mt-1">Suggested: {multipleDialog.suggestedMultiple}x</p>
-                  </div>
-                </div>
-              );
-            })()}
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={confirmPlaceWithMultiple} disabled={!!placingItem}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                {placingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
               </button>
             </div>
           </div>
