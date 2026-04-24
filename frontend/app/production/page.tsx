@@ -583,6 +583,7 @@ export default function ProductionPage() {
                     <th className="px-3 py-2 font-semibold text-slate-600">Qty</th>
                     {activeTab === "all" && <th className="px-3 py-2 font-semibold text-slate-600">Type</th>}
                     <th className="px-3 py-2 font-semibold text-slate-600">Stage</th>
+                    <th className="px-3 py-2 font-semibold text-slate-600">Sheets</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Files</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Upload</th>
                   </tr>
