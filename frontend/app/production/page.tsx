@@ -1100,15 +1100,19 @@ export default function ProductionPage() {
                   {processingSubTab === "processing" && (() => {
                     const procSheets = sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE");
                     // Filter out items already marked READY_FOR_DISPATCH
+                    // Cross-reference with ordersData since SheetItem doesn't have stage
+                    const readyItemIds = new Set(
+                      ordersData.flatMap(o => o.items.filter(i => i.itemProductionStage === "READY_FOR_DISPATCH").map(i => i.id))
+                    );
                     const allItems = procSheets.flatMap(sheet => sheet.items.map(si => ({ ...si, sheet })))
-                      .filter(si => si.orderItem.itemProductionStage !== "READY_FOR_DISPATCH");
+                      .filter(si => !readyItemIds.has(si.orderItem.id));
                     // Load saved vendors from sessionStorage (persists during session, not across refreshes)
                     // Use ordersData to get current stage
-                    const getItemVendor = (itemId) => processingItemVendors[itemId] || "";
-                    const saveItemVendor = (itemId, vendorId) => {
+                    // Use orderItem.id as key (stable across loadAll refreshes)
+                    const getItemVendor = (orderItemId) => processingItemVendors[orderItemId] || "";
+                    const saveItemVendor = (orderItemId, vendorId) => {
                       setProcessingItemVendors(p => {
-                        const updated = { ...p, [itemId]: vendorId };
-                        // Save to sessionStorage for persistence across re-renders
+                        const updated = { ...p, [orderItemId]: vendorId };
                         try { sessionStorage.setItem("procVendors", JSON.stringify(updated)); } catch {}
                         return updated;
                       });
@@ -1141,7 +1145,7 @@ export default function ProductionPage() {
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
                               </tr></thead>
                               <tbody>
-                                {allItems.filter(si => !processingVendorFilter || getItemVendor(si.id) === processingVendorFilter).map(si => (
+                                {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
                                   <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
                                     <td className="px-3 py-2 font-bold text-cyan-700">{si.sheet.sheetNo}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
@@ -1150,8 +1154,8 @@ export default function ProductionPage() {
                                     <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>
                                     <td className="px-3 py-2 font-semibold">{si.quantityOnSheet}</td>
                                     <td className="px-3 py-2">
-                                      <select value={getItemVendor(si.id)}
-                                        onChange={e => saveItemVendor(si.id, e.target.value)}
+                                      <select value={getItemVendor(si.orderItem.id)}
+                                        onChange={e => saveItemVendor(si.orderItem.id, e.target.value)}
                                         className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
                                         <option value="">Select Vendor...</option>
                                         {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
