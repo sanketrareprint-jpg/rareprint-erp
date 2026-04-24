@@ -837,10 +837,12 @@ export default function ProductionPage() {
                         const notes = parseNotes(item.productionNotes);
                         const assigned = aqm[item.id] || 0;
                         const balance = item.quantity - assigned;
-                        // Find compatible sheets (same GSM, has space)
+                        // Find compatible sheets (same GSM, has space, sheetQty <= balanceQty)
                         const itemGsm = notes.gsm ? parseInt(notes.gsm) : 0;
                         const compatibleSheets = sheetsData.filter(s =>
-                          (s.status === "INCOMPLETE" || s.status === "SETTING") && s.gsm === itemGsm
+                          (s.status === "INCOMPLETE" || s.status === "SETTING") &&
+                          s.gsm === itemGsm &&
+                          s.quantity <= balance
                         );
                         return (
                           <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -939,7 +941,7 @@ export default function ProductionPage() {
                                     const alreadyAssigned = getAssignedQty(pi.id);
                                     const balanceQty = pi.quantity - alreadyAssigned;
                                     const maxMultiple = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty/sheet.quantity)) : 0;
-                                    const canPlace = maxMultiple > 0 && balanceQty > 0;
+                                    const canPlace = maxMultiple > 0 && balanceQty > 0 && sheet.quantity <= balanceQty;
                                     return (
                                       <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
                                         <span className="font-semibold text-slate-800">{pi.productName}</span>
