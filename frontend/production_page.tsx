@@ -16,7 +16,7 @@ type ProductionStage = (typeof PRODUCTION_STAGES)[number]["value"];
 type ProductionCategory = "INHOUSE" | "CLUBBING" | "SHEET_PRODUCTION";
 
 const SHEET_QUALITIES = ["MAPLITHO","STICKER","BOND","ART_CARD","DUPLEX_CARD_WB","DUPLEX_CARD_GB"];
-const SHEET_STATUSES = ["INCOMPLETE","COMPLETE","SETTING","PRINTING","PROCESSING","DONE"];
+const SHEET_STATUSES = ["INCOMPLETE","SETTING","PRINTING","PROCESSING","COMPLETE"];
 const SHEET_STAGES = ["PAPER_PURCHASE","PLATE_MAKING","PRINTING","BINDING","LAMINATION","EXTRA_PROCESSING"];
 const JW_STATUSES = ["PENDING","IN_PROGRESS","COMPLETED"];
 
@@ -61,7 +61,7 @@ function getFileIcon(name: string) {
 const stageColors: Record<string, string> = { NOT_PRINTED:"bg-gray-100 text-gray-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-yellow-100 text-yellow-700", READY_FOR_DISPATCH:"bg-green-100 text-green-700" };
 const categoryColors: Record<string, string> = { INHOUSE:"bg-violet-100 text-violet-700", CLUBBING:"bg-orange-100 text-orange-700", SHEET_PRODUCTION:"bg-cyan-100 text-cyan-700" };
 const categoryLabels: Record<string, string> = { INHOUSE:"Inhouse", CLUBBING:"Clubbing", SHEET_PRODUCTION:"Sheet" };
-const sheetStatusColors: Record<string, string> = { INCOMPLETE:"bg-gray-100 text-gray-600", SETTING:"bg-yellow-100 text-yellow-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-orange-100 text-orange-700", COMPLETE:"bg-green-100 text-green-700", DONE:"bg-emerald-100 text-emerald-800" };
+const sheetStatusColors: Record<string, string> = { INCOMPLETE:"bg-gray-100 text-gray-600", SETTING:"bg-yellow-100 text-yellow-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-orange-100 text-orange-700", COMPLETE:"bg-green-100 text-green-700" };
 const jwStatusColors: Record<string, string> = { PENDING:"bg-gray-100 text-gray-600", IN_PROGRESS:"bg-blue-100 text-blue-700", COMPLETED:"bg-green-100 text-green-700" };
 
 export default function ProductionPage() {
@@ -119,20 +119,9 @@ export default function ProductionPage() {
   const [placingItem, setPlacingItem] = useState<string | null>(null);
   const [stageVendorForm, setStageVendorForm] = useState<Record<string, { stage: string; vendorId: string; cost: string; description: string; vendorInvoiceNo: string }>>({});
   const [savingStageVendor, setSavingStageVendor] = useState(false);
-
-  // Multiple dialog state for sheet placement
+  const [sheetSubTab, setSheetSubTab] = useState<"unassigned"|"created"|"processing">("unassigned");
   const [multipleDialog, setMultipleDialog] = useState<{ sheetId: string; sheetNo: string; sheetQty: number; item: PlaceableItem; maxMultiple: number; suggestedMultiple: number } | null>(null);
   const [multipleValue, setMultipleValue] = useState("1");
-  const [sheetSubTab, setSheetSubTab] = useState("unassigned");
-  const [processingSubTab, setProcessingSubTab] = useState<"printing"|"processing">("printing");
-  const [settingDialog, setSettingDialog] = useState<{ sheetId: string; sheetNo: string } | null>(null);
-  const [settingForm, setSettingForm] = useState({
-    plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "",
-    printVendorId: "", printDesc: "", printRate: "", printQty: "",
-  });
-  const [savingSetting, setSavingSetting] = useState(false);
-  const [processingVendorFilter, setProcessingVendorFilter] = useState("");
-  const [processingItemVendors, setProcessingItemVendors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setError(null); setLoading(true);
@@ -181,14 +170,6 @@ export default function ProductionPage() {
   }, [router]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
-
-  // Load saved processing vendors from sessionStorage
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem("procVendors");
-      if (saved) setProcessingItemVendors(JSON.parse(saved));
-    } catch {}
-  }, []);
 
   async function updateItemStage(itemId: string, stage: ProductionStage) {
     setUpdatingItemId(itemId);
@@ -367,10 +348,10 @@ export default function ProductionPage() {
     } finally { setLoadingPlaceable(false); }
   }
 
-  // Compute how much qty of an item is already assigned across all sheets
   function getAssignedQty(orderItemId: string): number {
     return sheetsData.reduce((total, sheet) =>
-      total + sheet.items.filter(si => si.orderItem.id === orderItemId).reduce((s, si) => s + (si.quantityOnSheet ?? si.multiple * sheet.quantity), 0), 0);
+      total + sheet.items.filter(si => si.orderItem.id === orderItemId)
+        .reduce((s, si) => s + (si.quantityOnSheet ?? si.multiple * sheet.quantity), 0), 0);
   }
 
   function openMultipleDialog(sheetId: string, item: PlaceableItem) {
@@ -383,24 +364,14 @@ export default function ProductionPage() {
     const available = sheet.areaSqInches - sheet.usedAreaSqInches;
     const fitsByArea = itemArea > 0 ? Math.floor(available / itemArea) : 0;
     if (fitsByArea === 0) { alert("Not enough space on sheet"); return; }
-
-    // Balance qty = order qty minus what's already assigned on other sheets
     const alreadyAssigned = getAssignedQty(item.id);
     const balanceQty = item.quantity - alreadyAssigned;
     if (balanceQty <= 0) { alert("This item is already fully assigned"); return; }
-
-    // Max multiple = limited by both area and balance qty
-    const maxByQty = Math.floor(balanceQty / sheet.quantity);
-    const maxMultiple = Math.min(fitsByArea, maxByQty > 0 ? maxByQty : 1);
-    // If balance < sheet.quantity, we still allow 1x but it will be capped at balanceQty
-    const effectiveMax = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty / sheet.quantity)) : 0;
+    const effectiveMax = Math.min(fitsByArea, Math.ceil(balanceQty / sheet.quantity));
     if (effectiveMax === 0) { alert("Not enough space on sheet"); return; }
-
-    // Suggested multiple = exactly what fills the balance
-    const suggested = Math.min(effectiveMax, Math.ceil(balanceQty / sheet.quantity));
-
-    setMultipleDialog({ sheetId, sheetNo: sheet.sheetNo, sheetQty: sheet.quantity, item, maxMultiple: effectiveMax, suggestedMultiple: suggested });
-    setMultipleValue(String(suggested));
+    const suggested = Math.ceil(balanceQty / sheet.quantity);
+    setMultipleDialog({ sheetId, sheetNo: sheet.sheetNo, sheetQty: sheet.quantity, item, maxMultiple: effectiveMax, suggestedMultiple: Math.min(suggested, effectiveMax) });
+    setMultipleValue(String(Math.min(suggested, effectiveMax)));
   }
 
   async function confirmPlaceWithMultiple() {
@@ -408,19 +379,15 @@ export default function ProductionPage() {
     const { sheetId, item, maxMultiple, sheetQty } = multipleDialog;
     const val = parseInt(multipleValue);
     if (!val || val < 1) { alert("Enter a valid multiple (minimum 1)"); return; }
-    if (val > maxMultiple) { alert(`Maximum allowed is ${maxMultiple}x — would exceed order balance or sheet space`); return; }
-
+    if (val > maxMultiple) { alert(`Maximum allowed is ${maxMultiple}×`); return; }
     const sheet = sheetsData.find(s => s.id === sheetId);
     if (!sheet) return;
     const sizeStr = (item.openSizeInches ?? "0x0").replace("*", "x");
     const [w, h] = sizeStr.split("x").map(Number);
     const itemArea = w * h;
-
-    // Cap quantityOnSheet at balanceQty
     const alreadyAssigned = getAssignedQty(item.id);
     const balanceQty = item.quantity - alreadyAssigned;
     const quantityOnSheet = Math.min(val * sheetQty, balanceQty);
-
     setPlacingItem(item.id);
     setMultipleDialog(null);
     try {
@@ -441,47 +408,11 @@ export default function ProductionPage() {
   }
 
   async function updateSheetStatus(sheetId: string, status: string) {
-    // Intercept COMPLETE → SETTING: must fill plate + print vendor info first
-    const sheet = sheetsData.find(s => s.id === sheetId);
-    if (sheet && sheet.status === "COMPLETE" && status === "SETTING") {
-      setSettingDialog({ sheetId, sheetNo: sheet.sheetNo });
-      setSettingForm({ plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "", printVendorId: "", printDesc: "", printRate: "", printQty: "" });
-      return;
-    }
-    const prevExpanded = expandedSheet;
     await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
     await loadAll();
-    setExpandedSheet(prevExpanded);
-  }
-
-  async function submitSettingDialog() {
-    if (!settingDialog) return;
-    const { sheetId } = settingDialog;
-    if (!settingForm.plateVendorId || !settingForm.plateRate || !settingForm.plateQty) { alert("Fill Plate vendor, rate and quantity"); return; }
-    if (!settingForm.printVendorId || !settingForm.printRate || !settingForm.printQty) { alert("Fill Printing vendor, rate and quantity"); return; }
-    setSavingSetting(true);
-    try {
-      const h = { ...getAuthHeaders(), "Content-Type": "application/json" };
-      const plateTotal = Number(settingForm.plateRate) * Number(settingForm.plateQty);
-      const printTotal = Number(settingForm.printRate) * Number(settingForm.printQty);
-      await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
-        method: "POST", headers: h,
-        body: JSON.stringify({ stage: "PLATE_MAKING", vendorId: settingForm.plateVendorId, cost: plateTotal, description: settingForm.plateDesc || undefined }),
-      });
-      await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
-        method: "POST", headers: h,
-        body: JSON.stringify({ stage: "PRINTING", vendorId: settingForm.printVendorId, cost: printTotal, description: settingForm.printDesc || undefined }),
-      });
-      await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
-        method: "PATCH", headers: h, body: JSON.stringify({ status: "SETTING" }),
-      });
-      setSettingDialog(null);
-      await loadAll();
-      setProcessingSubTab("printing");
-    } finally { setSavingSetting(false); }
   }
 
   async function addStageVendor(sheetId: string) {
@@ -636,14 +567,13 @@ export default function ProductionPage() {
                     <th className="px-3 py-2 font-semibold text-slate-600">Qty</th>
                     {activeTab === "all" && <th className="px-3 py-2 font-semibold text-slate-600">Type</th>}
                     <th className="px-3 py-2 font-semibold text-slate-600">Stage</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Sheets</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Files</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Upload</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {flatItems.length === 0 ? (
-                    <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
                   ) : flatItems.map(item => {
                     const { size, gsm } = parseNotes(item.productionNotes);
                     const isUpdating = updatingItemId === item.id;
@@ -670,15 +600,6 @@ export default function ProductionPage() {
                               </select>
                             </div>
                           </td>
-                          <td className="px-3 py-1.5 max-w-[160px]">
-                            {(() => {
-                              const sa = sheetsData.flatMap(s => s.items.filter(si => si.orderItem.id === item.id).map(si => ({ no: s.sheetNo, qty: si.quantityOnSheet })));
-                              if (!sa.length) return <span className="text-slate-300 text-xs">—</span>;
-                              return <div className="flex flex-wrap gap-0.5">{sa.map((a, i) => (
-                                <span key={i} className="inline-flex rounded-full bg-cyan-50 border border-cyan-200 px-1.5 py-0.5 text-xs font-semibold text-cyan-700 whitespace-nowrap">{a.no} · {a.qty}</span>
-                              ))}</div>;
-                            })()} 
-                          </td>
                           <td className="px-3 py-1.5">
                             <button onClick={() => setExpandedFileItemId(isExpanded ? null : item.id)}
                               className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium border ${designFiles.length > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-500"}`}>
@@ -697,7 +618,7 @@ export default function ProductionPage() {
                           </td>
                         </tr>
                         {isExpanded && designFiles.length > 0 && (
-                          <tr><td colSpan={12} className="bg-blue-50 border-t border-blue-100 px-4 py-3">
+                          <tr><td colSpan={11} className="bg-blue-50 border-t border-blue-100 px-4 py-3">
                             <div className="flex items-center justify-between mb-2">
                               <p className="text-xs font-semibold text-blue-800">Files for {item.productName}</p>
                               <button onClick={() => setExpandedFileItemId(null)}><X className="h-3.5 w-3.5 text-blue-400" /></button>
@@ -846,31 +767,42 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
+              {/* Sheet Sub-tabs */}
               <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
-                {[
-                  { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
-                  { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
-                  { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
-                ].map(t => {
-                  const aqm: Record<string,number> = {};
-                  sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
+                {([
+                  { key: "unassigned", label: "📋 Unassigned", color: "text-slate-600" },
+                  { key: "created",    label: "🗂️ Created Sheets", color: "text-cyan-700" },
+                  { key: "processing", label: "⚙️ Processing Sheets", color: "text-orange-600" },
+                ] as { key: "unassigned"|"created"|"processing"; label: string; color: string }[]).map(t => {
+                  const aqm: Record<string, number> = {};
+                  sheetsData.forEach(s => s.items.forEach(si => {
+                    aqm[si.orderItem.id] = (aqm[si.orderItem.id] ?? 0) + (si.quantityOnSheet ?? si.multiple * s.quantity);
+                  }));
                   const count = t.key === "unassigned"
-                    ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
-                    : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
-                    : sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").length;
+                    ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] ?? 0)) > 0).length, 0)
+                    : t.key === "created"
+                    ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
+                    : sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING").length;
                   return (
                     <button key={t.key} onClick={() => setSheetSubTab(t.key)}
-                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
+                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? `bg-white shadow-sm border border-slate-200 ${t.color}` : "text-slate-500 hover:text-slate-700"}`}>
                       {t.label}
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? "bg-cyan-100 text-cyan-700" : "bg-slate-200 text-slate-500"}`}>{count}</span>
                     </button>
                   );
                 })}
               </div>
+
+              {/* Unassigned sub-tab */}
               {sheetSubTab === "unassigned" && (() => {
-                const aqm: Record<string,number> = {};
-                sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
-                const items = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName })));
+                const aqm: Record<string, number> = {};
+                sheetsData.forEach(s => s.items.forEach(si => {
+                  aqm[si.orderItem.id] = (aqm[si.orderItem.id] ?? 0) + (si.quantityOnSheet ?? si.multiple * s.quantity);
+                }));
+                const items = ordersData.flatMap(o => o.items
+                  .filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] ?? 0)) > 0)
+                  .map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName }))
+                );
                 if (items.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
                 return (
                   <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -879,84 +811,59 @@ export default function ProductionPage() {
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Qty</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Assigned</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Balance</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Assign Sheet</th>
                       </tr></thead>
-                      <tbody>{items.map(item => {
-                        const notes = parseNotes(item.productionNotes);
-                        const assigned = aqm[item.id] || 0;
-                        const balance = item.quantity - assigned;
-                        // Find compatible sheets (same GSM, has space, sheetQty <= balanceQty)
-                        const itemGsm = notes.gsm ? parseInt(notes.gsm) : 0;
-                        const compatibleSheets = sheetsData.filter(s =>
-                          (s.status === "INCOMPLETE" || s.status === "COMPLETE" || s.status === "SETTING") &&
-                          s.gsm === itemGsm &&
-                          s.quantity <= balance
-                        );
-                        return (
-                          <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
-                            <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
-                            <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
-                            <td className="px-3 py-2 text-slate-500">{notes.size || "—"}</td>
-                            <td className="px-3 py-2 text-slate-500">{notes.gsm || "—"}</td>
-                            <td className="px-3 py-2 font-semibold">{item.quantity}</td>
-                            <td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
-                            <td className="px-3 py-2 text-cyan-700 font-bold">{balance}</td>
-                            <td className="px-3 py-2">
-                              {compatibleSheets.length === 0 ? (
-                                <span className="text-slate-400 text-xs">No sheets</span>
-                              ) : (
-                                <div className="flex items-center gap-1">
-                                  <select id={`sel-${item.id}`} defaultValue="" className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
-                                    <option value="">Select sheet...</option>
-                                    {compatibleSheets.map(s => {
-                                      const used = Math.round((s.usedAreaSqInches / s.areaSqInches) * 100);
-                                      return <option key={s.id} value={s.id}>{s.sheetNo} - {s.quantity} Qty ({used}% used)</option>;
-                                    })}
-                                  </select>
-                                  <button onClick={() => {
-                                    const sel = document.getElementById(`sel-${item.id}`) as HTMLSelectElement;
-                                    if (!sel?.value) { alert("Select a sheet first"); return; }
-                                    const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: notes.size || "0x0", quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
-                                    openMultipleDialog(sel.value, pi);
-                                  }} className="inline-flex items-center gap-0.5 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-700">
-                                    <Plus className="h-3 w-3" /> Assign
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}</tbody>
+                      <tbody>
+                        {items.map(item => {
+                          const notes = parseNotes(item.productionNotes);
+                          const assigned = aqm[item.id] ?? 0;
+                          return (
+                            <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
+                              <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
+                              <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
+                              <td className="px-3 py-2 text-slate-500">{notes.gsm ?? "—"}</td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
+                              <td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
+                              <td className="px-3 py-2 text-cyan-700 font-bold">{item.quantity - assigned}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
                     </table>
                   </div>
                 );
               })()}
-              {sheetSubTab === "created" && (() => {
-                const filtered = sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "COMPLETE");
+
+              {/* Created / Processing sub-tabs */}
+              {(sheetSubTab === "created" || sheetSubTab === "processing") && (() => {
+                const filtered = sheetsData.filter(s =>
+                  sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "SETTING") : (s.status === "PRINTING" || s.status === "PROCESSING")
+                );
                 if (filtered.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets in this stage.</div>;
                 return (
                   <div className="space-y-2">
                     {filtered.map(sheet => {
                       const isExp = expandedSheet === sheet.id;
                       const usedPct = sheet.areaSqInches > 0 ? Math.round((sheet.usedAreaSqInches / sheet.areaSqInches) * 100) : 0;
-                      const svf = stageVendorForm[sheet.id] || { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" };
+                      const svf = stageVendorForm[sheet.id] ?? { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" };
                       return (
                         <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                          <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer"
+                            onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
-                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g, " ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                              <span className="text-xs text-slate-500">{sheet.printing === "SINGLE_SIDE" ? "Single" : "Double"} side</span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
-                              <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
+                              <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} item{sheet.items.length !== 1 ? "s" : ""}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
+                              <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
+                                className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
                                 {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
                               {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
@@ -965,21 +872,24 @@ export default function ProductionPage() {
                           {isExp && (
                             <div className="p-4 space-y-4">
                               <div>
-                                <div className="flex justify-between text-xs text-slate-500 mb-1"><span>Space: {sheet.usedAreaSqInches.toFixed(1)} / {sheet.areaSqInches} sq in</span><span>{usedPct}%</span></div>
-                                <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full ${usedPct > 90 ? "bg-red-500" : usedPct > 70 ? "bg-yellow-500" : "bg-cyan-500"}`} style={{ width: usedPct+"%" }} /></div>
+                                <div className="flex justify-between text-xs text-slate-500 mb-1"><span>Space used: {sheet.usedAreaSqInches.toFixed(1)} / {sheet.areaSqInches} sq in</span><span>{usedPct}%</span></div>
+                                <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full transition-all ${usedPct > 90 ? "bg-red-500" : usedPct > 70 ? "bg-yellow-500" : "bg-cyan-500"}`} style={{ width: `${usedPct}%` }} /></div>
                               </div>
                               <div>
-                                <p className="text-xs font-semibold text-slate-600 mb-2">Items on sheet</p>
+                                <p className="text-xs font-semibold text-slate-600 mb-2">Items on this sheet</p>
                                 {sheet.items.length === 0 ? <p className="text-xs text-slate-400">No items placed yet.</p> : (
-                                  <div className="space-y-1.5">{sheet.items.map(si => (
-                                    <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                                      <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
-                                      <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
-                                      <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 font-medium">{si.orderItem.product.sizeInches}"</span>
-                                      <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 font-medium">{si.orderItem.product.gsm} GSM</span>
-                                      <span className="text-cyan-700 font-semibold">x{si.multiple} · Qty {si.quantityOnSheet}</span>
-                                      <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                                    </div>))}</div>
+                                  <div className="space-y-1.5">
+                                    {sheet.items.map(si => (
+                                      <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                                        <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
+                                        <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
+                                        <span className="text-slate-400">{si.orderItem.product.sizeInches}"</span>
+                                        <span className="text-cyan-700 font-semibold">×{si.multiple} · Qty {si.quantityOnSheet}</span>
+                                        <span className="text-slate-400">{si.areaSqInches.toFixed(1)} sq in</span>
+                                        <button onClick={() => removeSheetItem(si.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                                      </div>
+                                    ))}
+                                  </div>
                                 )}
                               </div>
                               <div>
@@ -987,28 +897,73 @@ export default function ProductionPage() {
                                 {loadingPlaceable ? <Loader2 className="h-4 w-4 animate-spin text-cyan-600" /> : placeableItems.length === 0 ? (
                                   <p className="text-xs text-slate-400">No unplaced items with {sheet.gsm} GSM.</p>
                                 ) : (
-                                  <div className="space-y-1.5">{placeableItems.map(pi => {
-                                    const sz = (pi.openSizeInches||"0x0").replace("*","x").split("x").map(Number);
-                                    const itemArea = (sz[0]&&sz[1]) ? sz[0]*sz[1] : 0;
-                                    const fitsByArea = itemArea > 0 ? Math.floor((sheet.areaSqInches-sheet.usedAreaSqInches)/itemArea) : 0;
-                                    const alreadyAssigned = getAssignedQty(pi.id);
-                                    const balanceQty = pi.quantity - alreadyAssigned;
-                                    const maxMultiple = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty/sheet.quantity)) : 0;
-                                    const canPlace = maxMultiple > 0 && balanceQty > 0 && sheet.quantity <= balanceQty;
-                                    return (
-                                      <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
-                                        <span className="font-semibold text-slate-800">{pi.productName}</span>
-                                        <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
-                                        <span className="text-cyan-700 font-semibold">Balance: {balanceQty} · Max: {maxMultiple}x</span>
-                                        <button onClick={() => openMultipleDialog(sheet.id, pi)} disabled={!canPlace || placingItem === pi.id}
-                                          className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
-                                          {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
-                                        </button>
-                                      </div>);
-                                  })}</div>
+                                  <div className="space-y-1.5">
+                                    {placeableItems.map(pi => {
+                                      const sizeStr = (pi.openSizeInches ?? "0x0").replace("*", "x");
+                                      const [w, h] = sizeStr.split("x").map(Number);
+                                      const itemArea = (w && h) ? w * h : 0;
+                                      const available = sheet.areaSqInches - sheet.usedAreaSqInches;
+                                      const fitsByArea = itemArea > 0 ? Math.floor(available / itemArea) : 0;
+                                      const alreadyAssigned = getAssignedQty(pi.id);
+                                      const balanceQty = pi.quantity - alreadyAssigned;
+                                      const maxMultiple = fitsByArea > 0 ? Math.min(fitsByArea, Math.ceil(balanceQty / sheet.quantity)) : 0;
+                                      const canPlace = maxMultiple > 0 && balanceQty > 0;
+                                      return (
+                                        <div key={pi.id} className="flex items-center gap-3 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs">
+                                          <span className="font-semibold text-slate-800">{pi.productName}</span>
+                                          <span className="text-slate-500">{pi.orderNo} — {pi.customerName}</span>
+                                          <span className="text-slate-400">{pi.openSizeInches}" · Qty {pi.quantity}</span>
+                                          <span className="text-cyan-700 font-semibold">Balance: {balanceQty} · Max: {maxMultiple}×</span>
+                                          <button onClick={() => openMultipleDialog(sheet.id, pi)} disabled={!canPlace || placingItem === pi.id}
+                                            className="ml-auto inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
+                                            {placingItem === pi.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Place
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
-
+                              <div>
+                                <p className="text-xs font-semibold text-slate-600 mb-2">Stage Vendors</p>
+                                {sheet.stageVendors.length > 0 && (
+                                  <div className="space-y-1.5 mb-3">
+                                    {sheet.stageVendors.map(sv => (
+                                      <div key={sv.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                                        <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g, " ")}</span>
+                                        <span className="font-semibold text-slate-800">{sv.vendor.name}</span>
+                                        {sv.description && <span className="text-slate-400">{sv.description}</span>}
+                                        {sv.vendorInvoiceNo && <span className="text-slate-400">Inv: {sv.vendorInvoiceNo}</span>}
+                                        <span className="font-bold text-cyan-700 whitespace-nowrap">{fmt(sv.cost)}</span>
+                                        <button onClick={() => deleteStageVendor(sv.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50/50 p-3">
+                                  <p className="text-xs font-semibold text-cyan-700 mb-2">+ Assign Stage Vendor</p>
+                                  <div className="grid grid-cols-3 gap-2 mb-2">
+                                    <div><label className="block text-xs text-slate-500 mb-1">Stage *</label>
+                                      <select value={svf.stage} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, stage: e.target.value } }))} style={IS.input}>
+                                        <option value="">Select...</option>{SHEET_STAGES.map(s => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+                                      </select></div>
+                                    <div><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
+                                      <select value={svf.vendorId} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorId: e.target.value } }))} style={IS.input}>
+                                        <option value="">Select...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                                      </select></div>
+                                    <div><label className="block text-xs text-slate-500 mb-1">Cost (₹) *</label>
+                                      <input type="number" value={svf.cost} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, cost: e.target.value } }))} placeholder="0.00" style={IS.input} /></div>
+                                    <div><label className="block text-xs text-slate-500 mb-1">Description</label>
+                                      <input value={svf.description} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, description: e.target.value } }))} placeholder="Optional" style={IS.input} /></div>
+                                    <div><label className="block text-xs text-slate-500 mb-1">Invoice No</label>
+                                      <input value={svf.vendorInvoiceNo} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorInvoiceNo: e.target.value } }))} placeholder="Optional" style={IS.input} /></div>
+                                  </div>
+                                  <button onClick={() => addStageVendor(sheet.id)} disabled={savingStageVendor}
+                                    className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                                    {savingStageVendor ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Add
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1017,184 +972,57 @@ export default function ProductionPage() {
                   </div>
                 );
               })()}
-
-              {sheetSubTab === "processing" && (
-                <div className="space-y-3">
-                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-                    <button onClick={() => setProcessingSubTab("printing")}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "printing" ? "bg-white shadow-sm text-blue-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                      Printing Sheets
-                      <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "printing" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
-                        {sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING").length}
-                      </span>
-                    </button>
-                    <button onClick={() => setProcessingSubTab("processing")}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "processing" ? "bg-white shadow-sm text-orange-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                      Processing Orders
-                      <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "processing" ? "bg-orange-100 text-orange-700" : "bg-slate-200 text-slate-500"}`}>
-                        {sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE").flatMap(s => s.items).length}
-                      </span>
-                    </button>
-                  </div>
-
-                  {processingSubTab === "printing" && (() => {
-                    const printSheets = sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING");
-                    if (printSheets.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets in printing stage.</div>;
-                    return (
-                      <div className="space-y-2">
-                        {printSheets.map(sheet => {
-                          const isExp = expandedSheet === sheet.id;
-                          return (
-                            <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                              <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100 cursor-pointer"
-                                onClick={() => setExpandedSheet(isExp ? null : sheet.id)}>
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  <span className="font-bold text-blue-700 text-sm">{sheet.sheetNo}</span>
-                                  <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
-                                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status] || "bg-gray-100 text-gray-600"}`}>{sheet.status}</span>
-                                  <span className="text-xs text-slate-500">{sheet.items.length} items</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
-                                    className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status] || "bg-gray-100"}`}>
-                                    {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                                  </select>
-                                  {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
-                                </div>
-                              </div>
-                              {isExp && (
-                                <div className="p-4 space-y-3">
-                                  <div>
-                                    <p className="text-xs font-semibold text-slate-600 mb-2">Items on sheet</p>
-                                    <div className="space-y-1.5">{sheet.items.map(si => (
-                                      <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                                        <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
-                                        <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
-                                        <span className="rounded-full bg-slate-100 px-1.5 py-0.5">{si.orderItem.product.sizeInches}"</span>
-                                        <span className="text-cyan-700 font-semibold">x{si.multiple} · Qty {si.quantityOnSheet}</span>
-                                      </div>
-                                    ))}</div>
-                                  </div>
-                                  {sheet.stageVendors.length > 0 && (
-                                    <div>
-                                      <p className="text-xs font-semibold text-slate-600 mb-2">Stage Vendors</p>
-                                      <div className="space-y-1">{sheet.stageVendors.map(sv => (
-                                        <div key={sv.id} className="flex items-center gap-3 text-xs rounded-lg border border-slate-200 bg-white px-3 py-2">
-                                          <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g," ")}</span>
-                                          <span className="font-semibold">{sv.vendor.name}</span>
-                                          {sv.description && <span className="text-slate-400">{sv.description}</span>}
-                                          <span className="ml-auto font-bold text-cyan-700">{fmt(sv.cost)}</span>
-                                        </div>
-                                      ))}</div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-
-                  {processingSubTab === "processing" && (() => {
-                    const procSheets = sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE");
-                    // Filter out items already marked READY_FOR_DISPATCH
-                    // Cross-reference with ordersData since SheetItem doesn't have stage
-                    const readyItemIds = new Set(
-                      ordersData.flatMap(o => o.items.filter(i => i.itemProductionStage === "READY_FOR_DISPATCH").map(i => i.id))
-                    );
-                    const allItems = procSheets.flatMap(sheet => sheet.items.map(si => ({ ...si, sheet })))
-                      .filter(si => !readyItemIds.has(si.orderItem.id));
-                    // Load saved vendors from sessionStorage (persists during session, not across refreshes)
-                    // Use ordersData to get current stage
-                    // Use orderItem.id as key (stable across loadAll refreshes)
-                    const getItemVendor = (orderItemId: string) => processingItemVendors[orderItemId] || "";
-                    const saveItemVendor = (orderItemId: string, vendorId: string) => {
-                      setProcessingItemVendors(p => {
-                        const updated = { ...p, [orderItemId]: vendorId };
-                        try { sessionStorage.setItem("procVendors", JSON.stringify(updated)); } catch {}
-                        return updated;
-                      });
-                    };
-                    return (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-semibold text-slate-600">Filter by Vendor:</label>
-                          <select value={processingVendorFilter} onChange={e => setProcessingVendorFilter(e.target.value)}
-                            className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none bg-white">
-                            <option value="">All Vendors</option>
-                            {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                          </select>
-                          {processingVendorFilter && <button onClick={() => setProcessingVendorFilter("")} className="text-xs text-slate-400 hover:text-slate-600">x Clear</button>}
-                          <span className="text-xs text-slate-400 ml-2">{allItems.length} items pending</span>
-                        </div>
-                        {allItems.length === 0 ? (
-                          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All items are ready for dispatch.</div>
-                        ) : (
-                          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                            <table className="w-full text-xs">
-                              <thead><tr className="border-b border-slate-100 bg-slate-50">
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Processing Vendor</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
-                              </tr></thead>
-                              <tbody>
-                                {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
-                                  <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
-                                    <td className="px-3 py-2 font-bold text-cyan-700">{si.sheet.sheetNo}</td>
-                                    <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
-                                    <td className="px-3 py-2 text-slate-700">{si.orderItem.order.customer.businessName}</td>
-                                    <td className="px-3 py-2 font-semibold text-slate-800">{si.orderItem.product.name}</td>
-                                    <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>
-                                    <td className="px-3 py-2 font-semibold">{si.quantityOnSheet}</td>
-                                    <td className="px-3 py-2">
-                                      <select value={getItemVendor(si.orderItem.id)}
-                                        onChange={e => saveItemVendor(si.orderItem.id, e.target.value)}
-                                        className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
-                                        <option value="">Select Vendor...</option>
-                                        {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                      </select>
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <button
-                                        onClick={async () => {
-                                          if (!confirm("Mark this item as Ready for Dispatch?")) return;
-                                          try {
-                                            const res = await fetch(API_BASE_URL + "/production/items/" + si.orderItem.id + "/stage", {
-                                              method: "PATCH",
-                                              headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-                                              body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
-                                            });
-                                            if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-                                            await loadAll();
-                                          } catch { alert("Network error"); }
-                                        }}
-                                        className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
-                                        Ready
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
             </div>
           )}
 
         </div>
       </DashboardShell>
+
+      {/* ── Multiple Dialog ── */}
+      {multipleDialog && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div><h2 className="text-base font-semibold text-slate-900">Place on Sheet</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} · {multipleDialog.sheetNo}</p></div>
+              <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            {(() => {
+              const alreadyAssigned = getAssignedQty(multipleDialog.item.id);
+              const balanceQty = multipleDialog.item.quantity - alreadyAssigned;
+              const val = parseInt(multipleValue) || 0;
+              const willPrint = Math.min(val * multipleDialog.sheetQty, balanceQty);
+              const remainingAfter = balanceQty - willPrint;
+              return (
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-slate-500">Order Qty</span><span className="font-semibold">{multipleDialog.item.quantity}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Already Assigned</span><span className="font-semibold text-orange-600">{alreadyAssigned}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Balance Qty</span><span className="font-semibold text-cyan-700">{balanceQty}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Sheet Qty</span><span className="font-semibold">{multipleDialog.sheetQty}</span></div>
+                    <div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-500">Will Print</span><span className="font-bold text-green-700">{willPrint}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Remaining After</span><span className={`font-bold ${remainingAfter > 0 ? "text-orange-500" : "text-green-600"}`}>{remainingAfter}</span></div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Multiple (×) <span className="text-red-500">*</span> <span className="text-slate-400 font-normal">Max: {multipleDialog.maxMultiple}×</span></label>
+                    <input type="number" min={1} max={multipleDialog.maxMultiple} value={multipleValue}
+                      onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v)) setMultipleValue(String(Math.min(Math.max(1, v), multipleDialog.maxMultiple))); else setMultipleValue(e.target.value); }}
+                      style={{ width:"100%",borderRadius:"6px",border:"1px solid #e2e8f0",padding:"8px 10px",fontSize:"14px",boxSizing:"border-box" as const }} />
+                    <p className="text-xs text-slate-400 mt-1">Suggested: {multipleDialog.suggestedMultiple}×</p>
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmPlaceWithMultiple} disabled={!!placingItem}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                {placingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Send to Vendor Dialog ── */}
       {sendDialog && (
@@ -1322,122 +1150,6 @@ export default function ProductionPage() {
               <button onClick={createVendor} disabled={savingVendor}
                 className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60">
                 {savingVendor ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save Vendor
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Setting Dialog */}
-      {settingDialog && (
-        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Sheet Setting Details</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{settingDialog.sheetNo} — Fill plate and printing vendor info</p>
-              </div>
-              <button onClick={() => setSettingDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            <div className="rounded-lg border border-slate-200 p-3 mb-3">
-              <p className="text-xs font-bold text-slate-700 mb-2">Plate Making</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                  <select value={settingForm.plateVendorId} onChange={e => setSettingForm(p => ({ ...p, plateVendorId: e.target.value }))} style={IS.input}>
-                    <option value="">Select vendor...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select></div>
-                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Description</label>
-                  <input value={settingForm.plateDesc} onChange={e => setSettingForm(p => ({ ...p, plateDesc: e.target.value }))} placeholder="Optional" style={IS.input} /></div>
-                <div><label className="block text-xs text-slate-500 mb-1">Rate (Rs) *</label>
-                  <input type="number" value={settingForm.plateRate} onChange={e => setSettingForm(p => ({ ...p, plateRate: e.target.value }))} placeholder="0.00" style={IS.input} /></div>
-                <div><label className="block text-xs text-slate-500 mb-1">Quantity *</label>
-                  <input type="number" value={settingForm.plateQty} onChange={e => setSettingForm(p => ({ ...p, plateQty: e.target.value }))} placeholder="0" style={IS.input} /></div>
-                {settingForm.plateRate && settingForm.plateQty && (
-                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(Number(settingForm.plateRate) * Number(settingForm.plateQty))}</div>
-                )}
-              </div>
-            </div>
-            <div className="rounded-lg border border-slate-200 p-3 mb-4">
-              <p className="text-xs font-bold text-slate-700 mb-2">Printing</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                  <select value={settingForm.printVendorId} onChange={e => setSettingForm(p => ({ ...p, printVendorId: e.target.value }))} style={IS.input}>
-                    <option value="">Select vendor...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select></div>
-                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Description</label>
-                  <input value={settingForm.printDesc} onChange={e => setSettingForm(p => ({ ...p, printDesc: e.target.value }))} placeholder="Optional" style={IS.input} /></div>
-                <div><label className="block text-xs text-slate-500 mb-1">Rate (Rs) *</label>
-                  <input type="number" value={settingForm.printRate} onChange={e => setSettingForm(p => ({ ...p, printRate: e.target.value }))} placeholder="0.00" style={IS.input} /></div>
-                <div><label className="block text-xs text-slate-500 mb-1">Quantity *</label>
-                  <input type="number" value={settingForm.printQty} onChange={e => setSettingForm(p => ({ ...p, printQty: e.target.value }))} placeholder="0" style={IS.input} /></div>
-                {settingForm.printRate && settingForm.printQty && (
-                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(Number(settingForm.printRate) * Number(settingForm.printQty))}</div>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setSettingDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={submitSettingDialog} disabled={savingSetting}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                {savingSetting ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Submit and Move to Printing
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Sheet Multiple Dialog ── */}
-      {multipleDialog && (
-        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"26rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Place on Sheet</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{multipleDialog.item.productName} · {multipleDialog.sheetNo}</p>
-              </div>
-              <button onClick={() => setMultipleDialog(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            {(() => {
-              const alreadyAssigned = getAssignedQty(multipleDialog.item.id);
-              const balanceQty = multipleDialog.item.quantity - alreadyAssigned;
-              const val = parseInt(multipleValue) || 0;
-              const willPrint = Math.min(val * multipleDialog.sheetQty, balanceQty);
-              const remainingAfter = balanceQty - willPrint;
-              return (
-                <div className="space-y-3">
-                  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
-                    <div className="flex justify-between"><span className="text-slate-500">Order Qty</span><span className="font-semibold text-slate-800">{multipleDialog.item.quantity}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Already Assigned</span><span className="font-semibold text-orange-600">{alreadyAssigned}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Balance Qty</span><span className="font-semibold text-cyan-700">{balanceQty}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Sheet Qty</span><span className="font-semibold">{multipleDialog.sheetQty}</span></div>
-                    <div className="border-t border-slate-200 pt-1 flex justify-between"><span className="text-slate-500">Will Print</span><span className="font-bold text-green-700">{willPrint}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Remaining After</span><span className={`font-bold ${remainingAfter > 0 ? "text-orange-500" : "text-green-600"}`}>{remainingAfter}</span></div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Multiple (×) <span className="text-red-500">*</span>
-                      <span className="text-slate-400 font-normal ml-1">Max: {multipleDialog.maxMultiple}×</span>
-                    </label>
-                    <input type="number" min={1} max={multipleDialog.maxMultiple} value={multipleValue}
-                      onChange={e => {
-                        const v = parseInt(e.target.value);
-                        if (!isNaN(v)) setMultipleValue(String(Math.min(Math.max(1, v), multipleDialog.maxMultiple)));
-                        else setMultipleValue(e.target.value);
-                      }}
-                      style={{ width:"100%",borderRadius:"6px",border:"1px solid #e2e8f0",padding:"8px 10px",fontSize:"14px",boxSizing:"border-box" as const }} />
-                    <p className="text-xs text-slate-400 mt-1">Suggested: {multipleDialog.suggestedMultiple}× (fills balance exactly)</p>
-                  </div>
-                  {val > multipleDialog.maxMultiple && (
-                    <p className="text-xs text-red-600 font-semibold">Exceeds max allowed ({multipleDialog.maxMultiple}×)</p>
-                  )}
-                </div>
-              );
-            })()}
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={confirmPlaceWithMultiple} disabled={!!placingItem}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                {placingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
               </button>
             </div>
           </div>
