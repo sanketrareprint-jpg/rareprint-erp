@@ -589,7 +589,7 @@ export default function ProductionPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {flatItems.length === 0 ? (
-                    <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
+                    <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
                   ) : flatItems.map(item => {
                     const { size, gsm } = parseNotes(item.productionNotes);
                     const isUpdating = updatingItemId === item.id;
@@ -813,18 +813,61 @@ export default function ProductionPage() {
                   <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                     <table className="w-full text-xs">
                       <thead><tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th><th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th><th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Qty</th><th className="px-3 py-2 text-left font-semibold text-slate-600">Assigned</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">GSM</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Qty</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Assigned</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Balance</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Assign Sheet</th>
                       </tr></thead>
-                      <tbody>{items.map(item => { const notes = parseNotes(item.productionNotes); const assigned = aqm[item.id] || 0; return (
-                        <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
-                          <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td><td className="px-3 py-2 text-slate-700">{item.customerName}</td>
-                          <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td><td className="px-3 py-2 text-slate-500">{notes.gsm || "—"}</td>
-                          <td className="px-3 py-2 font-semibold">{item.quantity}</td><td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
-                          <td className="px-3 py-2 text-cyan-700 font-bold">{item.quantity - assigned}</td>
-                        </tr>); })}</tbody>
+                      <tbody>{items.map(item => {
+                        const notes = parseNotes(item.productionNotes);
+                        const assigned = aqm[item.id] || 0;
+                        const balance = item.quantity - assigned;
+                        // Find compatible sheets (same GSM, has space)
+                        const itemGsm = notes.gsm ? parseInt(notes.gsm) : 0;
+                        const compatibleSheets = sheetsData.filter(s =>
+                          (s.status === "INCOMPLETE" || s.status === "SETTING") && s.gsm === itemGsm
+                        );
+                        return (
+                          <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
+                            <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
+                            <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
+                            <td className="px-3 py-2 text-slate-500">{notes.size || "—"}</td>
+                            <td className="px-3 py-2 text-slate-500">{notes.gsm || "—"}</td>
+                            <td className="px-3 py-2 font-semibold">{item.quantity}</td>
+                            <td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
+                            <td className="px-3 py-2 text-cyan-700 font-bold">{balance}</td>
+                            <td className="px-3 py-2">
+                              {compatibleSheets.length === 0 ? (
+                                <span className="text-slate-400 text-xs">No sheets</span>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <select id={`sel-${item.id}`} defaultValue="" className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
+                                    <option value="">Select sheet...</option>
+                                    {compatibleSheets.map(s => {
+                                      const used = Math.round((s.usedAreaSqInches / s.areaSqInches) * 100);
+                                      return <option key={s.id} value={s.id}>{s.sheetNo} ({used}% used)</option>;
+                                    })}
+                                  </select>
+                                  <button onClick={() => {
+                                    const sel = document.getElementById(`sel-${item.id}`) as HTMLSelectElement;
+                                    if (!sel?.value) { alert("Select a sheet first"); return; }
+                                    const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: notes.size || "0x0", quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
+                                    openMultipleDialog(sel.value, pi);
+                                  }} className="inline-flex items-center gap-0.5 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-700">
+                                    <Plus className="h-3 w-3" /> Assign
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}</tbody>
                     </table>
                   </div>
                 );
@@ -898,36 +941,7 @@ export default function ProductionPage() {
                                   })}</div>
                                 )}
                               </div>
-                              <div>
-                                <p className="text-xs font-semibold text-slate-600 mb-2">Stage Vendors</p>
-                                {sheet.stageVendors.length > 0 && (<div className="space-y-1.5 mb-3">{sheet.stageVendors.map(sv => (
-                                  <div key={sv.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                                    <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{sv.stage.replace(/_/g," ")}</span>
-                                    <span className="font-semibold text-slate-800">{sv.vendor.name}</span>
-                                    <span className="font-bold text-cyan-700">{fmt(sv.cost)}</span>
-                                    <button onClick={() => deleteStageVendor(sv.id)} className="ml-auto text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-                                  </div>))}</div>)}
-                                <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50/50 p-3">
-                                  <p className="text-xs font-semibold text-cyan-700 mb-2">+ Assign Stage Vendor</p>
-                                  <div className="grid grid-cols-3 gap-2 mb-2">
-                                    <div><label className="block text-xs text-slate-500 mb-1">Stage *</label>
-                                      <select value={svf.stage} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, stage: e.target.value } }))} style={IS.input}>
-                                        <option value="">Select...</option>{SHEET_STAGES.map(s => <option key={s} value={s}>{s.replace(/_/g," ")}</option>)}</select></div>
-                                    <div><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                                      <select value={svf.vendorId} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorId: e.target.value } }))} style={IS.input}>
-                                        <option value="">Select...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
-                                    <div><label className="block text-xs text-slate-500 mb-1">Cost *</label>
-                                      <input type="number" value={svf.cost} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, cost: e.target.value } }))} placeholder="0.00" style={IS.input} /></div>
-                                    <div><label className="block text-xs text-slate-500 mb-1">Description</label>
-                                      <input value={svf.description} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, description: e.target.value } }))} placeholder="Optional" style={IS.input} /></div>
-                                    <div><label className="block text-xs text-slate-500 mb-1">Invoice No</label>
-                                      <input value={svf.vendorInvoiceNo} onChange={e => setStageVendorForm(p => ({ ...p, [sheet.id]: { ...svf, vendorInvoiceNo: e.target.value } }))} placeholder="Optional" style={IS.input} /></div>
-                                  </div>
-                                  <button onClick={() => addStageVendor(sheet.id)} disabled={savingStageVendor} className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                                    {savingStageVendor ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Add
-                                  </button>
-                                </div>
-                              </div>
+
                             </div>
                           )}
                         </div>
