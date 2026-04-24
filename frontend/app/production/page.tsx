@@ -789,7 +789,7 @@ export default function ProductionPage() {
                   { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
                   { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
                 ].map(t => {
-                  const aqm = {};
+                  const aqm: Record<string,number> = {};
                   sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
                   const count = t.key === "unassigned"
                     ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
@@ -805,7 +805,7 @@ export default function ProductionPage() {
                 })}
               </div>
               {sheetSubTab === "unassigned" && (() => {
-                const aqm = {};
+                const aqm: Record<string,number> = {};
                 sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
                 const items = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName })));
                 if (items.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
