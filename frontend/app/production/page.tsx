@@ -16,7 +16,7 @@ type ProductionStage = (typeof PRODUCTION_STAGES)[number]["value"];
 type ProductionCategory = "INHOUSE" | "CLUBBING" | "SHEET_PRODUCTION";
 
 const SHEET_QUALITIES = ["MAPLITHO","STICKER","BOND","ART_CARD","DUPLEX_CARD_WB","DUPLEX_CARD_GB"];
-const SHEET_STATUSES = ["INCOMPLETE","SETTING","PRINTING","PROCESSING","COMPLETE"];
+const SHEET_STATUSES = ["INCOMPLETE","SETTING","PRINTING","PROCESSING","COMPLETE","DONE"];
 const SHEET_STAGES = ["PAPER_PURCHASE","PLATE_MAKING","PRINTING","BINDING","LAMINATION","EXTRA_PROCESSING"];
 const JW_STATUSES = ["PENDING","IN_PROGRESS","COMPLETED"];
 
@@ -61,7 +61,7 @@ function getFileIcon(name: string) {
 const stageColors: Record<string, string> = { NOT_PRINTED:"bg-gray-100 text-gray-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-yellow-100 text-yellow-700", READY_FOR_DISPATCH:"bg-green-100 text-green-700" };
 const categoryColors: Record<string, string> = { INHOUSE:"bg-violet-100 text-violet-700", CLUBBING:"bg-orange-100 text-orange-700", SHEET_PRODUCTION:"bg-cyan-100 text-cyan-700" };
 const categoryLabels: Record<string, string> = { INHOUSE:"Inhouse", CLUBBING:"Clubbing", SHEET_PRODUCTION:"Sheet" };
-const sheetStatusColors: Record<string, string> = { INCOMPLETE:"bg-gray-100 text-gray-600", SETTING:"bg-yellow-100 text-yellow-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-orange-100 text-orange-700", COMPLETE:"bg-green-100 text-green-700" };
+const sheetStatusColors: Record<string, string> = { INCOMPLETE:"bg-gray-100 text-gray-600", SETTING:"bg-yellow-100 text-yellow-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-orange-100 text-orange-700", COMPLETE:"bg-green-100 text-green-700", DONE:"bg-emerald-100 text-emerald-800" };
 const jwStatusColors: Record<string, string> = { PENDING:"bg-gray-100 text-gray-600", IN_PROGRESS:"bg-blue-100 text-blue-700", COMPLETED:"bg-green-100 text-green-700" };
 
 export default function ProductionPage() {
@@ -424,11 +424,13 @@ export default function ProductionPage() {
   }
 
   async function updateSheetStatus(sheetId: string, status: string) {
+    const prevExpanded = expandedSheet;
     await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
     await loadAll();
+    setExpandedSheet(prevExpanded);
   }
 
   async function addStageVendor(sheetId: string) {
@@ -885,7 +887,7 @@ export default function ProductionPage() {
                 );
               })()}
               {(sheetSubTab === "created" || sheetSubTab === "processing") && (() => {
-                const filtered = sheetsData.filter(s => sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "SETTING") : (s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "COMPLETE"));
+                const filtered = sheetsData.filter(s => sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "SETTING") : (s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "COMPLETE" || s.status === "DONE"));
                 if (filtered.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets in this stage.</div>;
                 return (
                   <div className="space-y-2">
