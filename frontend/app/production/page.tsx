@@ -132,6 +132,7 @@ export default function ProductionPage() {
   });
   const [savingSetting, setSavingSetting] = useState(false);
   const [processingVendorFilter, setProcessingVendorFilter] = useState("");
+  const [processingItemVendors, setProcessingItemVendors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setError(null); setLoading(true);
@@ -1118,7 +1119,10 @@ export default function ProductionPage() {
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
                               </tr></thead>
                               <tbody>
-                                {allItems.filter(si => !processingVendorFilter || (si.sheet.stageVendors.some(sv => sv.vendorId === processingVendorFilter))).map(si => (
+                                {allItems.filter(si => {
+                                    if (!processingVendorFilter) return true;
+                                    return processingItemVendors[si.id] === processingVendorFilter;
+                                  }).map(si => (
                                   <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
                                     <td className="px-3 py-2 font-bold text-cyan-700">{si.sheet.sheetNo}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
@@ -1127,7 +1131,9 @@ export default function ProductionPage() {
                                     <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>
                                     <td className="px-3 py-2 font-semibold">{si.quantityOnSheet}</td>
                                     <td className="px-3 py-2">
-                                      <select className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
+                                      <select value={processingItemVendors[si.id] || ""}
+                                        onChange={e => setProcessingItemVendors(p => ({ ...p, [si.id]: e.target.value }))}
+                                        className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
                                         <option value="">Select Vendor...</option>
                                         {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                       </select>
