@@ -16,7 +16,7 @@ type ProductionStage = (typeof PRODUCTION_STAGES)[number]["value"];
 type ProductionCategory = "INHOUSE" | "CLUBBING" | "SHEET_PRODUCTION";
 
 const SHEET_QUALITIES = ["MAPLITHO","STICKER","BOND","ART_CARD","DUPLEX_CARD_WB","DUPLEX_CARD_GB"];
-const SHEET_STATUSES = ["INCOMPLETE","SETTING","PRINTING","PROCESSING","COMPLETE","DONE"];
+const SHEET_STATUSES = ["INCOMPLETE","COMPLETE","SETTING","PRINTING","PROCESSING","DONE"];
 const SHEET_STAGES = ["PAPER_PURCHASE","PLATE_MAKING","PRINTING","BINDING","LAMINATION","EXTRA_PROCESSING"];
 const JW_STATUSES = ["PENDING","IN_PROGRESS","COMPLETED"];
 
@@ -799,14 +799,14 @@ export default function ProductionPage() {
                 {[
                   { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
                   { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
-                  { key: "processing", label: "Processing & Complete", color: "text-orange-600" },
+                  { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
                 ].map(t => {
                   const aqm: Record<string,number> = {};
                   sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
                   const count = t.key === "unassigned"
                     ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
                     : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
-                    : sheetsData.filter(s => s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "COMPLETE").length;
+                    : sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").length;
                   return (
                     <button key={t.key} onClick={() => setSheetSubTab(t.key)}
                       className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
@@ -842,7 +842,7 @@ export default function ProductionPage() {
                         // Find compatible sheets (same GSM, has space, sheetQty <= balanceQty)
                         const itemGsm = notes.gsm ? parseInt(notes.gsm) : 0;
                         const compatibleSheets = sheetsData.filter(s =>
-                          (s.status === "INCOMPLETE" || s.status === "SETTING") &&
+                          (s.status === "INCOMPLETE" || s.status === "COMPLETE" || s.status === "SETTING") &&
                           s.gsm === itemGsm &&
                           s.quantity <= balance
                         );
@@ -887,7 +887,7 @@ export default function ProductionPage() {
                 );
               })()}
               {(sheetSubTab === "created" || sheetSubTab === "processing") && (() => {
-                const filtered = sheetsData.filter(s => sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "SETTING") : (s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "COMPLETE" || s.status === "DONE"));
+                const filtered = sheetsData.filter(s => sheetSubTab === "created" ? (s.status === "INCOMPLETE" || s.status === "COMPLETE") : (s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE"));
                 if (filtered.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets in this stage.</div>;
                 return (
                   <div className="space-y-2">
