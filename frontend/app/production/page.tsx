@@ -608,6 +608,7 @@ export default function ProductionPage() {
                   <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-bold text-blue-700 text-sm">{o.orderNo}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
                       <span className="text-slate-700 text-sm font-medium">{o.customerName}</span>
                       {o.customerPhone && <span className="text-slate-400 text-xs">{o.customerPhone}</span>}
                       {o.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{o.salesAgentName}</span>}
@@ -641,6 +642,7 @@ export default function ProductionPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-3 py-2 font-semibold text-slate-600">Order</th>
+                    <th className="px-3 py-2 font-semibold text-slate-600">Age</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Age</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Agent</th>
@@ -788,6 +790,8 @@ export default function ProductionPage() {
                       <thead>
                         <tr className="bg-orange-50 border-b border-orange-100">
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
@@ -808,6 +812,7 @@ export default function ProductionPage() {
                           return (
                             <tr key={item.id} className="hover:bg-slate-50">
                               <td className="px-3 py-2 font-bold text-blue-700 whitespace-nowrap">{item.orderNo}</td>
+                              <td className="px-3 py-2 whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate || '')}`}>{orderAge(item.orderDate || '')}</span></td>
                               <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{item.customerName}</td>
                               <td className="px-3 py-2">
                                 <p className="font-semibold text-slate-800">{item.productName}</p>
@@ -885,13 +890,15 @@ export default function ProductionPage() {
               {sheetSubTab === "unassigned" && (() => {
                 const aqm: Record<string,number> = {};
                 sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
-                const items = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName })));
+                const items = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName, orderDate: o.orderDate })));
                 if (items.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
                 return (
                   <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                     <table className="w-full text-xs">
                       <thead><tr className="border-b border-slate-100 bg-slate-50">
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
@@ -915,6 +922,7 @@ export default function ProductionPage() {
                         return (
                           <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
                             <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
+                            <td className="px-3 py-2 whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate || '')}`}>{orderAge(item.orderDate || '')}</span></td>
                             <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
                             <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
                             <td className="px-3 py-2 text-slate-500">{notes.size || "—"}</td>
@@ -1152,6 +1160,8 @@ export default function ProductionPage() {
                               <thead><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
@@ -1164,6 +1174,7 @@ export default function ProductionPage() {
                                   <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
                                     <td className="px-3 py-2 font-bold text-cyan-700">{si.sheet.sheetNo}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap"><span className="rounded-full px-1.5 py-0.5 text-xs font-semibold bg-slate-100 text-slate-600">—</span></td>
                                     <td className="px-3 py-2 text-slate-700">{si.orderItem.order.customer.businessName}</td>
                                     <td className="px-3 py-2 font-semibold text-slate-800">{si.orderItem.product.name}</td>
                                     <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>

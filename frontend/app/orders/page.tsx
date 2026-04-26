@@ -470,7 +470,7 @@ export default function OrdersPage() {
                           <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap" style={{ maxWidth: "70px" }}>
                             {o.orderNo}
                           </td>
-                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "60px" }}>
+                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
                           </td>
                           <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
