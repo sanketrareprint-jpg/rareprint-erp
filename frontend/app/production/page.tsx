@@ -38,7 +38,7 @@ type Vendor = { id: string; name: string; phone?: string; };
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; jobWorks: JobWork[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
-type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; orderItem: { id: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; customer: { businessName: string; } } } };
+type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; orderItem: { id: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
 type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
@@ -1170,7 +1170,7 @@ export default function ProductionPage() {
                                   <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
                                     <td className="px-3 py-2 font-bold text-cyan-700">{si.sheet.sheetNo}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap"><span className="rounded-full px-1.5 py-0.5 text-xs font-semibold bg-slate-100 text-slate-600">—</span></td>
+                                    <td className="px-3 py-2 whitespace-nowrap">{si.orderItem.order.orderDate ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span> : <span className="text-slate-300">—</span>}</td>
                                     <td className="px-3 py-2 text-slate-700">{si.orderItem.order.customer.businessName}</td>
                                     <td className="px-3 py-2 font-semibold text-slate-800">{si.orderItem.product.name}</td>
                                     <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>
