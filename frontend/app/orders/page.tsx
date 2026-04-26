@@ -467,10 +467,10 @@ export default function OrdersPage() {
                             <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.date)}`}>{orderAge(o.date)}</span>
                           </td>
                           {/* Short order number */}
-                          <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap">
+                          <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap" style={{ maxWidth: "70px" }}>
                             {o.orderNo}
                           </td>
-                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
+                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "60px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
                           </td>
                           <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
