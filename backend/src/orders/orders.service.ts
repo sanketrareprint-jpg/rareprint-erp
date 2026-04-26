@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -279,6 +279,23 @@ export class OrdersService {
       include: { paymentAccount: true },
       orderBy: { paymentDate: 'desc' },
     });
+  }
+
+  async getStatusLogs(orderId: string) {
+    const logs = await this.prisma.statusLog.findMany({
+      where: { orderId },
+      include: { changedBy: { select: { fullName: true, role: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return logs.map(l => ({
+      id: l.id,
+      fromStatus: l.fromStatus,
+      toStatus: l.toStatus,
+      reason: l.reason,
+      changedAt: l.createdAt.toISOString(),
+      changedBy: l.changedBy?.fullName ?? 'System',
+      role: (l.changedBy as any)?.role ?? '',
+    }));
   }
 
   async getPaymentAccounts() {

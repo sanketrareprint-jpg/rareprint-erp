@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Delete,
@@ -96,6 +96,12 @@ export class OrdersController {
   @UseGuards(AuthGuard('jwt'))
   getPayments(@Param('id') id: string) {
     return this.ordersService.getPayments(id);
+  }
+
+  @Get(':id/status-logs')
+  @UseGuards(AuthGuard('jwt'))
+  getStatusLogs(@Param('id') id: string) {
+    return this.ordersService.getStatusLogs(id);
   }
 
   @Get(':id/items')

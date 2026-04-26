@@ -102,6 +102,8 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"all" | "inprogress" | "dispatch">("all");
   const [expandedPayments, setExpandedPayments] = useState<string | null>(null);
+  const [expandedJourney, setExpandedJourney] = useState<string | null>(null);
+  const [orderJourneys, setOrderJourneys] = useState<Record<string, any[]>>({});
   const [orderPayments, setOrderPayments] = useState<Record<string, Payment[]>>({});
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -163,6 +165,15 @@ export default function OrdersPage() {
     if (expandedPayments === orderId) { setExpandedPayments(null); return; }
     setExpandedPayments(orderId);
     if (!orderPayments[orderId]) await loadPayments(orderId);
+  }
+
+  async function toggleJourney(orderId: string) {
+    if (expandedJourney === orderId) { setExpandedJourney(null); return; }
+    setExpandedJourney(orderId);
+    if (orderJourneys[orderId]) return;
+    const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status-logs`, { headers: getAuthHeaders() });
+    const data = res.ok ? await res.json() : [];
+    setOrderJourneys(p => ({ ...p, [orderId]: data }));
   }
 
   async function submitPayment() {
@@ -496,6 +507,12 @@ export default function OrdersPage() {
                                 {expandedPayments === o.id ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
                                 Hist
                               </button>
+                              {/* Journey */}
+                              <button onClick={() => toggleJourney(o.id)}
+                                className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                                {expandedJourney === o.id ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+                                Journey
+                              </button>
                               {/* Attach design file */}
                               {o.items && o.items.length > 0 && (
                                 <button onClick={() => setFileModalOrder(o)}
@@ -542,6 +559,31 @@ export default function OrdersPage() {
                                       ))}
                                     </tbody>
                                   </table>
+                                )}
+                            </td>
+                          </tr>
+                        )}
+
+                        {/* Order Journey row */}
+                        {expandedJourney === o.id && (
+                          <tr>
+                            <td colSpan={13} className="bg-blue-50 px-6 py-3 border-t border-blue-100">
+                              <p className="text-xs font-semibold text-blue-800 mb-2">Order Journey</p>
+                              {!orderJourneys[o.id] ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                                : orderJourneys[o.id].length === 0 ? <p className="text-xs text-slate-400">No status changes recorded.</p>
+                                : (
+                                  <div className="flex flex-col gap-1">
+                                    {orderJourneys[o.id].map((log: any, idx: number) => (
+                                      <div key={log.id} className="flex items-center gap-2 text-xs">
+                                        <span className="text-slate-400 whitespace-nowrap">{new Date(log.changedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                        <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 font-medium">{log.fromStatus?.replace(/_/g,' ') ?? '—'}</span>
+                                        <span className="text-slate-400">→</span>
+                                        <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 font-semibold">{log.toStatus?.replace(/_/g,' ')}</span>
+                                        <span className="text-slate-500">by <strong>{log.changedBy}</strong></span>
+                                        {log.reason && <span className="text-slate-400 italic truncate max-w-xs">{log.reason}</span>}
+                                      </div>
+                                    ))}
+                                  </div>
                                 )}
                             </td>
                           </tr>
