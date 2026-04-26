@@ -64,6 +64,19 @@ const categoryLabels: Record<string, string> = { INHOUSE:"Inhouse", CLUBBING:"Cl
 const sheetStatusColors: Record<string, string> = { INCOMPLETE:"bg-gray-100 text-gray-600", SETTING:"bg-yellow-100 text-yellow-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-orange-100 text-orange-700", COMPLETE:"bg-green-100 text-green-700", DONE:"bg-emerald-100 text-emerald-800" };
 const jwStatusColors: Record<string, string> = { PENDING:"bg-gray-100 text-gray-600", IN_PROGRESS:"bg-blue-100 text-blue-700", COMPLETED:"bg-green-100 text-green-700" };
 
+function orderAge(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return '1d';
+  return days + 'd';
+}
+function ageColor(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  if (days <= 3) return 'bg-green-50 text-green-700';
+  if (days <= 7) return 'bg-yellow-50 text-yellow-700';
+  return 'bg-red-50 text-red-700';
+}
+
 export default function ProductionPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
@@ -628,6 +641,7 @@ export default function ProductionPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-3 py-2 font-semibold text-slate-600">Order</th>
+                    <th className="px-3 py-2 font-semibold text-slate-600">Age</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Agent</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Product</th>
@@ -643,7 +657,7 @@ export default function ProductionPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {flatItems.length === 0 ? (
-                    <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
+                    <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
                   ) : flatItems.map(item => {
                     const { size, gsm } = parseNotes(item.productionNotes);
                     const isUpdating = updatingItemId === item.id;
@@ -654,6 +668,7 @@ export default function ProductionPage() {
                       <React.Fragment key={item.id}>
                         <tr className={`hover:bg-slate-50 ${item.itemProductionStage === "READY_FOR_DISPATCH" ? "bg-green-50/30" : ""}`}>
                           <td className="px-3 py-1.5 whitespace-nowrap">{item.isFirstInOrder && <div><p className="font-bold text-blue-700">{item.orderNo}</p><p className="text-slate-400">{new Date(item.orderDate).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p></div>}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap">{item.isFirstInOrder && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>}</td>
                           <td className="px-3 py-1.5">{item.isFirstInOrder && <div><p className="font-medium text-slate-800 whitespace-nowrap">{item.customerName}</p>{item.customerPhone && <p className="text-slate-400">{item.customerPhone}</p>}</div>}</td>
                           <td className="px-3 py-1.5">{item.isFirstInOrder && item.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{item.salesAgentName}</span>}</td>
                           <td className="px-3 py-1.5"><p className="font-medium text-slate-900 whitespace-nowrap">{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate max-w-[120px]">{item.artworkNotes}</p>}</td>
@@ -697,7 +712,7 @@ export default function ProductionPage() {
                           </td>
                         </tr>
                         {isExpanded && designFiles.length > 0 && (
-                          <tr><td colSpan={12} className="bg-blue-50 border-t border-blue-100 px-4 py-3">
+                          <tr><td colSpan={13} className="bg-blue-50 border-t border-blue-100 px-4 py-3">
                             <div className="flex items-center justify-between mb-2">
                               <p className="text-xs font-semibold text-blue-800">Files for {item.productName}</p>
                               <button onClick={() => setExpandedFileItemId(null)}><X className="h-3.5 w-3.5 text-blue-400" /></button>

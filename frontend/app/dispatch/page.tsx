@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -26,6 +26,19 @@ function parseNotes(notes?: string) {
   const gsm = notes.match(/GSM:\s*([^,]+)/)?.[1]?.trim();
   const sides = notes.match(/Sides:\s*([^,]+)/)?.[1]?.trim();
   return { size, gsm, sides };
+}
+
+function orderAge(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return '1 day';
+  return days + ' days';
+}
+function ageColor(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  if (days <= 3) return 'bg-green-50 text-green-700';
+  if (days <= 7) return 'bg-yellow-50 text-yellow-700';
+  return 'bg-red-50 text-red-700';
 }
 
 export default function DispatchPage() {
@@ -184,6 +197,7 @@ export default function DispatchPage() {
                           </div>
                           <div>
                             <p className="font-bold text-slate-900">{o.orderNo}</p>
+                            <span className={`mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
                             <p className="text-sm text-slate-600">{o.customerName}</p>
                             {o.customerPhone && <p className="text-xs text-slate-500">{o.customerPhone}</p>}
                           </div>

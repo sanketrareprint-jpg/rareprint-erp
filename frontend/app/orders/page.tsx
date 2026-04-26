@@ -80,6 +80,20 @@ function parseNotes(notes?: string) {
 
 const TH = { background: "#f8fafc", position: "sticky" as const, top: 0, zIndex: 10 };
 
+function orderAge(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return '1 day';
+  return days + ' days';
+}
+
+function ageColor(dateStr: string): string {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  if (days <= 3) return 'bg-green-50 text-green-700';
+  if (days <= 7) return 'bg-yellow-50 text-yellow-700';
+  return 'bg-red-50 text-red-700';
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -410,6 +424,7 @@ export default function OrdersPage() {
                     <tr>
                       {activeTab === "dispatch" && <th className="px-2 py-2 w-8 font-semibold border-b border-slate-200" style={TH}></th>}
                       <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Date</th>
+                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Age</th>
                       <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Order No</th>
                       <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Customer</th>
                       <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Phone</th>
@@ -447,6 +462,9 @@ export default function OrdersPage() {
                           )}
                           <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">
                             {new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
+                          </td>
+                          <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                            <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.date)}`}>{orderAge(o.date)}</span>
                           </td>
                           {/* Short order number */}
                           <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap">
