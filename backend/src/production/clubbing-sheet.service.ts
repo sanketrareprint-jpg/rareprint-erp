@@ -53,7 +53,33 @@ export class ClubbingSheetService {
   }
 
   async updateSheetStatus(sheetId: string, status: SheetStatus) {
-    return this.prisma.printSheet.update({ where: { id: sheetId }, data: { status } });
+    // Map sheet status → order item production stage
+    const stageMap: Record<string, string> = {
+      INCOMPLETE: 'NOT_PRINTED',
+      COMPLETE:   'NOT_PRINTED',
+      SETTING:    'NOT_PRINTED',
+      PRINTING:   'PRINTING',
+      PROCESSING: 'PROCESSING',
+      DONE:       'READY_FOR_DISPATCH',
+    };
+    const targetStage = stageMap[status];
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedSheet = await tx.printSheet.update({ where: { id: sheetId }, data: { status } });
+
+      // Update all order items on this sheet to match the new stage
+      if (targetStage) {
+        const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId } });
+        for (const si of sheetItems) {
+          await tx.orderItem.update({
+            where: { id: si.orderItemId },
+            data: { itemProductionStage: targetStage as any },
+          });
+        }
+      }
+
+      return updatedSheet;
+    });
   }
 
   async updateSheetStatusWithVendor(sheetId: string, data: { status: SheetStatus; vendorId: string; activityType: string; cost?: number; vendorInvoiceNo?: string; description?: string }) {

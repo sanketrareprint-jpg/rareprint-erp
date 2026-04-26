@@ -643,7 +643,6 @@ export default function ProductionPage() {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-3 py-2 font-semibold text-slate-600">Order</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Age</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Age</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Agent</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Product</th>
@@ -791,7 +790,6 @@ export default function ProductionPage() {
                         <tr className="bg-orange-50 border-b border-orange-100">
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
@@ -812,7 +810,7 @@ export default function ProductionPage() {
                           return (
                             <tr key={item.id} className="hover:bg-slate-50">
                               <td className="px-3 py-2 font-bold text-blue-700 whitespace-nowrap">{item.orderNo}</td>
-                              <td className="px-3 py-2 whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate || '')}`}>{orderAge(item.orderDate || '')}</span></td>
+                              <td className="px-3 py-2 whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${item.orderDate ? ageColor(item.orderDate) : "bg-slate-100 text-slate-500"}`}>{item.orderDate ? orderAge(item.orderDate) : "—"}</span></td>
                               <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{item.customerName}</td>
                               <td className="px-3 py-2">
                                 <p className="font-semibold text-slate-800">{item.productName}</p>
@@ -898,7 +896,6 @@ export default function ProductionPage() {
                       <thead><tr className="border-b border-slate-100 bg-slate-50">
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
@@ -922,7 +919,7 @@ export default function ProductionPage() {
                         return (
                           <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50">
                             <td className="px-3 py-2 font-bold text-blue-700">{item.orderNo}</td>
-                            <td className="px-3 py-2 whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate || '')}`}>{orderAge(item.orderDate || '')}</span></td>
+                            <td className="px-3 py-2 whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${item.orderDate ? ageColor(item.orderDate) : "bg-slate-100 text-slate-500"}`}>{item.orderDate ? orderAge(item.orderDate) : "—"}</span></td>
                             <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
                             <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
                             <td className="px-3 py-2 text-slate-500">{notes.size || "—"}</td>
@@ -1160,7 +1157,6 @@ export default function ProductionPage() {
                               <thead><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
