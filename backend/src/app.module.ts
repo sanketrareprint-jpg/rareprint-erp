@@ -1,4 +1,4 @@
-﻿import { Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AccountsModule } from './accounts/accounts.module';
@@ -10,6 +10,7 @@ import { ProductionModule } from './production/production.module';
 import { ProductsModule } from './products/products.module';
 import { VendorsModule } from './vendors/vendors.module';
 import { PrismaService } from './prisma/prisma.service';
+import { AdminDbController } from './admin-db.controller';
 
 @Module({
   imports: [
@@ -22,7 +23,8 @@ import { PrismaService } from './prisma/prisma.service';
     DispatchModule,
     VendorsModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, AdminDbController],
   providers: [AppService, PrismaService],
 })
 export class AppModule {}
+
