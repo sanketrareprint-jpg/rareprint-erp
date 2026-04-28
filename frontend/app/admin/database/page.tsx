@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -37,6 +37,11 @@ export default function AdminDbPage() {
   const [sqlResult, setSqlResult] = useState<any>(null);
   const [sqlLoading, setSqlLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"tables" | "query">("tables");
+  const [addDialog, setAddDialog] = useState(false);
+  const [addData, setAddData] = useState<Record<string, string>>({});
+  const [bulkText, setBulkText] = useState("");
+  const [bulkDialog, setBulkDialog] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
   const LIMIT = 50;
 
   useEffect(() => {
@@ -96,6 +101,45 @@ export default function AdminDbPage() {
       });
       setSqlResult(await res.json());
     } finally { setSqlLoading(false); }
+  };
+
+    const addRow = async () => {
+    if (!activeTable) return;
+    setAddLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(addData),
+      });
+      const d = await res.json();
+      if (d.success) { setAddDialog(false); setAddData({}); loadTable(activeTable, page); }
+      else alert(d.error || "Create failed");
+    } finally { setAddLoading(false); }
+  };
+
+  const bulkImport = async () => {
+    if (!activeTable || !bulkText.trim()) return;
+    try {
+      const lines = bulkText.trim().split("\n");
+      const headers = lines[0].split(",").map(h => h.trim());
+      const rows = lines.slice(1).map(line => {
+        const vals = line.split(",").map(v => v.trim());
+        const obj: Record<string, string> = {};
+        headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
+        return obj;
+      });
+      let success = 0;
+      for (const row of rows) {
+        const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
+          method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(row),
+        });
+        const d = await res.json();
+        if (d.success) success++;
+      }
+      alert(`Imported ${success}/${rows.length} rows successfully`);
+      setBulkDialog(false); setBulkText(""); loadTable(activeTable, page);
+    } catch (e) { alert("Import failed: " + String(e)); }
   };
 
   const filteredRows = search
@@ -199,6 +243,10 @@ export default function AdminDbPage() {
                   <span className="text-xs text-slate-400">{total} records</span>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button onClick={() => { setAddData({}); setAddDialog(true); }}
+                    className="px-2 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 font-semibold">+ Add Row</button>
+                  <button onClick={() => setBulkDialog(true)}
+                    className="px-2 py-1 text-xs rounded-md bg-blue-600 text-white hover:bg-blue-700 font-semibold">⬆ Bulk Import</button>
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
                     <input value={search} onChange={e => setSearch(e.target.value)}
@@ -279,6 +327,49 @@ export default function AdminDbPage() {
           )}
         </div>
       </div>
+          {/* Add Row Dialog */}
+      {addDialog && activeTable && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl p-5 w-96 max-h-[80vh] overflow-y-auto">
+            <h3 className="text-sm font-bold text-slate-800 mb-3">Add Row to {TABLE_LABELS[activeTable] || activeTable}</h3>
+            <div className="space-y-2">
+              {columns.length > 0 ? columns.filter(c => !["id","createdAt","updatedAt"].includes(c)).map(col => (
+                <div key={col}>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">{col}</label>
+                  <input value={addData[col] ?? ""} onChange={e => setAddData(p => ({ ...p, [col]: e.target.value }))}
+                    className="w-full border border-slate-200 rounded px-2 py-1 text-xs outline-none focus:border-blue-400 mt-0.5" />
+                </div>
+              )) : <p className="text-xs text-slate-400">Load a table first to see columns</p>}
+            </div>
+            <div className="flex gap-2 mt-4 justify-end">
+              <button onClick={() => setAddDialog(false)} className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600">Cancel</button>
+              <button onClick={addRow} disabled={addLoading} className="px-3 py-1.5 text-xs rounded-md bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-60">
+                {addLoading ? "Saving..." : "Save Row"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Import Dialog */}
+      {bulkDialog && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl p-5 w-[500px]">
+            <h3 className="text-sm font-bold text-slate-800 mb-1">Bulk Import CSV</h3>
+            <p className="text-xs text-slate-400 mb-3">Paste CSV with header row. Example:<br/><code className="bg-slate-100 px-1 rounded">name,gsm,sizeInches{"\n"}FLYER,70,4x6</code></p>
+            <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} rows={8}
+              placeholder={"name,gsm,sizeInches\nFLYER,70,4x6\nPOSTER,90,8x11"}
+              className="w-full border border-slate-200 rounded p-2 text-xs font-mono outline-none focus:border-blue-400 resize-none" />
+            <div className="flex gap-2 mt-3 justify-end">
+              <button onClick={() => setBulkDialog(false)} className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600">Cancel</button>
+              <button onClick={bulkImport} className="px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700">
+                Import Rows
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardShell>
   );
 }
+
