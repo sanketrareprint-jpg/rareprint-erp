@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
-  Truck, DollarSign, Users, LogOut, Printer,
+  Truck, DollarSign, Users, LogOut, Printer, Database,
 } from "lucide-react";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
@@ -20,6 +20,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Production", href: "/production", icon: Package },
     { label: "Dispatch",   href: "/dispatch",   icon: Truck },
     { label: "Users",      href: "/users",      icon: Users },
+    { label: "Database",   href: "/admin/database", icon: Database },
   ],
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -167,3 +168,4 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
