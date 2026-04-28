@@ -117,7 +117,16 @@ export default function AdminDbPage() {
     } finally { setAddLoading(false); }
   };
 
-    const downloadSample = () => {
+      const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { setBulkText(ev.target?.result as string ?? ""); };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const downloadSample = () => {
     if (!activeTable || columns.length === 0) { alert("Open a table first to get sample columns"); return; }
     const sampleCols = columns.filter(c => !["id","createdAt","updatedAt"].includes(c));
     const csv = sampleCols.join(",") + "\n" + sampleCols.map(() => "example_value").join(",");
@@ -392,6 +401,7 @@ export default function AdminDbPage() {
     </DashboardShell>
   );
 }
+
 
 
 
