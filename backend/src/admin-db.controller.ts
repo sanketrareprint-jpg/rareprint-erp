@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
+﻿import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from './prisma/prisma.service';
 import type { Request } from 'express';
 
 type JwtUser = { id: string; role: string };
@@ -126,3 +126,4 @@ export class AdminDbController {
     }
   }
 }
+
