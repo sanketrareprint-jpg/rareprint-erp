@@ -117,6 +117,17 @@ export default function AdminDbPage() {
     } finally { setAddLoading(false); }
   };
 
+    const downloadSample = () => {
+    if (!activeTable || columns.length === 0) { alert("Open a table first to get sample columns"); return; }
+    const sampleCols = columns.filter(c => !["id","createdAt","updatedAt"].includes(c));
+    const csv = sampleCols.join(",") + "\n" + sampleCols.map(() => "example_value").join(",");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${activeTable}_sample.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const bulkImport = async () => {
     if (!activeTable || !bulkText.trim()) return;
     try {
@@ -361,6 +372,7 @@ export default function AdminDbPage() {
               placeholder={"name,gsm,sizeInches\nFLYER,70,4x6\nPOSTER,90,8x11"}
               className="w-full border border-slate-200 rounded p-2 text-xs font-mono outline-none focus:border-blue-400 resize-none" />
             <div className="flex gap-2 mt-3 justify-end">
+              <button onClick={downloadSample} className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">⬇ Sample CSV</button>
               <button onClick={() => setBulkDialog(false)} className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600">Cancel</button>
               <button onClick={bulkImport} className="px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700">
                 Import Rows
@@ -372,4 +384,5 @@ export default function AdminDbPage() {
     </DashboardShell>
   );
 }
+
 
