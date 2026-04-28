@@ -232,7 +232,11 @@ export default function CreateOrderPage() {
               <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
                 <select value={item.productId} onChange={e => updateLine(idx, "productId", e.target.value)} style={S.input}>
                   <option value="">Select...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} | {p.sizeInches} | {p.gsm} GSM | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
+                    </option>
+                  ))}
                 </select>
                 <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
                 <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} placeholder="70" style={S.input} />
@@ -290,3 +294,4 @@ export default function CreateOrderPage() {
     </DashboardShell>
   );
 }
+
