@@ -371,11 +371,19 @@ export default function AdminDbPage() {
             <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} rows={8}
               placeholder={"name,gsm,sizeInches\nFLYER,70,4x6\nPOSTER,90,8x11"}
               className="w-full border border-slate-200 rounded p-2 text-xs font-mono outline-none focus:border-blue-400 resize-none" />
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-slate-400">Or upload a file:</span>
+              <label className="cursor-pointer px-2 py-1 text-xs rounded border border-slate-300 text-slate-600 hover:bg-slate-50">
+                 Choose CSV File
+                <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
+              </label>
+              {bulkText && <span className="text-xs text-green-600"> {bulkText.trim().split(/\r?\n/).length} lines loaded</span>}
+            </div>
             <div className="flex gap-2 mt-3 justify-end">
               <button onClick={downloadSample} className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">⬇ Sample CSV</button>
               <button onClick={() => setBulkDialog(false)} className="px-3 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600">Cancel</button>
-              <button onClick={bulkImport} className="px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                Import Rows
+              <button onClick={bulkImport} disabled={addLoading} className="px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60">
+                {addLoading ? "Importing..." : "Import Rows"}
               </button>
             </div>
           </div>
@@ -384,5 +392,6 @@ export default function AdminDbPage() {
     </DashboardShell>
   );
 }
+
 
 
