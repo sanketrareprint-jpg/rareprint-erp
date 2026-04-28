@@ -38,6 +38,10 @@
   ],
   "exclude": [
     "node_modules",
-    "../backend"
+    "../backend",
+    "production.service.ts",
+    "orders.service.ts",
+    "orders.controller.ts",
+    "clubbing-sheet.service.ts"
   ]
 }
