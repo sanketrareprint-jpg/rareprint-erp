@@ -150,7 +150,8 @@ export default function AdminDbPage() {
         const obj: Record<string, any> = {};
         headers.forEach((h, j) => {
           const v = vals[j] ?? "";
-          obj[h] = v === "" ? null : isNaN(Number(v)) ? v : Number(v);
+          const lower = v.toLowerCase();
+          obj[h] = v === "" ? null : lower === "true" ? true : lower === "false" ? false : v;
         });
         const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
           method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -405,6 +406,7 @@ export default function AdminDbPage() {
     </DashboardShell>
   );
 }
+
 
 
 
