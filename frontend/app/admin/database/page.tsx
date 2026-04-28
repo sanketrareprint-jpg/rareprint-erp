@@ -137,27 +137,31 @@ export default function AdminDbPage() {
     URL.revokeObjectURL(url);
   };
 
-  const bulkImport = async () => {
-    if (!activeTable || !bulkText.trim()) return;
+    const bulkImport = async () => {
+    if (!activeTable || !bulkText.trim()) { alert("Paste CSV data first"); return; }
     try {
-      const lines = bulkText.trim().split("\n");
+      const lines = bulkText.trim().split(/\r?\n/);
+      if (lines.length < 2) { alert("CSV must have a header row and at least one data row"); return; }
       const headers = lines[0].split(",").map(h => h.trim());
-      const rows = lines.slice(1).map(line => {
-        const vals = line.split(",").map(v => v.trim());
-        const obj: Record<string, string> = {};
-        headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
-        return obj;
-      });
-      let success = 0;
-      for (const row of rows) {
+      const dataRows = lines.slice(1).filter(l => l.trim());
+      let success = 0; const errors: string[] = [];
+      for (let i = 0; i < dataRows.length; i++) {
+        const vals = dataRows[i].split(",").map(v => v.trim());
+        const obj: Record<string, any> = {};
+        headers.forEach((h, j) => {
+          const v = vals[j] ?? "";
+          obj[h] = v === "" ? null : isNaN(Number(v)) ? v : Number(v);
+        });
         const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
           method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify(row),
+          body: JSON.stringify(obj),
         });
         const d = await res.json();
         if (d.success) success++;
+        else errors.push(`Row ${i + 2}: ${d.error || "failed"}`);
       }
-      alert(`Imported ${success}/${rows.length} rows successfully`);
+      const msg = `✅ Imported ${success}/${dataRows.length} rows successfully` + (errors.length ? `\n\n❌ Errors:\n${errors.slice(0, 5).join("\n")}` : "");
+      alert(msg);
       setBulkDialog(false); setBulkText(""); loadTable(activeTable, page);
     } catch (e) { alert("Import failed: " + String(e)); }
   };
@@ -401,6 +405,7 @@ export default function AdminDbPage() {
     </DashboardShell>
   );
 }
+
 
 
 
