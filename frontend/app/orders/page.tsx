@@ -146,7 +146,9 @@ export default function OrdersPage() {
     ]);
     if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
     setOrders(await oRes.json());
-    setReadyOrders(rRes.ok ? await rRes.json() : []);
+    const rawReady = rRes.ok ? await rRes.json() : [];
+    const cu = (() => { try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; } })();
+    setReadyOrders(cu?.role === "SALES_AGENT" ? rawReady.filter((o: any) => o.salesAgentName === cu.fullName) : rawReady);
     const accs = await aRes.json();
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
