@@ -90,8 +90,9 @@ export class AdminDbController {
       if (v !== null && typeof v === 'object') continue;
       if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
         cleaned[k] = null;
-      } else if (typeof v === 'string' && v !== '' && !isNaN(Number(v)) && v.trim() !== '') {
-        cleaned[k] = Number(v);
+      } else if (typeof v === 'string' && v !== '' && /^[\d\s\+\-\*\/\.]+$/.test(v.trim())) {
+        try { cleaned[k] = Function('"use strict"; return (' + v.trim() + ')')(); }
+        catch { cleaned[k] = v; }
       } else if (typeof v === 'string' && v.toLowerCase() === 'true') {
         cleaned[k] = true;
       } else if (typeof v === 'string' && v.toLowerCase() === 'false') {
@@ -127,8 +128,9 @@ export class AdminDbController {
       if (v !== null && typeof v === 'object') continue;
       if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
         cleaned[k] = null;
-      } else if (typeof v === 'string' && v !== '' && !isNaN(Number(v)) && v.trim() !== '') {
-        cleaned[k] = Number(v);
+      } else if (typeof v === 'string' && v !== '' && /^[\d\s\+\-\*\/\.]+$/.test(v.trim())) {
+        try { cleaned[k] = Function('"use strict"; return (' + v.trim() + ')')(); }
+        catch { cleaned[k] = v; }
       } else if (typeof v === 'string' && v.toLowerCase() === 'true') {
         cleaned[k] = true;
       } else if (typeof v === 'string' && v.toLowerCase() === 'false') {
