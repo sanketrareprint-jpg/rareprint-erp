@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from './prisma/prisma.service';
 import type { Request } from 'express';
 
 type JwtUser = { id: string; role: string };
@@ -82,13 +82,31 @@ export class AdminDbController {
     this.checkAdmin(req);
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
     delete data.id; delete data.createdAt; delete data.updatedAt;
+
+    // Auto-convert numeric strings to numbers, empty strings to null
+    const cleaned: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
+        cleaned[k] = null;
+      } else if (typeof v === 'string' && v !== '' && !isNaN(Number(v)) && v.trim() !== '') {
+        cleaned[k] = Number(v);
+      } else if (typeof v === 'string' && (v.toLowerCase() === 'true')) {
+        cleaned[k] = true;
+      } else if (typeof v === 'string' && (v.toLowerCase() === 'false')) {
+        cleaned[k] = false;
+      } else {
+        cleaned[k] = v;
+      }
+    }
+
     try {
-      const result = await (this.prisma as any)[name].create({ data });
+      const result = await (this.prisma as any)[name].create({ data: cleaned });
       return { success: true, row: result };
     } catch (e) {
       return { success: false, error: String(e) };
     }
   }
+
 
   @Patch('table/:name/:id')
   async updateRow(
@@ -100,8 +118,25 @@ export class AdminDbController {
     this.checkAdmin(req);
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
     delete data.id; delete data.createdAt; delete data.updatedAt;
+
+    // Auto-convert types
+    const cleaned: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
+        cleaned[k] = null;
+      } else if (typeof v === 'string' && v !== '' && !isNaN(Number(v)) && v.trim() !== '') {
+        cleaned[k] = Number(v);
+      } else if (typeof v === 'string' && v.toLowerCase() === 'true') {
+        cleaned[k] = true;
+      } else if (typeof v === 'string' && v.toLowerCase() === 'false') {
+        cleaned[k] = false;
+      } else {
+        cleaned[k] = v;
+      }
+    }
+
     try {
-      const result = await (this.prisma as any)[name].update({ where: { id }, data });
+      const result = await (this.prisma as any)[name].update({ where: { id }, data: cleaned });
       return { success: true, row: result };
     } catch (e) {
       return { success: false, error: String(e) };
