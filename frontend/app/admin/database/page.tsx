@@ -128,11 +128,13 @@ export default function AdminDbPage() {
       if (!Array.isArray(records)) records = [records];
       let ok = 0; let fail = 0;
       for (const rec of records) {
-        // Strip nested objects/arrays, id, createdAt, updatedAt before sending
+        // Strip nested objects/arrays, id, createdAt, updatedAt, and relation names before sending
+        const relationNames = ['category', 'customer', 'order', 'product', 'vendor', 'agent', 'salesAgent', 'changedBy', 'sheet', 'orderItem', 'paymentAccount', 'costSlabs', 'items', 'stageVendors', 'jobWorks', 'payments', 'shipments', 'statusLogs'];
         const cleaned: Record<string, any> = {};
         for (const [k, v] of Object.entries(rec)) {
           if (k === 'id' || k === 'createdAt' || k === 'updatedAt') continue;
-          if (v !== null && typeof v === 'object') continue; // skip relations
+          if (relationNames.includes(k)) continue; // skip relation name fields
+          if (v !== null && typeof v === 'object') continue; // skip nested objects
           cleaned[k] = v;
         }
         const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
