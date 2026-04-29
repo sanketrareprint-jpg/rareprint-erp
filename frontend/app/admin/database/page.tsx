@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -157,15 +157,18 @@ export default function AdminDbPage() {
   const totalPages = Math.ceil(total / LIMIT);
 
   if (loading) return (
-    <DashboardShell>
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    </DashboardShell>
+    <>
+      <DashboardShell>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      </DashboardShell>
+    </>
   );
 
   return (
-    <DashboardShell>
+    <>
+      <DashboardShell>
       <div className="flex h-full" style={{ height: "calc(100vh - 0px)" }}>
         {/* Sidebar - table list */}
         <div className="w-52 border-r border-slate-200 bg-white overflow-y-auto flex-shrink-0">
@@ -340,7 +343,7 @@ export default function AdminDbPage() {
       </div>
     </DashboardShell>
 
-    {/* Add Record Modal */}
+      {/* Add Record Modal */}
     {showAddModal && activeTable && (
       <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.5)" }}>
         <div style={{ background:"white",borderRadius:"12px",padding:"1.5rem",width:"100%",maxWidth:"32rem",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,0.3)" }}>
@@ -394,5 +397,7 @@ export default function AdminDbPage() {
         </div>
       </div>
     )}
+    </>
   );
 }
+
