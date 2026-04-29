@@ -293,8 +293,15 @@ export default function OrdersPage() {
   }
 
   // ── Filtered orders ────────────────────────────────────────────────────────
-  const allOrders        = orders;
-  const inProgressOrders = orders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
+  // Get current user for agent filtering
+  const currentUser = (() => {
+    try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; }
+  })();
+  const agentOrders = currentUser?.role === "SALES_AGENT"
+    ? orders.filter(o => o.salesAgentName === currentUser.fullName)
+    : orders;
+  const allOrders        = agentOrders;
+  const inProgressOrders = agentOrders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
 
   const filteredOrders = useMemo(() => {
     const base = activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;

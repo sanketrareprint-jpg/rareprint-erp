@@ -144,6 +144,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           }}>
             {name.charAt(0).toUpperCase()}
           </div>
+          <span style={{ fontSize: "9px", color: "#ffffff", textAlign: "center", maxWidth: "64px", wordBreak: "break-word", lineHeight: 1.2, fontWeight: 700 }}>
+            {name.split(" ")[0]}
+          </span>
           <span style={{ fontSize: "8px", color: "#93c5fd", textAlign: "center", maxWidth: "64px", wordBreak: "break-word", lineHeight: 1.2 }}>
             {role.replace("_", " ")}
           </span>
