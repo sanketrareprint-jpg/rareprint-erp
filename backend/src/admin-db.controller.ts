@@ -83,16 +83,18 @@ export class AdminDbController {
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
     delete data.id; delete data.createdAt; delete data.updatedAt;
 
-    // Auto-convert numeric strings to numbers, empty strings to null
+    // Clean data: convert types and strip nested objects/arrays (relations)
     const cleaned: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
+      // Skip nested objects and arrays (Prisma relations)
+      if (v !== null && typeof v === 'object') continue;
       if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
         cleaned[k] = null;
       } else if (typeof v === 'string' && v !== '' && !isNaN(Number(v)) && v.trim() !== '') {
         cleaned[k] = Number(v);
-      } else if (typeof v === 'string' && (v.toLowerCase() === 'true')) {
+      } else if (typeof v === 'string' && v.toLowerCase() === 'true') {
         cleaned[k] = true;
-      } else if (typeof v === 'string' && (v.toLowerCase() === 'false')) {
+      } else if (typeof v === 'string' && v.toLowerCase() === 'false') {
         cleaned[k] = false;
       } else {
         cleaned[k] = v;
@@ -119,9 +121,10 @@ export class AdminDbController {
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
     delete data.id; delete data.createdAt; delete data.updatedAt;
 
-    // Auto-convert types
+    // Auto-convert types, strip nested objects
     const cleaned: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
+      if (v !== null && typeof v === 'object') continue;
       if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
         cleaned[k] = null;
       } else if (typeof v === 'string' && v !== '' && !isNaN(Number(v)) && v.trim() !== '') {
