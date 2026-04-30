@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException, BadRequestException } from '@nestjs/common';
+﻿import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PrismaService } from './prisma/prisma.service';
 import type { Request } from 'express';
@@ -128,10 +128,21 @@ export class AdminDbController {
     this.checkAdmin(req);
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
 
-    const cleaned = cleanData({ ...data });
+        const cleaned = cleanData({ ...data });
+
+    // Convert xxxId fields to Prisma connect syntax for required relations
+    const finalData: Record<string, any> = {};
+    for (const [k, v] of Object.entries(cleaned)) {
+      if (k.endsWith('Id') && v !== null && typeof v === 'string') {
+        const rel = k.slice(0, -2);
+        finalData[rel] = { connect: { id: v } };
+      } else {
+        finalData[k] = v;
+      }
+    }
 
     try {
-      const result = await (this.prisma as any)[name].create({ data: cleaned });
+      const result = await (this.prisma as any)[name].create({ data: finalData });
       return { success: true, row: result };
     } catch (e: any) {
       throw new BadRequestException(e?.message || String(e));
@@ -175,3 +186,4 @@ export class AdminDbController {
     }
   }
 }
+
