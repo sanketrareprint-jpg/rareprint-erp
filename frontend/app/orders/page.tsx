@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -115,6 +115,7 @@ export default function OrdersPage() {
   // File upload
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   const [fileModalOrder, setFileModalOrder] = useState<Order | null>(null);
+  const [fileModalItems, setFileModalItems] = useState<any[]>([]);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Dispatch
@@ -218,7 +219,14 @@ export default function OrdersPage() {
         method: "POST", headers: getAuthHeaders(), body: formData,
       });
       if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Upload failed"); return; }
-      alert("✅ Design file uploaded!");
+      // Reload items for this order to show new file
+      if (fileModalOrder) {
+        const itemsRes = await fetch(`${API_BASE_URL}/orders/${fileModalOrder.id}/items`, { headers: getAuthHeaders() });
+        if (itemsRes.ok) {
+          const items = await itemsRes.json();
+          setFileModalItems(items);
+        }
+      }
     } finally {
       setUploadingItemId(null);
       if (fileInputRefs.current[itemId]) fileInputRefs.current[itemId]!.value = "";
@@ -538,7 +546,7 @@ export default function OrdersPage() {
                               </button>
                               {/* Attach design file */}
                               {o.items && o.items.length > 0 && (
-                                <button onClick={() => setFileModalOrder(o)}
+                                <button onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
                                   className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
                                   <Paperclip className="h-2.5 w-2.5" /> Files
                                 </button>
@@ -630,11 +638,11 @@ export default function OrdersPage() {
                 <h2 className="text-base font-semibold text-slate-900">Attach Design Files</h2>
                 <p className="text-xs text-slate-500 mt-0.5">{fileModalOrder.orderNo} — {fileModalOrder.customerName}</p>
               </div>
-              <button onClick={() => setFileModalOrder(null)}><X className="h-5 w-5 text-slate-400" /></button>
+              <button onClick={() => setFileModalOrder(null); setFileModalItems([])}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
 
             <div className="space-y-3">
-              {(fileModalOrder.items ?? []).map((item, idx) => (
+              {(fileModalItems.length > 0 ? fileModalItems : (fileModalOrder.items ?? [])).map((item: any, idx => (
                 <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -651,7 +659,7 @@ export default function OrdersPage() {
                         type="file"
                         ref={el => { fileInputRefs.current[item.id] = el; }}
                         className="hidden"
-                        accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
+                        accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps,.svg"
                         onChange={e => {
                           const file = e.target.files?.[0];
                           if (file) uploadDesignFile(item.id, file);
@@ -675,7 +683,7 @@ export default function OrdersPage() {
             </div>
 
             <div className="mt-4 flex justify-end">
-              <button onClick={() => setFileModalOrder(null)}
+              <button onClick={() => setFileModalOrder(null); setFileModalItems([])}
                 className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                 Done
               </button>
@@ -907,5 +915,7 @@ export default function OrdersPage() {
     </>
   );
 }
+
+
 
 
