@@ -808,7 +808,7 @@ export default function OrdersPage() {
                     </div>
                   )}
                 </div>
-                <div>
+                {bookingForm.dispatchType === "COURIER" && <div>
                   <div className="flex items-center gap-3 mb-2">
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
                     <button onClick={fetchRates} disabled={ratesLoading}
@@ -836,6 +836,7 @@ export default function OrdersPage() {
                     onChange={e => setBookingForm(p => ({ ...p, courierCharges: e.target.value }))}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                 </div>
+                }
                 <div className={`rounded-xl border px-4 py-3 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
                   <div className="flex items-center gap-3">
                     <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-4 w-4" />

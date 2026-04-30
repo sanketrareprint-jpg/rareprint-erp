@@ -1046,7 +1046,7 @@ export default function ProductionPage() {
                       className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "printing" ? "bg-white shadow-sm text-blue-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                       Printing Sheets
                       <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "printing" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
-                        {sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING").length}
+                        {sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length}
                       </span>
                     </button>
                     <button onClick={() => setProcessingSubTab("processing")}
