@@ -177,6 +177,9 @@ export class ProductionService {
       where: { orderId: item.orderId },
     });
 
+    const allReady = allItems.every(
+      (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+    );
     const anyInProgress = allItems.some(
       (i) =>
         i.itemProductionStage === OrderProductionStage.PRINTING ||
@@ -187,7 +190,8 @@ export class ProductionService {
     );
 
     let newOrderStatus = item.order.status;
-    if (anyInProgress || anyReady) newOrderStatus = OrderStatus.IN_PRODUCTION;
+    if (allReady) newOrderStatus = OrderStatus.READY_FOR_DISPATCH;
+    else if (anyInProgress || anyReady) newOrderStatus = OrderStatus.IN_PRODUCTION;
 
     if (newOrderStatus !== item.order.status) {
       await this.prisma.order.update({
@@ -221,3 +225,4 @@ export class ProductionService {
     return { success: true, itemId, stage };
   }
 }
+
