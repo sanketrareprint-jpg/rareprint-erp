@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -388,20 +388,20 @@ export class OrdersService {
       if (!order) continue;
 
       const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
-        ? \Transport: \, LR: \, \, By: \\
+        ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
         : data.dispatchType === 'COURIER'
-        ? \Courier: \, AWB: \, By: \\
+        ? `Courier: ${data.transportName ?? ''}, AWB: ${data.awbNumber ?? ''}, By: ${data.courierBy ?? ''}`
         : data.dispatchType === 'BY_HAND'
-        ? \By Hand: \\
+        ? `By Hand: ${data.deliveryBoyName ?? ''}`
         : data.dispatchType === 'SELF_COLLECTED'
-        ? \Self Collected by: \ \\
+        ? `Self Collected by: ${data.collectedByName ?? ''} ${data.collectedByPhone ?? ''}`
         : '';
       const dispatchNotes = [
         data.notes,
         dispatchTypeLine,
-        \Courier: ₹\\,
-        data.isCod ? \COD: ₹\\ : 'Prepaid',
-        orderIds.length > 1 ? \Batch with: \\ : '',
+        `Courier: Rs.${data.courierCharges}`,
+        data.isCod ? `COD: Rs.${data.codAmount}` : 'Prepaid',
+        orderIds.length > 1 ? `Batch with: ${orderIds.filter(id => id !== orderId).join(', ')}` : '',
       ].filter(Boolean).join(' | ');
 
       await this.prisma.$transaction(async (tx) => {
