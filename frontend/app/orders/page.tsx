@@ -21,7 +21,7 @@ type OrderItemRef = {
 };
 
 type Order = {
-  id: string; orderNo: string; customerName: string; customerPhone?: string;
+  id: string; orderNo: string; customerName: string; customerPhone?: string; shippingAddress?: string;
   salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
   balanceDue: number; status: string; date: string;
@@ -129,6 +129,10 @@ export default function OrdersPage() {
     courierCharges: "", isCod: false, codAmount: "",
     paymentMethod: "CASH", paymentAccountId: "",
     paymentReference: "", notes: "",
+    dispatchType: "COURIER",
+    transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "",
+    awbNumber: "", courierBy: "", deliveryBoyName: "",
+    collectedByName: "", collectedByPhone: "",
   });
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [newPayment, setNewPayment] = useState({
@@ -285,6 +289,16 @@ export default function OrdersPage() {
           paymentAccountId: bookingForm.isCod ? undefined : bookingForm.paymentAccountId,
           paymentReference: bookingForm.paymentReference || undefined,
           notes: bookingForm.notes || undefined,
+          dispatchType: bookingForm.dispatchType,
+          transportName: bookingForm.transportName || undefined,
+          lrNumber: bookingForm.lrNumber || undefined,
+          transportChargesType: bookingForm.transportChargesType || undefined,
+          transportBy: bookingForm.transportBy || undefined,
+          awbNumber: bookingForm.awbNumber || undefined,
+          courierBy: bookingForm.courierBy || undefined,
+          deliveryBoyName: bookingForm.deliveryBoyName || undefined,
+          collectedByName: bookingForm.collectedByName || undefined,
+          collectedByPhone: bookingForm.collectedByPhone || undefined,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
@@ -843,3 +857,6 @@ export default function OrdersPage() {
     </>
   );
 }
+
+
+

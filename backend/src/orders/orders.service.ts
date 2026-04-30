@@ -370,6 +370,16 @@ export class OrdersService {
       paymentAccountId?: string;
       paymentReference?: string;
       notes?: string;
+      dispatchType?: string;
+      transportName?: string;
+      lrNumber?: string;
+      transportChargesType?: string;
+      transportBy?: string;
+      awbNumber?: string;
+      courierBy?: string;
+      deliveryBoyName?: string;
+      collectedByName?: string;
+      collectedByPhone?: string;
     },
   ) {
     const results: string[] = [];
@@ -377,11 +387,21 @@ export class OrdersService {
       const order = await this.prisma.order.findUnique({ where: { id: orderId } });
       if (!order) continue;
 
+      const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
+        ? \Transport: \, LR: \, \, By: \\
+        : data.dispatchType === 'COURIER'
+        ? \Courier: \, AWB: \, By: \\
+        : data.dispatchType === 'BY_HAND'
+        ? \By Hand: \\
+        : data.dispatchType === 'SELF_COLLECTED'
+        ? \Self Collected by: \ \\
+        : '';
       const dispatchNotes = [
         data.notes,
-        `Courier: ₹${data.courierCharges}`,
-        data.isCod ? `COD: ₹${data.codAmount}` : 'Prepaid',
-        orderIds.length > 1 ? `Batch with: ${orderIds.filter(id => id !== orderId).join(', ')}` : '',
+        dispatchTypeLine,
+        \Courier: ₹\\,
+        data.isCod ? \COD: ₹\\ : 'Prepaid',
+        orderIds.length > 1 ? \Batch with: \\ : '',
       ].filter(Boolean).join(' | ');
 
       await this.prisma.$transaction(async (tx) => {
@@ -512,3 +532,4 @@ export class OrdersService {
     });
   }
 }
+

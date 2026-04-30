@@ -376,6 +376,15 @@ model Shipment {
   trackingNumber   String?
   status           ShipmentStatus @default(PENDING)
   notes            String?
+  dispatchType     String?
+  transportName    String?
+  lrNumber         String?
+  transportChargesType String?
+  transportBy      String?
+  awbNumber        String?
+  deliveryBoyName  String?
+  collectedByName  String?
+  collectedByPhone String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   godown           Godown?        @relation(fields: [godownId], references: [id])

@@ -74,6 +74,16 @@ export class OrdersController {
       paymentAccountId?: string;
       paymentReference?: string;
       notes?: string;
+      dispatchType?: string;
+      transportName?: string;
+      lrNumber?: string;
+      transportChargesType?: string;
+      transportBy?: string;
+      awbNumber?: string;
+      courierBy?: string;
+      deliveryBoyName?: string;
+      collectedByName?: string;
+      collectedByPhone?: string;
     },
   ) {
     return this.ordersService.submitDispatchBatch(body.orderIds, req.user.id, body);
@@ -233,3 +243,4 @@ export class OrdersController {
     res.download(filePath);
   }
 }
+
