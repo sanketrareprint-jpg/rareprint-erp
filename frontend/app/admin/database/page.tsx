@@ -179,8 +179,12 @@ export default function AdminDbPage() {
         });
         // Strip relation objects and auto fields
         const clean: Record<string, any> = {};
+        const SKIP_KEYS = ["id","createdAt","updatedAt","category","productCategory",
+          "customer","order","vendor","user","product","items","payments","costSlabs",
+          "commissionRule","paymentAccount","jobWork","printSheet","shipment",
+          "invoice","commission","productionJob","tags"];
         Object.entries(obj).forEach(([k, val]) => {
-          if (["id","createdAt","updatedAt"].includes(k)) return;
+          if (SKIP_KEYS.includes(k)) return;
           if (val !== null && typeof val === "object") return;
           clean[k] = val;
         });
@@ -486,5 +490,6 @@ export default function AdminDbPage() {
     </>
   );
 }
+
 
 
