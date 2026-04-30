@@ -758,6 +758,56 @@ export default function OrdersPage() {
                     <div><p className="text-xs text-slate-500">Total Balance Due</p><p className="font-bold text-red-500 text-lg">{fmt(totalBalance)}</p></div>
                   </div>
                 </div>
+                {/* Shipping Info */}
+                {selectedOrders.length > 0 && (
+                  <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Shipment Info</p>
+                    {selectedOrders.map(o => (
+                      <div key={o.id} className="text-xs text-slate-700 border-b border-blue-100 pb-1 last:border-0">
+                        <span className="font-bold text-blue-700">{o.orderNo}</span>
+                        {o.customerPhone && <span className="ml-2 text-slate-500">📞 {o.customerPhone}</span>}
+                        {o.shippingAddress && <div className="text-slate-600 mt-0.5">📍 {o.shippingAddress}</div>}
+                        {bookingItems[o.id]?.map((item, i) => { const n = parseNotes(item.productionNotes); return <div key={i} className="ml-2 mt-0.5 text-slate-500">• {item.productName}{n.size ? ` · ${n.size}"` : ""}{n.gsm ? ` · ${n.gsm} GSM` : ""} × {item.quantity}</div>; })}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Dispatch Method */}
+                <div className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Dispatch Method</p>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {[{key:"COURIER",label:"🚚 Courier"},{key:"TRANSPORT",label:"🚛 Transport"},{key:"BY_HAND",label:"🚶 By Hand"},{key:"SELF_COLLECTED",label:"🏪 Self Collected"}].map(dt => (
+                      <button key={dt.key} onClick={() => setBookingForm(p => ({ ...p, dispatchType: dt.key }))}
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold text-left transition ${bookingForm.dispatchType === dt.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600"}`}>
+                        {dt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {bookingForm.dispatchType === "COURIER" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Courier Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Delhivery, DTDC..." className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">AWB Number</label><input value={bookingForm.awbNumber} onChange={e => setBookingForm(p => ({ ...p, awbNumber: e.target.value }))} placeholder="AWB / Tracking No" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                      <div className="col-span-2"><label className="block text-xs font-medium text-slate-600 mb-1">Courier By</label><input value={bookingForm.courierBy} onChange={e => setBookingForm(p => ({ ...p, courierBy: e.target.value }))} placeholder="Staff name" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    </div>
+                  )}
+                  {bookingForm.dispatchType === "TRANSPORT" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Transport Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Transport company" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">LR Number</label><input value={bookingForm.lrNumber} onChange={e => setBookingForm(p => ({ ...p, lrNumber: e.target.value }))} placeholder="Lorry Receipt No" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Charges Type</label><select value={bookingForm.transportChargesType} onChange={e => setBookingForm(p => ({ ...p, transportChargesType: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs bg-white"><option value="TOPAY">To Pay</option><option value="PREPAID">Prepaid</option></select></div>
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Transport By</label><input value={bookingForm.transportBy} onChange={e => setBookingForm(p => ({ ...p, transportBy: e.target.value }))} placeholder="Staff name" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    </div>
+                  )}
+                  {bookingForm.dispatchType === "BY_HAND" && (
+                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Delivery Boy Name</label><input value={bookingForm.deliveryBoyName} onChange={e => setBookingForm(p => ({ ...p, deliveryBoyName: e.target.value }))} placeholder="Name of delivery person" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                  )}
+                  {bookingForm.dispatchType === "SELF_COLLECTED" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Collected By Name</label><input value={bookingForm.collectedByName} onChange={e => setBookingForm(p => ({ ...p, collectedByName: e.target.value }))} placeholder="Customer rep name" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Phone Number</label><input value={bookingForm.collectedByPhone} onChange={e => setBookingForm(p => ({ ...p, collectedByPhone: e.target.value }))} placeholder="Contact number" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    </div>
+                  )}
+                </div>
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
@@ -857,6 +907,5 @@ export default function OrdersPage() {
     </>
   );
 }
-
 
 
