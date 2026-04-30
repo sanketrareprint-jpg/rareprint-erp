@@ -92,36 +92,22 @@ export class DashboardService {
   async getAgentLeaderboard() {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const agents = await this.prisma.user.findMany({
-      where: { isActive: true, ordersAsAgent: { some: {} } },
-      include: {
-        ordersAsAgent: {
-          where: { status: { not: OrderStatus.CANCELLED } },
-          include: { payments: true },
-        },
-      },
+    const orders = await this.prisma.order.findMany({
+      where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED } },
+      include: { payments: true, salesAgent: { select: { id: true, fullName: true, email: true } } },
     });
-
-    return agents.map(agent => {
-      const allOrders       = agent.ordersAsAgent;
-      const thisMonthOrders = allOrders.filter(o => o.orderDate >= startOfMonth);
-      const totalRevenue    = allOrders.flatMap(o => o.payments).reduce((s, p) => s + Number(p.amount), 0);
-      const monthRevenue    = thisMonthOrders.flatMap(o => o.payments).reduce((s, p) => s + Number(p.amount), 0);
-      const totalValue      = allOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
-      return {
-        id:           agent.id,
-        name:         agent.fullName,
-        email:        agent.email,
-        totalOrders:  allOrders.length,
-        monthOrders:  thisMonthOrders.length,
-        totalRevenue,
-        monthRevenue,
-        totalValue,
-      };
-    }).sort((a, b) => b.monthRevenue - a.monthRevenue);
+    const map: Record<string, any> = {};
+    for (const o of orders) {
+      const id = o.salesAgentId!;
+      if (!map[id]) map[id] = { id, name: o.salesAgent?.fullName ?? id, email: o.salesAgent?.email ?? "", totalOrders: 0, monthOrders: 0, totalRevenue: 0, monthRevenue: 0, totalValue: 0 };
+      const rev = o.payments.reduce((s, p) => s + Number(p.amount), 0);
+      map[id].totalOrders++;
+      map[id].totalRevenue += rev;
+      map[id].totalValue += Number(o.grandTotal);
+      if (o.orderDate >= startOfMonth) { map[id].monthOrders++; map[id].monthRevenue += rev; }
+    }
+    return Object.values(map).sort((a: any, b: any) => b.monthRevenue - a.monthRevenue);
   }
-
   // ── Product category quantity by stage ──────────────────────────────────
   async getCategoryStageQuantities() {
     const items = await this.prisma.orderItem.findMany({
