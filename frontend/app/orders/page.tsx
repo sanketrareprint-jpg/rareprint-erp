@@ -829,14 +829,13 @@ export default function OrdersPage() {
                       ))}
                     </div>
                   )}
-                </div>
-                <div>
+                  <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Courier Charges (₹) *</label>
                   <input type="number" placeholder="Enter courier charges" value={bookingForm.courierCharges}
                     onChange={e => setBookingForm(p => ({ ...p, courierCharges: e.target.value }))}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-                }
+                  </div>
+                </div>}
                 <div className={`rounded-xl border px-4 py-3 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
                   <div className="flex items-center gap-3">
                     <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-4 w-4" />
