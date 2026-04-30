@@ -174,7 +174,6 @@ export class OrdersController {
     });
     return { success: true, file: { filename: newFile.filename, originalName: newFile.originalName, uploadedAt: newFile.uploadedAt, size: newFile.size } };
   }
-  }
 
   /** DELETE /orders/items/:itemId/design-files/:filename */
   @Delete('items/:itemId/design-files/:filename')
@@ -220,5 +219,6 @@ export class OrdersController {
     res.download(filePath);
   }
 }
+
 
 
