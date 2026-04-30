@@ -38,7 +38,7 @@ type Vendor = { id: string; name: string; phone?: string; };
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; jobWorks: JobWork[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
-type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; orderItem: { id: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
+type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
 type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
@@ -1120,13 +1120,9 @@ export default function ProductionPage() {
 
                   {processingSubTab === "processing" && (() => {
                     const procSheets = sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE");
-                    // Filter out items already marked READY_FOR_DISPATCH
-                    // Cross-reference with ordersData since SheetItem doesn't have stage
-                    const readyItemIds = new Set(
-                      ordersData.flatMap(o => o.items.filter(i => i.itemProductionStage === "READY_FOR_DISPATCH").map(i => i.id))
-                    );
+                    // Filter out items already marked READY_FOR_DISPATCH using sheetOrderItems
                     const allItems = procSheets.flatMap(sheet => sheet.items.map(si => ({ ...si, sheet })))
-                      .filter(si => !readyItemIds.has(si.orderItem.id));
+                      .filter(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH");
                     // Load saved vendors from sessionStorage (persists during session, not across refreshes)
                     // Use ordersData to get current stage
                     // Use orderItem.id as key (stable across loadAll refreshes)
@@ -1519,6 +1515,9 @@ export default function ProductionPage() {
     </>
   );
 }
+
+
+
 
 
 
