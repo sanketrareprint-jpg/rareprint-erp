@@ -94,7 +94,7 @@ export class DashboardService {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const agents = await this.prisma.user.findMany({
-      where: { role: 'SALES_AGENT', isActive: true },
+      where: { isActive: true, ordersAsAgent: { some: {} } },
       include: {
         ordersAsAgent: {
           where: { status: { not: OrderStatus.CANCELLED } },
