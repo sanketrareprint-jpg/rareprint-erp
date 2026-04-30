@@ -1,10 +1,10 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Database, Search, Trash2, Edit2, Check, X, Play, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Database, Search, Trash2, Edit2, Check, X, Play, ChevronLeft, ChevronRight, Upload, Download } from "lucide-react";
 
 const TABLE_LABELS: Record<string, string> = {
   user: "Users", customer: "Customers", product: "Products",
@@ -17,7 +17,6 @@ const TABLE_LABELS: Record<string, string> = {
   commission: "Commissions", productionJob: "Production Jobs",
   shipment: "Shipments", statusLog: "Status Logs",
 };
-
 const PROTECTED = ["user", "order", "payment"];
 
 export default function AdminDbPage() {
@@ -27,8 +26,10 @@ export default function AdminDbPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [rows, setRows] = useState<any[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [tableLoading, setTableLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [editingRow, setEditingRow] = useState<string | null>(null);
@@ -40,20 +41,21 @@ export default function AdminDbPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addData, setAddData] = useState<Record<string, string>>({});
   const [addLoading, setAddLoading] = useState(false);
+  // Bulk import state
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importJson, setImportJson] = useState("");
+  const [importCsvText, setImportCsvText] = useState("");
+  const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+
   const LIMIT = 50;
 
   useEffect(() => {
-    // Check admin role
     try {
       const raw = localStorage.getItem("rareprint_user");
       const user = raw ? JSON.parse(raw) : null;
       if (!user || user.role !== "ADMIN") { router.replace("/dashboard"); return; }
     } catch { router.replace("/login"); return; }
-
     fetch(`${API_BASE_URL}/admin/db/tables`, { headers: getAuthHeaders() })
       .then(r => r.json())
       .then(d => { setTables(d.tables || []); setCounts(d.counts || {}); setLoading(false); })
@@ -68,7 +70,9 @@ export default function AdminDbPage() {
       const res = await fetch(`${API_BASE_URL}/admin/db/table/${name}?page=${p}&limit=${LIMIT}`, { headers: getAuthHeaders() });
       const d = await res.json();
       setRows(d.rows || []);
+      setColumns(d.columns || (d.rows?.[0] ? Object.keys(d.rows[0]) : []));
       setTotal(d.total || 0);
+      setTotalPages(Math.ceil((d.total || 0) / LIMIT) || 1);
     } finally { setTableLoading(false); }
   }, []);
 
@@ -78,31 +82,17 @@ export default function AdminDbPage() {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify(editData),
     });
-    const d = await res.json();
-    if (d.success) { setEditingRow(null); loadTable(activeTable, page); }
-    else alert(d.error || "Update failed");
+    if (res.ok) { setEditingRow(null); loadTable(activeTable, page); }
+    else { const e = await res.json(); alert("Save failed: " + (e.message || "Unknown error")); }
   };
 
   const deleteRow = async (id: string) => {
-    if (!activeTable || !confirm("Delete this record? This cannot be undone.")) return;
+    if (!activeTable || !confirm("Delete this record?")) return;
     const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}/${id}`, {
       method: "DELETE", headers: getAuthHeaders(),
     });
-    const d = await res.json();
-    if (d.success) loadTable(activeTable, page);
-    else alert(d.error || "Delete failed");
-  };
-
-  const runSql = async () => {
-    if (!sql.trim()) return;
-    setSqlLoading(true); setSqlResult(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/admin/db/query`, {
-        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ sql }),
-      });
-      setSqlResult(await res.json());
-    } finally { setSqlLoading(false); }
+    if (res.ok) loadTable(activeTable, page);
+    else alert("Delete failed");
   };
 
   const addRecord = async () => {
@@ -113,153 +103,208 @@ export default function AdminDbPage() {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(addData),
       });
-      const d = await res.json();
-      if (d.success) { setShowAddModal(false); setAddData({}); loadTable(activeTable, page); }
-      else alert(d.error || "Add failed");
+      if (res.ok) { setShowAddModal(false); setAddData({}); loadTable(activeTable, page); }
+      else { const e = await res.json(); alert("Add failed: " + (e.message || JSON.stringify(e))); }
     } finally { setAddLoading(false); }
   };
 
-  const bulkImport = async () => {
-    if (!activeTable || !importJson.trim()) return;
-    setImportLoading(true); setImportResult(null);
+  const runSql = async () => {
+    if (!sql.trim()) return;
+    setSqlLoading(true); setSqlResult(null);
     try {
-      let records: any[];
-      try { records = JSON.parse(importJson); } catch { setImportResult("Invalid JSON"); setImportLoading(false); return; }
-      if (!Array.isArray(records)) records = [records];
-      let ok = 0; let fail = 0;
-      for (const rec of records) {
-        // Strip nested objects/arrays, id, createdAt, updatedAt, and relation names before sending
-        const relationNames = ['category', 'customer', 'order', 'product', 'vendor', 'agent', 'salesAgent', 'changedBy', 'sheet', 'orderItem', 'paymentAccount', 'costSlabs', 'items', 'stageVendors', 'jobWorks', 'payments', 'shipments', 'statusLogs'];
-        const cleaned: Record<string, any> = {};
-        for (const [k, v] of Object.entries(rec)) {
-          if (k === 'id' || k === 'createdAt' || k === 'updatedAt') continue;
-          if (relationNames.includes(k)) continue; // skip relation name fields
-          if (v !== null && typeof v === 'object') continue; // skip nested objects
-          cleaned[k] = v;
-        }
-        const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
-          method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify(cleaned),
-        });
-        const d = await res.json();
-        if (d.success) ok++; else fail++;
-      }
-      setImportResult(`Imported ${ok} records. Failed: ${fail}`);
-      loadTable(activeTable, page);
-    } finally { setImportLoading(false); }
+      const res = await fetch(`${API_BASE_URL}/admin/db/query`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ sql }),
+      });
+      const d = await res.json();
+      setSqlResult(d);
+    } catch (e) { setSqlResult({ error: String(e) }); }
+    finally { setSqlLoading(false); }
   };
 
-  const filteredRows = search
-    ? rows.filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()))
-    : rows;
+  // ── CSV Bulk Import ──────────────────────────────────────────
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setImportCsvText((ev.target?.result as string) || "");
+      setImportResult(null);
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+  };
 
-  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-  const totalPages = Math.ceil(total / LIMIT);
+  const downloadSampleCsv = () => {
+    if (!activeTable || columns.length === 0) { alert("Open a table first"); return; }
+    const sampleCols = columns.filter(c => !["id", "createdAt", "updatedAt"].includes(c));
+    const csv = sampleCols.join(",") + "\n" + sampleCols.map(() => "example_value").join(",");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${activeTable}_sample.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const STRING_FIELDS = [
+    "phone","email","name","fullName","address","city","state","pincode","role","status",
+    "sku","description","sizeInches","sides","printingType","openSizeInches","passwordHash",
+    "notes","slug","type","category","unit","uom","businessName","contactName","gstNumber",
+    "panNumber","ifscCode","accountNumber","bankName","accountType","orderNumber",
+  ];
+
+  const bulkImport = async () => {
+    if (!activeTable || !importCsvText.trim()) { alert("Please choose a CSV file first"); return; }
+    setImportLoading(true); setImportResult(null);
+    try {
+      const lines = importCsvText.trim().split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert("CSV must have a header row and at least one data row"); setImportLoading(false); return; }
+      const headers = lines[0].split(",").map((h: string) => h.trim());
+      const dataRows = lines.slice(1).filter((l: string) => l.trim());
+      let success = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const vals = dataRows[i].split(",").map((v: string) => v.trim());
+        const obj: Record<string, any> = {};
+        headers.forEach((h: string, j: number) => {
+          let v: any = vals[j] ?? "";
+          if (v === "" || v === "NULL" || v === "null") { v = null; }
+          else if (v === "true" || v === "TRUE") { v = true; }
+          else if (v === "false" || v === "FALSE") { v = false; }
+          else if (!STRING_FIELDS.includes(h) && !isNaN(Number(v)) && v !== "") { v = Number(v); }
+          obj[h] = v;
+        });
+        // Strip relation objects and auto fields
+        const clean: Record<string, any> = {};
+        Object.entries(obj).forEach(([k, val]) => {
+          if (["id","createdAt","updatedAt"].includes(k)) return;
+          if (val !== null && typeof val === "object") return;
+          clean[k] = val;
+        });
+        try {
+          const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}`, {
+            method: "POST",
+            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify(clean),
+          });
+          if (res.ok) { success++; }
+          else {
+            const e = await res.json();
+            errors.push(`Row ${i + 2}: ${e.message || JSON.stringify(e)}`);
+          }
+        } catch (err) { errors.push(`Row ${i + 2}: Network error`); }
+      }
+
+      const msg = `✅ Imported: ${success} / ${dataRows.length}  |  ❌ Failed: ${errors.length}` +
+        (errors.length > 0 ? `\n\nErrors:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ""}` : "");
+      setImportResult(msg);
+      if (success > 0) loadTable(activeTable, page);
+    } catch (e) { setImportResult("Import failed: " + String(e)); }
+    finally { setImportLoading(false); }
+  };
+
+  const filteredRows = rows.filter(row =>
+    !search || Object.values(row).some(v => String(v).toLowerCase().includes(search.toLowerCase()))
+  );
 
   if (loading) return (
-    <>
-      <DashboardShell>
-        <div className="flex items-center justify-center h-full">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
-      </DashboardShell>
-    </>
+    <DashboardShell>
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    </DashboardShell>
   );
 
   return (
     <>
-      <DashboardShell>
-      <div className="flex h-full" style={{ height: "calc(100vh - 0px)" }}>
-        {/* Sidebar - table list */}
-        <div className="w-52 border-r border-slate-200 bg-white overflow-y-auto flex-shrink-0">
+    <DashboardShell>
+      <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+        {/* Sidebar */}
+        <div className="w-56 border-r border-slate-200 bg-white flex flex-col overflow-hidden shrink-0">
           <div className="p-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-bold text-slate-800">Database</span>
+            <div className="flex gap-1">
+              <button onClick={() => setActiveTab("tables")}
+                className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${activeTab === "tables" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+                Tables
+              </button>
+              <button onClick={() => setActiveTab("query")}
+                className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${activeTab === "query" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+                SQL Query
+              </button>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Railway PostgreSQL</p>
           </div>
-          <div className="p-2 space-y-0.5">
+          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
             {tables.map(t => (
-              <button key={t} onClick={() => { setActiveTab("tables"); loadTable(t); }}
-                className={`w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors flex items-center justify-between ${activeTable === t && activeTab === "tables" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+              <button key={t} onClick={() => loadTable(t, 1)}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors ${activeTable === t ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}`}>
                 <span className="truncate">{TABLE_LABELS[t] || t}</span>
-                <span className={`rounded-full px-1.5 text-xs font-semibold ${activeTable === t && activeTab === "tables" ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-500"}`}>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTable === t ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"}`}>
                   {counts[t] ?? 0}
                 </span>
               </button>
             ))}
           </div>
-          <div className="p-2 border-t border-slate-100">
-            <button onClick={() => { setActiveTab("query"); setActiveTable(null); }}
-              className={`w-full text-left px-2 py-1.5 rounded-md text-xs flex items-center gap-1.5 transition-colors ${activeTab === "query" ? "bg-purple-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
-              <Play className="h-3 w-3" /> SQL Query
-            </button>
-          </div>
         </div>
 
         {/* Main content */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden bg-white">
           {activeTab === "query" ? (
-            <div className="p-4 flex flex-col h-full">
-              <h2 className="text-sm font-bold text-slate-800 mb-2">Raw SQL Query</h2>
-              <p className="text-xs text-red-500 mb-2">⚠️ DROP, TRUNCATE, ALTER are blocked. Be careful with UPDATE/DELETE.</p>
+            <div className="flex flex-col flex-1 p-4 gap-3">
+              <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Play className="h-4 w-4" />SQL Query</h2>
               <textarea value={sql} onChange={e => setSql(e.target.value)}
-                placeholder="SELECT * FROM &quot;Order&quot; LIMIT 10;"
-                className="w-full h-32 rounded-lg border border-slate-200 p-3 text-xs font-mono resize-none outline-none focus:border-blue-400 bg-slate-900 text-green-400"
-              />
+                placeholder="SELECT * FROM products LIMIT 10;"
+                className="w-full h-32 border border-slate-200 rounded-lg p-3 text-xs font-mono outline-none focus:border-blue-400 resize-none" />
               <button onClick={runSql} disabled={sqlLoading}
-                className="mt-2 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-xs font-semibold text-white hover:bg-purple-700 disabled:opacity-60 w-fit">
-                {sqlLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />} Run Query
+                className="self-start inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-slate-800 text-white rounded-lg hover:bg-slate-900 disabled:opacity-60">
+                {sqlLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Run Query
               </button>
               {sqlResult && (
-                <div className="mt-3 flex-1 overflow-auto">
+                <div className="flex-1 overflow-auto border border-slate-200 rounded-lg">
                   {sqlResult.error ? (
-                    <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700 font-mono">{sqlResult.error}</div>
-                  ) : (
-                    <div>
-                      <p className="text-xs text-slate-500 mb-2">{sqlResult.count} row(s) returned</p>
-                      <div className="rounded-lg border border-slate-200 overflow-auto">
-                        <table className="w-full text-xs">
-                          <thead className="bg-slate-50 border-b border-slate-200">
-                            <tr>{sqlResult.rows?.[0] && Object.keys(sqlResult.rows[0]).map((k: string) => (
-                              <th key={k} className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">{k}</th>
-                            ))}</tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {sqlResult.rows?.map((r: any, i: number) => (
-                              <tr key={i} className="hover:bg-slate-50">
-                                {Object.values(r).map((v: any, j: number) => (
-                                  <td key={j} className="px-3 py-1.5 text-slate-700 whitespace-nowrap max-w-xs truncate">
-                                    {v === null ? <span className="text-slate-300">NULL</span> : String(v)}
-                                  </td>
-                                ))}
-                              </tr>
+                    <p className="p-3 text-xs text-red-600 font-mono">{sqlResult.error}</p>
+                  ) : Array.isArray(sqlResult.rows) ? (
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                        <tr>{sqlResult.columns?.map((c: string) => <th key={c} className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">{c}</th>)}</tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {sqlResult.rows.map((row: any, i: number) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            {sqlResult.columns?.map((c: string) => (
+                              <td key={c} className="px-3 py-1.5 text-slate-700 whitespace-nowrap">
+                                {row[c] === null ? <span className="text-slate-300">NULL</span> : String(row[c])}
+                              </td>
                             ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <pre className="p-3 text-xs text-slate-700 font-mono">{JSON.stringify(sqlResult, null, 2)}</pre>
                   )}
                 </div>
               )}
             </div>
           ) : activeTable ? (
-            <div className="flex flex-col h-full">
-              {/* Table header */}
-              <div className="px-4 py-2.5 border-b border-slate-200 bg-white flex items-center justify-between">
-                <div className="flex items-center gap-3">
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {/* Table toolbar */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-white shrink-0">
+                <div className="flex items-center gap-2">
                   <h2 className="text-sm font-bold text-slate-800">{TABLE_LABELS[activeTable] || activeTable}</h2>
-                  <span className="text-xs text-slate-400">{total} records</span>
+                  <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{total} records</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => { setAddData({}); setShowAddModal(true); }}
                     className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
                     + Add Record
                   </button>
-                  <button onClick={() => { setImportJson(""); setImportResult(null); setShowImportModal(true); }}
+                  <button onClick={() => { setImportCsvText(""); setImportFileName(null); setImportResult(null); setShowImportModal(true); }}
                     className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700">
-                    ↑ Bulk Import
+                    <Upload className="h-3 w-3" /> Bulk Import
                   </button>
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
@@ -343,7 +388,7 @@ export default function AdminDbPage() {
       </div>
     </DashboardShell>
 
-      {/* Add Record Modal */}
+    {/* Add Record Modal */}
     {showAddModal && activeTable && (
       <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.5)" }}>
         <div style={{ background:"white",borderRadius:"12px",padding:"1.5rem",width:"100%",maxWidth:"32rem",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,0.3)" }}>
@@ -370,74 +415,68 @@ export default function AdminDbPage() {
       </div>
     )}
 
-    {/* Bulk Import Modal */}
+    {/* Bulk Import Modal — CSV File Picker */}
     {showImportModal && activeTable && (
       <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.5)" }}>
         <div style={{ background:"white",borderRadius:"12px",padding:"1.5rem",width:"100%",maxWidth:"36rem",boxShadow:"0 25px 50px rgba(0,0,0,0.3)" }}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-slate-800">Bulk Import — {TABLE_LABELS[activeTable] || activeTable}</h2>
-            <button onClick={() => { setShowImportModal(false); setImportJson(""); setImportResult(null); }} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
           </div>
 
-          {/* Step 1: Download Sample CSV */}
+          {/* Step 1: Download Sample */}
           <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
             <p className="text-xs font-semibold text-slate-700 mb-1">Step 1 — Download sample CSV</p>
-            <p className="text-xs text-slate-500 mb-2">Get the correct column headers for this table.</p>
-            <button onClick={() => {
-              if (!columns.length) return;
-              const sampleCols = columns.filter(c => !["id","createdAt","updatedAt"].includes(c));
-              const csv = sampleCols.join(",") + "\n" + sampleCols.map(() => "example_value").join(",");
-              const blob = new Blob([csv], { type: "text/csv" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = `${activeTable}_sample.csv`; a.click();
-              URL.revokeObjectURL(url);
-            }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">
-              ⬇ Download Sample CSV
+            <p className="text-xs text-slate-500 mb-2">Get the correct column headers for this table pre-filled.</p>
+            <button onClick={downloadSampleCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 font-medium">
+              <Download className="h-3 w-3" /> Download Sample CSV
             </button>
           </div>
 
-          {/* Step 2: Choose CSV file */}
+          {/* Step 2: Choose CSV File */}
           <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
             <p className="text-xs font-semibold text-slate-700 mb-1">Step 2 — Choose your CSV file</p>
-            <p className="text-xs text-slate-500 mb-2">Fill in the sample CSV with your data and upload it here.</p>
-            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer">
-              📂 Choose CSV File
-              <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (ev) => setImportJson((ev.target?.result as string) || "");
-                reader.readAsText(file);
-              }} />
+            <p className="text-xs text-slate-500 mb-2">Select a .csv file from your computer to import.</p>
+            <label className="inline-flex items-center gap-1.5 cursor-pointer px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 font-medium">
+              <Upload className="h-3 w-3" /> Choose CSV File
+              <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
             </label>
-            {importJson && (
-              <span className="ml-3 text-xs text-green-600 font-medium">
-                ✓ {importJson.trim().split(/\r?\n/).length - 1} data row(s) loaded
+            {importFileName && (
+              <span className="ml-2 text-xs text-green-700 font-medium">
+                ✅ {importFileName} — {importCsvText.trim().split(/\r?\n/).length - 1} data rows ready
               </span>
             )}
           </div>
 
           {/* Step 3: Import */}
-          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
             <p className="text-xs font-semibold text-slate-700 mb-1">Step 3 — Import records</p>
-            <p className="text-xs text-slate-500">Click the button below to import all rows from your CSV.</p>
+            <p className="text-xs text-slate-500">
+              Fields <span className="font-mono bg-slate-200 px-1 rounded">id</span>, <span className="font-mono bg-slate-200 px-1 rounded">createdAt</span>, <span className="font-mono bg-slate-200 px-1 rounded">updatedAt</span> are auto-generated and should not be in your CSV.
+            </p>
           </div>
 
+          {/* Result message */}
           {importResult && (
-            <p className={`text-xs mt-3 font-semibold p-2 rounded ${importResult.includes("Failed: 0") ? "bg-green-50 text-green-700" : "bg-orange-50 text-orange-700"}`}>
+            <div className={`text-xs mb-3 p-2.5 rounded-lg whitespace-pre-wrap font-mono leading-5 ${importResult.includes("❌ Failed: 0") ? "bg-green-50 text-green-800 border border-green-200" : "bg-orange-50 text-orange-800 border border-orange-200"}`}>
               {importResult}
-            </p>
+            </div>
           )}
 
-          <div className="flex justify-end gap-2 mt-4">
-            <button onClick={() => { setShowImportModal(false); setImportJson(""); setImportResult(null); }}
-              className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Close</button>
-            <button onClick={bulkImport} disabled={importLoading || !importJson}
-              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60">
-              {importLoading ? "Importing..." : "Import Records"}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setShowImportModal(false); setImportCsvText(""); setImportFileName(null); setImportResult(null); }}
+              className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">
+              Close
+            </button>
+            <button onClick={bulkImport} disabled={importLoading || !importCsvText.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+              {importLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Importing...</> : <><Upload className="h-3 w-3" /> Import Records</>}
             </button>
           </div>
         </div>
       </div>
     )}
+    </>
+  );
+}
