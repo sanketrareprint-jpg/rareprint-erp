@@ -1,10 +1,8 @@
 import { Controller, Get, Patch, Param, Body, UseGuards, Req } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { AccountsService } from './accounts.service';
-import { AuthGuard } from '@nestjs/passport';
+
 type JwtUser = { id: string; role: string };
-import { AuthGuard } from '@nestjs/passport';
-type JwtUser = { id: string; role: string };
-import { AuthGuard } from '@nestjs/passport';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('accounts')
@@ -21,6 +19,16 @@ export class AccountsController {
     return this.accountsService.getPendingDispatchOrders();
   }
 
+  @Get('pending-payments')
+  getPendingPayments() {
+    return this.accountsService.getPendingPayments();
+  }
+
+  @Get('vendor-statements')
+  getVendorStatements() {
+    return this.accountsService.getVendorStatements();
+  }
+
   @Patch(':id/approve')
   approveOrder(@Param('id') id: string) {
     return this.accountsService.approveOrder(id);
@@ -31,41 +39,24 @@ export class AccountsController {
     return this.accountsService.rejectOrder(id, reason);
   }
 
+  @Patch(':id/approve-dispatch')
+  approveDispatch(@Param('id') id: string) {
+    return this.accountsService.approveDispatch(id);
+  }
 
-  @Get('pending-payments')
-  getPendingPayments() {
-    return this.accountsService.getPendingPayments();
+  @Patch(':id/reject-dispatch')
+  rejectDispatch(@Param('id') id: string, @Body('reason') reason: string) {
+    return this.accountsService.rejectDispatch(id, reason);
   }
 
   @Patch('payments/:id/verify')
-  verifyPayment(@Param('id') id: string, @Req() req: any) {
+  verifyPayment(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.verifyPayment(id, req.user.id);
   }
 
   @Patch('payments/:id/reject')
-  rejectPayment(@Param('id') id: string, @Body('reason') reason: string, @Req() req: any) {
+  rejectPayment(@Param('id') id: string, @Body('reason') reason: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.rejectPayment(id, req.user.id, reason);
-  }
-
-
-  @Get('pending-payments')
-  getPendingPayments() {
-    return this.accountsService.getPendingPayments();
-  }
-
-  @Patch('payments/:id/verify')
-  verifyPayment(@Param('id') id: string, @Req() req: any) {
-    return this.accountsService.verifyPayment(id, req.user.id);
-  }
-
-  @Patch('payments/:id/reject')
-  rejectPayment(@Param('id') id: string, @Body('reason') reason: string, @Req() req: any) {
-    return this.accountsService.rejectPayment(id, req.user.id, reason);
-  }
-
-  @Get('vendor-statements')
-  getVendorStatements() {
-    return this.accountsService.getVendorStatements();
   }
 
   @Patch('vendor-statements/jobwork/:id/paid')
@@ -76,15 +67,5 @@ export class AccountsController {
   @Patch('vendor-statements/sheet-stage/:id/paid')
   markSheetStagePaid(@Param('id') id: string) {
     return this.accountsService.markSheetStagePaid(id);
-  }
-
-    @Patch(':id/approve-dispatch')
-  approveDispatch(@Param('id') id: string) {
-    return this.accountsService.approveDispatch(id);
-  }
-
-  @Patch(':id/reject-dispatch')
-  rejectDispatch(@Param('id') id: string, @Body('reason') reason: string) {
-    return this.accountsService.rejectDispatch(id, reason);
   }
 }
