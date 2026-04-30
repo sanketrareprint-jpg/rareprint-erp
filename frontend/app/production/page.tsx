@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -1053,7 +1053,7 @@ export default function ProductionPage() {
                       className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "processing" ? "bg-white shadow-sm text-orange-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                       Processing Orders
                       <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "processing" ? "bg-orange-100 text-orange-700" : "bg-slate-200 text-slate-500"}`}>
-                        {sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE").flatMap(s => s.items).length}
+                        {sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE").flatMap(s => s.items).filter(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH").length}
                       </span>
                     </button>
                   </div>
