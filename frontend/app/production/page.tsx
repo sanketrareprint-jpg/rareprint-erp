@@ -1375,8 +1375,10 @@ export default function ProductionPage() {
                   <input type="number" value={settingForm.plateRate} onChange={e => setSettingForm(p => ({ ...p, plateRate: e.target.value }))} placeholder="0.00" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Quantity *</label>
                   <input type="number" value={settingForm.plateQty} onChange={e => setSettingForm(p => ({ ...p, plateQty: e.target.value }))} placeholder="0" style={IS.input} /></div>
-                {settingForm.plateRate && settingForm.plateQty && (
-                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(Number(settingForm.plateRate) * Number(settingForm.plateQty))}</div>
+                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">— OR — Direct Amount (Rs)</label>
+                  <input type="number" value={settingForm.plateAmount} onChange={e => setSettingForm(p => ({ ...p, plateAmount: e.target.value, plateRate: "", plateQty: "" }))} placeholder="Enter total amount directly" style={IS.input} /></div>
+                {(settingForm.plateAmount || (settingForm.plateRate && settingForm.plateQty)) && (
+                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(settingForm.plateAmount ? Number(settingForm.plateAmount) : Number(settingForm.plateRate) * Number(settingForm.plateQty))}</div>
                 )}
               </div>
             </div>
@@ -1393,8 +1395,10 @@ export default function ProductionPage() {
                   <input type="number" value={settingForm.printRate} onChange={e => setSettingForm(p => ({ ...p, printRate: e.target.value }))} placeholder="0.00" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Quantity *</label>
                   <input type="number" value={settingForm.printQty} onChange={e => setSettingForm(p => ({ ...p, printQty: e.target.value }))} placeholder="0" style={IS.input} /></div>
-                {settingForm.printRate && settingForm.printQty && (
-                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(Number(settingForm.printRate) * Number(settingForm.printQty))}</div>
+                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">— OR — Direct Amount (Rs)</label>
+                  <input type="number" value={settingForm.printAmount} onChange={e => setSettingForm(p => ({ ...p, printAmount: e.target.value, printRate: "", printQty: "" }))} placeholder="Enter total amount directly" style={IS.input} /></div>
+                {(settingForm.printAmount || (settingForm.printRate && settingForm.printQty)) && (
+                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(settingForm.printAmount ? Number(settingForm.printAmount) : Number(settingForm.printRate) * Number(settingForm.printQty))}</div>
                 )}
               </div>
             </div>
@@ -1515,6 +1519,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
