@@ -22,7 +22,7 @@ import { OrdersService } from './orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 type JwtUser = { id: string };
-type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number };
+type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number; base64?: string; mimeType?: string };
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads', 'designs');
 
@@ -243,4 +243,5 @@ export class OrdersController {
     res.download(filePath);
   }
 }
+
 
