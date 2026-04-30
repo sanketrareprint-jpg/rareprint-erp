@@ -876,7 +876,7 @@ export default function ProductionPage() {
                   const count = t.key === "unassigned"
                     ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
                     : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
-                    : sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").length;
+                    : sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length;
                   return (
                     <button key={t.key} onClick={() => setSheetSubTab(t.key)}
                       className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
