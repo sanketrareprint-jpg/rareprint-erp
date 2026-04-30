@@ -141,6 +141,12 @@ export class AdminDbController {
       }
     }
 
+    // Auto-generate id if not present
+    if (!finalData.id) {
+      const { createId } = require('@paralleldrive/cuid2');
+      try { finalData.id = createId(); } catch { finalData.id = require('crypto').randomUUID(); }
+    }
+
     try {
       const result = await (this.prisma as any)[name].create({ data: finalData });
       return { success: true, row: result };
@@ -186,4 +192,5 @@ export class AdminDbController {
     }
   }
 }
+
 
