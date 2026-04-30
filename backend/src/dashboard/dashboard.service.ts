@@ -1,4 +1,4 @@
-// backend/src/dashboard/dashboard.service.ts
+﻿// backend/src/dashboard/dashboard.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderStatus, OrderProductionStage } from '@prisma/client';
