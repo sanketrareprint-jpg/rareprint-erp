@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -374,30 +374,70 @@ export default function AdminDbPage() {
     {showImportModal && activeTable && (
       <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.5)" }}>
         <div style={{ background:"white",borderRadius:"12px",padding:"1.5rem",width:"100%",maxWidth:"36rem",boxShadow:"0 25px 50px rgba(0,0,0,0.3)" }}>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-slate-800">Bulk Import — {TABLE_LABELS[activeTable] || activeTable}</h2>
-            <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            <button onClick={() => { setShowImportModal(false); setImportJson(""); setImportResult(null); }} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
           </div>
-          <p className="text-xs text-slate-500 mb-2">Paste a JSON array of records. Required fields only — id, createdAt, updatedAt are auto-generated.</p>
-          <p className="text-xs text-blue-600 mb-2 font-mono bg-blue-50 p-2 rounded">Example: {`[{"name":"Test","email":"test@example.com"}]`}</p>
-          <textarea value={importJson} onChange={e => setImportJson(e.target.value)}
-            placeholder={`[{"field1":"value1","field2":"value2"}]`}
-            className="w-full h-40 border border-slate-200 rounded-md p-2.5 text-xs font-mono outline-none focus:border-blue-400 resize-none bg-slate-900 text-green-400" />
+
+          {/* Step 1: Download Sample CSV */}
+          <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Step 1 — Download sample CSV</p>
+            <p className="text-xs text-slate-500 mb-2">Get the correct column headers for this table.</p>
+            <button onClick={() => {
+              if (!columns.length) return;
+              const sampleCols = columns.filter(c => !["id","createdAt","updatedAt"].includes(c));
+              const csv = sampleCols.join(",") + "\n" + sampleCols.map(() => "example_value").join(",");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = `${activeTable}_sample.csv`; a.click();
+              URL.revokeObjectURL(url);
+            }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">
+              ⬇ Download Sample CSV
+            </button>
+          </div>
+
+          {/* Step 2: Choose CSV file */}
+          <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Step 2 — Choose your CSV file</p>
+            <p className="text-xs text-slate-500 mb-2">Fill in the sample CSV with your data and upload it here.</p>
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer">
+              📂 Choose CSV File
+              <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => setImportJson((ev.target?.result as string) || "");
+                reader.readAsText(file);
+              }} />
+            </label>
+            {importJson && (
+              <span className="ml-3 text-xs text-green-600 font-medium">
+                ✓ {importJson.trim().split(/\r?\n/).length - 1} data row(s) loaded
+              </span>
+            )}
+          </div>
+
+          {/* Step 3: Import */}
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Step 3 — Import records</p>
+            <p className="text-xs text-slate-500">Click the button below to import all rows from your CSV.</p>
+          </div>
+
           {importResult && (
-            <p className={`text-xs mt-2 font-semibold p-2 rounded ${importResult.includes('Failed: 0') ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
+            <p className={`text-xs mt-3 font-semibold p-2 rounded ${importResult.includes("Failed: 0") ? "bg-green-50 text-green-700" : "bg-orange-50 text-orange-700"}`}>
               {importResult}
             </p>
           )}
+
           <div className="flex justify-end gap-2 mt-4">
-            <button onClick={() => setShowImportModal(false)} className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Close</button>
-            <button onClick={bulkImport} disabled={importLoading} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60">
+            <button onClick={() => { setShowImportModal(false); setImportJson(""); setImportResult(null); }}
+              className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Close</button>
+            <button onClick={bulkImport} disabled={importLoading || !importJson}
+              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60">
               {importLoading ? "Importing..." : "Import Records"}
             </button>
           </div>
         </div>
       </div>
     )}
-    </>
-  );
-}
-
