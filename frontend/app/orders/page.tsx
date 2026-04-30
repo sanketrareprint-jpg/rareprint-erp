@@ -643,7 +643,7 @@ export default function OrdersPage() {
 
             <div className="space-y-3">
               {(fileModalItems.length > 0 ? fileModalItems : (fileModalOrder.items ?? [])).map((item: any, idx => (
-                <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {(fileModalItems.length > 0 ? fileModalItems : (fileModalOrder.items ?? [])).map((item: any, idx: number) => (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">
@@ -676,7 +676,18 @@ export default function OrdersPage() {
                     </div>
                   </div>
                   <p className="text-xs text-slate-400 mt-2">
-                    Accepted: PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP
+                  <p className="text-xs text-slate-400 mt-1">Accepted: PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP</p>
+                  {Array.isArray(item.designFiles) && item.designFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs font-semibold text-slate-600">Uploaded:</p>
+                      {item.designFiles.map((f: any) => (
+                        <div key={f.filename} className="flex items-center justify-between rounded bg-white border border-slate-200 px-2 py-1 mt-1">
+                          <span className="text-xs text-slate-700 truncate max-w-[180px]">{f.originalName}</span>
+                          <span className="text-xs text-slate-400 ml-2">{Math.round(f.size/1024)}KB</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   </p>
                 </div>
               ))}
