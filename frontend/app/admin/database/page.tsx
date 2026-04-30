@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -201,7 +201,13 @@ export default function AdminDbPage() {
       const msg = `✅ Imported: ${success} / ${dataRows.length}  |  ❌ Failed: ${errors.length}` +
         (errors.length > 0 ? `\n\nErrors:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ""}` : "");
       setImportResult(msg);
-      if (success > 0) loadTable(activeTable, page);
+      if (success > 0) {
+        loadTable(activeTable, 1);
+        // Refresh sidebar counts
+        fetch(`${API_BASE_URL}/admin/db/tables`, { headers: getAuthHeaders() })
+          .then(r => r.json())
+          .then(d => { setTables(d.tables || []); setCounts(d.counts || {}); });
+      }
     } catch (e) { setImportResult("Import failed: " + String(e)); }
     finally { setImportLoading(false); }
   };
@@ -480,3 +486,4 @@ export default function AdminDbPage() {
     </>
   );
 }
+
