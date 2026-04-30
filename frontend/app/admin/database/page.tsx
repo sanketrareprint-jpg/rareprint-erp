@@ -17,6 +17,32 @@ const TABLE_LABELS: Record<string, string> = {
   commission: "Commissions", productionJob: "Production Jobs",
   shipment: "Shipments", statusLog: "Status Logs",
 };
+const TABLE_COLUMNS: Record<string, string[]> = {
+  user: ["fullName","email","phone","passwordHash","role","isActive"],
+  customer: ["businessName","contactPerson","phone","email","shippingAddress","billingAddress","gstNumber","panNumber","city","state","pincode"],
+  productCategory: ["name","slug","description"],
+  product: ["sku","name","description","categoryId","gsm","sizeInches","openSizeInches","printingType","sides","weightPerUnitGrams","isActive"],
+  productCostSlab: ["productId","minQty","maxQty","unitCost","setupCost"],
+  commissionRule: ["name","type","value","isActive"],
+  paymentAccount: ["name","accountType","bankName","accountNumber","ifscCode","upiId","isActive"],
+  vendor: ["name","phone","email","gstNumber","address","city","state"],
+  jobWork: ["name","description","defaultRate"],
+  printSheet: ["sheetNo","gsm","quality","quantity","sizeInches","printing","status"],
+  godown: ["name","address","city","state","pincode","isActive"],
+};
+const TABLE_COLUMNS: Record<string, string[]> = {
+  user: ["fullName","email","phone","passwordHash","role","isActive"],
+  customer: ["businessName","contactPerson","phone","email","shippingAddress","billingAddress","gstNumber","panNumber","city","state","pincode"],
+  productCategory: ["name","slug","description"],
+  product: ["sku","name","description","categoryId","gsm","sizeInches","openSizeInches","printingType","sides","weightPerUnitGrams","isActive"],
+  productCostSlab: ["productId","minQty","maxQty","unitCost","setupCost"],
+  commissionRule: ["name","type","value","isActive"],
+  paymentAccount: ["name","accountType","bankName","accountNumber","ifscCode","upiId","isActive"],
+  vendor: ["name","phone","email","gstNumber","address","city","state"],
+  jobWork: ["name","description","defaultRate"],
+  printSheet: ["sheetNo","gsm","quality","quantity","sizeInches","printing","status"],
+  godown: ["name","address","city","state","pincode","isActive"],
+};
 const PROTECTED = ["user", "order", "payment"];
 
 export default function AdminDbPage() {
@@ -70,7 +96,8 @@ export default function AdminDbPage() {
       const res = await fetch(`${API_BASE_URL}/admin/db/table/${name}?page=${p}&limit=${LIMIT}`, { headers: getAuthHeaders() });
       const d = await res.json();
       setRows(d.rows || []);
-      setColumns(d.columns || (d.rows?.[0] ? Object.keys(d.rows[0]) : []));
+      const fetchedCols = d.columns || (d.rows?.[0] ? Object.keys(d.rows[0]) : []);
+      setColumns(fetchedCols.length > 0 ? fetchedCols : (TABLE_COLUMNS[name] || []));
       setTotal(d.total || 0);
       setTotalPages(Math.ceil((d.total || 0) / LIMIT) || 1);
     } finally { setTableLoading(false); }
@@ -490,6 +517,8 @@ export default function AdminDbPage() {
     </>
   );
 }
+
+
 
 
 
