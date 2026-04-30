@@ -640,64 +640,44 @@ export default function OrdersPage() {
               </div>
               <button onClick={() => { setFileModalOrder(null); setFileModalItems([]); }}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
-
             <div className="space-y-3">
-              {(fileModalItems.length > 0 ? fileModalItems : (fileModalOrder.items ?? [])).map((item: any, idx => (
               {(fileModalItems.length > 0 ? fileModalItems : (fileModalOrder.items ?? [])).map((item: any, idx: number) => (
+                <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">
-                        Item {idx + 1}
-                      </span>
+                      <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">Item {idx + 1}</span>
                       <span className="text-sm font-medium text-slate-800">{item.productName}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {uploadingItemId === item.id && (
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                      )}
-                      <input
-                        type="file"
-                        ref={el => { fileInputRefs.current[item.id] = el; }}
-                        className="hidden"
+                      {uploadingItemId === item.id && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+                      <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden"
                         accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps,.svg"
-                        onChange={e => {
-                          const file = e.target.files?.[0];
-                          if (file) uploadDesignFile(item.id, file);
-                        }}
-                      />
-                      <button
-                        onClick={() => fileInputRefs.current[item.id]?.click()}
-                        disabled={uploadingItemId === item.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                      >
+                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadDesignFile(item.id, f); }} />
+                      <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={uploadingItemId === item.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
                         <Upload className="h-3.5 w-3.5" />
                         {uploadingItemId === item.id ? "Uploading…" : "Upload File"}
                       </button>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-400 mt-2">
                   <p className="text-xs text-slate-400 mt-1">Accepted: PDF, AI, PSD, CDR, PNG, JPG, SVG, EPS, ZIP</p>
                   {Array.isArray(item.designFiles) && item.designFiles.length > 0 && (
                     <div className="mt-2 space-y-1">
-                      <p className="text-xs font-semibold text-slate-600">Uploaded:</p>
+                      <p className="text-xs font-semibold text-slate-600">Uploaded Files:</p>
                       {item.designFiles.map((f: any) => (
                         <div key={f.filename} className="flex items-center justify-between rounded bg-white border border-slate-200 px-2 py-1 mt-1">
                           <span className="text-xs text-slate-700 truncate max-w-[180px]">{f.originalName}</span>
-                          <span className="text-xs text-slate-400 ml-2">{Math.round(f.size/1024)}KB</span>
+                          <span className="text-xs text-slate-400 ml-2">{Math.round(f.size / 1024)}KB</span>
                         </div>
                       ))}
                     </div>
                   )}
-                  </p>
                 </div>
               ))}
             </div>
-
             <div className="mt-4 flex justify-end">
               <button onClick={() => { setFileModalOrder(null); setFileModalItems([]); }}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Done
-              </button>
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Done</button>
             </div>
           </div>
         </div>
