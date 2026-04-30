@@ -458,7 +458,7 @@ export default function ProductionPage() {
     const sheet = sheetsData.find(s => s.id === sheetId);
     if (sheet && sheet.status === "COMPLETE" && status === "SETTING") {
       setSettingDialog({ sheetId, sheetNo: sheet.sheetNo });
-      setSettingForm({ plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "", printVendorId: "", printDesc: "", printRate: "", printQty: "" });
+      setSettingForm({ plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "", plateAmount: "", printVendorId: "", printDesc: "", printRate: "", printQty: "", printAmount: "" });
       return;
     }
     const prevExpanded = expandedSheet;
@@ -1515,6 +1515,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
