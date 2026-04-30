@@ -481,7 +481,6 @@ export class OrdersService {
   async getOrdersWithReadyItems() {
     const EXCLUDED_STATUSES = [
       OrderStatus.PENDING_DISPATCH_APPROVAL,
-      OrderStatus.READY_FOR_DISPATCH,
       OrderStatus.DISPATCHED,
       OrderStatus.DELIVERED,
       OrderStatus.CANCELLED,
