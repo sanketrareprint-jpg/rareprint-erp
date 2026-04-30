@@ -150,53 +150,30 @@ export class OrdersController {
   /** POST /orders/items/:itemId/design-files — upload a file */
   @Post('items/:itemId/design-files')
   @UseGuards(AuthGuard('jwt'))
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          ensureUploadsDir();
-          cb(null, UPLOADS_DIR);
-        },
-        filename: (_req, file, cb) => {
-          const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-          cb(null, `${unique}${extname(file.originalname)}`);
-        },
-      }),
-      limits: { fileSize: 50 * 1024 * 1024 },
-      fileFilter: (_req, file, cb) => {
-        const allowed = /\.(jpg|jpeg|png|gif|pdf|ai|psd|cdr|zip|svg|tiff|tif|eps|webp)$/i;
-        if (allowed.test(extname(file.originalname))) {
-          cb(null, true);
-        } else {
-          cb(new Error('File type not allowed'), false);
-        }
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
   async uploadDesignFile(
     @Param('itemId') itemId: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
+    if (!file) throw new Error('No file received');
     const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
     if (!item) throw new Error('Order item not found');
-
-    const existing: DesignFile[] = Array.isArray((item as any).designFiles)
-      ? ((item as any).designFiles as DesignFile[])
-      : [];
-
+    const existing: DesignFile[] = Array.isArray((item as any).designFiles) ? ((item as any).designFiles as DesignFile[]) : [];
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}${extname(file.originalname)}`;
     const newFile: DesignFile = {
-      filename: file.filename,
+      filename: unique,
       originalName: file.originalname,
       uploadedAt: new Date().toISOString(),
       size: file.size,
+      base64: file.buffer.toString('base64'),
+      mimeType: file.mimetype,
     };
-
     await (this.prisma.orderItem as any).update({
       where: { id: itemId },
       data: { designFiles: [...existing, newFile] },
     });
-
-    return { success: true, file: newFile };
+    return { success: true, file: { filename: newFile.filename, originalName: newFile.originalName, uploadedAt: newFile.uploadedAt, size: newFile.size } };
+  }
   }
 
   /** DELETE /orders/items/:itemId/design-files/:filename */
