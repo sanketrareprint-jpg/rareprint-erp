@@ -65,7 +65,7 @@ model Product {
   openSizeInches     String?           // e.g. "4x5" open flat size for sheet calc
   printingType       PrintingType
   sides              ProductSides
-  weightPerUnitGrams Decimal           @db.Decimal(10, 3)
+  weightPerUnitGrams Decimal?          @db.Decimal(10, 3)
   isActive           Boolean           @default(true)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
