@@ -26,6 +26,24 @@ type DispatchPendingOrder = {
   courierCharge?: number; paymentType?: string;
 };
 
+type PendingPayment = {
+  id: string;
+  orderId: string;
+  orderNo: string;
+  customerName: string;
+  customerPhone?: string;
+  salesAgentName?: string;
+  amount: number;
+  method: string;
+  referenceNumber?: string;
+  notes?: string;
+  paymentDate: string;
+  paymentAccountName: string;
+  receivedByName?: string;
+  verificationStatus: string;
+  createdAt: string;
+};
+
 type VendorEntry = {
   id: string;
   type: "JOBWORK" | "SHEET_STAGE";
@@ -68,7 +86,7 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
-type Tab = "pending" | "dispatch" | "vendors";
+type Tab = "pending" | "dispatch" | "receipts" | "vendors";
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -100,6 +118,13 @@ export default function AccountsPage() {
   const [dispatchLoading, setDispatchLoading] = useState(false);
   const [dispatchExpanded, setDispatchExpanded] = useState<string | null>(null);
   const [dispatchProcessing, setDispatchProcessing] = useState<string | null>(null);
+
+  // Pending payment receipts
+  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [rejectPaymentId, setRejectPaymentId] = useState<string | null>(null);
+  const [rejectPaymentReason, setRejectPaymentReason] = useState("");
 
   // Vendor statements
   const [vendorEntries, setVendorEntries] = useState<VendorEntry[]>([]);
@@ -136,8 +161,17 @@ export default function AccountsPage() {
     } finally { setVendorLoading(false); }
   }, []);
 
+  const loadReceipts = useCallback(async () => {
+    setReceiptsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/pending-payments`, { headers: getAuthHeaders() });
+      setPendingPayments(await res.json());
+    } finally { setReceiptsLoading(false); }
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
+  useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
   useEffect(() => { if (tab === "vendors") void loadVendors(); }, [tab, loadVendors]);
 
   async function approveOrder(id: string) {
@@ -166,6 +200,27 @@ export default function AccountsPage() {
       await fetch(`${API_BASE_URL}/accounts/${id}/approve-dispatch`, { method: "PATCH", headers: getAuthHeaders() });
       await loadDispatch();
     } finally { setDispatchProcessing(null); }
+  }
+
+  async function verifyPayment(id: string) {
+    setVerifyingId(id);
+    try {
+      await fetch(`${API_BASE_URL}/accounts/payments/${id}/verify`, { method: "PATCH", headers: getAuthHeaders() });
+      await loadReceipts();
+    } finally { setVerifyingId(null); }
+  }
+
+  async function rejectPayment() {
+    if (!rejectPaymentId || !rejectPaymentReason.trim()) { alert("Enter rejection reason"); return; }
+    setVerifyingId(rejectPaymentId);
+    try {
+      await fetch(`${API_BASE_URL}/accounts/payments/${rejectPaymentId}/reject`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: rejectPaymentReason }),
+      });
+      setRejectPaymentId(null); setRejectPaymentReason("");
+      await loadReceipts();
+    } finally { setVerifyingId(null); }
   }
 
   async function markPaid(entry: VendorEntry) {
@@ -220,6 +275,7 @@ export default function AccountsPage() {
               {([
                 { key: "pending", label: "Order Approval", count: orders.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
+                { key: "receipts", label: "Receipts Pending", count: pendingPayments.length },
                 { key: "vendors", label: "Vendor Statements", count: vendorEntries.filter(e => !e.isPaid).length },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
@@ -373,6 +429,79 @@ export default function AccountsPage() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ── RECEIPTS PENDING TAB ── */}
+          {tab === "receipts" && (
+            <div className="space-y-3">
+              {receiptsLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              ) : pendingPayments.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <Check className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No receipts pending verification</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Agent</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Method</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Account</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Ref No</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
+                        <th className="px-3 py-2 text-center font-semibold text-slate-600">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pendingPayments.map(p => (
+                        <tr key={p.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-500">
+                            {new Date(p.paymentDate).toLocaleDateString("en-IN")}
+                          </td>
+                          <td className="px-3 py-2 font-bold text-blue-700">{p.orderNo}</td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {p.customerName}
+                            {p.customerPhone && <div className="text-slate-400">{p.customerPhone}</div>}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{p.salesAgentName || "—"}</td>
+                          <td className="px-3 py-2">
+                            <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{p.method}</span>
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
+                          <td className="px-3 py-2 font-mono text-slate-500">{p.referenceNumber || "—"}</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button onClick={() => verifyPayment(p.id)} disabled={verifyingId === p.id}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
+                                {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                Verify
+                              </button>
+                              <button onClick={() => setRejectPaymentId(p.id)}
+                                className="px-2 py-1 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 font-semibold">
+                                Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                      <tr>
+                        <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Pending ({pendingPayments.length} receipts)</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold text-green-700">{fmt(pendingPayments.reduce((s, p) => s + p.amount, 0))}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -535,7 +664,29 @@ export default function AccountsPage() {
         </div>
       </DashboardShell>
 
-      {/* Reject Modal */}
+      {/* Reject Payment Modal */}
+      {rejectPaymentId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <h2 className="text-sm font-bold text-slate-800 mb-1">Reject Payment Receipt</h2>
+            <p className="text-xs text-slate-500 mb-3">The sales agent will be notified with this reason.</p>
+            <textarea value={rejectPaymentReason} onChange={e => setRejectPaymentReason(e.target.value)}
+              placeholder="Enter rejection reason (e.g. Amount mismatch, Receipt not received)..." rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { setRejectPaymentId(null); setRejectPaymentReason(""); }}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={rejectPayment} disabled={!!verifyingId}
+                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
+                {verifyingId ? "Rejecting..." : "Reject Receipt"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Order Modal */}
+      {/* Reject Order Modal */}
       {rejectId && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
           <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>

@@ -20,6 +20,7 @@ model User {
   commissions       Commission[]    @relation("CommissionSalesAgent")
   ordersAsAgent     Order[]         @relation("OrderSalesAgent")
   paymentsReceived  Payment[]       @relation("PaymentReceivedBy")
+  paymentsVerified  Payment[]       @relation("PaymentVerifiedBy")
   productionJobs    ProductionJob[] @relation("ProductionAssignedTo")
   shipmentsHandled  Shipment[]      @relation("ShipmentHandledBy")
   statusLogsCreated StatusLog[]     @relation("StatusChangedBy")
@@ -307,8 +308,13 @@ model Payment {
   method           PaymentMethod
   referenceNumber  String?
   notes            String?
+  verificationStatus PaymentVerificationStatus @default(PENDING_VERIFICATION)
+  verifiedById     String?
+  verifiedAt       DateTime?
+  rejectionReason  String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
+  verifiedBy       User?          @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
   order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id])
   receivedBy       User?          @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
@@ -444,6 +450,12 @@ enum OrderStatus {
   DISPATCHED
   DELIVERED
   CANCELLED
+}
+
+enum PaymentVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
 }
 
 enum PaymentMethod {
