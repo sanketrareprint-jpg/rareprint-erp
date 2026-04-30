@@ -81,7 +81,12 @@ export class AdminDbController {
   ) {
     this.checkAdmin(req);
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
-    delete data.id; delete data.createdAt; delete data.updatedAt;
+        delete data.id; delete data.createdAt; delete data.updatedAt;
+    // Strip relation fields - keep only scalar fields (xxxId is fine, xxx object is not)
+    const RELATION_FIELDS = ['category','productCategory','customer','order','vendor',
+      'user','product','items','payments','costSlabs','commissionRule','paymentAccount',
+      'jobWork','printSheet','shipment','invoice','commission','productionJob'];
+    RELATION_FIELDS.forEach(f => delete data[f]);
 
     const STRING_FIELDS = [
       'phone','email','name','fullName','address','city','state','pincode','role','status',
@@ -176,6 +181,7 @@ export class AdminDbController {
     }
   }
 }
+
 
 
 
