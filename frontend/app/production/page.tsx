@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -704,7 +704,7 @@ export default function ProductionPage() {
                           </td>
                           <td className="px-3 py-1.5">
                             <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden"
-                              accept=".jpg,.jpeg,.png,.gif,.pdf,.ai,.psd,.cdr,.zip,.svg,.tiff,.tif,.eps,.webp"
+                              accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps"
                               onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
                             <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
                               className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
@@ -1515,6 +1515,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
