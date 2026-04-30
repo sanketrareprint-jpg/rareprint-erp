@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
+﻿import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PrismaService } from './prisma/prisma.service';
 import type { Request } from 'express';
@@ -83,20 +83,29 @@ export class AdminDbController {
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
     delete data.id; delete data.createdAt; delete data.updatedAt;
 
-    // Clean data: convert types and strip nested objects/arrays (relations)
+    const STRING_FIELDS = [
+      'phone','email','name','fullName','address','city','state','pincode','role','status',
+      'sku','description','sizeInches','sides','printingType','openSizeInches','passwordHash',
+      'notes','slug','type','category','unit','uom','businessName','contactName',
+      'gstNumber','panNumber','ifscCode','accountNumber','bankName','accountType',
+      'orderNumber','label','tag','code','title','prefix',
+    ];
+
     const cleaned: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
-      // Skip nested objects and arrays (Prisma relations)
       if (v !== null && typeof v === 'object') continue;
       if (v === '' || v === 'null' || v === 'NULL' || v === undefined) {
         cleaned[k] = null;
-      } else if (typeof v === 'string' && v !== '' && /^[\d\s\+\-\*\/\.]+$/.test(v.trim())) {
-        try { cleaned[k] = Function('"use strict"; return (' + v.trim() + ')')(); }
-        catch { cleaned[k] = v; }
       } else if (typeof v === 'string' && v.toLowerCase() === 'true') {
         cleaned[k] = true;
       } else if (typeof v === 'string' && v.toLowerCase() === 'false') {
         cleaned[k] = false;
+      } else if (
+        typeof v === 'string' &&
+        !STRING_FIELDS.includes(k) &&
+        /^-?\d+(\.\d+)?$/.test(v.trim())
+      ) {
+        cleaned[k] = parseFloat(v.trim());
       } else {
         cleaned[k] = v;
       }
@@ -105,8 +114,9 @@ export class AdminDbController {
     try {
       const result = await (this.prisma as any)[name].create({ data: cleaned });
       return { success: true, row: result };
-    } catch (e) {
-      return { success: false, error: String(e) };
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      throw new (require('@nestjs/common').BadRequestException)(msg);
     }
   }
 
@@ -166,5 +176,6 @@ export class AdminDbController {
     }
   }
 }
+
 
 
