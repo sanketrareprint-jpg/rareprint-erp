@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Filter } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -26,6 +26,33 @@ type DispatchPendingOrder = {
   courierCharge?: number; paymentType?: string;
 };
 
+type VendorEntry = {
+  id: string;
+  type: "JOBWORK" | "SHEET_STAGE";
+  vendorId: string;
+  vendorName: string;
+  description?: string;
+  cost: number;
+  vendorInvoiceNo?: string;
+  isPaid: boolean;
+  paidAt?: string;
+  createdAt: string;
+  status?: string;
+  stage?: string;
+  // JobWork specific
+  productName?: string;
+  productSku?: string;
+  quantity?: number;
+  orderNo?: string;
+  customerName?: string;
+  productionNotes?: string;
+  // Sheet Stage specific
+  sheetNo?: string;
+  sheetGsm?: number;
+  sheetSize?: string;
+  products?: { productName: string; orderNo: string; customerName: string; quantity: number }[];
+};
+
 const METHOD_LABELS: Record<string, string> = {
   CASH: "Cash", UPI: "UPI", BANK_TRANSFER: "Bank Transfer", CHEQUE: "Cheque", CARD: "Card",
 };
@@ -41,7 +68,7 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
-type Tab = "pending" | "dispatch";
+type Tab = "pending" | "dispatch" | "vendors";
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -59,450 +86,469 @@ function ageColor(dateStr: string): string {
 export default function AccountsPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pending");
+
+  // Pending orders
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [actingId, setActingId] = useState<string | null>(null);
-  const [rejectModal, setRejectModal] = useState<PendingOrder | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  const [rejectSubmitting, setRejectSubmitting] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
 
+  // Dispatch orders
   const [dispatchOrders, setDispatchOrders] = useState<DispatchPendingOrder[]>([]);
   const [dispatchLoading, setDispatchLoading] = useState(false);
-  const [dispatchError, setDispatchError] = useState<string | null>(null);
-  const [dispatchActingId, setDispatchActingId] = useState<string | null>(null);
-  const [dispatchExpandedId, setDispatchExpandedId] = useState<string | null>(null);
-  const [dispatchRejectModal, setDispatchRejectModal] = useState<DispatchPendingOrder | null>(null);
-  const [dispatchRejectReason, setDispatchRejectReason] = useState("");
-  const [dispatchRejectSubmitting, setDispatchRejectSubmitting] = useState(false);
-  const [dispatchSearch, setDispatchSearch] = useState("");
+  const [dispatchExpanded, setDispatchExpanded] = useState<string | null>(null);
+  const [dispatchProcessing, setDispatchProcessing] = useState<string | null>(null);
 
-  const loadOrders = useCallback(async () => {
-    setError(null); setLoading(true);
+  // Vendor statements
+  const [vendorEntries, setVendorEntries] = useState<VendorEntry[]>([]);
+  const [vendorLoading, setVendorLoading] = useState(false);
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [paidFilter, setPaidFilter] = useState<"all" | "paid" | "unpaid">("all");
+  const [markingPaid, setMarkingPaid] = useState<string | null>(null);
+  const [vendorSearch, setVendorSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/pending`, { headers: getAuthHeaders() });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-      if (!res.ok) { setError("Could not load pending orders"); return; }
-      const data = await res.json();
-      setOrders(Array.isArray(data) ? data : []);
-    } catch { setError("Network error."); }
-    finally { setLoading(false); }
+      setOrders(await res.json());
+    } finally { setLoading(false); }
   }, [router]);
 
   const loadDispatch = useCallback(async () => {
-    setDispatchError(null); setDispatchLoading(true);
+    setDispatchLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/pending-dispatch`, { headers: getAuthHeaders() });
-      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-      if (!res.ok) { setDispatchError("Could not load dispatch approvals"); return; }
-      const data = await res.json();
-      setDispatchOrders(Array.isArray(data) ? data : []);
-    } catch { setDispatchError("Network error."); }
-    finally { setDispatchLoading(false); }
-  }, [router]);
+      setDispatchOrders(await res.json());
+    } finally { setDispatchLoading(false); }
+  }, []);
 
-  useEffect(() => { void loadOrders(); }, [loadOrders]);
-  useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
-
-  async function approve(id: string) {
-    setActingId(id);
+  const loadVendors = useCallback(async () => {
+    setVendorLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/${id}/approve`, { method: "PATCH", headers: getAuthHeaders() });
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Approve failed"); return; }
-      await loadOrders();
-    } finally { setActingId(null); }
+      const res = await fetch(`${API_BASE_URL}/accounts/vendor-statements`, { headers: getAuthHeaders() });
+      setVendorEntries(await res.json());
+    } finally { setVendorLoading(false); }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
+  useEffect(() => { if (tab === "vendors") void loadVendors(); }, [tab, loadVendors]);
+
+  async function approveOrder(id: string) {
+    setProcessing(id);
+    try {
+      await fetch(`${API_BASE_URL}/accounts/${id}/approve`, { method: "PATCH", headers: getAuthHeaders() });
+      await load();
+    } finally { setProcessing(null); }
   }
 
-  async function submitReject() {
-    if (!rejectModal) return;
-    setRejectSubmitting(true);
+  async function rejectOrder() {
+    if (!rejectId || !rejectReason.trim()) { alert("Please enter a rejection reason"); return; }
+    setProcessing(rejectId);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/${rejectModal.id}/reject`, {
+      await fetch(`${API_BASE_URL}/accounts/${rejectId}/reject`, {
         method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: rejectReason.trim() || undefined }),
+        body: JSON.stringify({ reason: rejectReason }),
       });
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Reject failed"); return; }
-      setRejectModal(null); setRejectReason(""); await loadOrders();
-    } finally { setRejectSubmitting(false); }
+      setRejectId(null); setRejectReason(""); await load();
+    } finally { setProcessing(null); }
   }
 
   async function approveDispatch(id: string) {
-    setDispatchActingId(id);
+    setDispatchProcessing(id);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/${id}/approve-dispatch`, { method: "PATCH", headers: getAuthHeaders() });
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Approve failed"); return; }
+      await fetch(`${API_BASE_URL}/accounts/${id}/approve-dispatch`, { method: "PATCH", headers: getAuthHeaders() });
       await loadDispatch();
-    } finally { setDispatchActingId(null); }
+    } finally { setDispatchProcessing(null); }
   }
 
-  async function submitDispatchReject() {
-    if (!dispatchRejectModal) return;
-    setDispatchRejectSubmitting(true);
+  async function markPaid(entry: VendorEntry) {
+    if (!confirm(`Mark ₹${entry.cost} to ${entry.vendorName} as PAID?`)) return;
+    setMarkingPaid(entry.id);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/${dispatchRejectModal.id}/reject-dispatch`, {
-        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: dispatchRejectReason.trim() || undefined }),
-      });
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Reject failed"); return; }
-      setDispatchRejectModal(null); setDispatchRejectReason(""); await loadDispatch();
-    } finally { setDispatchRejectSubmitting(false); }
+      const endpoint = entry.type === "JOBWORK"
+        ? `${API_BASE_URL}/accounts/vendor-statements/jobwork/${entry.id}/paid`
+        : `${API_BASE_URL}/accounts/vendor-statements/sheet-stage/${entry.id}/paid`;
+      await fetch(endpoint, { method: "PATCH", headers: getAuthHeaders() });
+      await loadVendors();
+    } finally { setMarkingPaid(null); }
   }
 
-  const filteredOrders = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return orders.filter(o =>
-      !q || o.orderNo.toLowerCase().includes(q) ||
-      o.customerName.toLowerCase().includes(q) ||
-      (o.customerPhone ?? "").includes(q) ||
-      (o.salesAgentName ?? "").toLowerCase().includes(q)
-    );
-  }, [orders, search]);
+  // Filtered vendor entries
+  const uniqueVendors = useMemo(() => {
+    const names = [...new Set(vendorEntries.map(e => e.vendorName))].sort();
+    return names;
+  }, [vendorEntries]);
 
-  const filteredDispatch = useMemo(() => {
-    const q = dispatchSearch.trim().toLowerCase();
-    return dispatchOrders.filter(o =>
-      !q || o.orderNo.toLowerCase().includes(q) ||
-      o.customerName.toLowerCase().includes(q) ||
-      (o.customerPhone ?? "").includes(q) ||
-      (o.salesAgentName ?? "").toLowerCase().includes(q)
-    );
-  }, [dispatchOrders, dispatchSearch]);
+  const filteredEntries = useMemo(() => {
+    return vendorEntries.filter(e => {
+      if (vendorFilter && e.vendorName !== vendorFilter) return false;
+      if (paidFilter === "paid" && !e.isPaid) return false;
+      if (paidFilter === "unpaid" && e.isPaid) return false;
+      if (vendorSearch && !e.vendorName.toLowerCase().includes(vendorSearch.toLowerCase()) &&
+        !e.productName?.toLowerCase().includes(vendorSearch.toLowerCase()) &&
+        !e.orderNo?.toLowerCase().includes(vendorSearch.toLowerCase()) &&
+        !e.sheetNo?.toLowerCase().includes(vendorSearch.toLowerCase())) return false;
+      if (dateFrom && new Date(e.createdAt) < new Date(dateFrom)) return false;
+      if (dateTo && new Date(e.createdAt) > new Date(dateTo + "T23:59:59")) return false;
+      return true;
+    });
+  }, [vendorEntries, vendorFilter, paidFilter, vendorSearch, dateFrom, dateTo]);
+
+  const totalAmount = useMemo(() => filteredEntries.reduce((s, e) => s + e.cost, 0), [filteredEntries]);
+  const totalPaid = useMemo(() => filteredEntries.filter(e => e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
+  const totalUnpaid = useMemo(() => filteredEntries.filter(e => !e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
 
   return (
     <>
       <DashboardShell>
-        <div className="p-6 lg:p-8">
-          <div className="mx-auto max-w-6xl space-y-5">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">Accounts</h1>
-              <p className="mt-0.5 text-sm text-slate-600">Review and approve orders pending accounts clearance.</p>
-            </div>
+        <div className="p-4 lg:p-6 max-w-7xl mx-auto space-y-4">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Accounts</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Approve orders, dispatch, and manage vendor payments.</p>
+          </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 border-b border-slate-200">
-              {(["pending", "dispatch"] as Tab[]).map(t => (
-                <button key={t} onClick={() => setTab(t)}
-                  className={`px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t ? "border-blue-600 text-blue-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
-                  {t === "pending" ? "Order Approval" : "Dispatch Approval"}
-                  {t === "pending" && orders.length > 0 && <span className="ml-2 rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs">{orders.length}</span>}
-                  {t === "dispatch" && dispatchOrders.length > 0 && <span className="ml-2 rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-xs">{dispatchOrders.length}</span>}
+          {/* Tabs */}
+          <div className="border-b border-slate-200">
+            <div className="flex gap-0">
+              {([
+                { key: "pending", label: "Order Approval", count: orders.length },
+                { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
+                { key: "vendors", label: "Vendor Statements", count: vendorEntries.filter(e => !e.isPaid).length },
+              ] as { key: Tab; label: string; count: number }[]).map(t => (
+                <button key={t.key} onClick={() => setTab(t.key)}
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                  {t.label}
+                  {t.count > 0 && (
+                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${tab === t.key ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>
+                      {t.count}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
+          </div>
 
-            {/* ── ORDER APPROVAL TAB ── */}
-            {tab === "pending" && (
-              <div className="space-y-4">
-                {/* Search */}
-                <div className="relative max-w-sm">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                  <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                    placeholder="Search order, customer, phone, agent…"
-                    className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+          {/* ── ORDER APPROVAL TAB ── */}
+          {tab === "pending" && (
+            <div className="space-y-3">
+              {loading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              ) : orders.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <Check className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No orders pending approval</p>
                 </div>
-
-                {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
-                {loading ? (
-                  <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
-                ) : filteredOrders.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-                    {orders.length === 0 ? "No orders pending approval." : "No orders match your search."}
-                  </div>
-                ) : filteredOrders.map((o) => (
-                  <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
-                      <div className="flex items-start justify-between">
-                        <div className="grid grid-cols-5 gap-4 flex-1">
-                          <div>
-                            <p className="text-xs text-slate-500">Order No</p>
-                            <p className="font-bold text-slate-900 text-sm mt-0.5">{o.orderNo}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{new Date(o.orderDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
-                            <span className={`mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Customer</p>
-                            <p className="font-semibold text-slate-900 text-sm mt-0.5">{o.customerName}</p>
-                            {o.customerPhone && <p className="text-xs text-slate-500 mt-0.5">{o.customerPhone}</p>}
-                            {o.customerEmail && <p className="text-xs text-slate-500 mt-0.5">{o.customerEmail}</p>}
-                            {o.customerAddress && (
-                              <p className="text-xs text-slate-600 mt-0.5">📍 {o.customerAddress}</p>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Sales Agent</p>
-                            <p className="text-sm mt-0.5">
-                              {o.salesAgentName
-                                ? <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-semibold">{o.salesAgentName}</span>
-                                : <span className="text-slate-400">—</span>}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Order Amount</p>
-                            <p className="font-bold text-slate-900 text-lg mt-0.5">{fmt(o.totalAmount)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Paid / Balance</p>
-                            <p className="text-sm mt-0.5">
-                              <span className="font-bold text-emerald-600">{fmt(o.totalPaid)}</span>
-                              <span className="text-slate-400 mx-1">/</span>
-                              <span className="font-bold text-red-500">{fmt(o.balanceDue)}</span>
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 ml-4 shrink-0">
-                          <button onClick={() => approve(o.id)} disabled={actingId === o.id}
-                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-                            {actingId === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Approve
-                          </button>
-                          <button onClick={() => { setRejectReason(""); setRejectModal(o); }} disabled={actingId === o.id}
-                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50">
-                            <X className="h-4 w-4" />Reject
-                          </button>
-                        </div>
-                      </div>
+              ) : orders.map(order => (
+                <div key={order.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="font-bold text-blue-700">{order.orderNo}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
+                      <span className="font-semibold text-slate-800">{order.customerName}</span>
+                      {order.customerPhone && <span className="text-slate-400 text-xs">{order.customerPhone}</span>}
+                      {order.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                     </div>
-
-                    {/* Items */}
-                    <div className="px-6 py-4 border-b border-slate-100">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Product Details</p>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-xs text-slate-500 border-b border-slate-100">
-                            {["Product","Size","GSM","Sides","Qty","Rate","Amount","Instructions"].map(h => (
-                              <th key={h} className="pb-2 text-left font-medium">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {(o.items ?? []).map((item, idx) => {
-                            const { size, gsm, sides } = parseNotes(item.productionNotes);
-                            return (
-                              <tr key={idx}>
-                                <td className="py-2 font-medium text-slate-900">{item.productName} <span className="text-xs text-slate-400">({item.sku})</span></td>
-                                <td className="py-2 text-slate-700">{size ?? "—"}</td>
-                                <td className="py-2 text-slate-700">{gsm ?? "—"}</td>
-                                <td className="py-2 text-slate-700">{sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "—"}</td>
-                                <td className="py-2 text-slate-700">{item.quantity}</td>
-                                <td className="py-2 text-slate-700">{fmt(item.unitPrice)}</td>
-                                <td className="py-2 font-semibold text-slate-900">{fmt(item.lineTotal)}</td>
-                                <td className="py-2 text-slate-500 text-xs max-w-[160px]">{item.artworkNotes ?? "—"}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot>
-                          <tr className="border-t border-slate-200">
-                            <td colSpan={6} className="pt-2 text-right text-sm font-medium text-slate-600">Total:</td>
-                            <td className="pt-2 font-bold text-slate-900">{fmt(o.totalAmount)}</td>
-                            <td></td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                      {o.notes && (
-                        <div className="mt-3 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-                          <p className="text-xs text-amber-700"><span className="font-semibold">Notes:</span> {o.notes}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Payment history */}
-                    <div className="px-6 py-3">
-                      <button onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800">
-                        {expandedId === o.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        {o.payments.length === 0 ? "No payments received" : `${o.payments.length} payment(s) — click to view`}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-800">{fmt(order.totalAmount)}</span>
+                      <button onClick={() => setExpanded(expanded === order.id ? null : order.id)}
+                        className="p-1 rounded hover:bg-slate-200">
+                        {expanded === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
-                      {expandedId === o.id && o.payments.length > 0 && (
-                        <table className="w-full text-xs mt-3">
-                          <thead><tr className="text-slate-500 border-b border-slate-100">
-                            {["Date","Amount","Method","Account","Reference","Notes"].map(h => <th key={h} className="pb-2 text-left">{h}</th>)}
-                          </tr></thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {o.payments.map(p => (
-                              <tr key={p.id}>
-                                <td className="py-2">{new Date(p.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
-                                <td className="py-2 font-semibold text-emerald-700">{fmt(p.amount)}</td>
-                                <td className="py-2">{METHOD_LABELS[p.method] ?? p.method}</td>
-                                <td className="py-2">{p.accountName}</td>
-                                <td className="py-2 text-slate-500">{p.referenceNumber ?? "—"}</td>
-                                <td className="py-2 text-slate-500">{p.notes ?? "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
 
-            {/* ── DISPATCH APPROVAL TAB ── */}
-            {tab === "dispatch" && (
-              <div className="space-y-4">
-                <div className="relative max-w-sm">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                  <input type="text" value={dispatchSearch} onChange={e => setDispatchSearch(e.target.value)}
-                    placeholder="Search order, customer, phone, agent…"
-                    className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
-                </div>
-
-                {dispatchError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{dispatchError}</div>}
-                {dispatchLoading ? (
-                  <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
-                ) : filteredDispatch.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-                    {dispatchOrders.length === 0 ? "No dispatch batches pending approval." : "No orders match your search."}
-                  </div>
-                ) : filteredDispatch.map((o) => (
-                  <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="bg-orange-50 border-b border-orange-100 px-6 py-4">
-                      <div className="flex items-start justify-between">
-                        <div className="grid grid-cols-5 gap-4 flex-1">
-                          <div>
-                            <p className="text-xs text-slate-500">Order No</p>
-                            <p className="font-bold text-slate-900 text-sm mt-0.5">{o.orderNo}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{new Date(o.orderDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
-                            <span className={`mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Customer</p>
-                            <p className="font-semibold text-slate-900 text-sm mt-0.5">{o.customerName}</p>
-                            {o.customerPhone && <p className="text-xs text-slate-500 mt-0.5">{o.customerPhone}</p>}
-                            {o.customerEmail && <p className="text-xs text-slate-500 mt-0.5">{o.customerEmail}</p>}
-                            {o.customerAddress && (
-                              <p className="text-xs text-slate-600 mt-0.5">📍 {o.customerAddress}</p>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Sales Agent</p>
-                            <p className="text-sm mt-0.5">
-                              {o.salesAgentName
-                                ? <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-semibold">{o.salesAgentName}</span>
-                                : <span className="text-slate-400">—</span>}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Order Amount</p>
-                            <p className="font-bold text-slate-900 text-lg mt-0.5">{fmt(o.totalAmount)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Courier / Payment</p>
-                            <p className="text-sm mt-0.5 font-semibold text-slate-800">
-                              {o.courierCharge != null ? fmt(o.courierCharge) : "—"}
-                              {o.paymentType && (
-                                <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${o.paymentType === "COD" ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"}`}>
-                                  {o.paymentType}
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 ml-4 shrink-0">
-                          <button onClick={() => approveDispatch(o.id)} disabled={dispatchActingId === o.id}
-                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-                            {dispatchActingId === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}Approve Dispatch
-                          </button>
-                          <button onClick={() => { setDispatchRejectReason(""); setDispatchRejectModal(o); }} disabled={dispatchActingId === o.id}
-                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50">
-                            <X className="h-4 w-4" />Reject
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="px-6 py-4 border-b border-slate-100">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Items for Dispatch</p>
+                  {expanded === order.id && (
+                    <div className="p-4 space-y-3">
                       <table className="w-full text-sm">
-                        <thead><tr className="text-xs text-slate-500 border-b border-slate-100">
-                          {["Product","Size","GSM","Sides","Qty","Rate","Amount"].map(h => <th key={h} className="pb-2 text-left font-medium">{h}</th>)}
+                        <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
+                          <th className="pb-1 text-left">Product</th>
+                          <th className="pb-1 text-left">Size</th>
+                          <th className="pb-1 text-left">GSM</th>
+                          <th className="pb-1 text-right">Qty</th>
+                          <th className="pb-1 text-right">Rate</th>
+                          <th className="pb-1 text-right">Amount</th>
                         </tr></thead>
                         <tbody className="divide-y divide-slate-50">
-                          {(o.items ?? []).map((item, idx) => {
-                            const { size, gsm, sides } = parseNotes(item.productionNotes);
+                          {order.items.map((item, i) => {
+                            const n = parseNotes(item.productionNotes);
                             return (
-                              <tr key={idx}>
-                                <td className="py-2 font-medium text-slate-900">{item.productName} <span className="text-xs text-slate-400">({item.sku})</span></td>
-                                <td className="py-2 text-slate-700">{size ?? "—"}</td>
-                                <td className="py-2 text-slate-700">{gsm ?? "—"}</td>
-                                <td className="py-2 text-slate-700">{sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides ?? "—"}</td>
-                                <td className="py-2 text-slate-700">{item.quantity}</td>
-                                <td className="py-2 text-slate-700">{fmt(item.unitPrice)}</td>
-                                <td className="py-2 font-semibold text-slate-900">{fmt(item.lineTotal)}</td>
+                              <tr key={i}>
+                                <td className="py-1.5 font-medium text-slate-800">{item.productName}</td>
+                                <td className="py-1.5 text-slate-500 text-xs">{n.size || "—"}</td>
+                                <td className="py-1.5 text-slate-500 text-xs">{n.gsm || "—"}</td>
+                                <td className="py-1.5 text-right">{item.quantity}</td>
+                                <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
+                                <td className="py-1.5 text-right font-semibold">{fmt(item.lineTotal)}</td>
                               </tr>
                             );
                           })}
                         </tbody>
-                        <tfoot><tr className="border-t border-slate-200">
-                          <td colSpan={6} className="pt-2 text-right text-sm font-medium text-slate-600">Total:</td>
-                          <td className="pt-2 font-bold text-slate-900">{fmt(o.totalAmount)}</td>
-                        </tr></tfoot>
                       </table>
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                        <div className="text-xs text-slate-500 space-x-4">
+                          <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
+                          <span>Paid: <strong className="text-green-600">{fmt(order.totalPaid)}</strong></span>
+                          <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setRejectId(order.id)}
+                            className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50">
+                            Reject
+                          </button>
+                          <button onClick={() => approveOrder(order.id)} disabled={processing === order.id}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60">
+                            {processing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                            Approve
+                          </button>
+                        </div>
+                      </div>
                     </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-                    <div className="px-6 py-3">
-                      <button onClick={() => setDispatchExpandedId(dispatchExpandedId === o.id ? null : o.id)}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800">
-                        {dispatchExpandedId === o.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        {o.payments.length === 0 ? "No payments received" : `${o.payments.length} payment(s) — click to view`}
+          {/* ── DISPATCH APPROVAL TAB ── */}
+          {tab === "dispatch" && (
+            <div className="space-y-3">
+              {dispatchLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              ) : dispatchOrders.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <Truck className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No dispatch orders pending approval</p>
+                </div>
+              ) : dispatchOrders.map(order => (
+                <div key={order.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="font-bold text-blue-700">{order.orderNo}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
+                      <span className="font-semibold text-slate-800">{order.customerName}</span>
+                      {order.salesAgentName && <span className="rounded-full bg-purple-50 text-purple-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
+                      {order.paymentType && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.paymentType === "COD" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>{order.paymentType}</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-500 font-bold">Balance: {fmt(order.balanceDue)}</span>
+                      <button onClick={() => setDispatchExpanded(dispatchExpanded === order.id ? null : order.id)}
+                        className="p-1 rounded hover:bg-slate-200">
+                        {dispatchExpanded === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
-                      {dispatchExpandedId === o.id && o.payments.length > 0 && (
-                        <table className="w-full text-xs mt-3">
-                          <thead><tr className="text-slate-500 border-b border-slate-100">
-                            {["Date","Amount","Method","Account","Reference","Notes"].map(h => <th key={h} className="pb-2 text-left">{h}</th>)}
-                          </tr></thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {o.payments.map(p => (
-                              <tr key={p.id}>
-                                <td className="py-2">{new Date(p.date).toLocaleDateString("en-IN")}</td>
-                                <td className="py-2 font-semibold text-emerald-700">{fmt(p.amount)}</td>
-                                <td className="py-2">{METHOD_LABELS[p.method] ?? p.method}</td>
-                                <td className="py-2">{p.accountName}</td>
-                                <td className="py-2 text-slate-500">{p.referenceNumber ?? "—"}</td>
-                                <td className="py-2 text-slate-500">{p.notes ?? "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
                     </div>
                   </div>
-                ))}
+                  {dispatchExpanded === order.id && (
+                    <div className="p-4 space-y-3">
+                      <table className="w-full text-sm">
+                        <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
+                          <th className="pb-1 text-left">Product</th>
+                          <th className="pb-1 text-right">Qty</th>
+                          <th className="pb-1 text-right">Amount</th>
+                        </tr></thead>
+                        <tbody>
+                          {order.items.map((item, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              <td className="py-1.5 font-medium">{item.productName}</td>
+                              <td className="py-1.5 text-right">{item.quantity}</td>
+                              <td className="py-1.5 text-right">{fmt(item.lineTotal)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="flex justify-end">
+                        <button onClick={() => approveDispatch(order.id)} disabled={dispatchProcessing === order.id}
+                          className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                          {dispatchProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
+                          Approve Dispatch
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── VENDOR STATEMENTS TAB ── */}
+          {tab === "vendors" && (
+            <div className="space-y-4">
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4 text-center">
+                  <p className="text-xs text-slate-500 mb-1">Total Work</p>
+                  <p className="text-lg font-bold text-slate-800">{fmt(totalAmount)}</p>
+                  <p className="text-xs text-slate-400">{filteredEntries.length} entries</p>
+                </div>
+                <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-center">
+                  <p className="text-xs text-green-600 mb-1">Paid</p>
+                  <p className="text-lg font-bold text-green-700">{fmt(totalPaid)}</p>
+                  <p className="text-xs text-green-500">{filteredEntries.filter(e => e.isPaid).length} entries</p>
+                </div>
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center">
+                  <p className="text-xs text-red-600 mb-1">Unpaid</p>
+                  <p className="text-lg font-bold text-red-700">{fmt(totalUnpaid)}</p>
+                  <p className="text-xs text-red-500">{filteredEntries.filter(e => !e.isPaid).length} entries</p>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Filters */}
+              <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-wrap gap-3 items-center">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                  <input value={vendorSearch} onChange={e => setVendorSearch(e.target.value)}
+                    placeholder="Search vendor, product, order..."
+                    className="pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-md outline-none focus:border-blue-400 w-48" />
+                </div>
+                <select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white">
+                  <option value="">All Vendors</option>
+                  {uniqueVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+                <select value={paidFilter} onChange={e => setPaidFilter(e.target.value as any)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white">
+                  <option value="all">All Status</option>
+                  <option value="unpaid">Unpaid</option>
+                  <option value="paid">Paid</option>
+                </select>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">From:</span>
+                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-md outline-none" />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">To:</span>
+                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-md outline-none" />
+                </div>
+                {(vendorFilter || paidFilter !== "all" || dateFrom || dateTo || vendorSearch) && (
+                  <button onClick={() => { setVendorFilter(""); setPaidFilter("all"); setDateFrom(""); setDateTo(""); setVendorSearch(""); }}
+                    className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1">
+                    <X className="h-3 w-3" /> Clear
+                  </button>
+                )}
+                <span className="text-xs text-slate-400 ml-auto">{filteredEntries.length} entries</span>
+              </div>
+
+              {/* Table */}
+              {vendorLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              ) : filteredEntries.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No vendor entries found</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Type</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Vendor</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Details</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Invoice No</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
+                        <th className="px-3 py-2 text-center font-semibold text-slate-600">Status</th>
+                        <th className="px-3 py-2 text-center font-semibold text-slate-600">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredEntries.map(entry => (
+                        <tr key={entry.id} className={`hover:bg-slate-50 ${entry.isPaid ? "opacity-60" : ""}`}>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-500">
+                            {new Date(entry.createdAt).toLocaleDateString("en-IN")}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${entry.type === "JOBWORK" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700"}`}>
+                              {entry.type === "JOBWORK" ? "Job Work" : entry.stage?.replace(/_/g, " ")}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">{entry.vendorName}</td>
+                          <td className="px-3 py-2 max-w-xs">
+                            {entry.type === "JOBWORK" ? (
+                              <div>
+                                <span className="font-medium text-slate-700">{entry.productName}</span>
+                                <span className="text-slate-400 ml-1">({entry.productSku})</span>
+                                <div className="text-slate-400">Order: {entry.orderNo} · {entry.customerName}</div>
+                                {entry.description && <div className="text-slate-400 italic">{entry.description}</div>}
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="font-medium text-slate-700">Sheet: {entry.sheetNo}</span>
+                                <span className="text-slate-400 ml-1">{entry.sheetGsm} GSM · {entry.sheetSize}"</span>
+                                {entry.products?.map((p, i) => (
+                                  <div key={i} className="text-slate-400">
+                                    {p.productName} · {p.orderNo} · {p.customerName}
+                                  </div>
+                                ))}
+                                {entry.description && <div className="text-slate-400 italic">{entry.description}</div>}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-slate-500 font-mono">
+                            {entry.vendorInvoiceNo || <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-slate-800">{fmt(entry.cost)}</td>
+                          <td className="px-3 py-2 text-center">
+                            {entry.isPaid ? (
+                              <div>
+                                <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-xs font-semibold">✅ Paid</span>
+                                {entry.paidAt && <div className="text-slate-400 text-xs mt-0.5">{new Date(entry.paidAt).toLocaleDateString("en-IN")}</div>}
+                              </div>
+                            ) : (
+                              <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-semibold">⏳ Unpaid</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {!entry.isPaid && (
+                              <button onClick={() => markPaid(entry)} disabled={markingPaid === entry.id}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
+                                {markingPaid === entry.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                Mark Paid
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                      <tr>
+                        <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-slate-600">Total ({filteredEntries.length} entries)</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold text-slate-800">{fmt(totalAmount)}</td>
+                        <td colSpan={2} className="px-3 py-2 text-xs text-slate-500 text-center">
+                          Paid: <span className="text-green-700 font-semibold">{fmt(totalPaid)}</span> · Unpaid: <span className="text-red-600 font-semibold">{fmt(totalUnpaid)}</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </DashboardShell>
 
-      {/* Reject Modals */}
-      {rejectModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.5)", padding: "1rem" }}>
-          <div style={{ width: "100%", maxWidth: "28rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <h2 className="text-lg font-semibold text-slate-900">Reject order {rejectModal.orderNo}?</h2>
-            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3} placeholder="Reason…"
-              className="mt-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setRejectModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={submitReject} disabled={rejectSubmitting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
-                {rejectSubmitting ? "Rejecting…" : "Reject order"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {dispatchRejectModal && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.5)", padding: "1rem" }}>
-          <div style={{ width: "100%", maxWidth: "28rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <h2 className="text-lg font-semibold text-slate-900">Reject dispatch for {dispatchRejectModal.orderNo}?</h2>
-            <textarea value={dispatchRejectReason} onChange={e => setDispatchRejectReason(e.target.value)} rows={3} placeholder="Reason…"
-              className="mt-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setDispatchRejectModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={submitDispatchReject} disabled={dispatchRejectSubmitting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
-                {dispatchRejectSubmitting ? "Rejecting…" : "Reject dispatch"}
+      {/* Reject Modal */}
+      {rejectId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <h2 className="text-sm font-bold text-slate-800 mb-3">Reject Order</h2>
+            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+              placeholder="Enter rejection reason..." rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { setRejectId(null); setRejectReason(""); }}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={rejectOrder} disabled={processing === rejectId}
+                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
+                {processing === rejectId ? "Rejecting..." : "Reject Order"}
               </button>
             </div>
           </div>

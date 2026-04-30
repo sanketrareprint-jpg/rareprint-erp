@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -55,7 +55,7 @@ export class OrdersService {
     // Count all existing orders to get the next sequence number
     const count = await this.prisma.order.count();
     const seq = count + 1;
-    return `RP/${seq}`;
+    return `${count + 1053}`;
   }
 
   async findAllForTable() {

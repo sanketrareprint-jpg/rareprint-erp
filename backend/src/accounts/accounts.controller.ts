@@ -27,7 +27,22 @@ export class AccountsController {
     return this.accountsService.rejectOrder(id, reason);
   }
 
-  @Patch(':id/approve-dispatch')
+  @Get('vendor-statements')
+  getVendorStatements() {
+    return this.accountsService.getVendorStatements();
+  }
+
+  @Patch('vendor-statements/jobwork/:id/paid')
+  markJobWorkPaid(@Param('id') id: string) {
+    return this.accountsService.markJobWorkPaid(id);
+  }
+
+  @Patch('vendor-statements/sheet-stage/:id/paid')
+  markSheetStagePaid(@Param('id') id: string) {
+    return this.accountsService.markSheetStagePaid(id);
+  }
+
+    @Patch(':id/approve-dispatch')
   approveDispatch(@Param('id') id: string) {
     return this.accountsService.approveDispatch(id);
   }

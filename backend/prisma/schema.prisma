@@ -151,6 +151,8 @@ model JobWork {
   cost          Decimal     @db.Decimal(12, 2)
   vendorInvoiceNo String?
   status        JobWorkStatus @default(PENDING)
+  isPaid        Boolean     @default(false)
+  paidAt        DateTime?
   completedAt   DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -200,6 +202,8 @@ model SheetStageVendor {
   description   String?
   cost          Decimal     @db.Decimal(12, 2)
   vendorInvoiceNo String?
+  isPaid        Boolean     @default(false)
+  paidAt        DateTime?
   createdAt     DateTime    @default(now())
   sheet         PrintSheet  @relation(fields: [sheetId], references: [id], onDelete: Cascade)
   vendor        Vendor      @relation(fields: [vendorId], references: [id])

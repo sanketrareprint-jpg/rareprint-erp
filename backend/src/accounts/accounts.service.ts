@@ -207,4 +207,103 @@ export class AccountsService {
       data: { status: OrderStatus.APPROVED },
     });
   }
+
+  async getVendorStatements() {
+    const jobWorks = await this.prisma.jobWork.findMany({
+      include: {
+        vendor: true,
+        orderItem: {
+          include: {
+            product: true,
+            order: { include: { customer: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const sheetStages = await this.prisma.sheetStageVendor.findMany({
+      include: {
+        vendor: true,
+        sheet: {
+          include: {
+            items: {
+              include: {
+                orderItem: {
+                  include: {
+                    product: true,
+                    order: { include: { customer: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const jwEntries = jobWorks.map(jw => ({
+      id: jw.id,
+      type: 'JOBWORK' as const,
+      vendorId: jw.vendorId,
+      vendorName: jw.vendor.name,
+      description: jw.description,
+      cost: Number(jw.cost),
+      vendorInvoiceNo: jw.vendorInvoiceNo,
+      isPaid: jw.isPaid,
+      paidAt: jw.paidAt,
+      createdAt: jw.createdAt,
+      status: jw.status,
+      productName: jw.orderItem.product.name,
+      productSku: jw.orderItem.product.sku,
+      quantity: jw.orderItem.quantity,
+      orderNo: (jw.orderItem.order as any).orderNumber,
+      customerName: (jw.orderItem.order as any).customer.businessName,
+      productionNotes: jw.orderItem.productionNotes,
+    }));
+
+    const ssEntries = sheetStages.map(ss => ({
+      id: ss.id,
+      type: 'SHEET_STAGE' as const,
+      vendorId: ss.vendorId,
+      vendorName: ss.vendor.name,
+      description: ss.description,
+      cost: Number(ss.cost),
+      vendorInvoiceNo: ss.vendorInvoiceNo,
+      isPaid: ss.isPaid,
+      paidAt: ss.paidAt,
+      createdAt: ss.createdAt,
+      status: null,
+      stage: ss.stage,
+      sheetNo: ss.sheet.sheetNo,
+      sheetGsm: ss.sheet.gsm,
+      sheetSize: ss.sheet.sizeInches,
+      products: ss.sheet.items.map(si => ({
+        productName: si.orderItem.product.name,
+        orderNo: (si.orderItem.order as any).orderNumber,
+        customerName: (si.orderItem.order as any).customer.businessName,
+        quantity: si.quantityOnSheet,
+      })),
+    }));
+
+    return [...jwEntries, ...ssEntries].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async markJobWorkPaid(id: string) {
+    return this.prisma.jobWork.update({
+      where: { id },
+      data: { isPaid: true, paidAt: new Date() },
+    });
+  }
+
+  async markSheetStagePaid(id: string) {
+    return this.prisma.sheetStageVendor.update({
+      where: { id },
+      data: { isPaid: true, paidAt: new Date() },
+    });
+  }
+
 }
