@@ -140,8 +140,8 @@ export default function ProductionPage() {
   const [processingSubTab, setProcessingSubTab] = useState<"printing"|"processing">("printing");
   const [settingDialog, setSettingDialog] = useState<{ sheetId: string; sheetNo: string } | null>(null);
   const [settingForm, setSettingForm] = useState({
-    plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "",
-    printVendorId: "", printDesc: "", printRate: "", printQty: "",
+    plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "", plateAmount: "",
+    printVendorId: "", printDesc: "", printRate: "", printQty: "", printAmount: "",
   });
   const [savingSetting, setSavingSetting] = useState(false);
   const [processingVendorFilter, setProcessingVendorFilter] = useState("");
@@ -473,13 +473,14 @@ export default function ProductionPage() {
   async function submitSettingDialog() {
     if (!settingDialog) return;
     const { sheetId } = settingDialog;
-    if (!settingForm.plateVendorId || !settingForm.plateRate || !settingForm.plateQty) { alert("Fill Plate vendor, rate and quantity"); return; }
-    if (!settingForm.printVendorId || !settingForm.printRate || !settingForm.printQty) { alert("Fill Printing vendor, rate and quantity"); return; }
+        if (!settingForm.plateVendorId || (!settingForm.plateAmount && (!settingForm.plateRate || !settingForm.plateQty))) { alert("Plate Making: Vendor and Amount (or Rate x Qty) are required"); return; }
+    if (!settingForm.printVendorId || (!settingForm.printAmount && (!settingForm.printRate || !settingForm.printQty))) { alert("Printing: Vendor and Amount (or Rate x Qty) are required"); return; }
+    if (!settingForm.printVendorId || (!settingForm.printAmount && (!settingForm.printRate || !settingForm.printQty))) { alert("Fill Printing vendor, rate and quantity"); return; }
     setSavingSetting(true);
     try {
       const h = { ...getAuthHeaders(), "Content-Type": "application/json" };
-      const plateTotal = Number(settingForm.plateRate) * Number(settingForm.plateQty);
-      const printTotal = Number(settingForm.printRate) * Number(settingForm.printQty);
+      const plateTotal = settingForm.plateAmount ? Number(settingForm.plateAmount) : Number(settingForm.plateRate) * Number(settingForm.plateQty);
+      const printTotal = settingForm.printAmount ? Number(settingForm.printAmount) : Number(settingForm.printRate) * Number(settingForm.printQty);
       await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
         method: "POST", headers: h,
         body: JSON.stringify({ stage: "PLATE_MAKING", vendorId: settingForm.plateVendorId, cost: plateTotal, description: settingForm.plateDesc || undefined }),
@@ -1514,6 +1515,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
