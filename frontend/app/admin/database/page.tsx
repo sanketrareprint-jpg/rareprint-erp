@@ -30,19 +30,7 @@ const TABLE_COLUMNS: Record<string, string[]> = {
   printSheet: ["sheetNo","gsm","quality","quantity","sizeInches","printing","status"],
   godown: ["name","address","city","state","pincode","isActive"],
 };
-const TABLE_COLUMNS: Record<string, string[]> = {
-  user: ["fullName","email","phone","passwordHash","role","isActive"],
-  customer: ["businessName","contactPerson","phone","email","shippingAddress","billingAddress","gstNumber","panNumber","city","state","pincode"],
-  productCategory: ["name","slug","description"],
-  product: ["sku","name","description","categoryId","gsm","sizeInches","openSizeInches","printingType","sides","weightPerUnitGrams","isActive"],
-  productCostSlab: ["productId","minQty","maxQty","unitCost","setupCost"],
-  commissionRule: ["name","type","value","isActive"],
-  paymentAccount: ["name","accountType","bankName","accountNumber","ifscCode","upiId","isActive"],
-  vendor: ["name","phone","email","gstNumber","address","city","state"],
-  jobWork: ["name","description","defaultRate"],
-  printSheet: ["sheetNo","gsm","quality","quantity","sizeInches","printing","status"],
-  godown: ["name","address","city","state","pincode","isActive"],
-};
+
 const PROTECTED = ["user", "order", "payment"];
 
 export default function AdminDbPage() {
@@ -517,6 +505,7 @@ export default function AdminDbPage() {
     </>
   );
 }
+
 
 
 
