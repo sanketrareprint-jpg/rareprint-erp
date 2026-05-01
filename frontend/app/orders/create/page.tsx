@@ -44,6 +44,8 @@ const S = {
 export default function CreateOrderPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [productSearch, setProductSearch] = useState<Record<number, string>>({});
+  const [productDropdownOpen, setProductDropdownOpen] = useState<Record<number, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
@@ -230,14 +232,40 @@ export default function CreateOrderPage() {
           {lineItems.map((item, idx) => (
             <div key={idx}>
               <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
-                <select value={item.productId} onChange={e => updateLine(idx, "productId", e.target.value)} style={S.input}>
-                  <option value="">Select...</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} | {p.sizeInches} | {p.gsm} GSM | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="text"
+                    placeholder="Search product..."
+                    value={productSearch[idx] ?? (products.find(p => p.id === item.productId)?.name ?? "")}
+                    onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
+                    onFocus={() => setProductDropdownOpen(s => ({ ...s, [idx]: true }))}
+                    onBlur={() => setTimeout(() => setProductDropdownOpen(s => ({ ...s, [idx]: false })), 200)}
+                    style={{ ...S.input, width: "100%" }}
+                  />
+                  {productDropdownOpen[idx] && (
+                    <div style={{ position: "absolute", zIndex: 999, background: "white", border: "1px solid #cbd5e1", borderRadius: 6, maxHeight: 200, overflowY: "auto", width: "100%", top: "100%", left: 0, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+                      {products
+                        .filter(p => {
+                          const q = (productSearch[idx] ?? "").toLowerCase();
+                          return !q || p.name.toLowerCase().includes(q) || (p.sizeInches ?? "").toLowerCase().includes(q);
+                        })
+                        .map(p => (
+                          <div key={p.id}
+                            onMouseDown={() => {
+                              updateLine(idx, "productId", p.id);
+                              setProductSearch(s => ({ ...s, [idx]: "" }));
+                              setProductDropdownOpen(s => ({ ...s, [idx]: false }));
+                            }}
+                            style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9" }}
+                            onMouseEnter={e => (e.currentTarget.style.background = "#f0f9ff")}
+                            onMouseLeave={e => (e.currentTarget.style.background = "white")}
+                          >
+                            {p.name} | {p.sizeInches} | {p.gsm} GSM | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
                 <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
                 <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} placeholder="70" style={S.input} />
                 <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
@@ -294,5 +322,6 @@ export default function CreateOrderPage() {
     </DashboardShell>
   );
 }
+
 
 
