@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -309,6 +309,7 @@ export default function AccountsPage() {
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
                       <span className="font-semibold text-slate-800">{order.customerName}</span>
                       {order.customerPhone && <span className="text-slate-400 text-xs">{order.customerPhone}</span>}
+                      {order.customerAddress && <span className="text-slate-500 text-xs">📍 {order.customerAddress}</span>}
                       {order.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                     </div>
                     <div className="flex items-center gap-2">
@@ -708,3 +709,4 @@ export default function AccountsPage() {
     </>
   );
 }
+
