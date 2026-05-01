@@ -133,6 +133,34 @@ export class OrdersController {
     return this.ordersService.submitForDispatch(id, req.user.id, body);
   }
 
+
+  @Get(":id/detail")
+  @UseGuards(AuthGuard("jwt"))
+  async getOrderDetail(@Param("id") id: string) {
+    const o = await this.prisma.order.findUnique({
+      where: { id },
+      include: { customer: true, items: { include: { product: true } } },
+    });
+    if (!o) throw new Error("Order not found");
+    return {
+      id: o.id, orderNumber: o.orderNumber, status: o.status, notes: o.notes,
+      customerName: o.customer.businessName, customerPhone: o.customer.phone,
+      customerEmail: o.customer.email, customerAddress: o.customer.shippingAddress,
+      items: o.items.map(i => ({
+        id: i.id, productId: i.productId, productName: i.product.name,
+        sizeInches: i.product.sizeInches, gsm: i.product.gsm, sides: i.product.sides,
+        quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal),
+        artworkNotes: i.artworkNotes,
+      })),
+    };
+  }
+
+  @Patch(":id/edit")
+  @UseGuards(AuthGuard("jwt"))
+  async editOrder(@Param("id") id: string, @Body() body: any, @Req() req: Request & { user: JwtUser }) {
+    return this.ordersService.editOrder(id, body, req.user.id);
+  }
+
   // ── Design Files ────────────────────────────────────────────────────────────
 
   /** GET /orders/items/:itemId/design-files — list all files for an item */
@@ -219,6 +247,7 @@ export class OrdersController {
     res.download(filePath);
   }
 }
+
 
 
 

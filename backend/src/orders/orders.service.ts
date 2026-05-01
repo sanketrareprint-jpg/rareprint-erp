@@ -232,6 +232,32 @@ export class OrdersService {
     return row;
   }
 
+
+  async editOrder(orderId: string, body: any, userId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new Error("Order not found");
+    if (order.status !== "PENDING_APPROVAL") throw new Error("Only PENDING_APPROVAL orders can be edited");
+    const shippingParts = [body.customer?.address, body.customer?.city, body.customer?.state, body.customer?.pincode].filter(Boolean);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.customer.update({
+        where: { id: order.customerId },
+        data: { businessName: body.customer?.name, contactPerson: body.customer?.name, phone: body.customer?.phone, email: body.customer?.email, shippingAddress: shippingParts.join(", ") },
+      });
+      await tx.orderItem.deleteMany({ where: { orderId } });
+      const itemsData = body.items.map((i: any) => ({
+        productId: i.productId, quantity: i.quantity,
+        unitPrice: new Prisma.Decimal(i.unitPrice),
+        lineDiscount: new Prisma.Decimal(0), taxRatePct: new Prisma.Decimal(0),
+        taxAmount: new Prisma.Decimal(0),
+        lineTotal: new Prisma.Decimal(i.lineTotal || i.quantity * i.unitPrice),
+        artworkNotes: i.artworkNotes ?? null, productionNotes: null,
+      }));
+      const subtotal = itemsData.reduce((s: any, r: any) => s.plus(r.lineTotal), new Prisma.Decimal(0));
+      await tx.order.update({ where: { id: orderId }, data: { notes: body.notes, subtotal, grandTotal: subtotal, items: { create: itemsData } } });
+    });
+    return { success: true };
+  }
+
   async addPayment(
     orderId: string,
     receivedById: string,
@@ -534,6 +560,7 @@ export class OrdersService {
     });
   }
 }
+
 
 
 
