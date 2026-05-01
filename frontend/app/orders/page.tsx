@@ -545,6 +545,13 @@ export default function OrdersPage() {
                                 Journey
                               </button>
                               {/* Attach design file */}
+                              {/* Edit button - only for pending approval */}
+                              {o.status === "PENDING_APPROVAL" && (
+                                <button onClick={() => router.push(`/orders/edit?id=${o.id}`)}
+                                  className="inline-flex items-center gap-0.5 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-100">
+                                  ✏️ Edit
+                                </button>
+                              )}
                               {o.items && o.items.length > 0 && (
                                 <button onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
                                   className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
