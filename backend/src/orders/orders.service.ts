@@ -59,7 +59,6 @@ export class OrdersService {
     if (exists) return String(Date.now());
     return String(next);
   }
-  }
 
   async findAllForTable() {
     const orders = await this.prisma.order.findMany({
@@ -178,6 +177,7 @@ export class OrdersService {
       const order = await tx.order.create({
         data: {
           orderNumber,
+          orderDate: new Date(),
           customerId: customer.id,
           salesAgentId,
           leadSource: dto.leadSource ?? null,
