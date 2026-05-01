@@ -526,7 +526,7 @@ export default function OrdersPage() {
                           <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
                           <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
                           <td className="px-2 py-1.5 align-top">
-                            <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap gap-1 max-w-[100px]">
                               {/* Pay button */}
                               <button onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
                                 className="inline-flex items-center gap-0.5 rounded-md bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-emerald-700">
@@ -610,7 +610,7 @@ export default function OrdersPage() {
                               {!orderJourneys[o.id] ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
                                 : orderJourneys[o.id].length === 0 ? <p className="text-xs text-slate-400">No status changes recorded.</p>
                                 : (
-                                  <div className="flex flex-col gap-1">
+                                  <div className="flex flex-wrap gap-1 max-w-[100px]">
                                     {orderJourneys[o.id].map((log: any, idx: number) => (
                                       <div key={log.id} className="flex items-center gap-2 text-xs">
                                         <span className="text-slate-400 whitespace-nowrap">{new Date(log.changedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
@@ -913,6 +913,7 @@ export default function OrdersPage() {
     </>
   );
 }
+
 
 
 
