@@ -236,10 +236,10 @@ export default function CreateOrderPage() {
                   <input
                     type="text"
                     placeholder="Search product..."
-                    value={productSearch[idx] ?? (products.find(p => p.id === item.productId)?.name ?? "")}
+                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
-                    onFocus={() => setProductDropdownOpen(s => ({ ...s, [idx]: true }))}
-                    onBlur={() => setTimeout(() => setProductDropdownOpen(s => ({ ...s, [idx]: false })), 200)}
+                    onFocus={() => { setProductSearch(s => ({ ...s, [idx]: "" })); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
+                    onBlur={() => setTimeout(() => { setProductDropdownOpen(s => ({ ...s, [idx]: false })); setProductSearch(s => { const n = {...s}; delete n[idx]; return n; }); }, 200)}
                     style={{ ...S.input, width: "100%" }}
                   />
                   {productDropdownOpen[idx] && (
@@ -322,6 +322,7 @@ export default function CreateOrderPage() {
     </DashboardShell>
   );
 }
+
 
 
 
