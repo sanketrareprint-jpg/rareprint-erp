@@ -53,7 +53,7 @@ export class OrdersService {
   // ── Generate next RP/N order number ────────────────────────────────────────
   private async generateOrderNumber(): Promise<string> {
     const last = await this.prisma.order.findFirst({ orderBy: { createdAt: "desc" } });
-    const lastNum = last ? parseInt(last.orderNumber, 10) : 1053;
+    const lastNum = last ? parseInt(last.orderNumber, 10) : 1058;
     const next = (isNaN(lastNum) ? 1053 : lastNum) + 1;
     const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
     if (exists) return String(Date.now());
@@ -534,5 +534,6 @@ export class OrdersService {
     });
   }
 }
+
 
 
