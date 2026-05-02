@@ -27,7 +27,6 @@ export class DashboardService {
       this.prisma.order.findMany({ where: { orderDate: { gte: startOfLastMonth, lte: endOfLastMonth }, status: { not: OrderStatus.CANCELLED } }, include: { payments: true } }),
       this.prisma.payment.findMany(),
       this.prisma.payment.findMany({ where: { paymentDate: { gte: startOfMonth } } }),
-      this.prisma.payment.findMany({ where: { paymentDate: { gte: new Date(new Date().setHours(0,0,0,0)) } } }),
       this.prisma.order.findMany({
         where: { orderDate: { gte: new Date(now.getTime() - 7 * 86400000) }, status: { not: OrderStatus.CANCELLED } },
         orderBy: { orderDate: 'asc' },
