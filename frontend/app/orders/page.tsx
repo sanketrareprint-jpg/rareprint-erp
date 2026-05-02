@@ -552,6 +552,15 @@ export default function OrdersPage() {
                                   ✏️ Edit
                                 </button>
                               )}
+                              {o.status === "PENDING_APPROVAL" && (
+                                <button onClick={async () => {
+                                  if (!confirm(`Delete order ${o.orderNo}? Cannot be undone.`)) return;
+                                  const res = await fetch(`${API_BASE_URL}/orders/${o.id}`, { method: "DELETE", headers: getAuthHeaders() });
+                                  if (res.ok) { alert("Order deleted!"); load(); } else { alert("Delete failed"); }
+                                }} className="inline-flex items-center gap-0.5 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100">
+                                  🗑️ Del
+                                </button>
+                              )}
                               {o.items && o.items.length > 0 && (
                                 <button onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
                                   className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
