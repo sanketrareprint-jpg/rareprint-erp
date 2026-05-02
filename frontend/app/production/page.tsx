@@ -954,7 +954,7 @@ export default function ProductionPage() {
                                   </button>
                                 </div>
                               )}
-                            <td className="px-3 py-2"><button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button></td>
+
                             </td>
                           </tr>
                         );
@@ -1520,6 +1520,7 @@ export default function ProductionPage() {
     </>
   );
 }
+
 
 
 
