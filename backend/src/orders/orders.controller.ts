@@ -162,6 +162,13 @@ export class OrdersController {
     return this.ordersService.editOrder(id, body, req.user.id);
   }
 
+
+  @Delete(":id")
+  @UseGuards(AuthGuard("jwt"))
+  async deleteOrder(@Param("id") id: string) {
+    return this.ordersService.deleteOrder(id);
+  }
+
   // ── Design Files ────────────────────────────────────────────────────────────
 
   /** GET /orders/items/:itemId/design-files — list all files for an item */
@@ -248,6 +255,7 @@ export class OrdersController {
     res.download(filePath);
   }
 }
+
 
 
 

@@ -258,6 +258,20 @@ export class OrdersService {
     return { success: true };
   }
 
+
+  async deleteOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new Error("Order not found");
+    if (order.status !== "PENDING_APPROVAL") throw new Error("Only PENDING_APPROVAL orders can be deleted");
+    await this.prisma.$transaction(async (tx) => {
+      await tx.statusLog.deleteMany({ where: { orderId } });
+      await tx.payment.deleteMany({ where: { orderId } });
+      await tx.orderItem.deleteMany({ where: { orderId } });
+      await tx.order.delete({ where: { id: orderId } });
+    });
+    return { success: true };
+  }
+
   async addPayment(
     orderId: string,
     receivedById: string,
@@ -560,6 +574,7 @@ export class OrdersService {
     });
   }
 }
+
 
 
 
