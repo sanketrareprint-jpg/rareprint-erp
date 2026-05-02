@@ -837,11 +837,13 @@ export default function ProductionPage() {
                               )}
                               <td className="px-3 py-2">
                                 {clubSubTab === "unassigned" && (
-                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
-                                    Send →
-                                  </button>
-                                  <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button>
+                                  <div className="flex gap-1">
+                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }}
+                                      className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
+                                      Send →
+                                    </button>
+                                    <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button>
+                                  </div>
                                 )}
                                 {clubSubTab === "in_progress" && activeJw && (
                                   <button onClick={() => { setReceiveDialog({ jwId: activeJw.id, vendorName: activeJw.vendorName, productName: item.productName }); setReceiveCost(""); setReceiveInvNo(""); }}
