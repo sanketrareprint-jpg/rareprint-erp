@@ -112,7 +112,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── KPI Cards ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <p className="text-xs text-slate-500 font-medium">Revenue This Month</p>
             <p className="text-2xl font-bold text-slate-900 mt-1">{fmt(stats.revenue.thisMonth)}</p>
@@ -360,3 +360,4 @@ export default function DashboardPage() {
     </DashboardShell>
   );
 }
+
