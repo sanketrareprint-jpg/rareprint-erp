@@ -114,7 +114,12 @@ export default function DashboardPage() {
         {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-            <p className="text-xs text-slate-500 font-medium">Revenue This Month</p>
+            <p className="text-xs text-slate-500 font-medium">Today's Sale</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{fmt(stats.revenue.today ?? 0)}</p>
+            <p className="text-xs text-slate-400 mt-1">Payments received today</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <p className="text-xs text-slate-500 font-medium">This Month</p>
             <p className="text-2xl font-bold text-slate-900 mt-1">{fmt(stats.revenue.thisMonth)}</p>
             <div className="flex items-center gap-1 mt-1">
               {stats.revenue.growth >= 0 ? <TrendingUp className="h-3.5 w-3.5 text-emerald-600" /> : <TrendingDown className="h-3.5 w-3.5 text-red-500" />}
@@ -122,7 +127,11 @@ export default function DashboardPage() {
                 {stats.revenue.growth >= 0 ? "+" : ""}{stats.revenue.growth}% vs last month
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Last month: {fmt(stats.revenue.lastMonth)}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <p className="text-xs text-slate-500 font-medium">Last Month</p>
+            <p className="text-2xl font-bold text-slate-900 mt-1">{fmt(stats.revenue.lastMonth)}</p>
+            <p className="text-xs text-slate-400 mt-1">Previous month collections</p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <p className="text-xs text-slate-500 font-medium">Total Outstanding</p>
