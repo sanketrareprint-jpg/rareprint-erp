@@ -934,7 +934,7 @@ export default function ProductionPage() {
                             <td className="px-3 py-2 text-cyan-700 font-bold">{balance}</td>
                             <td className="px-3 py-2">
                               {compatibleSheets.length === 0 ? (
-                                <span className="text-slate-400 text-xs">No sheets</span>
+                                <div className="flex items-center gap-1"><span className="text-slate-400 text-xs">No sheets</span><button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="text-red-400 hover:text-red-600 font-bold text-sm leading-none ml-1">✕</button></div>
                               ) : (
                                 <div className="flex items-center gap-1">
                                   <select id={`sel-${item.id}`} defaultValue="" className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
