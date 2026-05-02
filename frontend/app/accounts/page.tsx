@@ -328,6 +328,7 @@ export default function AccountsPage() {
                           <th className="pb-1 text-left">Product</th>
                           <th className="pb-1 text-left">Size</th>
                           <th className="pb-1 text-left">GSM</th>
+                          <th className="pb-1 text-left">Sides</th>
                           <th className="pb-1 text-right">Qty</th>
                           <th className="pb-1 text-right">Rate</th>
                           <th className="pb-1 text-right">Amount</th>
@@ -340,6 +341,7 @@ export default function AccountsPage() {
                                 <td className="py-1.5 font-medium text-slate-800">{item.productName}</td>
                                 <td className="py-1.5 text-slate-500 text-xs">{n.size || "—"}</td>
                                 <td className="py-1.5 text-slate-500 text-xs">{n.gsm || "—"}</td>
+                                <td className="py-1.5 text-slate-500 text-xs">{n.sides || "—"}</td>
                                 <td className="py-1.5 text-right">{item.quantity}</td>
                                 <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
                                 <td className="py-1.5 text-right font-semibold">{fmt(item.lineTotal)}</td>
@@ -709,4 +711,5 @@ export default function AccountsPage() {
     </>
   );
 }
+
 
