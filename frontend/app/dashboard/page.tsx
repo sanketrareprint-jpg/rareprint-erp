@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -8,7 +8,7 @@ import { Loader2, TrendingUp, TrendingDown, ShoppingCart, Clock, Truck, Factory,
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type DashboardStats = {
-  revenue: { thisMonth: number; lastMonth: number; growth: number };
+  revenue: { today: number; thisMonth: number; lastMonth: number; growth: number };
   orders: { total: number; thisMonth: number; byStatus: Record<string, number>; last7Days: { date: string; count: number }[] };
   finance: { totalOrderValue: number; totalPaid: number; totalOutstanding: number };
   pending: { approval: number; dispatchApproval: number; inProduction: number; readyForDispatch: number };
