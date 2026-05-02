@@ -1,5 +1,5 @@
 ﻿"use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
@@ -19,7 +19,7 @@ function emptyLine(): LineItem {
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
-export default function EditOrderPage() {
+function EditOrderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orderId = searchParams.get("id");
@@ -200,5 +200,13 @@ export default function EditOrderPage() {
         </div>
       </div>
     </DashboardShell>
+  );
+}
+
+export default function EditOrderPage() {
+  return (
+    <Suspense fallback={<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"200px"}}><div>Loading...</div></div>}>
+      <EditOrderPageInner />
+    </Suspense>
   );
 }

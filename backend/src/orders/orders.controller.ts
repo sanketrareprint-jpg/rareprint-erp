@@ -3,6 +3,7 @@
   Controller,
   Delete,
   Get,
+  Patch,
   Param,
   Post,
   Req,
@@ -247,6 +248,7 @@ export class OrdersController {
     res.download(filePath);
   }
 }
+
 
 
 
