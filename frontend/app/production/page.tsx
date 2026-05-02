@@ -687,6 +687,7 @@ export default function ProductionPage() {
                               </select>
                             </div>
                           </td>
+                              <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200 ml-1">✕</button>
                           <td className="px-3 py-1.5 max-w-[160px]">
                             {(() => {
                               const sa = sheetsData.flatMap(s => s.items.filter(si => si.orderItem.id === item.id).map(si => ({ no: s.sheetNo, qty: si.quantityOnSheet })));
@@ -840,6 +841,7 @@ export default function ProductionPage() {
                                     className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
                                     Send →
                                   </button>
+                                  <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button>
                                 )}
                                 {clubSubTab === "in_progress" && activeJw && (
                                   <button onClick={() => { setReceiveDialog({ jwId: activeJw.id, vendorName: activeJw.vendorName, productName: item.productName }); setReceiveCost(""); setReceiveInvNo(""); }}
