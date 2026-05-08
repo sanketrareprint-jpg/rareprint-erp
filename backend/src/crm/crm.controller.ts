@@ -1,6 +1,6 @@
 ﻿// File: backend/src/crm/crm.controller.ts
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards, Res, SetMetadata,
+  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards, Res,
 } from '@nestjs/common';
 import { CrmService } from './crm.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -51,19 +51,7 @@ export class CrmController {
     return this.crmService.getLeadById(id);
   }
 
-  @SetMetadata('isPublic', true)
-  @Get('leads/meta-webhook')
-  verifyMetaWebhook(@Query('hub.mode') mode: string, @Query('hub.verify_token') token: string, @Query('hub.challenge') challenge: string) {
-    const VERIFY_TOKEN = 'rareprint2024';
-    if (mode === 'subscribe' && token === VERIFY_TOKEN) return parseInt(challenge);
-    return 'Verification failed';
-  }
 
-  @SetMetadata('isPublic', true)
-  @Post('leads/meta-webhook')
-  receiveMetaLead(@Body() body: any) {
-    return this.crmService.receiveMetaLead(body);
-  }
 
   @Post('leads/:id/send-to-aisensy')
   sendToAisensy(
