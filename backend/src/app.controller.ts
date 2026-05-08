@@ -39,7 +39,44 @@ export class AppController {
       );
       const leadData = await res.json();
       
-      if (!leadData.field_data) return { status: 'no_field_data', leadData };
+      if (!leadData.field_data) {
+        // Fallback: create lead with minimal info from webhook
+        const agentsFallback = await this.prisma.user.findMany({
+          where: { role: 'SALES_AGENT', isActive: true },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true },
+        });
+        if (agentsFallback.length) {
+          const countsFallback = await Promise.all(
+            agentsFallback.map(async (a) => ({
+              id: a.id,
+              count: await this.prisma.lead.count({ where: { agentId: a.id } }),
+            }))
+          );
+          countsFallback.sort((a, b) => a.count - b.count);
+          const agentIdFallback = countsFallback[0].id;
+          const leadFallback = await this.prisma.lead.create({
+            data: {
+              name: 'Facebook Lead',
+              phone: '',
+              source: 'WHATSAPP' as any,
+              status: 'NEW' as any,
+              agentId: agentIdFallback,
+              score: 30,
+              notes: `Meta leadgen_id: ${leadgenId}`,
+            },
+          });
+          await this.prisma.leadFollowUp.createMany({
+            data: [1,3,7].map((d) => ({
+              leadId: leadFallback.id,
+              scheduledAt: new Date(Date.now() + d * 24 * 60 * 60 * 1000),
+              note: `Day ${d} follow-up`,
+            })),
+          });
+          return { status: 'lead_created_fallback', leadId: leadFallback.id };
+        }
+        return { status: 'no_field_data', leadData };
+      }
 
       // Parse field_data into key-value pairs
       const fields: Record<string, string> = {};
