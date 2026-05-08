@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Post, UseGuards, Query, Body } from '@nestjs/common';
 import { AppService } from './app.service';
 import { AuthGuard } from '@nestjs/passport';
 import { PrismaService } from './prisma/prisma.service';
@@ -10,6 +10,21 @@ export class AppController {
     private readonly appService: AppService,
     private readonly prisma: PrismaService,
   ) {}
+
+  @Get('crm/leads/meta-webhook')
+  verifyMetaWebhook(
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') token: string,
+    @Query('hub.challenge') challenge: string,
+  ) {
+    if (mode === 'subscribe' && token === 'rareprint2024') return parseInt(challenge);
+    return 'Verification failed';
+  }
+
+  @Post('crm/leads/meta-webhook')
+  receiveMetaWebhook(@Body() body: any) {
+    return { status: 'ok' };
+  }
 
   @Get()
   getHello(): string {
