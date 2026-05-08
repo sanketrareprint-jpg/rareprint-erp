@@ -1,4 +1,4 @@
-��import {
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -10,35 +10,28 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateOrderDto } from './dto/create-order.dto';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-function buildItemDetails(items: Array<{
-  product: { name: string };
-  productionNotes: string | null;
-  quantity: number;
-  unitPrice: Prisma.Decimal;
-  lineTotal: Prisma.Decimal;
-  itemProductionStage: string;
-}>) {
+function buildItemDetails(items: Array<{ product: { name: string }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string }>) {
   return items.map((i) => {
-    const size = (i.productionNotes?.match(/Size:\s*([^,|]+)/)?.[1]?.trim() || null);
-    const gsm = (i.productionNotes?.match(/GSM:\s*([^,|]+)/)?.[1]?.trim() || null);
-    const sidesRaw = (i.productionNotes?.match(/Sides:\s*([^,|]+)/)?.[1]?.trim() || null);
-    const sidesLabel = sidesRaw === 'SINGLE_SIDE' ? 'Single' : sidesRaw === 'DOUBLE_SIDE' ? 'Double' : (sidesRaw || null);
+    const size = (i.productionNotes?.match(/Size[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
+    const gsm = (i.productionNotes?.match(/GSM[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
+    const sidesRaw = (i.productionNotes?.match(/Sides[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
+    const sidesLabel = sidesRaw === 'SINGLE_SIDE' ? 'Single' : sidesRaw === 'DOUBLE_SIDE' ? 'Double' : (sidesRaw ?? null);
     return {
-      productName: i.product.name,
-      size: (size && size !== '0') ? size : null,
-      gsm: (gsm && gsm !== '0') ? gsm : null,
-      sides: sidesLabel,
+      product: { name: i.product.name },
+      productionNotes: i.productionNotes ?? null,
       quantity: i.quantity,
-      unitPrice: Number(i.unitPrice),
-      lineTotal: Number(i.lineTotal),
+      unitPrice: i.unitPrice,
+      lineTotal: i.lineTotal,
       itemProductionStage: i.itemProductionStage,
+      size,
+      gsm,
+      sides: sidesLabel,
     };
   });
 }
@@ -50,11 +43,10 @@ export class OrdersService {
     private readonly whatsapp: WhatsAppService,
   ) {}
 
-  // ── Generate next RP/N order number ────────────────────────────────────────
   private async generateOrderNumber(): Promise<string> {
-    const last = await this.prisma.order.findFirst({ orderBy: { createdAt: "desc" } });
-    const lastNum = last ? parseInt(last.orderNumber, 10) : 1058;
-    const next = (isNaN(lastNum) ? 1053 : lastNum) + 1;
+    const last = await this.prisma.order.findFirst({ orderBy: { createdAt: 'desc' } });
+    const lastNum = last ? parseInt(last.orderNumber, 10) : 10588;
+    const next = (isNaN(lastNum) ? 10588 : lastNum) + 1;
     const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
     if (exists) return String(Date.now());
     return String(next);
@@ -66,11 +58,7 @@ export class OrdersService {
       include: {
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: {
-          include: {
-            product: true,
-          },
-        },
+        items: { include: { product: true } },
         payments: true,
       },
     });
@@ -79,16 +67,6 @@ export class OrdersService {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = Math.max(0, total - advancePaid);
-      const productsSummary = o.items.map((i) => {
-        const size = (i.productionNotes?.match(/Size:\s*([^,|]+)/)?.[1]?.trim() || null);
-        const gsm = (i.productionNotes?.match(/GSM:\s*([^,|]+)/)?.[1]?.trim() || null);
-        const sidesRaw = (i.productionNotes?.match(/Sides:\s*([^,|]+)/)?.[1]?.trim() || null);
-        const sidesLabel = sidesRaw === 'SINGLE_SIDE' ? 'Single' : sidesRaw === 'DOUBLE_SIDE' ? 'Double' : (sidesRaw || null);
-        const sizeClean = (size && size !== '0') ? size : null;
-        const gsmClean = (gsm && gsm !== '0') ? gsm : null;
-        const specs = [sizeClean, gsmClean ? `${gsmClean}gsm` : null, sidesLabel].filter(Boolean).join(', ');
-        return `${i.product.name} ×${i.quantity}${specs ? ` (${specs})` : ''}`;
-      }).join(' | ');
 
       return {
         id: o.id,
@@ -96,25 +74,35 @@ export class OrdersService {
         customerName: o.customer.businessName,
         customerPhone: o.customer.phone ?? null,
         salesAgentName: o.salesAgent?.fullName ?? null,
-        products: productsSummary,
+        products: o.items.map((i) => `${i.product.name} ×${i.quantity}`).join(', '),
         totalAmount: total,
         advancePaid,
         balanceDue,
         status: o.status,
         date: o.orderDate.toISOString(),
-        itemDetails: buildItemDetails(o.items),
-        // Return items with IDs so agent can upload design files per item
+        itemDetails: buildItemDetails(o.items as any),
         items: o.items.map((i) => ({
           id: i.id,
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
-          designFiles: Array.isArray((i as any).designFiles) ? (i as any).designFiles : [],
+          designFiles: Array.isArray(i.designFiles) ? i.designFiles : [],
         })),
       };
     });
   }
 
-  async create(dto: CreateOrderDto, salesAgentId: string) {
+  async create(
+    dto: {
+      customer: { name: string; phone: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
+      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string }>;
+      notes?: string;
+      leadSource?: string;
+      advanceAmount?: number;
+      paymentAccountId?: string;
+      paymentMethod?: string;
+    },
+    salesAgentId: string,
+  ) {
     if (!dto.items?.length) {
       throw new BadRequestException('At least one line item is required');
     }
@@ -123,9 +111,12 @@ export class OrdersService {
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds }, isActive: true },
     });
+
     if (products.length !== productIds.length) {
       throw new NotFoundException('One or more products were not found');
     }
+
+    const orderNumber = await this.generateOrderNumber();
 
     const shippingParts = [
       dto.customer.address,
@@ -136,33 +127,31 @@ export class OrdersService {
     const shippingAddress = shippingParts.length > 0 ? shippingParts.join(', ') : undefined;
 
     const customerCode = `CUST-${Date.now()}-${randomSuffix()}`;
-    // Use RP/N format for new orders
-    const orderNumber = await this.generateOrderNumber();
 
-    const itemsData = dto.items.map((i) => {
-      const lineTotal = new Prisma.Decimal(i.quantity * i.unitPrice);
-      return {
-        productId: i.productId,
-        quantity: i.quantity,
-        unitPrice: new Prisma.Decimal(i.unitPrice),
-        lineDiscount: new Prisma.Decimal(0),
-        taxRatePct: new Prisma.Decimal(0),
-        taxAmount: new Prisma.Decimal(0),
-        lineTotal,
-        artworkNotes: i.artworkNotes ?? null,
-        productionNotes: i.productionNotes ?? null,
-      };
-    });
+    const itemsData = dto.items.map((i) => ({
+      productId: i.productId,
+      quantity: i.quantity,
+      unitPrice: new Prisma.Decimal(i.unitPrice),
+      lineDiscount: new Prisma.Decimal(0),
+      taxRatePct: new Prisma.Decimal(0),
+      taxAmount: new Prisma.Decimal(0),
+      lineTotal: new Prisma.Decimal(i.quantity * i.unitPrice),
+      itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
+      artworkNotes: i.artworkNotes ?? null,
+      productionNotes: i.productionNotes ?? null,
+    }));
 
-    const subtotal = itemsData.reduce((s, row) => s.plus(row.lineTotal), new Prisma.Decimal(0));
+    const subtotal = itemsData.reduce(
+      (s, row) => s.plus(row.lineTotal),
+      new Prisma.Decimal(0),
+    );
     const grandTotal = subtotal;
-
     const advance = dto.advanceAmount ?? 0;
+
     let paymentStatus: PaymentStatus = PaymentStatus.PENDING;
     if (advance > 0) {
       const cmp = new Prisma.Decimal(advance).comparedTo(grandTotal);
-      if (cmp >= 0) paymentStatus = PaymentStatus.PAID;
-      else paymentStatus = PaymentStatus.PARTIALLY_PAID;
+      paymentStatus = cmp >= 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
     }
 
     const orderId = await this.prisma.$transaction(async (tx) => {
@@ -196,22 +185,14 @@ export class OrdersService {
         },
       });
 
-      if (advance > 0) {
-        const account = dto.paymentAccountId
-          ? await tx.paymentAccount.findUnique({ where: { id: dto.paymentAccountId } })
-          : await tx.paymentAccount.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'asc' } });
-        if (!account) {
-          throw new BadRequestException(
-            'No active payment account is configured. Add one before recording advance payments.',
-          );
-        }
+      if (advance > 0 && dto.paymentAccountId) {
         await tx.payment.create({
           data: {
             orderId: order.id,
-            paymentAccountId: account.id,
+            paymentAccountId: dto.paymentAccountId,
             receivedById: salesAgentId,
             amount: new Prisma.Decimal(advance),
-            method: dto.paymentMethod ?? PaymentMethod.CASH,
+            method: (dto.paymentMethod as PaymentMethod) ?? PaymentMethod.CASH,
           },
         });
       }
@@ -231,63 +212,107 @@ export class OrdersService {
 
     const rows = await this.findAllForTable();
     const row = rows.find((r) => r.id === orderId);
-    if (!row) throw new NotFoundException('Order was created but could not be loaded');
-    return row;
-  }
+    if (row) {
+      const fullOrder = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { customer: true, salesAgent: { select: { fullName: true } }, items: { include: { product: true } }, payments: true },
+      });
+      if (fullOrder?.customer.phone) {
+        void this.whatsapp.sendOrderUpdate({
+          customerName: fullOrder.customer.businessName,
+          customerPhone: fullOrder.customer.phone,
+          orderNo: fullOrder.orderNumber,
+          products: fullOrder.items.map((i) => i.product.name).join(', '),
+          status: 'Order received — pending accounts approval',
+          agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
+        });
+      }
+    }
 
+    return orderId;
+  }
 
   async editOrder(orderId: string, body: any, userId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new Error("Order not found");
-    if (order.status !== "PENDING_APPROVAL") throw new Error("Only PENDING_APPROVAL orders can be edited");
-    const shippingParts = [body.customer?.address, body.customer?.city, body.customer?.state, body.customer?.pincode].filter(Boolean);
+    if (!order) throw new Error('Order not found');
+    if (order.status !== OrderStatus.PENDING_APPROVAL) {
+      throw new Error('Only PENDING_APPROVAL orders can be edited');
+    }
+
+    const shippingParts = [
+      body.customer?.address,
+      body.customer?.city,
+      body.customer?.state,
+      body.customer?.pincode,
+    ].filter(Boolean);
+
     await this.prisma.$transaction(async (tx) => {
       await tx.customer.update({
         where: { id: order.customerId },
-        data: { businessName: body.customer?.name, contactPerson: body.customer?.name, phone: body.customer?.phone, email: body.customer?.email, shippingAddress: shippingParts.join(", ") },
+        data: {
+          businessName: body.customer?.name,
+          contactPerson: body.customer?.name,
+          phone: body.customer?.phone,
+          email: body.customer?.email,
+          shippingAddress: shippingParts.join(', '),
+        },
       });
+
       await tx.orderItem.deleteMany({ where: { orderId } });
+
       const itemsData = body.items.map((i: any) => ({
-        productId: i.productId, quantity: i.quantity,
+        productId: i.productId,
+        quantity: i.quantity,
         unitPrice: new Prisma.Decimal(i.unitPrice),
-        lineDiscount: new Prisma.Decimal(0), taxRatePct: new Prisma.Decimal(0),
+        lineDiscount: new Prisma.Decimal(0),
+        taxRatePct: new Prisma.Decimal(0),
         taxAmount: new Prisma.Decimal(0),
-        lineTotal: new Prisma.Decimal(i.lineTotal || i.quantity * i.unitPrice),
-        artworkNotes: i.artworkNotes ?? null, productionNotes: null,
+        lineTotal: new Prisma.Decimal(i.lineTotal ?? i.quantity * i.unitPrice),
+        artworkNotes: i.artworkNotes ?? null,
+        productionNotes: i.productionNotes ?? null,
       }));
-      const subtotal = itemsData.reduce((s: any, r: any) => s.plus(r.lineTotal), new Prisma.Decimal(0));
-      await tx.order.update({ where: { id: orderId }, data: { notes: body.notes, subtotal, grandTotal: subtotal, items: { create: itemsData } } });
+
+      const subtotal = itemsData.reduce(
+        (s: Prisma.Decimal, row: any) => s.plus(row.lineTotal),
+        new Prisma.Decimal(0),
+      );
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          notes: body.notes,
+          subtotal,
+          grandTotal: subtotal,
+          items: { create: itemsData },
+        },
+      });
     });
+
     return { success: true };
   }
 
-
   async deleteOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new Error("Order not found");
-    if (order.status !== "PENDING_APPROVAL") throw new Error("Only PENDING_APPROVAL orders can be deleted");
+    if (!order) throw new Error('Order not found');
+    if (order.status !== OrderStatus.PENDING_APPROVAL) {
+      throw new Error('Only PENDING_APPROVAL orders can be deleted');
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.statusLog.deleteMany({ where: { orderId } });
       await tx.payment.deleteMany({ where: { orderId } });
       await tx.orderItem.deleteMany({ where: { orderId } });
       await tx.order.delete({ where: { id: orderId } });
     });
+
     return { success: true };
   }
 
   async addPayment(
     orderId: string,
     receivedById: string,
-    data: {
-      amount: number;
-      method: string;
-      paymentAccountId: string;
-      referenceNumber?: string;
-      notes?: string;
-      paymentDate?: string;
-    },
+    data: { amount: number; method: string; paymentAccountId: string; referenceNumber?: string; notes?: string; paymentDate?: string },
   ) {
-    const { PaymentMethod, Prisma } = await import('@prisma/client');
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
 
@@ -297,7 +322,7 @@ export class OrdersService {
         paymentAccountId: data.paymentAccountId,
         receivedById,
         amount: new Prisma.Decimal(data.amount),
-        method: data.method as typeof PaymentMethod[keyof typeof PaymentMethod],
+        method: data.method as PaymentMethod ?? PaymentMethod.CASH,
         referenceNumber: data.referenceNumber,
         notes: data.notes,
         paymentDate: data.paymentDate ? new Date(data.paymentDate) : new Date(),
@@ -309,13 +334,13 @@ export class OrdersService {
     const totalPaid = allPayments.reduce((s, p) => s + Number(p.amount), 0);
     const grandTotal = Number(order.grandTotal);
 
-    let paymentStatus;
-    const { PaymentStatus } = await import('@prisma/client');
+    let paymentStatus: PaymentStatus;
     if (totalPaid >= grandTotal) paymentStatus = PaymentStatus.PAID;
     else if (totalPaid > 0) paymentStatus = PaymentStatus.PARTIALLY_PAID;
     else paymentStatus = PaymentStatus.PENDING;
 
     await this.prisma.order.update({ where: { id: orderId }, data: { paymentStatus } });
+
     return payment;
   }
 
@@ -333,7 +358,7 @@ export class OrdersService {
       include: { changedBy: { select: { fullName: true, role: true } } },
       orderBy: { createdAt: 'asc' },
     });
-    return logs.map(l => ({
+    return logs.map((l) => ({
       id: l.id,
       fromStatus: l.fromStatus,
       toStatus: l.toStatus,
@@ -354,7 +379,7 @@ export class OrdersService {
   async submitForDispatch(
     orderId: string,
     agentId: string,
-    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string },
+    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string },
   ) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
@@ -362,7 +387,7 @@ export class OrdersService {
     const dispatchNotes = [
       data.notes,
       `Courier charges: ₹${data.courierCharges}`,
-      data.isCod ? `COD Amount: ₹${data.codAmount ?? 0}` : 'Prepaid',
+      data.isCod ? `COD amount: ₹${data.codAmount ?? 0}` : 'Prepaid',
     ].filter(Boolean).join(' | ');
 
     return this.prisma.$transaction(async (tx) => {
@@ -374,6 +399,7 @@ export class OrdersService {
           notes: dispatchNotes,
         },
       });
+
       await tx.statusLog.create({
         data: {
           orderId,
@@ -383,6 +409,7 @@ export class OrdersService {
           reason: `Agent submitted for dispatch. ${dispatchNotes}`,
         },
       });
+
       return updated;
     });
   }
@@ -393,18 +420,18 @@ export class OrdersService {
       include: { items: { include: { product: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');
-    // Fetch designFiles via raw SQL since it's a JSON field
-    const itemIds = order.items.map(i => i.id);
+
+    const itemIds = order.items.map((i) => i.id);
     let designFilesMap: Record<string, any[]> = {};
+
     if (itemIds.length > 0) {
-      const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
+      const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any[] }[]>(
         `SELECT id, "designFiles" FROM "OrderItem" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
-        ...itemIds
+        ...itemIds,
       );
-      designFilesMap = Object.fromEntries(
-        results.map(r => [r.id, Array.isArray(r.designFiles) ? r.designFiles : []])
-      );
+      designFilesMap = Object.fromEntries(results.map((r) => [r.id, Array.isArray(r.designFiles) ? r.designFiles : []]));
     }
+
     return order.items.map((i) => ({
       id: i.id,
       productName: i.product.name,
@@ -421,25 +448,7 @@ export class OrdersService {
   async submitDispatchBatch(
     orderIds: string[],
     agentId: string,
-    data: {
-      courierCharges: number;
-      isCod: boolean;
-      codAmount?: number;
-      paymentMethod?: string;
-      paymentAccountId?: string;
-      paymentReference?: string;
-      notes?: string;
-      dispatchType?: string;
-      transportName?: string;
-      lrNumber?: string;
-      transportChargesType?: string;
-      transportBy?: string;
-      awbNumber?: string;
-      courierBy?: string;
-      deliveryBoyName?: string;
-      collectedByName?: string;
-      collectedByPhone?: string;
-    },
+    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string },
   ) {
     const results: string[] = [];
     for (const orderId of orderIds) {
@@ -449,18 +458,19 @@ export class OrdersService {
       const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
         ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
         : data.dispatchType === 'COURIER'
-        ? `Courier: ${data.transportName ?? ''}, AWB: ${data.awbNumber ?? ''}, By: ${data.courierBy ?? ''}`
+        ? `Courier: ${data.transportName ?? ''}, AWB: ${data.awbNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
         : data.dispatchType === 'BY_HAND'
         ? `By Hand: ${data.deliveryBoyName ?? ''}`
         : data.dispatchType === 'SELF_COLLECTED'
         ? `Self Collected by: ${data.collectedByName ?? ''} ${data.collectedByPhone ?? ''}`
         : '';
+
       const dispatchNotes = [
         data.notes,
         dispatchTypeLine,
-        `Courier: Rs.${data.courierCharges}`,
-        data.isCod ? `COD: Rs.${data.codAmount}` : 'Prepaid',
-        orderIds.length > 1 ? `Batch with: ${orderIds.filter(id => id !== orderId).join(', ')}` : '',
+        `Courier charges: ₹${data.courierCharges}`,
+        data.isCod ? `COD: ₹${data.codAmount ?? 0} to be collected on delivery` : 'Prepaid',
+        orderIds.length > 1 ? `Batch with: ${orderIds.filter((id) => id !== orderId).join(', ')}` : '',
       ].filter(Boolean).join(' | ');
 
       await this.prisma.$transaction(async (tx) => {
@@ -473,67 +483,37 @@ export class OrdersService {
           },
         });
 
-        if (!data.isCod && data.paymentAccountId) {
-          const payments = await tx.payment.findMany({ where: { orderId } });
-          const paid = payments.reduce((s, p) => s + Number(p.amount), 0);
-          const balance = Number(order.grandTotal) - paid;
-          if (balance > 0) {
-            await tx.payment.create({
-              data: {
-                orderId,
-                paymentAccountId: data.paymentAccountId,
-                receivedById: agentId,
-                amount: new Prisma.Decimal(balance),
-                method: (data.paymentMethod ?? 'CASH') as PaymentMethod,
-                referenceNumber: data.paymentReference,
-                notes: 'Balance received at dispatch',
-              },
-            });
-          }
-        }
-
         await tx.statusLog.create({
           data: {
             orderId,
             fromStatus: order.status,
             toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
             changedById: agentId,
-            reason: dispatchNotes,
+            reason: `Agent submitted for dispatch. ${dispatchNotes}`,
           },
         });
+
+        const fullOrder = await tx.order.findUnique({
+          where: { id: orderId },
+          include: { customer: true, salesAgent: { select: { fullName: true } }, items: { include: { product: true } } },
+        });
+
+        if (fullOrder?.customer.phone) {
+          const products = fullOrder.items.map((i) => i.product.name).join(', ');
+          void this.whatsapp.sendOrderUpdate({
+            customerName: fullOrder.customer.businessName,
+            customerPhone: fullOrder.customer.phone,
+            orderNo: fullOrder.orderNumber,
+            products,
+            status: `Shipment being arranged | ${dispatchNotes}`,
+            agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
+          });
+        }
       });
 
       results.push(orderId);
-
-      // ── WhatsApp: agent locked dispatch — balance/COD confirmed ───────────
-      const fullOrder = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          customer: true,
-          salesAgent: { select: { fullName: true } },
-          items: { include: { product: true } },
-          payments: true,
-        },
-      });
-      if (fullOrder?.customer.phone) {
-        const totalPaid  = fullOrder.payments.reduce((s, p) => s + Number(p.amount), 0);
-        const balance    = Math.max(0, Number(fullOrder.grandTotal) - totalPaid);
-        const products   = fullOrder.items.map(i => i.product.name).join(', ');
-        const paymentMsg = data.isCod
-          ? `COD ₹${data.codAmount ?? balance} to be collected on delivery`
-          : balance > 0 ? `Balance ₹${balance} received` : 'Fully paid';
-        const statusMsg  = `Shipment being arranged 🚚 | Courier: ₹${data.courierCharges} | ${paymentMsg}`;
-
-        void this.whatsapp.sendOrderUpdate({
-          customerName:  fullOrder.customer.businessName,
-          customerPhone: fullOrder.customer.phone,
-          orderNo:       fullOrder.orderNumber,
-          product:       products,
-          status:        statusMsg,
-          agentName:     fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
-        });
-      }
     }
+
     return { success: true, processedOrders: results.length };
   }
 
@@ -563,7 +543,7 @@ export class OrdersService {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = Math.max(0, total - advancePaid);
-      const readyCount = o.items.filter(i => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
+      const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
 
       return {
         id: o.id,
@@ -571,8 +551,7 @@ export class OrdersService {
         customerName: o.customer.businessName,
         customerPhone: o.customer.phone ?? null,
         salesAgentName: o.salesAgent?.fullName ?? null,
-        customerId: o.customer.id,
-        products: o.items.map((i) => `${i.product.name} (×${i.quantity})`).join(', '),
+        products: o.items.map((i) => `${i.product.name} ×${i.quantity}`).join(', '),
         totalAmount: total,
         advancePaid,
         balanceDue,
@@ -580,21 +559,14 @@ export class OrdersService {
         date: o.orderDate.toISOString(),
         readyItemsCount: readyCount,
         totalItemsCount: o.items.length,
-        itemDetails: buildItemDetails(o.items),
+        itemDetails: buildItemDetails(o.items as any),
         items: o.items.map((i) => ({
           id: i.id,
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
+          designFiles: Array.isArray(i.designFiles) ? i.designFiles : [],
         })),
       };
     });
   }
 }
-
-
-
-
-
-
- 
- 
