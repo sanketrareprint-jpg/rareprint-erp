@@ -50,6 +50,19 @@ export class CrmController {
     return this.crmService.getLeadById(id);
   }
 
+  @Post('leads/meta-webhook')
+  receiveMetaLead(@Body() body: any) {
+    return this.crmService.receiveMetaLead(body);
+  }
+
+  @Post('leads/:id/send-to-aisensy')
+  sendToAisensy(
+    @Param('id') id: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.crmService.sendLeadToAisensy(id, req.user.id);
+  }
+
   @Post('leads')
   createLead(
     @Body() body: any,
@@ -93,4 +106,5 @@ export class CrmController {
     return this.crmService.addNote(id, note, req.user.id);
   }
 }
+
 
