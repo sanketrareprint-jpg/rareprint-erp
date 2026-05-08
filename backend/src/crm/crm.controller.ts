@@ -1,6 +1,6 @@
 ﻿// File: backend/src/crm/crm.controller.ts
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards,
+  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards, Res,
 } from '@nestjs/common';
 import { CrmService } from './crm.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -49,6 +49,13 @@ export class CrmController {
   @Get('leads/:id')
   getLeadById(@Param('id') id: string) {
     return this.crmService.getLeadById(id);
+  }
+
+  @Get('leads/meta-webhook')
+  verifyMetaWebhook(@Query('hub.mode') mode: string, @Query('hub.verify_token') token: string, @Query('hub.challenge') challenge: string) {
+    const VERIFY_TOKEN = 'rareprint2024';
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) return parseInt(challenge);
+    return 'Verification failed';
   }
 
   @Post('leads/meta-webhook')
@@ -107,6 +114,8 @@ export class CrmController {
     return this.crmService.addNote(id, note, req.user.id);
   }
 }
+
+
 
 
 
