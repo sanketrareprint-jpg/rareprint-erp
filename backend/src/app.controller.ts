@@ -17,7 +17,7 @@ export class AppController {
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
   ) {
-    if (mode === 'subscribe' && token === 'rareprint2024') return parseInt(challenge);
+    if (mode === 'subscribe' && token === 'rareprint2024') return challenge;
     return 'Verification failed';
   }
 
@@ -141,3 +141,4 @@ export class AppController {
     };
   }
 }
+
