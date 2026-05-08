@@ -1,6 +1,6 @@
 ﻿// File: backend/src/crm/crm.controller.ts
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards, Res,
+  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards, Res, SetMetadata,
 } from '@nestjs/common';
 import { CrmService } from './crm.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -116,6 +116,8 @@ export class CrmController {
     return this.crmService.addNote(id, note, req.user.id);
   }
 }
+
+
 
 
 
