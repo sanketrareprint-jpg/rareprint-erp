@@ -499,7 +499,7 @@ export class OrdersService {
         });
 
         if (fullOrder?.customer.phone) {
-          const products = fullOrder.items.map((i) => i.product.name).join(', ');
+          const product = fullOrder.items.map((i) => i.product.name).join(', ');
           void this.whatsapp.sendOrderUpdate({
             customerName: fullOrder.customer.businessName,
             customerPhone: fullOrder.customer.phone,
@@ -570,5 +570,6 @@ export class OrdersService {
     });
   }
 }
+
 
 
