@@ -22,8 +22,90 @@ export class AppController {
   }
 
   @Post('crm/leads/meta-webhook')
-  receiveMetaWebhook(@Body() body: any) {
-    return { status: 'ok' };
+  async receiveMetaWebhook(@Body() body: any) {
+    try {
+      const PAGE_ACCESS_TOKEN = 'EAALuc4VndWcBRXMeIinI4xARhLLXZANv9ZCHqbZAutqRuliG7xgEZCbwWbTTuI3FOrtaJqIZCDHFSuUVWqGei8Hq9NDmZAQAzRLclpPvSL1KAm5WxlVeAgFg9z56dr10ZBzjcaFyjOSm9wIZBZAkryoEZAHqyYvqJ8M5OFPZAZCC2ZASZAuzIkyPyNtYWONdMntRFnMbyKqvjv7JdlnvOFOUDu1ZB3kFUTNS7LupSZAlR6Tqp1KN5FI7gjWCITbI7bEVNa7UB4XZAKpGmiDgyKDNSZBQfFOREJnyeN';
+      
+      // Handle Meta webhook format
+      const entry = body?.entry?.[0];
+      const change = entry?.changes?.[0];
+      const leadgenId = change?.value?.leadgen_id;
+      
+      if (!leadgenId) return { status: 'no_leadgen_id' };
+
+      // Fetch lead details from Meta Graph API
+      const res = await fetch(
+        `https://graph.facebook.com/v25.0/${leadgenId}?fields=field_data,created_time&access_token=${PAGE_ACCESS_TOKEN}`
+      );
+      const leadData = await res.json();
+      
+      if (!leadData.field_data) return { status: 'no_field_data', leadData };
+
+      // Parse field_data into key-value pairs
+      const fields: Record<string, string> = {};
+      for (const f of leadData.field_data) {
+        fields[f.name] = f.values?.[0] ?? '';
+      }
+
+      // Extract name and phone
+      const name = fields['full_name'] || fields['first_name'] 
+        ? `${fields['first_name'] || ''} ${fields['last_name'] || ''}`.trim()
+        : fields['full_name'] || 'Facebook Lead';
+      const phone = fields['phone_number'] || fields['phone'] || '';
+      const email = fields['email'] || '';
+      const city = fields['city'] || '';
+      const productInterest = fields['product_interest'] || fields['what_product_are_you_interested_in'] || '';
+
+      // Create lead in CRM via receiveMetaLead
+      const { CrmService } = await import('./crm/crm.service');
+      
+      // Use prisma directly to create lead with round robin
+      const agents = await this.prisma.user.findMany({
+        where: { role: 'SALES_AGENT', isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+
+      if (!agents.length) return { status: 'no_agents' };
+
+      const counts = await Promise.all(
+        agents.map(async (a) => ({
+          id: a.id,
+          count: await this.prisma.lead.count({ where: { agentId: a.id } }),
+        }))
+      );
+      counts.sort((a, b) => a.count - b.count);
+      const agentId = counts[0].id;
+
+      const lead = await this.prisma.lead.create({
+        data: {
+          name,
+          phone,
+          email: email || null,
+          city: city || null,
+          productInterest: productInterest || null,
+          source: 'WHATSAPP' as any,
+          status: 'NEW' as any,
+          agentId,
+          score: 30,
+        },
+      });
+
+      // Schedule follow-ups
+      const days = [1, 3, 7, 14, 30];
+      await this.prisma.leadFollowUp.createMany({
+        data: days.map((d) => ({
+          leadId: lead.id,
+          scheduledAt: new Date(Date.now() + d * 24 * 60 * 60 * 1000),
+          note: `Day ${d} follow-up`,
+        })),
+      });
+
+      return { status: 'lead_created', leadId: lead.id, name, phone };
+    } catch (err) {
+      console.error('Meta webhook error:', err);
+      return { status: 'error', message: String(err) };
+    }
   }
 
   @Get()
