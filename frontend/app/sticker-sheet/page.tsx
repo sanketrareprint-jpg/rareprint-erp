@@ -35,7 +35,7 @@ const LAYOUT_META = {
 export default function StickerSheet() {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [layout] = useState<'SPARSH'>('SPARSH');
+  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175'>('SPARSH');
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -207,18 +207,26 @@ export default function StickerSheet() {
               <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Layout</span>
             </div>
             <div className="p-3">
-              <div className="px-3 py-3 rounded border border-indigo-500 bg-indigo-50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-bold tracking-wider text-indigo-700">1X0.75 INCH</div>
-                    <div className="text-xs text-gray-400 mt-0.5">27.3 × 20.7 mm</div>
+              {(['SPARSH', 'SIZE_150', 'SIZE_175'] as const).map((key) => {
+                const m = LAYOUT_META[key];
+                const l = layouts[key];
+                const isActive = layout === key;
+                return (
+                  <div key={key} onClick={() => setLayout(key)}
+                    className={"px-3 py-3 rounded border cursor-pointer transition-all mb-2 " + (isActive ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className={"text-sm font-bold tracking-wider " + (isActive ? "text-indigo-700" : "text-gray-700")}>{m.label}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">{m.stickerSize}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={"text-xs font-mono " + (isActive ? "text-indigo-600" : "text-gray-500")}>{l.cols}x{l.rows}</div>
+                        <div className={"text-xs " + (isActive ? "text-indigo-500" : "text-gray-400")}>{l.cols * l.rows} stickers</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-xs font-mono text-indigo-600">10×21</div>
-                    <div className="text-xs text-indigo-500">210 stickers</div>
-                  </div>
-                </div>
-              </div>
+                );
+              })}
             </div>
           </div>
 
@@ -345,7 +353,7 @@ export default function StickerSheet() {
             <div className="border-t border-gray-100 px-4 py-2 bg-gray-50 flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-400 uppercase tracking-wider">Layout</span>
-                <span className="text-xs font-mono font-bold text-gray-700">1X0.75 INCH</span>
+                <span className="text-xs font-mono font-bold text-gray-700">{meta.label}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-400 uppercase tracking-wider">Grid</span>
