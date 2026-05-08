@@ -21,14 +21,54 @@ const layouts = {
     offsetX: -3,
     offsetY: -3,
   },
+  SIZE_150: {
+    cols: 8,
+    rows: 18,
+    startX: 0,
+    startY: 0,
+    stepX: 108,
+    stepY: 72,
+    imgW: 106,
+    imgH: 70,
+    cutW: 108,
+    cutH: 72,
+    offsetX: 0,
+    offsetY: 0,
+  },
+  SIZE_175: {
+    cols: 7,
+    rows: 14,
+    startX: 0,
+    startY: 0,
+    stepX: 123,
+    stepY: 92,
+    imgW: 123,
+    imgH: 88,
+    cutW: 123,
+    cutH: 92,
+    offsetX: 0,
+    offsetY: 0,
+  },
 };
 
 const LAYOUT_META = {
   SPARSH: {
     label: '1X0.75 INCH',
-    subtitle: 'SHEET 1×0.75 IN',
-    stickerSize: '27.3 × 20.7 mm',
-    description: 'Small format sticker — ideal for product labels',
+    subtitle: 'SHEET 1x0.75 IN',
+    stickerSize: '27.3 x 20.7 mm',
+    description: 'Small format sticker',
+  },
+  SIZE_150: {
+    label: '1.5x1 INCH',
+    subtitle: 'SHEET 1.5x1 IN',
+    stickerSize: '38.1 x 25.4 mm',
+    description: 'Medium format — 144 per sheet',
+  },
+  SIZE_175: {
+    label: '1.75x1.25 INCH',
+    subtitle: 'SHEET 1.75x1.25 IN',
+    stickerSize: '44.5 x 31.8 mm',
+    description: 'Large format — 98 per sheet',
   },
 };
 
