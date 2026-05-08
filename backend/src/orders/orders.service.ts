@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -93,7 +93,7 @@ export class OrdersService {
 
   async create(
     dto: {
-      customer: { name: string; phone: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
+      customer: { name: string; phone?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
       items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string }>;
       notes?: string;
       leadSource?: string;
@@ -222,7 +222,7 @@ export class OrdersService {
           customerName: fullOrder.customer.businessName,
           customerPhone: fullOrder.customer.phone,
           orderNo: fullOrder.orderNumber,
-          products: fullOrder.items.map((i) => i.product.name).join(', '),
+          product: fullOrder.items.map((i) => i.product.name).join(', '),
           status: 'Order received — pending accounts approval',
           agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
         });
@@ -504,7 +504,7 @@ export class OrdersService {
             customerName: fullOrder.customer.businessName,
             customerPhone: fullOrder.customer.phone,
             orderNo: fullOrder.orderNumber,
-            products,
+            product,
             status: `Shipment being arranged | ${dispatchNotes}`,
             agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
           });
@@ -570,3 +570,5 @@ export class OrdersService {
     });
   }
 }
+
+
