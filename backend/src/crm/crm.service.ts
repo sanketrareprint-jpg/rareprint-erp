@@ -491,12 +491,7 @@ export class CrmService {
       campaignName: 'question',
       destination: phone,
       userName: lead.name,
-      templateParams: [
-        lead.name,                          // {{1}} customer name
-        lead.agent.fullName,               // {{2}} agent name
-        lead.productInterest ?? 'Printing', // {{3}} product interest
-        lead!.phone,                         // {{4}} phone
-      ],
+      templateParams: [lead.name],
       source: 'rareprint-erp-crm',
       media: {},
       buttons: [],
@@ -536,5 +531,6 @@ export class CrmService {
     };
   }
 }
+
 
 
