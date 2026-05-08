@@ -138,7 +138,7 @@ export default function StickerSheet() {
       const dotR = layout === 'SPARSH' ? 7.26 * SCALE : 7.09 * SCALE;
       const dotPositions = layout === 'SPARSH'
         ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
-        : [[7.09, 7.09], [856.91, 7.09], [7.09, 1288.91], [856.91, 1288.91]];
+        : [[-12.75, -11.34], [856.91, -11.34], [-12.75, 1288.91], [856.91, 1288.91]];
       dotPositions.forEach(([dx, dy]) => {
         ctx.beginPath();
         ctx.arc(dx * SCALE, dy * SCALE, dotR, 0, Math.PI * 2);
