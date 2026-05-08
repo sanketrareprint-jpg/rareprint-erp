@@ -18,8 +18,9 @@ export class CrmController {
     @Req() req: Request & { user: JwtUser },
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('myOnly') myOnly?: string,
   ) {
-    return this.crmService.getLeads(req.user.id, req.user.role, status, search);
+    return this.crmService.getLeads(req.user.id, req.user.role, status, search, myOnly === "true");
   }
 
   @Get('leads/today-followups')
@@ -106,5 +107,6 @@ export class CrmController {
     return this.crmService.addNote(id, note, req.user.id);
   }
 }
+
 
 

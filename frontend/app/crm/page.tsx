@@ -135,6 +135,7 @@ export default function CrmPage() {
   const [view, setView] = useState<"kanban" | "list" | "dialer" | "followups">("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [myLeadsOnly, setMyLeadsOnly] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -178,6 +179,7 @@ export default function CrmPage() {
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter !== "ALL") params.set("status", statusFilter);
+    if (myLeadsOnly) params.set("myOnly", "true");
     if (search) params.set("search", search);
     const [leadsRes, statsRes, fuRes] = await Promise.all([
       fetch(`${API}/crm/leads?${params}`, { headers: getAuth() }),
@@ -337,6 +339,7 @@ export default function CrmPage() {
           <input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone…"
             className="flex-1 border border-slate-300 rounded-lg text-sm px-3 py-2 focus:outline-none focus:border-blue-400 min-w-0" />
+          <button onClick={() => setMyLeadsOnly(p => !p)} className={`text-xs px-3 py-2 rounded-lg font-medium border ${myLeadsOnly ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-600"}`}>{myLeadsOnly ? " My Leads" : " All Leads"}</button>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-slate-300 rounded-lg text-xs sm:text-sm px-2 py-2 focus:outline-none bg-white flex-shrink-0">
             <option value="ALL">All</option>
@@ -774,6 +777,7 @@ export default function CrmPage() {
     </div>
   );
 }
+
 
 
 

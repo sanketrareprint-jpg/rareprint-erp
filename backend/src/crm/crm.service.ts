@@ -8,9 +8,9 @@ export class CrmService {
   constructor(private prisma: PrismaService) {}
 
   // ─── LIST LEADS (agent sees own, admin sees all) ───────────────────────────
-  async getLeads(userId: string, role: string, status?: string, search?: string) {
+  async getLeads(userId: string, role: string, status?: string, search?: string, myOnly?: boolean) {
     const where: any = {};
-    if (role !== 'ADMIN') where.agentId = userId;
+    if (role !== 'ADMIN' || myOnly) where.agentId = userId;
     if (status && status !== 'ALL') where.status = status as LeadStatus;
     if (search) {
       where.OR = [
@@ -531,6 +531,7 @@ export class CrmService {
     };
   }
 }
+
 
 
 
