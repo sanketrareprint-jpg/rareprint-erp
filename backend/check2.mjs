@@ -1,0 +1,1 @@
+import { PrismaClient } from "@prisma/client"; const p = new PrismaClient(); const r = await p.$queryRawUnsafe("SELECT id, \"designFiles\" FROM \"OrderItem\" LIMIT 5"); console.log(JSON.stringify(r)); await p.$disconnect();

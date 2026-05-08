@@ -1,0 +1,1 @@
+import { PrismaClient } from "@prisma/client"; const p = new PrismaClient(); const r = await p.$queryRawUnsafe("SELECT column_name FROM information_schema.columns WHERE table_name = 'OrderItem' ORDER BY column_name"); console.log(JSON.stringify(r)); await p.$disconnect();
