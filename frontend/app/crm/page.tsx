@@ -149,6 +149,30 @@ export default function CrmPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [sendingAisensy, setSendingAisensy] = useState<string | null>(null);
+
+  const sendToAisensy = async (lead: Lead, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (sendingAisensy === lead.id) return;
+    setSendingAisensy(lead.id);
+    try {
+      const res = await fetch(`${API}/crm/leads/${lead.id}/send-to-aisensy`, {
+        method: "POST",
+        headers: { ...getAuth(), "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(` WhatsApp sent to ${lead.name} via AiSensy!\nAgent: ${data.agentName}`);
+        load();
+      } else {
+        alert(` Failed: ${JSON.stringify(data)}`);
+      }
+    } catch (err) {
+      alert(" Network error");
+    } finally {
+      setSendingAisensy(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -421,7 +445,8 @@ export default function CrmPage() {
                         </td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <a href={`tel:${lead.phone}`} className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold mr-1">📞</a>
-                          <button onClick={() => setShowCallModal(lead)} className="text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50">Log</button>
+                          <button onClick={() => setShowCallModal(lead)} className="text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50 mr-1">Log</button>
+                          <button onClick={(e) => sendToAisensy(lead, e)} disabled={sendingAisensy === lead.id} className="text-xs bg-green-500 text-white px-2 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 font-semibold">{sendingAisensy === lead.id ? "..." : " WA"}</button>
                         </td>
                       </tr>
                     );
@@ -749,4 +774,7 @@ export default function CrmPage() {
     </div>
   );
 }
+
+
+
 
