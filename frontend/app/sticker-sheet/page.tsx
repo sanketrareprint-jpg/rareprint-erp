@@ -24,28 +24,28 @@ const layouts = {
   SIZE_150: {
     cols: 8,
     rows: 18,
-    startX: 25,
-    startY: 18,
-    stepX: 102,
-    stepY: 70,
-    imgW: 102,
-    imgH: 70,
-    cutW: 102,
-    cutH: 70,
+    startX: 61,
+    startY: 44,
+    stepX: 106,
+    stepY: 71,
+    imgW: 106,
+    imgH: 71,
+    cutW: 106,
+    cutH: 71,
     offsetX: 0,
     offsetY: 0,
   },
   SIZE_175: {
     cols: 6,
     rows: 14,
-    startX: 25,
-    startY: 18,
-    stepX: 136,
-    stepY: 90,
-    imgW: 136,
-    imgH: 90,
-    cutW: 136,
-    cutH: 90,
+    startX: 61,
+    startY: 43,
+    stepX: 123,
+    stepY: 86,
+    imgW: 123,
+    imgH: 86,
+    cutW: 123,
+    cutH: 86,
     offsetX: 0,
     offsetY: 0,
   },
@@ -136,7 +136,7 @@ export default function StickerSheet() {
       // Corner dots
       ctx.fillStyle = 'rgb(33, 31, 28)';
       const dotR = 7.26 * SCALE;
-      [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]].forEach(([dx, dy]) => {
+      [[24, 24], [840, 24], [24, 1272], [840, 1272]].forEach(([dx, dy]) => {
         ctx.beginPath();
         ctx.arc(dx * SCALE, dy * SCALE, dotR, 0, Math.PI * 2);
         ctx.fill();
