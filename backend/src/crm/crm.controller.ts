@@ -51,6 +51,7 @@ export class CrmController {
     return this.crmService.getLeadById(id);
   }
 
+  @SetMetadata('isPublic', true)
   @Get('leads/meta-webhook')
   verifyMetaWebhook(@Query('hub.mode') mode: string, @Query('hub.verify_token') token: string, @Query('hub.challenge') challenge: string) {
     const VERIFY_TOKEN = 'rareprint2024';
@@ -58,6 +59,7 @@ export class CrmController {
     return 'Verification failed';
   }
 
+  @SetMetadata('isPublic', true)
   @Post('leads/meta-webhook')
   receiveMetaLead(@Body() body: any) {
     return this.crmService.receiveMetaLead(body);
@@ -114,6 +116,8 @@ export class CrmController {
     return this.crmService.addNote(id, note, req.user.id);
   }
 }
+
+
 
 
 
