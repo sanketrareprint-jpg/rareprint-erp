@@ -96,4 +96,69 @@ export class WhatsAppService {
     if (digits.length > 10) return digits;
     return null;
   }
+
+  // ── Order Created Notification (to owner + customer) ─────────────────────
+  async sendOrderCreated(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    productDetails: string; // formatted: "ENVELOPE 4x7 70gsm Single 5000 @₹1/- = ₹5000"
+    totalAmount: string;
+    advancePaid: string;
+    balanceDue: string;
+    agentName: string;
+  }): Promise<void> {
+    const OWNER_PHONE = '919637318960';
+    const TEMPLATE = 'order_created_erp';
+
+    const destinations = [OWNER_PHONE];
+
+    // Also send to customer if they have a phone
+    if (params.customerPhone) {
+      const customerPhone = this.normalizePhone(params.customerPhone);
+      if (customerPhone && customerPhone !== OWNER_PHONE) {
+        destinations.push(customerPhone);
+      }
+    }
+
+    for (const destination of destinations) {
+      const body = {
+        apiKey: AISENSY_API_KEY,
+        campaignName: TEMPLATE,
+        destination,
+        userName: params.customerName,
+        templateParams: [
+          params.customerName,    // {{1}} Hello [Customer Name]
+          params.orderNo,         // {{2}} Order No
+          params.customerName,    // {{3}} Customer Name (greeting)
+          params.productDetails,  // {{4}} Product details
+          params.totalAmount,     // {{5}} Total Amount
+          params.advancePaid,     // {{6}} Advance Paid
+          params.balanceDue,      // {{7}} Balance Due
+          params.agentName,       // {{8}} Sales Agent Name
+        ],
+        source: 'rareprint-erp',
+        media: {},
+        buttons: [],
+        carouselCards: [],
+        location: {},
+      };
+
+      try {
+        const res = await fetch(AISENSY_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          this.logger.log(`✅ Order created WA sent to ${destination} for order ${params.orderNo}`);
+        } else {
+          this.logger.error(`❌ Order created WA failed for ${destination}: ${JSON.stringify(data)}`);
+        }
+      } catch (err) {
+        this.logger.error(`❌ Order created WA error: ${err}`);
+      }
+    }
+  }
 }

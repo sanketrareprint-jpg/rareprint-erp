@@ -210,23 +210,44 @@ export class OrdersService {
       return order.id;
     });
 
-    const rows = await this.findAllForTable();
-    const row = rows.find((r) => r.id === orderId);
-    if (row) {
-      const fullOrder = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: { customer: true, salesAgent: { select: { fullName: true } }, items: { include: { product: true } }, payments: true },
+    // Send order created WhatsApp notification
+    const fullOrder = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: true,
+        salesAgent: { select: { fullName: true } },
+        items: { include: { product: true } },
+        payments: true,
+      },
+    });
+
+    if (fullOrder) {
+      const totalAmount = Number(fullOrder.grandTotal);
+      const advancePaid = fullOrder.payments.reduce((s, p) => s + Number(p.amount), 0);
+      const balanceDue = Math.max(0, totalAmount - advancePaid);
+
+      // Format product details: Name Size GSM Sides Qty @Rate = Total
+      const productDetails = fullOrder.items.map((i) => {
+        const notes = i.productionNotes ?? '';
+        const size = (notes.match(/Size[:\s]+([^\n,]+)/i) ?? [])[1]?.trim() ?? '';
+        const gsm = (notes.match(/GSM[:\s]+(\S+)/i) ?? [])[1]?.trim() ?? '';
+        const sides = (notes.match(/Sides[:\s]+(\S+)/i) ?? [])[1]?.trim() ?? '';
+        const sidesLabel = sides === 'SINGLE_SIDE' ? 'Single' : sides === 'DOUBLE_SIDE' ? 'Double' : sides;
+        const rate = Number(i.unitPrice).toFixed(0);
+        const total = Number(i.lineTotal).toFixed(0);
+        return `• ${i.product.name} ${size} ${gsm}gsm ${sidesLabel} x${i.quantity} @₹${rate} = ₹${total}`;
+      }).join('\n');
+
+      void this.whatsapp.sendOrderCreated({
+        customerName: fullOrder.customer.businessName,
+        customerPhone: fullOrder.customer.phone ?? '',
+        orderNo: fullOrder.orderNumber,
+        productDetails,
+        totalAmount: totalAmount.toFixed(0),
+        advancePaid: advancePaid.toFixed(0),
+        balanceDue: balanceDue.toFixed(0),
+        agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
       });
-      if (fullOrder?.customer.phone) {
-        void this.whatsapp.sendOrderUpdate({
-          customerName: fullOrder.customer.businessName,
-          customerPhone: fullOrder.customer.phone,
-          orderNo: fullOrder.orderNumber,
-          product: fullOrder.items.map((i) => i.product.name).join(', '),
-          status: 'Order received — pending accounts approval',
-          agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
-        });
-      }
     }
 
     return orderId;
