@@ -1,4 +1,4 @@
-// File: backend/src/crm/crm.service.ts
+﻿// File: backend/src/crm/crm.service.ts
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeadStatus, LeadSource, ActivityType } from '@prisma/client';
@@ -69,7 +69,7 @@ export class CrmService {
 
     // Find other agents with same phone
     const samePhone = await this.prisma.lead.findMany({
-      where: { phone: lead.phone, id: { not: id } },
+      where: { phone: lead!.phone, id: { not: id } },
       include: { agent: { select: { fullName: true } } },
     });
 
@@ -130,7 +130,7 @@ export class CrmService {
       data: {
         leadId: id,
         type: ActivityType.STATUS_CHANGED,
-        description: `Status changed: ${old.status} → ${status}`,
+        description: `Status changed: ${old!.status} → ${status}`,
         createdById: agentId,
       },
     });
@@ -386,4 +386,154 @@ export class CrmService {
       );
     }
   }
+  // ─────────────────────────────────────────────────────────────────────────────
+// ADD THESE METHODS TO crm.service.ts (paste at the bottom, before the last })
+// ─────────────────────────────────────────────────────────────────────────────
+
+  // ─── ROUND ROBIN: get next agent ─────────────────────────────────────────
+  private async getNextAgent(): Promise<string> {
+    // Get all active sales agents
+    const agents = await this.prisma.user.findMany({
+      where: { role: 'SALES_AGENT', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+
+    if (!agents.length) throw new Error('No active sales agents found');
+
+    // Count leads per agent to find who has least
+    const counts = await Promise.all(
+      agents.map(async (a) => ({
+        id: a.id,
+        count: await this.prisma.lead.count({ where: { agentId: a.id } }),
+      })),
+    );
+
+    // Assign to agent with fewest leads
+    counts.sort((a, b) => a.count - b.count);
+    return counts[0].id;
+  }
+
+  // ─── RECEIVE META LEAD WEBHOOK ───────────────────────────────────────────
+  async receiveMetaLead(data: {
+    name: string;
+    phone: string;
+    email?: string;
+    businessName?: string;
+    city?: string;
+    productInterest?: string;
+    estimatedQty?: number;
+    estimatedValue?: number;
+    notes?: string;
+  }) {
+    // Check for duplicate phone
+    const existing = await this.prisma.lead.findFirst({
+      where: { phone: data.phone },
+    });
+
+    const agentId = await this.getNextAgent();
+
+    const lead = await this.prisma.lead.create({
+      data: {
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+        businessName: data.businessName,
+        city: data.city,
+        productInterest: data.productInterest,
+        estimatedQty: data.estimatedQty,
+        estimatedValue: data.estimatedValue,
+        notes: data.notes,
+        source: 'WHATSAPP' as any,
+        status: 'NEW' as any,
+        agentId,
+      },
+      include: {
+        agent: { select: { id: true, fullName: true } },
+      },
+    });
+
+    // Log activity
+    await this.prisma.leadActivity.create({
+      data: {
+        leadId: lead.id,
+        type: 'NOTE_ADDED' as any,
+        description: `Lead received from Meta Ads and assigned to ${lead.agent.fullName}`,
+        createdById: agentId,
+      },
+    });
+
+    return { lead, isDuplicate: !!existing };
+  }
+
+  // ─── SEND LEAD TO AISENSY ────────────────────────────────────────────────
+  async sendLeadToAisensy(leadId: string, userId: string) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      include: {
+        agent: { select: { id: true, fullName: true } },
+      },
+    });
+
+    if (!lead) throw new Error('Lead not found');
+
+    const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
+    const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
+
+    // Normalize phone
+    const digits = lead!.phone.replace(/\D/g, '');
+    let phone = digits;
+    if (digits.length === 10) phone = `91${digits}`;
+    else if (digits.length === 11 && digits.startsWith('0')) phone = `91${digits.slice(1)}`;
+
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName: 'question',
+      destination: phone,
+      userName: lead.name,
+      templateParams: [
+        lead.name,                          // {{1}} customer name
+        lead.agent.fullName,               // {{2}} agent name
+        lead.productInterest ?? 'Printing', // {{3}} product interest
+        lead!.phone,                         // {{4}} phone
+      ],
+      source: 'rareprint-erp-crm',
+      media: {},
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+
+    const res = await fetch(AISENSY_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const responseData = await res.json().catch(() => ({}));
+
+    // Log the activity
+    await this.prisma.leadActivity.create({
+      data: {
+        leadId: lead.id,
+        type: 'WHATSAPP_SENT' as any,
+        description: `WhatsApp sent to ${lead!.phone} via AiSensy (template: question) by ${lead.agent.fullName}`,
+        createdById: userId,
+      },
+    });
+
+    // Update lead status to CONTACTED
+    await this.prisma.lead.update({
+      where: { id: leadId },
+      data: { status: 'CONTACTED' as any },
+    });
+
+    return {
+      success: res.ok,
+      response: responseData,
+      sentTo: phone,
+      agentName: lead.agent.fullName,
+    };
+  }
 }
+
