@@ -133,15 +133,17 @@ export default function StickerSheet() {
         }
       }
 
-      // Corner dots
+      // Corner dots - 2.5mm from each edge = 7.09px, radius = 7.09px
       ctx.fillStyle = 'rgb(33, 31, 28)';
-      const dotR = 7.26 * SCALE;
-      [[24, 24], [840, 24], [24, 1272], [840, 1272]].forEach(([dx, dy]) => {
+      const dotR = layout === 'SPARSH' ? 7.26 * SCALE : 7.09 * SCALE;
+      const dotPositions = layout === 'SPARSH'
+        ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
+        : [[7.09, 7.09], [856.91, 7.09], [7.09, 1288.91], [856.91, 1288.91]];
+      dotPositions.forEach(([dx, dy]) => {
         ctx.beginPath();
         ctx.arc(dx * SCALE, dy * SCALE, dotR, 0, Math.PI * 2);
         ctx.fill();
       });
-
       // Toyocut dash (TL only)
       ctx.fillStyle = 'rgb(33, 31, 28)';
       ctx.fillRect(39.9 * SCALE, 24.34 * SCALE, 3.3 * SCALE, 1.92 * SCALE);
