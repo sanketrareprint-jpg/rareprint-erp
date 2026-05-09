@@ -24,6 +24,12 @@ export class AccountsController {
     return this.accountsService.getPendingPayments();
   }
 
+@Get('payment-history')
+@UseGuards(JwtAuthGuard)
+async getPaymentHistory() {
+  return this.accountsService.getPaymentHistory();
+}
+
   @Get('vendor-statements')
   getVendorStatements() {
     return this.accountsService.getVendorStatements();

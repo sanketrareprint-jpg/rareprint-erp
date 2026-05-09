@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -86,7 +86,7 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
-type Tab = "pending" | "dispatch" | "receipts" | "vendors";
+type Tab = "pending" | "dispatch" | "receipts" | "receipt_history" | "vendors";
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -122,8 +122,11 @@ export default function AccountsPage() {
   // Pending payment receipts
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const [receiptHistory, setReceiptHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
 const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
+  const [utrDraft, setUtrDraft] = useState<Record<string, string>>({});
 const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const [rejectPaymentId, setRejectPaymentId] = useState<string | null>(null);
   const [rejectPaymentReason, setRejectPaymentReason] = useState("");
@@ -173,7 +176,15 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
-  useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
+  useEffect(() => { if (tab === "receipts") void loadReceipts(); loadHistory(); }, [tab, loadReceipts, loadHistory]);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-history`, { headers: getAuthHeaders() });
+      if (res.ok) setReceiptHistory(await res.json());
+    } finally { setHistoryLoading(false); }
+  }, []);
   useEffect(() => { if (tab === "vendors") void loadVendors(); }, [tab, loadVendors]);
 
   async function approveOrder(id: string) {
@@ -286,6 +297,7 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
                 { key: "pending", label: "Order Approval", count: orders.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
                 { key: "receipts", label: "Receipts Pending", count: pendingPayments.length },
+                { key: "receipt_history", label: "Receipt History", count: receiptHistory.length },
                 { key: "vendors", label: "Vendor Statements", count: vendorEntries.filter(e => !e.isPaid).length },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
@@ -487,31 +499,21 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
                             <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{p.method}</span>
                           </td>
                           <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
-                          <td className="px-3 py-2 font-mono text-slate-500">
-  {verifyUtrId === p.id ? (
-    <input autoFocus value={verifyUtrValue} onChange={e => setVerifyUtrValue(e.target.value)}
-      placeholder="Enter UTR / Ref No"
-      className="border border-blue-300 rounded px-2 py-1 text-xs w-36 outline-none focus:border-blue-500" />
-  ) : (
-    p.referenceNumber || "—"
-  )}
-</td>
+                          <td className="px-3 py-2">
+                          <input value={p.id === verifyUtrId ? verifyUtrValue : (utrDraft[p.id] ?? p.referenceNumber ?? "")}
+                            onChange={e => setUtrDraft((d: any) => ({ ...d, [p.id]: e.target.value }))}
+                            onFocus={() => { setVerifyUtrId(p.id); setVerifyUtrValue(utrDraft[p.id] ?? p.referenceNumber ?? ""); }}
+                            placeholder="UTR / Ref No"
+                            className="border border-slate-200 rounded px-2 py-1 text-xs w-36 outline-none focus:border-blue-400 bg-white" />
+                        </td>
                           <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center justify-center gap-1.5">
-                              {verifyUtrId === p.id ? (
-                                <button onClick={() => verifyPayment(p.id, verifyUtrValue)} disabled={verifyingId === p.id}
+                              <button onClick={() => verifyPayment(p.id, utrDraft[p.id] ?? p.referenceNumber ?? "")} disabled={verifyingId === p.id}
                                   className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
                                   {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                  Confirm
-                                </button>
-                              ) : (
-                                <button onClick={() => { setVerifyUtrId(p.id); setVerifyUtrValue(p.referenceNumber || ""); }} disabled={verifyingId === p.id}
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
-                                  <Check className="h-3 w-3" />
                                   Verify
                                 </button>
-                              )}
                               <button onClick={() => setRejectPaymentId(p.id)}
                                 className="px-2 py-1 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 font-semibold">
                                 Reject
@@ -535,7 +537,66 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
           )}
 
           {/* ── VENDOR STATEMENTS TAB ── */}
-          {tab === "vendors" && (
+          {tab === "receipt_history" && (
+                <div className="overflow-x-auto">
+                  {historyLoading ? (
+                    <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+                  ) : receiptHistory.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-sm">No verified receipts yet.</div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Agent</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Method</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Account</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">UTR / Ref No</th>
+                          <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Status</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Verified By</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Verified At</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {receiptHistory.map((p: any) => (
+                          <tr key={p.id} className="hover:bg-slate-50">
+                            <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</td>
+                            <td className="px-3 py-2 font-bold text-blue-700">{p.orderNo}</td>
+                            <td className="px-3 py-2 text-slate-700">
+                              {p.customerName}
+                              {p.customerPhone && <div className="text-slate-400 text-xs">{p.customerPhone}</div>}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600">{p.salesAgentName || "—"}</td>
+                            <td className="px-3 py-2"><span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-semibold">{p.method}</span></td>
+                            <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
+                            <td className="px-3 py-2 font-mono text-slate-500 text-xs">{p.referenceNumber || "—"}</td>
+                            <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
+                            <td className="px-3 py-2">
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${p.verificationStatus === "VERIFIED" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                                {p.verificationStatus}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 text-xs">{p.verifiedByName || "—"}</td>
+                            <td className="px-3 py-2 text-slate-400 text-xs whitespace-nowrap">{p.verifiedAt ? new Date(p.verifiedAt).toLocaleString("en-IN", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                        <tr>
+                          <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({receiptHistory.filter((p:any) => p.verificationStatus === "VERIFIED").length} receipts)</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(receiptHistory.filter((p:any) => p.verificationStatus === "VERIFIED").reduce((s:number, p:any) => s + p.amount, 0))}</td>
+                          <td colSpan={3} />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+                </div>
+              )}
+
+              {tab === "vendors" && (
             <div className="space-y-4">
               {/* Summary cards */}
               <div className="grid grid-cols-3 gap-3">
