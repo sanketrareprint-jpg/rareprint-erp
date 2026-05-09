@@ -1,4 +1,4 @@
-// backend/src/accounts/accounts.service.ts
+﻿// backend/src/accounts/accounts.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderStatus } from '@prisma/client';
@@ -358,34 +358,6 @@ export class AccountsService {
       },
     });
   }
-async getPaymentHistory() {
-  const payments = await this.prisma.payment.findMany({
-    where: { verificationStatus: { in: ['VERIFIED', 'REJECTED'] } },
-    include: {
-      order: { include: { customer: true, salesAgent: { select: { fullName: true } } } },
-      paymentAccount: true,
-      receivedBy: { select: { fullName: true } },
-      verifiedBy: { select: { fullName: true } },
-    },
-    orderBy: { verifiedAt: 'desc' },
-  });
-  return payments.map(p => ({
-    id: p.id,
-    orderNo: (p.order as any).orderNumber,
-    customerName: (p.order as any).customer.businessName,
-    customerPhone: (p.order as any).customer.phone,
-    salesAgentName: (p.order as any).salesAgent?.fullName ?? null,
-    amount: Number(p.amount),
-    method: p.method,
-    referenceNumber: p.referenceNumber,
-    paymentDate: p.paymentDate,
-    paymentAccountName: p.paymentAccount.name,
-    verificationStatus: p.verificationStatus,
-    verifiedByName: (p as any).verifiedBy?.fullName ?? null,
-    verifiedAt: (p as any).verifiedAt,
-    rejectionReason: (p as any).rejectionReason,
-  }));
-}
 async getPaymentHistory() {
     const payments = await this.prisma.payment.findMany({
       where: { verificationStatus: { in: ['VERIFIED', 'REJECTED'] } },
