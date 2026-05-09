@@ -25,8 +25,7 @@ export class AccountsController {
   }
 
 @Get('payment-history')
-@UseGuards(JwtAuthGuard)
-async getPaymentHistory() {
+  getPaymentHistory() {
   return this.accountsService.getPaymentHistory();
 }
 
