@@ -1,5 +1,3 @@
-﻿import { CrmModule } from './crm/crm.module';
-import { RateCalculatorModule } from './rate-calculator/rate-calculator.module';
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -10,14 +8,12 @@ import { OrdersModule } from './orders/orders.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductionModule } from './production/production.module';
 import { ProductsModule } from './products/products.module';
-import { VendorsModule } from './vendors/vendors.module';
 import { PrismaService } from './prisma/prisma.service';
-import { AdminDbController } from './admin-db.controller';
-import { DashboardModule } from './dashboard/dashboard.module';
+import { RateCalculatorModule } from './rate-calculator/rate-calculator.module';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
-    CrmModule,
     PrismaModule,
     AuthModule,
     OrdersModule,
@@ -25,17 +21,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
     AccountsModule,
     ProductionModule,
     DispatchModule,
-    VendorsModule,
-    DashboardModule,
     RateCalculatorModule,
   ],
-  controllers: [AppController, AdminDbController],
+  controllers: [AppController, HealthController],
   providers: [AppService, PrismaService],
 })
 export class AppModule {}
-
-
-
-
-
-
