@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -176,7 +176,7 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
-  useEffect(() => { if (tab === "receipts") void loadReceipts(); loadHistory(); }, [tab, loadReceipts, loadHistory]);
+  useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -241,6 +241,7 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
       });
       setRejectPaymentId(null); setRejectPaymentReason("");
       await loadReceipts();
+await loadHistory();
     } finally { setVerifyingId(null); }
   }
 
