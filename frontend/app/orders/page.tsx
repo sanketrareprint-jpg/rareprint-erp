@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -550,45 +550,49 @@ export default function OrdersPage() {
                           <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
                           <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
                           <td className="px-2 py-1.5 align-top">
-                            <div className="flex flex-wrap gap-1 max-w-[160px]">
-                              {/* Pay button */}
-                              <button onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
-                                className="inline-flex items-center gap-0.5 rounded-md bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-emerald-700">
-                                <Plus className="h-2.5 w-2.5" /> Pay
+                            <div className="flex flex-row flex-wrap gap-1">
+                              {/* Pay */}
+                              <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
+                                className="p-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
+                                <CreditCard className="h-3.5 w-3.5" />
                               </button>
-                              {/* History */}
-                              <button onClick={() => togglePayments(o.id)}
-                                className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-1.5 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
-                                {expandedPayments === o.id ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
-                                Hist
+                              {/* Payment History */}
+                              <button title="Payment History" onClick={() => togglePayments(o.id)}
+                                className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
+                                {expandedPayments === o.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                               </button>
                               {/* Journey */}
-                              <button onClick={() => toggleJourney(o.id)}
-                                className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
-                                {expandedJourney === o.id ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
-                                Journey
+                              <button title="Order Journey" onClick={() => toggleJourney(o.id)}
+                                className="p-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">
+                                <FileText className="h-3.5 w-3.5" />
                               </button>
-                              {/* Attach design file */}
-                              {/* Edit button - only for pending approval */}
+                              {/* Edit */}
                               {o.status === "PENDING_APPROVAL" && (
-                                <button onClick={() => router.push(`/orders/edit?id=${o.id}`)}
-                                  className="inline-flex items-center gap-0.5 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-100">
-                                  ✏️ Edit
+                                <button title="Edit Order" onClick={() => router.push(`/orders/edit?id=${o.id}`)}
+                                  className="p-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 </button>
                               )}
+                              {/* Delete */}
                               {o.status === "PENDING_APPROVAL" && (
-                                <button onClick={async () => {
+                                <button title="Delete Order" onClick={async () => {
                                   if (!confirm(`Delete order ${o.orderNo}? Cannot be undone.`)) return;
                                   const res = await fetch(`${API_BASE_URL}/orders/${o.id}`, { method: "DELETE", headers: getAuthHeaders() });
                                   if (res.ok) { alert("Order deleted!"); load(); } else { alert("Delete failed"); }
-                                }} className="inline-flex items-center gap-0.5 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100">
-                                  🗑️ Del
+                                }} className="p-1.5 rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                                 </button>
                               )}
+                              {/* Files */}
                               {o.items && o.items.length > 0 && (
-                                <button onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
-                                  className="inline-flex items-center gap-0.5 rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
-                                  <Paperclip className="h-2.5 w-2.5" /> Files {o.items && o.items.reduce((s: number, i: any) => s + (Array.isArray(i.designFiles) ? i.designFiles.length : 0), 0) > 0 && <span className="ml-0.5 rounded-full bg-purple-200 text-purple-800 px-1 text-xs font-bold">{o.items.reduce((s: number, i: any) => s + (Array.isArray(i.designFiles) ? i.designFiles.length : 0), 0)}</span>}
+                                <button title="Design Files" onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
+                                  className="relative p-1.5 rounded-md border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100">
+                                  <Paperclip className="h-3.5 w-3.5" />
+                                  {o.items.reduce((s: number, i: any) => s + (Array.isArray(i.designFiles) ? i.designFiles.length : 0), 0) > 0 && (
+                                    <span className="absolute -top-1 -right-1 rounded-full bg-purple-600 text-white w-3.5 h-3.5 flex items-center justify-center font-bold" style={{fontSize:'9px'}}>
+                                      {o.items.reduce((s: number, i: any) => s + (Array.isArray(i.designFiles) ? i.designFiles.length : 0), 0)}
+                                    </span>
+                                  )}
                                 </button>
                               )}
                             </div>
