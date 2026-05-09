@@ -415,6 +415,25 @@ export class CrmService {
   }
 
   // ─── RECEIVE META LEAD WEBHOOK ───────────────────────────────────────────
+  async receiveMetaWebhook(rawBody: any) {
+    // Handle Meta webhook format
+    if (rawBody.object === "page" && rawBody.entry) {
+      for (const entry of rawBody.entry) {
+        for (const change of entry.changes ?? []) {
+          if (change.field === "leadgen") {
+            const leadId = change.value.leadgen_id;
+            const formId = change.value.form_id;
+            const pageId = change.value.page_id;
+            console.log(`[META] New lead: ${leadId} from form ${formId}`);
+            // Here you would fetch lead details from Meta Graph API
+            // For now log it
+          }
+        }
+      }
+    }
+    return { status: "ok" };
+  }
+
   async receiveMetaLead(data: {
     name: string;
     phone: string;
@@ -531,6 +550,7 @@ export class CrmService {
     };
   }
 }
+
 
 
 
