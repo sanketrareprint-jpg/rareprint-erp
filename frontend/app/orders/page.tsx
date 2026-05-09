@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -642,24 +642,65 @@ export default function OrdersPage() {
                         {/* Order Journey row */}
                         {expandedJourney === o.id && (
                           <tr>
-                            <td colSpan={13} className="bg-blue-50 px-6 py-3 border-t border-blue-100">
-                              <p className="text-xs font-semibold text-blue-800 mb-2">Order Journey</p>
-                              {!orderJourneys[o.id] ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                                : orderJourneys[o.id].length === 0 ? <p className="text-xs text-slate-400">No status changes recorded.</p>
-                                : (
-                                  <div className="flex flex-wrap gap-1 max-w-[160px]">
-                                    {orderJourneys[o.id].map((log: any, idx: number) => (
-                                      <div key={log.id} className="flex items-center gap-2 text-xs">
-                                        <span className="text-slate-400 whitespace-nowrap">{new Date(log.changedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                                        <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 font-medium">{log.fromStatus?.replace(/_/g,' ') ?? '—'}</span>
-                                        <span className="text-slate-400">→</span>
-                                        <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 font-semibold">{log.toStatus?.replace(/_/g,' ')}</span>
-                                        <span className="text-slate-500">by <strong>{log.changedBy}</strong></span>
-                                        {log.reason && <span className="text-slate-400 italic truncate max-w-xs">{log.reason}</span>}
-                                      </div>
-                                    ))}
+                            <td colSpan={13} className="bg-slate-50 px-6 py-4 border-t border-slate-100">
+                              <p className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Order Journey</p>
+                              {!orderJourneys[o.id] ? (
+                                <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
+                              ) : orderJourneys[o.id].length === 0 ? (
+                                <p className="text-xs text-slate-400">No activity recorded yet.</p>
+                              ) : (
+                                <div className="relative">
+                                  {/* Vertical line */}
+                                  <div className="absolute left-[7px] top-2 bottom-2 w-px bg-slate-200" />
+                                  <div className="space-y-0">
+                                    {orderJourneys[o.id].map((log: any, idx: number) => {
+                                      const isItemLog = log.reason?.startsWith('Item:');
+                                      const isDispatch = log.toStatus?.includes('DISPATCH') || log.toStatus?.includes('DISPATCHED');
+                                      const isApproved = log.toStatus === 'APPROVED';
+                                      const isReady = log.toStatus === 'READY_FOR_DISPATCH';
+                                      const dotColor = isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : isItemLog ? 'bg-amber-400' : 'bg-slate-400';
+                                      return (
+                                        <div key={log.id} className="relative flex gap-4 pb-4">
+                                          {/* Dot */}
+                                          <div className={`relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 border-white shadow flex-shrink-0 ${dotColor}`} />
+                                          {/* Content */}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div>
+                                                {isItemLog ? (
+                                                  <p className="text-xs font-medium text-slate-700">{log.reason}</p>
+                                                ) : (
+                                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {log.fromStatus && log.fromStatus !== log.toStatus && (
+                                                      <>
+                                                        <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{log.fromStatus.replace(/_/g,' ')}</span>
+                                                        <span className="text-slate-300 text-xs">→</span>
+                                                      </>
+                                                    )}
+                                                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isDispatch ? 'bg-green-100 text-green-700' : isApproved ? 'bg-blue-100 text-blue-700' : isReady ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                      {log.toStatus.replace(/_/g,' ')}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                  <span className="text-xs text-slate-400">by</span>
+                                                  <span className="text-xs font-semibold text-slate-600">{log.changedBy}</span>
+                                                  {!isItemLog && log.reason && (
+                                                    <span className="text-xs text-slate-400 italic">· {log.reason}</span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+                                                {new Date(log.changedAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:true })}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                )}
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )}
