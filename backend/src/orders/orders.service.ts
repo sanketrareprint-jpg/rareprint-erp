@@ -38,7 +38,7 @@ function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: s
     const sidesLabel = sidesRaw === 'SINGLE_SIDE' ? 'Single' : sidesRaw === 'DOUBLE_SIDE' ? 'Double' : (sidesRaw ?? null);
 
     return {
-      product: { name: i.product.name },
+      productName: i.product.name,
       productionNotes: i.productionNotes ?? null,
       quantity: i.quantity,
       unitPrice: i.unitPrice,
