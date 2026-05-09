@@ -16,12 +16,27 @@ function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-function buildItemDetails(items: Array<{ product: { name: string }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string }>) {
+function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string }>) {
   return items.map((i) => {
-    const size = (i.productionNotes?.match(/Size[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
-    const gsm = (i.productionNotes?.match(/GSM[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
-    const sidesRaw = (i.productionNotes?.match(/Sides[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
+    // Try to read from productionNotes first
+    let size = (i.productionNotes?.match(/Size[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
+    let gsm = (i.productionNotes?.match(/GSM[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
+    let sidesRaw = (i.productionNotes?.match(/Sides[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
+
+    // Fall back to product's direct fields if not found in productionNotes
+    if (!size && i.product.sizeInches) {
+      size = i.product.sizeInches;
+    }
+    if (!gsm && i.product.gsm) {
+      gsm = String(i.product.gsm);
+    }
+    if (!sidesRaw && i.product.sides) {
+      sidesRaw = i.product.sides;
+    }
+
+    // Convert sides to label
     const sidesLabel = sidesRaw === 'SINGLE_SIDE' ? 'Single' : sidesRaw === 'DOUBLE_SIDE' ? 'Double' : (sidesRaw ?? null);
+
     return {
       product: { name: i.product.name },
       productionNotes: i.productionNotes ?? null,
@@ -58,7 +73,18 @@ export class OrdersService {
       include: {
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: { include: { product: true } },
+        items: { 
+          include: { 
+            product: {
+              select: {
+                name: true,
+                sizeInches: true,
+                gsm: true,
+                sides: true,
+              }
+            } 
+          } 
+        },
         payments: true,
       },
     });
@@ -555,7 +581,18 @@ export class OrdersService {
       include: {
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: { include: { product: true } },
+        items: { 
+          include: { 
+            product: {
+              select: {
+                name: true,
+                sizeInches: true,
+                gsm: true,
+                sides: true,
+              }
+            } 
+          } 
+        },
         payments: true,
       },
     });
