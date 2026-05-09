@@ -123,6 +123,8 @@ export default function AccountsPage() {
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
+const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const [rejectPaymentId, setRejectPaymentId] = useState<string | null>(null);
   const [rejectPaymentReason, setRejectPaymentReason] = useState("");
 
