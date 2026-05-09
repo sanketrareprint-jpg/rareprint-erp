@@ -1,4 +1,4 @@
-﻿// backend/src/accounts/accounts.service.ts
+// backend/src/accounts/accounts.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderStatus } from '@prisma/client';
@@ -364,8 +364,7 @@ async getPaymentHistory() {
       include: {
         order: { include: { customer: true, salesAgent: { select: { fullName: true } } } },
         paymentAccount: true,
-        verifiedBy: { select: { fullName: true } },
-      },
+        },
       orderBy: { verifiedAt: 'desc' },
     });
     return payments.map(p => ({
@@ -380,7 +379,7 @@ async getPaymentHistory() {
       paymentDate: p.paymentDate,
       paymentAccountName: p.paymentAccount.name,
       verificationStatus: p.verificationStatus,
-      verifiedByName: (p as any).verifiedBy?.fullName ?? null,
+      verifiedByName: null,
       verifiedAt: (p as any).verifiedAt,
       rejectionReason: (p as any).rejectionReason,
     }));
