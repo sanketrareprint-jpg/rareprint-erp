@@ -11,6 +11,10 @@ import { ProductsModule } from './products/products.module';
 import { PrismaService } from './prisma/prisma.service';
 import { RateCalculatorModule } from './rate-calculator/rate-calculator.module';
 import { HealthController } from './health/health.controller';
+import { AdminDbController } from './admin-db.controller';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { VendorsModule } from './vendors/vendors.module';
+import { CrmModule } from './crm/crm.module';
 
 @Module({
   imports: [
@@ -21,9 +25,12 @@ import { HealthController } from './health/health.controller';
     AccountsModule,
     ProductionModule,
     DispatchModule,
+    VendorsModule,
+    DashboardModule,
     RateCalculatorModule,
+    CrmModule,
   ],
-  controllers: [AppController, HealthController],
+  controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
 })
 export class AppModule {}
