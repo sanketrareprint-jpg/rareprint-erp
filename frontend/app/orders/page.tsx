@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -550,7 +550,7 @@ export default function OrdersPage() {
                           <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
                           <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
                           <td className="px-2 py-1.5 align-top">
-                            <div className="flex flex-row flex-wrap gap-1">
+                            <div className="flex flex-row gap-1 items-center">
                               {/* Pay */}
                               <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
                                 className="p-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
