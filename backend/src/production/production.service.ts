@@ -1,4 +1,4 @@
-// backend/src/production/production.service.ts
+﻿// backend/src/production/production.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -191,6 +191,20 @@ export class ProductionService {
       data: { itemProductionStage: stage },
     });
 
+    // ── Log every item stage change ───────────────────────────────────────
+    const stageLabel = STAGE_LABEL[stage] ?? stage.replace(/_/g, ' ');
+    const sizeInfo = item.productionNotes?.match(/Size:\s*([^,|]+)/)?.[1]?.trim()
+      ?? (item.product as any).sizeInches ?? '';
+    await this.prisma.statusLog.create({
+      data: {
+        orderId: item.orderId,
+        fromStatus: item.order.status,
+        toStatus: item.order.status,
+        changedById: userId,
+        reason: `Item: ${item.product.name}${sizeInfo ? ' ' + sizeInfo : ''} → ${stageLabel}`,
+      },
+    });
+
     const allItems = await this.prisma.orderItem.findMany({
       where: { orderId: item.orderId },
     });
@@ -222,7 +236,7 @@ export class ProductionService {
           fromStatus: item.order.status,
           toStatus: newOrderStatus,
           changedById: userId,
-          reason: `Item stage updated to ${stage}`,
+          reason: `Order status updated: all items ${stage === 'READY_FOR_DISPATCH' ? 'ready for dispatch' : 'in production'}`,
         },
       });
     }
