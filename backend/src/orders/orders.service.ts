@@ -70,11 +70,25 @@ export class OrdersService {
   async findAllForTable() {
     const orders = await this.prisma.order.findMany({
       orderBy: { orderDate: 'desc' },
-      include: {
+      select: {
+        id: true,
+        orderNumber: true,
+        customerId: true,
+        salesAgentId: true,
+        orderDate: true,
+        status: true,
+        grandTotal: true,
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: { 
-          include: { 
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+            productionNotes: true,
+            itemProductionStage: true,
+            designFiles: true,
             product: {
               select: {
                 name: true,
@@ -82,8 +96,8 @@ export class OrdersService {
                 gsm: true,
                 sides: true,
               }
-            } 
-          } 
+            }
+          }
         },
         payments: true,
       },
@@ -578,11 +592,25 @@ export class OrdersService {
         items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
       },
       orderBy: { orderDate: 'desc' },
-      include: {
+      select: {
+        id: true,
+        orderNumber: true,
+        customerId: true,
+        salesAgentId: true,
+        orderDate: true,
+        status: true,
+        grandTotal: true,
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: { 
-          include: { 
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+            productionNotes: true,
+            itemProductionStage: true,
+            designFiles: true,
             product: {
               select: {
                 name: true,
@@ -590,8 +618,8 @@ export class OrdersService {
                 gsm: true,
                 sides: true,
               }
-            } 
-          } 
+            }
+          }
         },
         payments: true,
       },
