@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -487,7 +487,15 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
                             <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{p.method}</span>
                           </td>
                           <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
-                          <td className="px-3 py-2 font-mono text-slate-500">{p.referenceNumber || "—"}</td>
+                          <td className="px-3 py-2 font-mono text-slate-500">
+  {verifyUtrId === p.id ? (
+    <input autoFocus value={verifyUtrValue} onChange={e => setVerifyUtrValue(e.target.value)}
+      placeholder="Enter UTR / Ref No"
+      className="border border-blue-300 rounded px-2 py-1 text-xs w-36 outline-none focus:border-blue-500" />
+  ) : (
+    p.referenceNumber || "—"
+  )}
+</td>
                           <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center justify-center gap-1.5">
