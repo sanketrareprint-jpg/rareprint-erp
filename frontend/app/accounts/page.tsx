@@ -202,12 +202,20 @@ export default function AccountsPage() {
     } finally { setDispatchProcessing(null); }
   }
 
-  async function verifyPayment(id: string) {
+  async function verifyPayment(id: string, utr?: string) {
     setVerifyingId(id);
     try {
-      await fetch(`${API_BASE_URL}/accounts/payments/${id}/verify`, { method: "PATCH", headers: getAuthHeaders() });
+      await fetch(`${API_BASE_URL}/accounts/payments/${id}/verify`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ referenceNumber: utr || undefined }),
+      });
       await loadReceipts();
-    } finally { setVerifyingId(null); }
+    } finally {
+      setVerifyingId(null);
+      setVerifyUtrId(null);
+      setVerifyUtrValue("");
+    }
   }
 
   async function rejectPayment() {
@@ -481,11 +489,19 @@ export default function AccountsPage() {
                           <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center justify-center gap-1.5">
-                              <button onClick={() => verifyPayment(p.id)} disabled={verifyingId === p.id}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
-                                {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                Verify
-                              </button>
+                              {verifyUtrId === p.id ? (
+                                <button onClick={() => verifyPayment(p.id, verifyUtrValue)} disabled={verifyingId === p.id}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
+                                  {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                  Confirm
+                                </button>
+                              ) : (
+                                <button onClick={() => { setVerifyUtrId(p.id); setVerifyUtrValue(p.referenceNumber || ""); }} disabled={verifyingId === p.id}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
+                                  <Check className="h-3 w-3" />
+                                  Verify
+                                </button>
+                              )}
                               <button onClick={() => setRejectPaymentId(p.id)}
                                 className="px-2 py-1 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 font-semibold">
                                 Reject
