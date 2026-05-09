@@ -185,7 +185,7 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
       if (res.ok) setReceiptHistory(await res.json());
     } finally { setHistoryLoading(false); }
   }, []);
-  useEffect(() => { if (tab === "vendors") void loadVendors(); }, [tab, loadVendors]);
+  useEffect(() => { if (tab === "vendors") void loadVendors(); if (tab === "receipt_history") void loadHistory(); }, [tab, loadVendors, loadHistory]);
 
   async function approveOrder(id: string) {
     setProcessing(id);
