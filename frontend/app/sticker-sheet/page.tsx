@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
@@ -138,7 +138,7 @@ export default function StickerSheet() {
       const dotR = layout === 'SPARSH' ? 7.26 * SCALE : 7.09 * SCALE;
       const dotPositions = layout === 'SPARSH'
         ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
-        : [[20.98, 20.98], [858.05, 20.98], [20.98, 1290.33], [858.05, 1290.33]];
+        : [[10.8, 10.8], [853.2, 10.8], [10.8, 1285.2], [853.2, 1285.2]];
       dotPositions.forEach(([dx, dy]) => {
         ctx.beginPath();
         ctx.arc(dx * SCALE, dy * SCALE, dotR, 0, Math.PI * 2);
@@ -207,7 +207,7 @@ export default function StickerSheet() {
       }
 
       pdf.setFillColor(33, 31, 28);
-      [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]].forEach(([x, y]) => {
+      [[10.8, 10.8], [853.2, 10.8], [10.8, 1285.2], [853.2, 1285.2]].forEach(([x, y]) => {
         pdf.circle(x, y, 7.26, 'F');
       });
       pdf.rect(39.9, 24.34, 3.3, 1.92, 'F');
