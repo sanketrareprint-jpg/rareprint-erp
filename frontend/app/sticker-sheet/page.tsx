@@ -210,12 +210,15 @@ export default function StickerSheet() {
       const pdfDotR = layout === 'SPARSH' ? 7.26 : 7.09;
       const pdfDots = layout === 'SPARSH'
         ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
-        : [[28.32, 27.81], [847.53, 27.81], [28.32, 1278.11], [847.53, 1278.11]];
+        : layout === 'SIZE_175'
+        ? [[28.32, 27.81], [847.53, 27.81], [28.32, 1278.11], [847.53, 1278.11]]
+        : [[11.99, 11.25], [831.2, 11.25], [11.99, 1262.75], [831.2, 1262.75]];
       pdfDots.forEach(([x, y]) => {
         pdf.circle(x, y, pdfDotR, 'F');
       });
       if (layout === 'SPARSH') pdf.rect(39.9, 24.34, 3.3, 1.92, 'F');
-      else pdf.rect(36.6, 20.53, 3.3, 1.92, 'F');
+      else if (layout === 'SIZE_175') pdf.rect(36.6, 20.53, 3.3, 1.92, 'F');
+      else pdf.rect(20.27, 3.97, 3.3, 1.92, 'F');
 
       const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'sticker-sheet';
       pdf.save(`${baseName} 12X18 STICKER SHEET.pdf`);
