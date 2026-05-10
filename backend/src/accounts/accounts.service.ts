@@ -359,29 +359,29 @@ export class AccountsService {
     });
   }
 async getPaymentHistory() {
-    const payments = await this.prisma.payment.findMany({
-      where: { verificationStatus: { in: ['VERIFIED', 'REJECTED'] } },
-      include: {
-        order: { include: { customer: true, salesAgent: { select: { fullName: true } } } },
-        paymentAccount: true,
-        },
-      orderBy: { verifiedAt: 'desc' },
-    });
-    return payments.map(p => ({
-      id: p.id,
-      orderNo: (p.order as any).orderNumber,
-      customerName: (p.order as any).customer.businessName,
-      customerPhone: (p.order as any).customer.phone,
-      salesAgentName: (p.order as any).salesAgent?.fullName ?? null,
-      amount: Number(p.amount),
-      method: p.method,
-      referenceNumber: p.referenceNumber,
-      paymentDate: p.paymentDate,
-      paymentAccountName: p.paymentAccount.name,
-      verificationStatus: p.verificationStatus,
-      verifiedByName: null,
-      verifiedAt: (p as any).verifiedAt,
-      rejectionReason: (p as any).rejectionReason,
-    }));
-  }
+  const payments = await this.prisma.$queryRaw<any[]>`
+    SELECT 
+      p.id, p."orderId", p.amount, p.method, p."referenceNumber",
+      p."paymentDate", p."verificationStatus", p."verifiedAt", p."rejectionReason",
+      o."orderNumber" as "orderNo",
+      c."businessName" as "customerName",
+      c.phone as "customerPhone",
+      sa."fullName" as "salesAgentName",
+      pa.name as "paymentAccountName",
+      vb."fullName" as "verifiedByName"
+    FROM "Payment" p
+    JOIN "Order" o ON p."orderId" = o.id
+    JOIN "Customer" c ON o."customerId" = c.id
+    LEFT JOIN "User" sa ON o."salesAgentId" = sa.id
+    JOIN "PaymentAccount" pa ON p."paymentAccountId" = pa.id
+    LEFT JOIN "User" vb ON p."verifiedById" = vb.id
+    WHERE p."verificationStatus" IN ('VERIFIED', 'REJECTED')
+    ORDER BY p."verifiedAt" DESC
+  `;
+  return payments.map(p => ({
+    ...p,
+    amount: Number(p.amount),
+  }));
+}
+   
 }
