@@ -215,6 +215,7 @@ export default function StickerSheet() {
         pdf.circle(x, y, pdfDotR, 'F');
       });
       if (layout === 'SPARSH') pdf.rect(39.9, 24.34, 3.3, 1.92, 'F');
+      else pdf.rect(36.6, 20.53, 3.3, 1.92, 'F');
 
       const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'sticker-sheet';
       pdf.save(`${baseName} 12X18 STICKER SHEET.pdf`);
