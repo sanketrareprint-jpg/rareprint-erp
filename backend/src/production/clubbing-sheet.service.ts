@@ -1,4 +1,4 @@
-// backend/src/production/clubbing-sheet.service.ts
+﻿// backend/src/production/clubbing-sheet.service.ts
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JobWorkStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -32,10 +32,24 @@ export class ClubbingSheetService {
       include: { customer: true, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: true, jobWorks: { include: { vendor: true } } } } },
       orderBy: { updatedAt: 'desc' },
     });
-    return orders.filter(o => o.items.length > 0).map(o => ({
+    const filtered = orders.filter(o => o.items.length > 0);
+    // Fetch designFiles via raw query
+    const itemIds = filtered.flatMap(o => o.items.map(i => i.id));
+    let designFilesMap: Record<string, any[]> = {};
+    if (itemIds.length > 0) {
+      const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
+        `SELECT id, "designFiles" FROM "OrderItem" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
+        ...itemIds
+      );
+      designFilesMap = Object.fromEntries(
+        results.map(r => [r.id, Array.isArray(r.designFiles) ? r.designFiles : []])
+      );
+    }
+    return filtered.map(o => ({
       id: o.id, orderNo: o.orderNumber, customerName: o.customer.businessName, customerPhone: o.customer.phone,
       salesAgentName: o.salesAgent?.fullName ?? null, orderDate: o.orderDate.toISOString(),
       items: o.items.map(i => ({ id: i.id, productName: i.product.name, quantity: i.quantity, productionNotes: i.productionNotes, artworkNotes: i.artworkNotes, itemProductionStage: i.itemProductionStage,
+        designFiles: designFilesMap[i.id] ?? [],
         jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, completedAt: j.completedAt?.toISOString() ?? null })) })),
     }));
   }
