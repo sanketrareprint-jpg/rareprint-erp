@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -36,7 +36,7 @@ type ProductionOrder = {
 };
 type Vendor = { id: string; name: string; phone?: string; };
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
-type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; jobWorks: JobWork[]; };
+type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
 type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
