@@ -494,7 +494,7 @@ export default function SalesLearningPage() {
 
             {/* Options */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-              {q.options.map((opt, idx) => {
+              {(q.options as string[]).map((opt: string, idx: number) => {
                 let bg = "#111827";
                 let border = "#1e293b";
                 let color = "#cbd5e1";
