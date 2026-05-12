@@ -86,7 +86,7 @@ export default function SalesLearningPage() {
       });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
-      setTopics(data.topics || []);
+      setTopics((data.topics || []).map((t: any) => ({ ...t, questions: (t.questions || []).map((q: any) => ({ ...q, options: Array.isArray(q.options) ? q.options : (typeof q.options === "string" ? JSON.parse(q.options) : []) })) })));
       setProgress(data.progress || {});
       setStreak(data.streak || 0);
       setTotalPoints(data.totalPoints || 0);
@@ -494,7 +494,7 @@ export default function SalesLearningPage() {
 
             {/* Options */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-              {(q.options as string[]).map((opt: string, idx: number) => {
+              {(Array.isArray(q.options) ? q.options : (typeof q.options === "string" ? JSON.parse(q.options) : [])).map((opt: string, idx: number) => {
                 let bg = "#111827";
                 let border = "#1e293b";
                 let color = "#cbd5e1";
