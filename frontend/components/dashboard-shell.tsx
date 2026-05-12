@@ -1,11 +1,11 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
-  Truck, DollarSign, Users, LogOut, Printer, Layers, Database, BarChart2,
+  Truck, DollarSign, Users, LogOut, Printer, Layers, Database, BarChart2, BookOpen,
 } from "lucide-react";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
@@ -22,6 +22,8 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         { label: "CRM",     href: "/crm",           icon: BarChart2 },
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
     { label: "Database",   href: "/admin/database",   icon: Database },
+    { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
+    { label: "Manage Academy", href: "/admin/sales-learning", icon: BookOpen },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
   ],
   AGENT: [

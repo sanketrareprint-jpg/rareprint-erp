@@ -27,6 +27,10 @@ model User {
   itemStageLogs     ItemStageLog[]  @relation("ItemStageChangedBy")
   agentLeads     Lead[]         @relation("AgentLeads")
   leadActivities LeadActivity[] @relation("ActivityCreator")
+  learningProgress   UserTopicProgress[]   @relation("UserLearning")
+  quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
+  milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
+  learningStreaks     DailyLearningStreak[] @relation("UserStreak")
 }
 
 model Customer {
@@ -626,4 +630,157 @@ model LeadFollowUp {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 }
+
+// ============================================================
+// SALES LEARNING MODULE — Add these models to schema.prisma
+// ============================================================
+
+enum TopicLanguage {
+  EN
+  HI
+}
+
+enum DifficultyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+model SalesTopic {
+  id              String          @id @default(cuid())
+  orderIndex      Int             @unique  // 1, 2, 3... controls unlock order
+  groupNumber     Int             // every 5 topics = 1 milestone group (1,1,1,1,1, 2,2,2,2,2...)
+  titleEn         String
+  titleHi         String
+  sourceBook      String          // e.g. "SPIN Selling by Neil Rackham"
+  contentEn       String          @db.Text  // full topic explanation in English
+  contentHi       String          @db.Text  // full topic explanation in Hindi
+  scriptEn        String          @db.Text  // medicine pouch sales script EN
+  scriptHi        String          @db.Text  // medicine pouch sales script HI
+  keyPoints       String[]        // bullet points for quick recap
+  difficulty      DifficultyLevel @default(BEGINNER)
+  estimatedMins   Int             @default(10)
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  questions       TopicQuestion[]
+  userProgress    UserTopicProgress[]
+  quizAttempts    QuizAttempt[]
+}
+
+model TopicQuestion {
+  id            String      @id @default(cuid())
+  topicId       String
+  topic         SalesTopic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  questionEn    String
+  questionHi    String
+  options       Json        // { en: [opt1,opt2,opt3,opt4], hi: [opt1,opt2,opt3,opt4] }
+  correctIndex  Int         // 0-3
+  explanationEn String?     // shown after answering
+  explanationHi String?
+  orderIndex    Int         @default(0)
+  createdAt     DateTime    @default(now())
+}
+
+model UserTopicProgress {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation("UserLearning", fields: [userId], references: [id])
+  topicId         String
+  topic           SalesTopic  @relation(fields: [topicId], references: [id])
+  topicRead       Boolean     @default(false)
+  topicReadAt     DateTime?
+  quizPassed      Boolean     @default(false)
+  quizPassedAt    DateTime?
+  quizAttempts    Int         @default(0)
+  bestScore       Int         @default(0)  // out of 5
+  isUnlocked      Boolean     @default(false)
+  completedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([userId, topicId])
+  @@index([userId])
+  @@index([topicId])
+}
+
+model QuizAttempt {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation("UserQuizAttempts", fields: [userId], references: [id])
+  topicId       String
+  topic         SalesTopic  @relation(fields: [topicId], references: [id])
+  answers       Int[]       // index of chosen answers per question
+  score         Int         // 0-5
+  passed        Boolean
+  timeTakenSecs Int?
+  attemptedAt   DateTime    @default(now())
+
+  @@index([userId, topicId])
+}
+
+model MilestoneTest {
+  id            String              @id @default(cuid())
+  groupNumber   Int                 @unique  // matches SalesTopic.groupNumber
+  titleEn       String
+  titleHi       String
+  totalMarks    Int                 @default(200)  // 10 questions × 20 marks
+  isActive      Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  questions     MilestoneQuestion[]
+  attempts      MilestoneAttempt[]
+}
+
+model MilestoneQuestion {
+  id            String        @id @default(cuid())
+  testId        String
+  test          MilestoneTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  questionEn    String
+  questionHi    String
+  options       Json          // { en: [...], hi: [...] }
+  correctIndex  Int
+  marksPerQ     Int           @default(20)
+  orderIndex    Int           @default(0)
+  sourceTopicId String?       // which topic this came from
+  createdAt     DateTime      @default(now())
+}
+
+model MilestoneAttempt {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation("UserMilestoneAttempts", fields: [userId], references: [id])
+  testId        String
+  test          MilestoneTest @relation(fields: [testId], references: [id])
+  answers       Int[]
+  score         Int           // 0-200
+  percentage    Float
+  passed        Boolean       // >= 60% to pass
+  timeTakenSecs Int?
+  attemptedAt   DateTime      @default(now())
+
+  @@index([userId, testId])
+}
+
+model DailyLearningStreak {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation("UserStreak", fields: [userId], references: [id])
+  date        DateTime  @db.Date
+  topicsRead  Int       @default(0)
+  quizzesDone Int       @default(0)
+  pointsEarned Int      @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// ============================================================
+// ADD THESE RELATIONS TO YOUR EXISTING User MODEL:
+// ============================================================
+// learningProgress   UserTopicProgress[]   @relation("UserLearning")
+// quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
+// milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
+// learningStreaks     DailyLearningStreak[] @relation("UserStreak")
 
