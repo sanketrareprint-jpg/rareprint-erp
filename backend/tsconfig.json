@@ -1,4 +1,5 @@
 {
+  "exclude": ["prisma/seed-topics.ts", "node_modules"],
   "compilerOptions": {
     "module": "nodenext",
     "moduleResolution": "nodenext",
