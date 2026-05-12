@@ -441,8 +441,9 @@ export default function SalesLearningPage() {
 
   // ── QUIZ VIEW ──────────────────────────────────────────────────
   if (phase === "quiz" && currentTopic) {
-    const q = currentTopic.questions[currentQ];
-    if (!q) return null;
+    const rawQ = currentTopic.questions[currentQ];
+    if (!rawQ) return null;
+    const q = { ...rawQ, options: Array.isArray(rawQ.options) ? rawQ.options : (typeof rawQ.options === "string" ? JSON.parse(rawQ.options) : []) };
     const totalQs = currentTopic.questions.length;
     const questionText = lang === "en" ? q.questionEn : q.questionHi;
 
