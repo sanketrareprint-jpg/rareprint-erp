@@ -644,6 +644,7 @@ enum DifficultyLevel {
   BEGINNER
   INTERMEDIATE
   ADVANCED
+  PRO
 }
 
 model SalesTopic {
