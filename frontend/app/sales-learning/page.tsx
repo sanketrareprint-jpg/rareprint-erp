@@ -66,6 +66,7 @@ export default function SalesLearningPage() {
   const [currentTopic, setCurrentTopic] = useState<Topic | null>(null);
   const [currentQ, setCurrentQ] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const [answerState, setAnswerState] = useState<"idle" | "correct" | "wrong">("idle");
   const [quizScore, setQuizScore] = useState(0);
 
@@ -89,17 +90,22 @@ export default function SalesLearningPage() {
   const handleAnswer = (idx: number) => {
     if (answerState !== "idle" || !currentTopic) return;
     setSelectedAnswer(idx);
+    setSelectedAnswers(prev => {
+      const next = [...prev];
+      next[currentQ] = idx;
+      return next;
+    });
     setAnswerState(idx === currentTopic.questions[currentQ].correctIndex ? "correct" : "wrong");
     if (idx === currentTopic.questions[currentQ].correctIndex) setQuizScore(s => s + 1);
   };
 
   const nextAfterAnswer = async () => {
     if (!currentTopic) return;
-    if (answerState === "wrong") { setCurrentQ(0); setSelectedAnswer(null); setAnswerState("idle"); setQuizScore(0); return; }
+    if (answerState === "wrong") { setCurrentQ(0); setSelectedAnswer(null); setSelectedAnswers([]); setAnswerState("idle"); setQuizScore(0); return; }
     if (currentQ < currentTopic.questions.length - 1) { setCurrentQ(q => q + 1); setSelectedAnswer(null); setAnswerState("idle"); }
     else {
       const token = getToken();
-      try { await fetch(`${API}/sales-learning/topics/${currentTopic.id}/complete`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ score: quizScore + 1, totalQuestions: currentTopic.questions.length }) }); await fetchTopics(); } catch { }
+      try { await fetch(`${API}/sales-learning/topics/${currentTopic.id}/complete`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ answers: selectedAnswers, totalQuestions: currentTopic.questions.length }) }); await fetchTopics(); } catch { }
       setPhase("result");
     }
   };
@@ -251,7 +257,7 @@ export default function SalesLearningPage() {
               <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16, lineHeight: 1.5 }}>
                 {lang === "en" ? "All 5 must be correct. Wrong answer restarts from Q1." : "सभी 5 सही होने चाहिए। गलत = Q1 से शुरू।"}
               </div>
-              <button onClick={() => { setCurrentQ(0); setSelectedAnswer(null); setAnswerState("idle"); setQuizScore(0); setPhase("quiz"); }}
+              <button onClick={() => { setCurrentQ(0); setSelectedAnswer(null); setSelectedAnswers([]); setAnswerState("idle"); setQuizScore(0); setPhase("quiz"); }}
                 style={{ width: "100%", padding: "13px", borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#ef4444)", border: "none", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                 {lang === "en" ? "Start Quiz →" : "क्विज़ शुरू करें →"}
               </button>
@@ -364,7 +370,7 @@ export default function SalesLearningPage() {
               style={{ padding: "14px", borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#ef4444)", border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
               {lang === "en" ? "Next Topic →" : "अगला टॉपिक →"}
             </button>
-            <button onClick={() => { setCurrentQ(0); setSelectedAnswer(null); setAnswerState("idle"); setQuizScore(0); setPhase("quiz"); }}
+            <button onClick={() => { setCurrentQ(0); setSelectedAnswer(null); setSelectedAnswers([]); setAnswerState("idle"); setQuizScore(0); setPhase("quiz"); }}
               style={{ padding: "12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               <RotateCcw size={15} /> {lang === "en" ? "Retake Quiz" : "फिर से करें"}
             </button>
