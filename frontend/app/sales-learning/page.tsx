@@ -158,7 +158,7 @@ export default function SalesLearningPage() {
                     const prog = progress[topic.id]; const isDone = prog?.quizPassed; const isLocked = topic.isLocked;
                     const diff = DIFF[topic.difficulty] || DIFF.BEGINNER;
                     return (
-                      <div key={topic.id} onClick={() => !isLocked && (setCurrentTopic(topic), setPhase("read"))}
+                      <div key={topic.id} onClick={async () => { if (isLocked) return; const token = getToken(); try { const r = await fetch(`${API}/sales-learning/topics/${topic.id}`, {headers:{Authorization:`Bearer ${token}`}}); const full = await r.json(); setCurrentTopic({...topic, ...full}); } catch { setCurrentTopic(topic); } setPhase("read"); }}
                         style={{ background: isDone ? "#f0fdf4" : "#fff", border: `1px solid ${isDone ? "#86efac" : "#e2e8f0"}`, borderRadius: 10, padding: "12px 14px", cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.45 : 1, display: "flex", alignItems: "flex-start", gap: 10, transition: "box-shadow 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
                         <div style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, background: isDone ? "#dcfce7" : isLocked ? "#f1f5f9" : "#fff7ed", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isDone ? "#86efac" : isLocked ? "#e2e8f0" : "#fed7aa"}` }}>
                           {isDone ? <CheckCircle size={15} color="#16a34a" /> : isLocked ? <Lock size={13} color="#94a3b8" /> : <span style={{ fontSize: 11, fontWeight: 700, color: "#ea580c" }}>{topic.orderIndex}</span>}
