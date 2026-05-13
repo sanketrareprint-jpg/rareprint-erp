@@ -37,6 +37,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
+    { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
   ],
   ACCOUNTS: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
