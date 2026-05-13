@@ -17,8 +17,8 @@ export class SalesLearningController {
     return this.salesLearningService.submitQuiz(req.user.id, id, body.answers, body.timeTakenSecs);
   }
 
-  @Get('analytics')
-  getAnalytics(@Request() req) {
+  @Get('admin/analytics')
+  getAnalytics() {
     return this.salesLearningService.getDashboardAnalytics();
   }
 }
