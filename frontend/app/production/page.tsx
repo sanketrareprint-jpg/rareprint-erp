@@ -86,10 +86,6 @@ export default function ProductionPage() {
       setUserRole(u.role || "");
     } catch {}
   }, []);
-  const [orders, setOrders] = useState<ProductionOrder[]>([]);
-  const [clubbingOrders, setClubbingOrders] = useState<ClubbingOrder[]>([]);
-  const [sheets, setSheets] = useState<PrintSheet[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
@@ -159,28 +155,6 @@ export default function ProductionPage() {
   const [processingVendorFilter, setProcessingVendorFilter] = useState("");
   const [processingItemVendors, setProcessingItemVendors] = useState<Record<string, string>>({});
 
-  const load = useCallback(async () => {
-    setError(null); setLoading(true);
-    try {
-      const h = getAuthHeaders();
-      const [oRes, cRes, sRes, vRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/production/orders`, { headers: h }),
-        fetch(`${API_BASE_URL}/production/clubbing/orders`, { headers: h }),
-        fetch(`${API_BASE_URL}/production/sheets`, { headers: h }),
-        fetch(`${API_BASE_URL}/vendors`, { headers: h }),
-      ]);
-      if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-      setOrders(oRes.ok ? await oRes.json() : []);
-      setClubbingOrders(cRes.ok ? await cRes.json() : []);
-      setSheets(sRes.ok ? await sRes.json() : []);
-      setVendors(vRes.ok ? await vRes.json() : []);
-    } catch { setError("Network error."); }
-    finally { setLoading(false); }
-  }, [router]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  // fix double-parse issue
   const [ordersData, setOrdersData] = useState<ProductionOrder[]>([]);
   const [clubData, setClubData] = useState<ClubbingOrder[]>([]);
   const [sheetsData, setSheetsData] = useState<PrintSheet[]>([]);
