@@ -3,6 +3,19 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { JobWorkStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
+function summarizeDesignFiles(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((file): file is Record<string, unknown> => !!file && typeof file === 'object')
+    .map((file) => ({
+      filename: String(file.filename ?? ''),
+      originalName: String(file.originalName ?? file.filename ?? ''),
+      uploadedAt: typeof file.uploadedAt === 'string' ? file.uploadedAt : undefined,
+      size: typeof file.size === 'number' ? file.size : undefined,
+    }))
+    .filter((file) => file.filename);
+}
+
 @Injectable()
 export class ClubbingSheetService {
   constructor(private readonly prisma: PrismaService) {}
@@ -42,7 +55,7 @@ export class ClubbingSheetService {
         ...itemIds
       );
       designFilesMap = Object.fromEntries(
-        results.map(r => [r.id, Array.isArray(r.designFiles) ? r.designFiles : []])
+        results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])
       );
     }
     return filtered.map(o => ({

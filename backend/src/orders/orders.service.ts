@@ -51,12 +51,48 @@ function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: s
   });
 }
 
+type DesignFileSummary = {
+  filename: string;
+  originalName: string;
+  uploadedAt?: string;
+  size?: number;
+};
+
+function summarizeDesignFiles(value: unknown): DesignFileSummary[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((file): file is Record<string, unknown> => !!file && typeof file === 'object')
+    .map((file) => ({
+      filename: String(file.filename ?? ''),
+      originalName: String(file.originalName ?? file.filename ?? ''),
+      uploadedAt: typeof file.uploadedAt === 'string' ? file.uploadedAt : undefined,
+      size: typeof file.size === 'number' ? file.size : undefined,
+    }))
+    .filter((file) => file.filename);
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
   ) {}
+
+  private async getDesignFileCounts(itemIds: string[]): Promise<Record<string, number>> {
+    if (itemIds.length === 0) return {};
+    const rows = await this.prisma.$queryRawUnsafe<{ id: string; designFileCount: number | bigint }[]>(
+      `SELECT id, jsonb_array_length(
+        CASE
+          WHEN jsonb_typeof("designFiles"::jsonb) = 'array' THEN "designFiles"::jsonb
+          ELSE '[]'::jsonb
+        END
+      ) AS "designFileCount"
+      FROM "OrderItem"
+      WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
+      ...itemIds,
+    );
+    return Object.fromEntries(rows.map((row) => [row.id, Number(row.designFileCount)]));
+  }
 
   private async generateOrderNumber(): Promise<string> {
     const last = await this.prisma.order.findFirst({ orderBy: { createdAt: 'desc' } });
@@ -88,7 +124,6 @@ export class OrdersService {
             lineTotal: true,
             productionNotes: true,
             itemProductionStage: true,
-            designFiles: true,
             product: {
               select: {
                 name: true,
@@ -102,6 +137,9 @@ export class OrdersService {
         payments: true,
       },
     });
+    const designFileCounts = await this.getDesignFileCounts(
+      orders.flatMap((o) => o.items.map((i) => i.id)),
+    );
 
     return orders.map((o) => {
       const total = Number(o.grandTotal);
@@ -125,7 +163,7 @@ export class OrdersService {
           id: i.id,
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
-          designFiles: Array.isArray(i.designFiles) ? i.designFiles : [],
+          designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
         })),
       };
     });
@@ -502,7 +540,7 @@ export class OrdersService {
       lineTotal: Number(i.lineTotal),
       productionNotes: i.productionNotes,
       itemProductionStage: i.itemProductionStage,
-      designFiles: designFilesMap[i.id] ?? [],
+      designFiles: summarizeDesignFiles(designFilesMap[i.id]),
     }));
   }
 
@@ -610,7 +648,6 @@ export class OrdersService {
             lineTotal: true,
             productionNotes: true,
             itemProductionStage: true,
-            designFiles: true,
             product: {
               select: {
                 name: true,
@@ -624,6 +661,9 @@ export class OrdersService {
         payments: true,
       },
     });
+    const designFileCounts = await this.getDesignFileCounts(
+      orders.flatMap((o) => o.items.map((i) => i.id)),
+    );
 
     return orders.map((o) => {
       const total = Number(o.grandTotal);
@@ -650,7 +690,7 @@ export class OrdersService {
           id: i.id,
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
-          designFiles: Array.isArray(i.designFiles) ? i.designFiles : [],
+          designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
         })),
       };
     });

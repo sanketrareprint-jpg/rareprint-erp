@@ -22,19 +22,29 @@ export class DashboardService {
       last7DaysOrders,
       recentOrders,
     ] = await Promise.all([
-      this.prisma.order.findMany({ where: { status: { not: OrderStatus.CANCELLED } }, include: { payments: true } }),
-      this.prisma.order.findMany({ where: { orderDate: { gte: startOfMonth }, status: { not: OrderStatus.CANCELLED } }, include: { payments: true } }),
-      this.prisma.order.findMany({ where: { orderDate: { gte: startOfLastMonth, lte: endOfLastMonth }, status: { not: OrderStatus.CANCELLED } }, include: { payments: true } }),
+      this.prisma.order.findMany({
+        where: { status: { not: OrderStatus.CANCELLED } },
+        select: { orderDate: true, grandTotal: true, status: true },
+      }),
+      this.prisma.order.findMany({
+        where: { orderDate: { gte: startOfMonth }, status: { not: OrderStatus.CANCELLED } },
+        select: { id: true },
+      }),
+      this.prisma.order.findMany({
+        where: { orderDate: { gte: startOfLastMonth, lte: endOfLastMonth }, status: { not: OrderStatus.CANCELLED } },
+        select: { payments: { select: { amount: true } } },
+      }),
       this.prisma.payment.findMany(),
       this.prisma.payment.findMany({ where: { paymentDate: { gte: startOfMonth } } }),
       this.prisma.order.findMany({
         where: { orderDate: { gte: new Date(now.getTime() - 7 * 86400000) }, status: { not: OrderStatus.CANCELLED } },
         orderBy: { orderDate: 'asc' },
+        select: { orderDate: true, grandTotal: true },
       }),
       this.prisma.order.findMany({
         where: { status: { not: OrderStatus.CANCELLED } },
         orderBy: { orderDate: 'desc' }, take: 10,
-        include: { items: { include: { product: true } } },
+        select: { id: true, orderNumber: true, status: true, grandTotal: true, orderDate: true },
       }),
     ]);
 

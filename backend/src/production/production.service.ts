@@ -11,6 +11,19 @@ const STAGE_LABEL: Record<string, string> = {
   NOT_PRINTED:        'Not Started',
 };
 
+function summarizeDesignFiles(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((file): file is Record<string, unknown> => !!file && typeof file === 'object')
+    .map((file) => ({
+      filename: String(file.filename ?? ''),
+      originalName: String(file.originalName ?? file.filename ?? ''),
+      uploadedAt: typeof file.uploadedAt === 'string' ? file.uploadedAt : undefined,
+      size: typeof file.size === 'number' ? file.size : undefined,
+    }))
+    .filter((file) => file.filename);
+}
+
 @Injectable()
 export class ProductionService {
   constructor(
@@ -35,17 +48,13 @@ export class ProductionService {
     const itemIds = orders.flatMap(o => o.items.map(i => i.id));
     let designFilesMap: Record<string, any[]> = {};
     if (itemIds.length > 0) {
-      const rawItems = await this.prisma.orderItem.findMany({
-        where: { id: { in: itemIds } },
-        select: { id: true },
-      });
       // Use a raw query per batch to get the JSON field
       const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
         `SELECT id, "designFiles" FROM "OrderItem" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
         ...itemIds
       );
       designFilesMap = Object.fromEntries(
-        results.map(r => [r.id, Array.isArray(r.designFiles) ? r.designFiles : []])
+        results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])
       );
     }
 
