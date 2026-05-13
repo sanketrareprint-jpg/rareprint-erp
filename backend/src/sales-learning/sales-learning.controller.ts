@@ -9,16 +9,16 @@ export class SalesLearningController {
 
   @Get('topics')
   getTopics(@Request() req) {
-    return this.salesLearningService.getTopicsForUser(req.user.id);
+    return this.salesLearningService.getAllTopicsForUser(req.user.id);
   }
 
   @Post('topics/:id/complete')
   completeTopic(@Param('id') id: string, @Request() req, @Body() body: any) {
-    return this.salesLearningService.completeTopic(req.user.id, id, body.score, body.totalQuestions);
+    return this.salesLearningService.submitQuiz(req.user.id, id, body.answers, body.timeTakenSecs);
   }
 
   @Get('analytics')
   getAnalytics(@Request() req) {
-    return this.salesLearningService.getAnalytics(req.user.id);
+    return this.salesLearningService.getDashboardAnalytics();
   }
 }
