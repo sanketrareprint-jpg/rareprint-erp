@@ -27,7 +27,7 @@ export class SalesLearningService {
       const prevTopic = idx > 0 ? topics[idx - 1] : null;
       const prevCompleted = prevTopic ? (progressMap[prevTopic.id]?.quizPassed || false) : true;
       const isLocked = idx > 0 && !prevCompleted;
-      return { ...topic, isCompleted, isLocked, questions: topic.questions.map(q => { let opts = q.options; try { if (!Array.isArray(opts)) opts = JSON.parse(opts as any); } catch { opts = []; } return { ...q, options: opts }; }) };
+      return { ...topic, isCompleted, isLocked, questions: topic.questions.map(q => { const rawOpts: any = q.options; let opts: any; if (Array.isArray(rawOpts)) { opts = rawOpts; } else if (rawOpts && typeof rawOpts === 'object') { opts = rawOpts; } else if (typeof rawOpts === 'string') { try { opts = JSON.parse(rawOpts); } catch { opts = []; } } else { opts = []; } return { ...q, options: opts }; }) };
     });
 
     return { topics: topicsWithProgress, progress: progressMap, streak, totalPoints };
