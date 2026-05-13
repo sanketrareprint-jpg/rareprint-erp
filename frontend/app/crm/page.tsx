@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useEffect, useState, useRef, useCallback } from "react";
+import { DashboardShell } from "@/components/dashboard-shell";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://rareprint-erp-production.up.railway.app";
 const getAuth = () => ({ Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("rareprint_token") : ""}` });
@@ -127,7 +128,7 @@ function MobileLeadRow({ lead, onOpen, onCall }: { lead: Lead; onOpen: () => voi
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
-export default function CrmPage() {
+function CrmPageContent() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
@@ -775,6 +776,14 @@ export default function CrmPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CrmPage() {
+  return (
+    <DashboardShell>
+      <CrmPageContent />
+    </DashboardShell>
   );
 }
 

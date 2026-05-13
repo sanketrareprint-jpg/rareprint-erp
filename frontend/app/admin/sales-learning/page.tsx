@@ -1,6 +1,7 @@
 ﻿"use client";
 import { useState, useEffect } from "react";
 import { Users, BookOpen, CheckCircle, Flame, Trophy, TrendingUp, RefreshCw, BarChart2, Target } from "lucide-react";
+import { DashboardShell } from "@/components/dashboard-shell";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://rareprint-erp-production.up.railway.app";
 const AUTH_TOKEN_KEY = "rareprint_token";
@@ -14,7 +15,7 @@ interface Analytics {
 
 function getToken() { return typeof window !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY) : null; }
 
-export default function SalesLearningAdminPage() {
+function SalesLearningAdminPageContent() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"overview" | "topics" | "leaderboard">("overview");
@@ -325,5 +326,13 @@ export default function SalesLearningAdminPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SalesLearningAdminPage() {
+  return (
+    <DashboardShell>
+      <SalesLearningAdminPageContent />
+    </DashboardShell>
   );
 }

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, CheckCircle, Lock, ChevronRight, RotateCcw, Globe, XCircle, Flame, Star } from "lucide-react";
+import { DashboardShell } from "@/components/dashboard-shell";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://rareprint-erp-production.up.railway.app";
 const AUTH_TOKEN_KEY = "rareprint_token";
@@ -54,7 +55,7 @@ function getOpts(q: Question, lang: Lang): string[] {
   return [];
 }
 
-export default function SalesLearningPage() {
+function SalesLearningPageContent() {
   const router = useRouter();
   const [topics, setTopics] = useState<Topic[]>([]);
   const [progress, setProgress] = useState<Record<string, any>>({});
@@ -381,4 +382,12 @@ export default function SalesLearningPage() {
   }
 
   return null;
+}
+
+export default function SalesLearningPage() {
+  return (
+    <DashboardShell>
+      <SalesLearningPageContent />
+    </DashboardShell>
+  );
 }

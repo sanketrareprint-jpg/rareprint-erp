@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
+import { DashboardShell } from "@/components/dashboard-shell";
 
 const PAGE_WIDTH = 864;
 const PAGE_HEIGHT = 1296;
@@ -72,7 +73,7 @@ const LAYOUT_META = {
   },
 };
 
-export default function StickerSheet() {
+function StickerSheetContent() {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175'>('SPARSH');
@@ -425,6 +426,13 @@ export default function StickerSheet() {
   );
 }
 
+export default function StickerSheet() {
+  return (
+    <DashboardShell>
+      <StickerSheetContent />
+    </DashboardShell>
+  );
+}
 
 
 
