@@ -443,7 +443,7 @@ export default function SalesLearningPage() {
   if (phase === "quiz" && currentTopic) {
     const rawQ = currentTopic.questions[currentQ];
     if (!rawQ) return null;
-    const q = { ...rawQ, options: Array.isArray(rawQ.options) ? rawQ.options : (typeof rawQ.options === "string" ? JSON.parse(rawQ.options) : []) };
+    const rawOpts = rawQ.options; const langOpts = rawOpts && typeof rawOpts === "object" && !Array.isArray(rawOpts) ? (rawOpts[lang] || rawOpts["en"] || []) : (Array.isArray(rawOpts) ? rawOpts : []); const q = { ...rawQ, options: langOpts };
     const totalQs = currentTopic.questions.length;
     const questionText = lang === "en" ? q.questionEn : q.questionHi;
 
@@ -494,7 +494,7 @@ export default function SalesLearningPage() {
 
             {/* Options */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-              {(Array.isArray(q.options) ? q.options : (typeof q.options === "string" ? JSON.parse(q.options) : [])).map((opt: string, idx: number) => {
+              {q.options.map((opt: string, idx: number) => {
                 let bg = "#111827";
                 let border = "#1e293b";
                 let color = "#cbd5e1";
