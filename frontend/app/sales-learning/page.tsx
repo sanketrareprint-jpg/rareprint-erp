@@ -76,8 +76,8 @@ export default function SalesLearningPage() {
       const res = await fetch(`${API}/sales-learning/topics`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
-      setTopics((data.topics || []).map((t: any) => ({ ...t, questions: (t.questions || []) })));
-      setProgress(data.progress || {}); setStreak(data.streak || 0); setTotalPoints(data.totalPoints || 0);
+      setTopics((Array.isArray(data) ? data : (data.topics || [])).map((t: any) => ({ ...t, questions: (t.questions || []) })));
+      setProgress(Array.isArray(data) ? {} : (data.progress || {})); setStreak(Array.isArray(data) ? 0 : (data.streak || 0)); setTotalPoints(Array.isArray(data) ? 0 : (data.totalPoints || 0));
     } catch { } finally { setLoading(false); }
   }, [router]);
 
