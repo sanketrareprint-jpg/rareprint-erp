@@ -35,7 +35,7 @@ export class AccountsService {
         id: order.id,
         orderNo: order.orderNumber,
         customerName:  order.customer.businessName,
-        customerPhone: order.customer.phone,
+        customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
         salesAgentName: order.salesAgent?.fullName ?? null,
         customerAddress: [
@@ -97,7 +97,7 @@ export class AccountsService {
         id: order.id,
         orderNo: order.orderNumber,
         customerName:  order.customer.businessName,
-        customerPhone: order.customer.phone,
+        customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
         salesAgentName: order.salesAgent?.fullName ?? null,
         items: order.items.map((i) => ({
@@ -369,7 +369,7 @@ export class AccountsService {
 
       void this.whatsapp.sendPaymentReceived({
         customerName: order.customer.businessName,
-        customerPhone: order.customer.phone,
+        customerPhone: order.customer.phone ?? '',
         orderNo: (order as any).orderNumber,
         amountReceived: thisAmount,
         paymentMode: payment.method ?? 'CASH',
