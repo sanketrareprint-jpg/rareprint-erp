@@ -337,7 +337,20 @@ export class AccountsService {
   }
 
   async verifyPayment(id: string, verifiedById: string) {
-    return this.prisma.payment.update({
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            payments: { where: { verificationStatus: 'VERIFIED' } },
+          },
+        },
+        paymentAccount: true,
+      },
+    });
+
+    const updated = await this.prisma.payment.update({
       where: { id },
       data: {
         verificationStatus: 'VERIFIED',
@@ -345,6 +358,29 @@ export class AccountsService {
         verifiedAt: new Date(),
       },
     });
+
+    if (payment?.order?.customer?.phone) {
+      const order = payment.order;
+      const grandTotal = Number((order as any).grandTotal);
+      const prevPaid = order.payments.reduce((s: number, p: any) => s + Number(p.amount), 0);
+      const thisAmount = Number(payment.amount);
+      const totalPaid = prevPaid + thisAmount;
+      const balance = Math.max(0, grandTotal - totalPaid);
+
+      void this.whatsapp.sendPaymentReceived({
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone,
+        orderNo: (order as any).orderNumber,
+        amountReceived: thisAmount,
+        paymentMode: payment.method ?? 'CASH',
+        referenceNo: payment.referenceNumber ?? '',
+        orderTotal: grandTotal,
+        totalPaid,
+        balanceRemaining: balance,
+      });
+    }
+
+    return updated;
   }
 
   async rejectPayment(id: string, verifiedById: string, reason: string) {

@@ -73,6 +73,64 @@ export class WhatsAppService {
   }
 
   // ── Status → human readable ──────────────────────────────────────────────
+
+  async sendPaymentReceived(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    amountReceived: number;
+    paymentMode: string;
+    referenceNo: string;
+    orderTotal: number;
+    totalPaid: number;
+    balanceRemaining: number;
+  }): Promise<boolean> {
+    if (!params.customerPhone) return false;
+    const phone = this.normalizePhone(params.customerPhone);
+    if (!phone) return false;
+
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName: 'payment_received_erp',
+      destination: phone,
+      userName: params.customerName,
+      templateParams: [
+        params.customerName,
+        params.orderNo,
+        params.amountReceived.toFixed(2),
+        params.paymentMode,
+        params.referenceNo || 'N/A',
+        params.orderTotal.toFixed(2),
+        params.totalPaid.toFixed(2),
+        params.balanceRemaining.toFixed(2),
+      ],
+      source: 'rareprint-erp',
+      media: {},
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+
+    try {
+      const res = await fetch(AISENSY_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        this.logger.log('Payment WhatsApp sent to ' + phone + ' for order ' + params.orderNo);
+        return true;
+      } else {
+        this.logger.error('Payment WhatsApp failed: ' + JSON.stringify(data));
+        return false;
+      }
+    } catch (err) {
+      this.logger.error('Payment WhatsApp error: ' + err);
+      return false;
+    }
+  }
+
   static statusLabel(status: string): string {
     const map: Record<string, string> = {
       PENDING_APPROVAL:          'Pending Approval',
