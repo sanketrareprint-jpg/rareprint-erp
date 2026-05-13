@@ -213,7 +213,7 @@ export default function SalesLearningPage() {
             {/* Content card */}
             <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: "20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>📖 {lang === "en" ? "Content" : "सामग्री"}</div>
-              <div style={{ color: "#334155", fontSize: 14, lineHeight: 1.9, whiteSpace: "pre-wrap" }}>
+              <div style={{ color: "#334155", fontSize: 16, lineHeight: 2.0, whiteSpace: "pre-wrap" }}>
                 {lang === "en" ? currentTopic.contentEn : currentTopic.contentHi}
               </div>
             </div>
@@ -222,7 +222,7 @@ export default function SalesLearningPage() {
             {currentTopic.scriptEn && (
               <div style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 12, padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>🎙️ {lang === "en" ? "Sales Script" : "सेल्स स्क्रिप्ट"}</div>
-                <div style={{ color: "#6d28d9", fontSize: 13, lineHeight: 1.85, whiteSpace: "pre-wrap", fontStyle: "italic" }}>
+                <div style={{ color: "#6d28d9", fontSize: 15, lineHeight: 1.9, whiteSpace: "pre-wrap", fontStyle: "italic" }}>
                   {lang === "en" ? currentTopic.scriptEn : currentTopic.scriptHi}
                 </div>
               </div>
