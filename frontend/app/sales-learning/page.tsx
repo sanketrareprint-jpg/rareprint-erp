@@ -1,5 +1,5 @@
-"use client";
-import { useState, useEffect, useCallback } from "react";
+﻿"use client";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, CheckCircle, Lock, ChevronRight, RotateCcw, Globe, XCircle, Flame, Star } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -421,3 +421,4 @@ export default function SalesLearningPage() {
     </DashboardShell>
   );
 }
+
