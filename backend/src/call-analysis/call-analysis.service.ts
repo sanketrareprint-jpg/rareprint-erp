@@ -175,6 +175,8 @@ export class CallAnalysisService {
           speech_models: ['universal-2'],
           punctuate: true,
           format_text: true,
+          speaker_labels: true,
+          speakers_expected: 2,
         }),
       });
       const transcribeData = await transcribeRes.json();
@@ -189,13 +191,22 @@ export class CallAnalysisService {
         });
         const pollData = await pollRes.json();
         if (pollData.status === 'completed') {
+          // Format transcript with speaker labels
+          let formattedTranscript = pollData.text;
+          if (pollData.utterances && pollData.utterances.length > 0) {
+            formattedTranscript = pollData.utterances
+              .map((u: any) => `Speaker ${u.speaker}: ${u.text}`)
+              .join('\n\n');
+          }
+          const duration = pollData.audio_duration
+            ? `${Math.floor(pollData.audio_duration / 60)}:${String(Math.round(pollData.audio_duration % 60)).padStart(2, '0')}`
+            : null;
           return {
-            transcript: pollData.text,
-            language: pollData.language_code,
-            duration: pollData.audio_duration
-              ? `${Math.floor(pollData.audio_duration / 60)}:${String(Math.round(pollData.audio_duration % 60)).padStart(2, '0')}`
-              : null,
+            transcript: formattedTranscript,
+            language: pollData.language_code ?? 'hi',
+            duration,
             words: pollData.words?.length ?? 0,
+            utterances: pollData.utterances ?? [],
           };
         }
         if (pollData.status === 'error') {

@@ -81,6 +81,8 @@ export default function CallAnalysisPage() {
     setHasRealTranscript(false);
   };
 
+  const [transcribeDuration, setTranscribeDuration] = useState<string | null>(null);
+
   const transcribeWithAI = async () => {
     if (!audioUrl || !fileName) return alert("Upload an audio file first");
     setIsTranscribing(true);
@@ -91,7 +93,6 @@ export default function CallAnalysisPage() {
       const formData = new FormData();
       formData.append("audio", blob, fileName);
       const headers = getAuthHeaders();
-      // Remove Content-Type so browser sets multipart boundary automatically
       delete (headers as any)['Content-Type'];
       const res = await fetch(`${API_BASE_URL}/call-analysis/transcribe`, {
         method: "POST",
@@ -102,6 +103,7 @@ export default function CallAnalysisPage() {
       if (data.transcript) {
         setTranscript(data.transcript);
         setHasRealTranscript(true);
+        if (data.duration) setTranscribeDuration(data.duration);
       } else {
         alert("Transcription failed: " + (data.error || data.message || JSON.stringify(data)));
       }
@@ -172,7 +174,7 @@ export default function CallAnalysisPage() {
     if (!transcript.trim()) return alert("Create or paste a transcript first");
     setIsAnalyzing(true);
     try {
-      const duration = getDuration(audioRef.current);
+      const duration = transcribeDuration || getDuration(audioRef.current);
       const res = await fetch(`${API_BASE_URL}/call-analysis/analyze`, {
         method: "POST",
         headers: getAuthHeaders(),
@@ -317,7 +319,22 @@ export default function CallAnalysisPage() {
             </div>
 
             <div className="mt-5 rounded-lg border-l-4 border-blue-500 bg-blue-50 p-3 text-sm text-slate-700">{result.coachFeedback}</div>
-            <div className="mt-4 max-h-48 overflow-auto rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">{transcript}</div>
+            <div className="mt-4 max-h-48 overflow-auto rounded-lg bg-slate-50 p-3 text-xs leading-6 text-slate-600">
+              {transcript.includes('Speaker A:') || transcript.includes('Speaker B:')
+                ? transcript.split('\n\n').map((line, i) => {
+                    const isA = line.startsWith('Speaker A:');
+                    const isB = line.startsWith('Speaker B:');
+                    return (
+                      <div key={i} className={`mb-2 rounded-lg px-3 py-2 ${isA ? 'bg-blue-50 border-l-4 border-blue-400' : isB ? 'bg-green-50 border-l-4 border-green-400' : 'bg-white'}`}>
+                        {isA && <span className="text-xs font-bold text-blue-600">🎤 Agent: </span>}
+                        {isB && <span className="text-xs font-bold text-green-600">👤 Customer: </span>}
+                        <span>{line.replace(/^Speaker [A-Z]: /, '')}</span>
+                      </div>
+                    );
+                  })
+                : <p>{transcript}</p>
+              }
+            </div>
           </section>
         )}
       </div>
