@@ -90,9 +90,12 @@ export default function CallAnalysisPage() {
       const blob = await fetch(audioUrl).then(r => r.blob());
       const formData = new FormData();
       formData.append("audio", blob, fileName);
+      const headers = getAuthHeaders();
+      // Remove Content-Type so browser sets multipart boundary automatically
+      delete (headers as any)['Content-Type'];
       const res = await fetch(`${API_BASE_URL}/call-analysis/transcribe`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
         body: formData,
       });
       const data = await res.json();
@@ -100,10 +103,10 @@ export default function CallAnalysisPage() {
         setTranscript(data.transcript);
         setHasRealTranscript(true);
       } else {
-        alert("Transcription failed: " + (data.error || "Unknown error"));
+        alert("Transcription failed: " + (data.error || data.message || JSON.stringify(data)));
       }
-    } catch {
-      alert("Transcription failed. Check connection.");
+    } catch (e) {
+      alert("Transcription failed: " + String(e));
     } finally {
       setIsTranscribing(false);
     }
