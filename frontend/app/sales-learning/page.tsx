@@ -410,10 +410,14 @@ function SalesLearningPageContent() {
   return null;
 }
 
+import { Suspense } from "react";
+
 export default function SalesLearningPage() {
   return (
     <DashboardShell>
-      <SalesLearningPageContent />
+      <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Loading...</div>}>
+        <SalesLearningPageContent />
+      </Suspense>
     </DashboardShell>
   );
 }
