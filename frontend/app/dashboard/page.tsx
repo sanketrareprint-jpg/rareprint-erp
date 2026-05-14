@@ -217,17 +217,17 @@ export default function DashboardPage() {
             {agents.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-3">No sales agents yet</p>
             ) : (
-              <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
                 {activeAgents.map((agent, i) => (
-                  <div key={agent.id} className={`flex items-center justify-between rounded px-1.5 py-1 ${i === 0 ? "bg-amber-50" : ""}`}>
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span style={{ fontSize: "11px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>
+                  <div key={agent.id} className={`flex items-center justify-between rounded px-1 py-0.5 min-w-0 ${i === 0 ? "bg-amber-50" : ""}`}>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="w-4 flex-shrink-0 text-slate-500" style={{ fontSize: "10px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-slate-900 truncate">{agent.name}</p>
+                        <p className="font-semibold text-slate-900 truncate" style={{ fontSize: "10px" }}>{agent.name}</p>
                         <p className="text-slate-400" style={{ fontSize: "9px" }}>{agent.monthOrders} orders</p>
                       </div>
                     </div>
-                    <p className="text-xs font-bold text-emerald-600 flex-shrink-0">{fmt(agent.monthRevenue)}</p>
+                    <p className="font-bold text-emerald-600 flex-shrink-0" style={{ fontSize: "10px" }}>{fmt(agent.monthRevenue)}</p>
                   </div>
                 ))}
               </div>
