@@ -120,6 +120,8 @@ export default function CallAnalysisPage() {
     );
     return match?.id ?? null;
   };
+
+  const transcribeWithAI = async () => {
     if (!audioUrl || !fileName) return alert("Upload an audio file first");
     setIsTranscribing(true);
     setTranscript("");
