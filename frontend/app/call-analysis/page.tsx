@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -56,6 +56,7 @@ export default function CallAnalysisPage() {
   const [fileName, setFileName] = useState("");
   const [transcript, setTranscript] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [hasRealTranscript, setHasRealTranscript] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -78,6 +79,34 @@ export default function CallAnalysisPage() {
     setTranscript("");
     setResult(null);
     setHasRealTranscript(false);
+  };
+
+  const transcribeWithAI = async () => {
+    if (!audioUrl || !fileName) return alert("Upload an audio file first");
+    setIsTranscribing(true);
+    setTranscript("");
+    setResult(null);
+    try {
+      const blob = await fetch(audioUrl).then(r => r.blob());
+      const formData = new FormData();
+      formData.append("audio", blob, fileName);
+      const res = await fetch(`${API_BASE_URL}/call-analysis/transcribe`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.transcript) {
+        setTranscript(data.transcript);
+        setHasRealTranscript(true);
+      } else {
+        alert("Transcription failed: " + (data.error || "Unknown error"));
+      }
+    } catch {
+      alert("Transcription failed. Check connection.");
+    } finally {
+      setIsTranscribing(false);
+    }
   };
 
   const simulateTranscript = async () => {
@@ -206,9 +235,13 @@ export default function CallAnalysisPage() {
                   {CALL_TYPES.map((type) => <option key={type}>{type}</option>)}
                 </select>
               </div>
-              <button onClick={startTranscription} disabled={isListening} className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
+              <button onClick={startTranscription} disabled={isListening || isTranscribing} className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
                 {isListening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
-                {isListening ? "Listening..." : "Play & Transcribe"}
+                {isListening ? "Listening..." : "Play & Transcribe (Mic)"}
+              </button>
+              <button onClick={transcribeWithAI} disabled={isTranscribing || isListening} className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
+                {isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileAudio className="h-4 w-4" />}
+                {isTranscribing ? "Transcribing... (~30 sec)" : "🤖 AI Transcribe (AssemblyAI)"}
               </button>
             </div>
           </section>

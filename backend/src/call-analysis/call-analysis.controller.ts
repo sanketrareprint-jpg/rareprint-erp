@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { CallAnalysisService } from './call-analysis.service';
@@ -9,6 +10,12 @@ type JwtUser = { id: string; role: string; fullName?: string };
 @UseGuards(AuthGuard('jwt'))
 export class CallAnalysisController {
   constructor(private readonly service: CallAnalysisService) {}
+
+  @Post('transcribe')
+  @UseInterceptors(FileInterceptor('audio'))
+  transcribe(@UploadedFile() file: Express.Multer.File) {
+    return this.service.transcribe(file);
+  }
 
   @Post('analyze')
   analyze(@Body() body: any) {

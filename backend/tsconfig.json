@@ -1,6 +1,9 @@
 {
-  "exclude": ["prisma/seed-topics.ts", "node_modules"],
-  "exclude": ["prisma/seed-topics.ts", "node_modules"],
+  "exclude": [
+    "prisma/seed-topics.ts",
+    "node_modules",
+    "prisma"
+  ],
   "compilerOptions": {
     "module": "nodenext",
     "moduleResolution": "nodenext",

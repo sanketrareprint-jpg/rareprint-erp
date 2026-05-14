@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+﻿import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 type JwtUser = { id: string; role: string; fullName?: string };
@@ -142,6 +142,71 @@ export class CallAnalysisService {
         };
       })
       .sort((a, b) => b.averageScore - a.averageScore || b.totalCalls - a.totalCalls);
+  }
+
+  async transcribe(file: Express.Multer.File) {
+    const apiKey = process.env.ASSEMBLYAI_API_KEY;
+    if (!apiKey) return { transcript: null, error: 'ASSEMBLYAI_API_KEY not set' };
+    if (!file) return { transcript: null, error: 'No audio file provided' };
+
+    try {
+      // Step 1: Upload audio file to AssemblyAI
+      const uploadRes = await fetch('https://api.assemblyai.com/v2/upload', {
+        method: 'POST',
+        headers: {
+          'authorization': apiKey,
+          'content-type': 'application/octet-stream',
+          'transfer-encoding': 'chunked',
+        },
+        body: file.buffer,
+      });
+      const uploadData = await uploadRes.json();
+      const audioUrl = uploadData.upload_url;
+      if (!audioUrl) return { transcript: null, error: 'Upload failed' };
+
+      // Step 2: Request transcription
+      const transcribeRes = await fetch('https://api.assemblyai.com/v2/transcript', {
+        method: 'POST',
+        headers: {
+          'authorization': apiKey,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          audio_url: audioUrl,
+          language_detection: true,
+          punctuate: true,
+          format_text: true,
+        }),
+      });
+      const transcribeData = await transcribeRes.json();
+      const transcriptId = transcribeData.id;
+      if (!transcriptId) return { transcript: null, error: 'Transcription request failed' };
+
+      // Step 3: Poll for result (max 60 seconds)
+      for (let i = 0; i < 30; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+          headers: { 'authorization': apiKey },
+        });
+        const pollData = await pollRes.json();
+        if (pollData.status === 'completed') {
+          return {
+            transcript: pollData.text,
+            language: pollData.language_code,
+            duration: pollData.audio_duration
+              ? `${Math.floor(pollData.audio_duration / 60)}:${String(Math.round(pollData.audio_duration % 60)).padStart(2, '0')}`
+              : null,
+            words: pollData.words?.length ?? 0,
+          };
+        }
+        if (pollData.status === 'error') {
+          return { transcript: null, error: pollData.error };
+        }
+      }
+      return { transcript: null, error: 'Transcription timed out' };
+    } catch (e) {
+      return { transcript: null, error: String(e) };
+    }
   }
 
   async analyze(payload: {
