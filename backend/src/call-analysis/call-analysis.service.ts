@@ -161,7 +161,7 @@ export class CallAnalysisService {
       });
       const uploadData = await uploadRes.json();
       const audioUrl = uploadData.upload_url;
-      if (!audioUrl) return { transcript: null, error: 'Upload failed' };
+      if (!audioUrl) return { transcript: null, error: `Upload failed: ${JSON.stringify(uploadData)}` };
 
       // Step 2: Request transcription
       const transcribeRes = await fetch('https://api.assemblyai.com/v2/transcript', {
@@ -179,7 +179,7 @@ export class CallAnalysisService {
       });
       const transcribeData = await transcribeRes.json();
       const transcriptId = transcribeData.id;
-      if (!transcriptId) return { transcript: null, error: 'Transcription request failed' };
+      if (!transcriptId) return { transcript: null, error: `Transcription request failed: ${JSON.stringify(transcribeData)}` };
 
       // Step 3: Poll for result (max 60 seconds)
       for (let i = 0; i < 30; i++) {
