@@ -156,9 +156,8 @@ export class CallAnalysisService {
         headers: {
           'authorization': apiKey,
           'content-type': 'application/octet-stream',
-          'transfer-encoding': 'chunked',
         },
-        body: file.buffer,
+        body: new Uint8Array(file.buffer),
       });
       const uploadData = await uploadRes.json();
       const audioUrl = uploadData.upload_url;
