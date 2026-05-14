@@ -13,7 +13,15 @@ export class CallAnalysisController {
   constructor(private readonly service: CallAnalysisService) {}
 
   @Post('transcribe')
-  @UseInterceptors(FileInterceptor('audio', { storage: memoryStorage() }))
+  @UseInterceptors(FileInterceptor('audio', {
+    storage: memoryStorage(),
+    fileFilter: (_req, file, cb) => {
+      const allowed = /\.(mp3|wav|m4a|aac|ogg|flac|mp4|wma)$/i;
+      if (allowed.test(file.originalname)) cb(null, true);
+      else cb(new Error('Unsupported file type'), false);
+    },
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  }))
   transcribe(@UploadedFile() file: Express.Multer.File) {
     return this.service.transcribe(file);
   }

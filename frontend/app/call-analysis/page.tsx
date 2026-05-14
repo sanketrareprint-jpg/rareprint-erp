@@ -219,8 +219,8 @@ export default function CallAnalysisPage() {
               <label className="block text-xs font-semibold text-slate-600">Recording</label>
               <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-cyan-300 bg-cyan-50 px-4 py-8 text-center text-cyan-700">
                 <FileAudio className="mb-2 h-8 w-8" />
-                <span className="text-sm font-bold">{fileName || "Upload MP3, WAV, or M4A"}</span>
-                <input className="hidden" type="file" accept="audio/*" onChange={(e) => handleFile(e.target.files?.[0])} />
+                <span className="text-sm font-bold">{fileName || "Upload MP3, WAV, M4A, AAC, OGG"}</span>
+                <input className="hidden" type="file" accept="audio/*,.aac,.m4a,.mp3,.wav,.ogg,.flac" onChange={(e) => handleFile(e.target.files?.[0])} />
               </label>
               {audioUrl && <audio ref={audioRef} controls src={audioUrl} className="w-full" />}
 
