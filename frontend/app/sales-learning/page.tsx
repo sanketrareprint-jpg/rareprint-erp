@@ -33,6 +33,10 @@ interface Topic {
   questions: Question[];
   isLocked?: boolean;
   isCompleted?: boolean;
+  quizPassed?: boolean;
+  topicRead?: boolean;
+  bestScore?: number;
+  quizAttempts?: number;
 }
 type Phase = "list" | "read" | "quiz" | "result";
 type Lang = "en" | "hi";
@@ -78,14 +82,19 @@ function SalesLearningPageContent() {
       const res = await fetch(`${API}/sales-learning/topics`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
-      setTopics((Array.isArray(data) ? data : (data.topics || [])).map((t: any) => ({ ...t, questions: (t.questions || []) })));
-      setProgress(Array.isArray(data) ? {} : (data.progress || {})); setStreak(Array.isArray(data) ? 0 : (data.streak || 0)); setTotalPoints(Array.isArray(data) ? 0 : (data.totalPoints || 0));
+      const topicList = (Array.isArray(data) ? data : (data.topics || [])).map((t: any) => ({ ...t, questions: (t.questions || []) }));
+      setTopics(topicList);
+      setProgress(Array.isArray(data)
+        ? Object.fromEntries(topicList.map((t: Topic) => [t.id, { quizPassed: !!(t.quizPassed || t.isCompleted), topicRead: !!t.topicRead }]))
+        : (data.progress || {})
+      );
+      setStreak(Array.isArray(data) ? 0 : (data.streak || 0)); setTotalPoints(Array.isArray(data) ? 0 : (data.totalPoints || 0));
     } catch { } finally { setLoading(false); }
   }, [router]);
 
   useEffect(() => { fetchTopics(); }, [fetchTopics]);
 
-  const completedCount = Object.values(progress).filter((p: any) => p.quizPassed).length;
+  const completedCount = topics.filter((t) => t.quizPassed || t.isCompleted || progress[t.id]?.quizPassed).length;
   const pct = topics.length ? Math.round((completedCount / topics.length) * 100) : 0;
 
   const handleAnswer = (idx: number) => {
@@ -106,7 +115,9 @@ function SalesLearningPageContent() {
     if (currentQ < currentTopic.questions.length - 1) { setCurrentQ(q => q + 1); setSelectedAnswer(null); setAnswerState("idle"); }
     else {
       const token = getToken();
-      try { await fetch(`${API}/sales-learning/topics/${currentTopic.id}/complete`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ answers: selectedAnswers, totalQuestions: currentTopic.questions.length }) }); await fetchTopics(); } catch { }
+      const finalAnswers = [...selectedAnswers];
+      if (selectedAnswer !== null) finalAnswers[currentQ] = selectedAnswer;
+      try { await fetch(`${API}/sales-learning/topics/${currentTopic.id}/complete`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ answers: finalAnswers, totalQuestions: currentTopic.questions.length }) }); await fetchTopics(); } catch { }
       setPhase("result");
     }
   };
@@ -162,7 +173,7 @@ function SalesLearningPageContent() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 8 }}>
                   {gTopics.map(topic => {
-                    const prog = progress[topic.id]; const isDone = prog?.quizPassed; const isLocked = topic.isLocked;
+                    const prog = progress[topic.id]; const isDone = !!(prog?.quizPassed || topic.quizPassed || topic.isCompleted); const isLocked = topic.isLocked;
                     const diff = DIFF[topic.difficulty] || DIFF.BEGINNER;
                     return (
                       <div key={topic.id} onClick={async () => { if (isLocked) return; const token = getToken(); try { const r = await fetch(`${API}/sales-learning/topics/${topic.id}`, {headers:{Authorization:`Bearer ${token}`}}); const full = await r.json(); setCurrentTopic({...topic, ...full}); } catch { setCurrentTopic(topic); } setPhase("read"); }}
