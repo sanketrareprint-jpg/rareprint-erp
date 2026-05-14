@@ -172,7 +172,7 @@ export class CallAnalysisService {
         },
         body: JSON.stringify({
           audio_url: audioUrl,
-          language_detection: true,
+          speech_model: 'universal-2',
           punctuate: true,
           format_text: true,
         }),
