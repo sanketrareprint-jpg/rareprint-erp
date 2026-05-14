@@ -191,11 +191,17 @@ export class CallAnalysisService {
         });
         const pollData = await pollRes.json();
         if (pollData.status === 'completed') {
-          // Format transcript with speaker labels
+          // Format transcript with Agent/Customer labels
+          // Speaker A = first speaker = Agent, Speaker B = Customer
           let formattedTranscript = pollData.text;
           if (pollData.utterances && pollData.utterances.length > 0) {
+            // Determine which speaker is Agent (first speaker)
+            const firstSpeaker = pollData.utterances[0]?.speaker ?? 'A';
             formattedTranscript = pollData.utterances
-              .map((u: any) => `Speaker ${u.speaker}: ${u.text}`)
+              .map((u: any) => {
+                const role = u.speaker === firstSpeaker ? 'Agent' : 'Customer';
+                return `${role}: ${u.text}`;
+              })
               .join('\n\n');
           }
           const duration = pollData.audio_duration
@@ -206,7 +212,6 @@ export class CallAnalysisService {
             language: pollData.language_code ?? 'hi',
             duration,
             words: pollData.words?.length ?? 0,
-            utterances: pollData.utterances ?? [],
           };
         }
         if (pollData.status === 'error') {
@@ -239,9 +244,9 @@ export class CallAnalysisService {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-20241022',
-          max_tokens: 1800,
-          temperature: 0.2,
+          model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514',
+          max_tokens: 2000,
+          temperature: 0.3,
           messages: [
             {
               role: 'user',
@@ -252,7 +257,10 @@ export class CallAnalysisService {
       });
       const data = await res.json();
       const text = data?.content?.[0]?.text;
-      if (!res.ok || !text) return this.simulateAnalysis(payload);
+      if (!res.ok || !text) {
+        console.error('Claude API error:', JSON.stringify(data));
+        return this.simulateAnalysis(payload);
+      }
       return this.normalizeAnalysis(this.extractJson(text));
     } catch {
       return this.simulateAnalysis(payload);
@@ -260,38 +268,40 @@ export class CallAnalysisService {
   }
 
   private buildPrompt(payload: { agentName: string; customerName: string; callType: string; duration?: string; transcript: string }) {
-    return `Analyze this sales call transcript for RarePrint ERP.
+    return `You are an expert sales coach analyzing a real sales call for RarePrint, a printing business.
 
 Agent: ${payload.agentName}
 Customer: ${payload.customerName}
-Call type: ${payload.callType}
+Call Type: ${payload.callType}
 Duration: ${payload.duration || 'Unknown'}
 
-Use SPIN Selling, BANT, Challenger Sale, objection handling, rapport building, and closing techniques.
-Return only valid JSON with this exact shape:
-{
-  "overallScore": 0,
-  "grade": "Excellent|Good|Average|Needs Work",
-  "duration": "string",
-  "sentiment": "Positive|Neutral|Negative|Mixed",
-  "language": "string",
-  "categoryScores": {
-    "Rapport": 0,
-    "Needs Discovery": 0,
-    "Product Presentation": 0,
-    "Objection Handling": 0,
-    "Closing": 0,
-    "Follow-up Plan": 0
-  },
-  "strengthsList": ["", "", ""],
-  "improvementsList": ["", "", ""],
-  "coachFeedback": "specific coaching referencing SPIN/BANT/Challenger",
-  "actionItems": ["", "", "", ""],
-  "transcriptSummary": "short summary"
-}
+TRANSCRIPT:
+${payload.transcript}
 
-Transcript:
-${payload.transcript}`;
+Analyze this specific call transcript carefully. Reference actual quotes and moments from the transcript in your feedback.
+Use SPIN Selling, BANT, Challenger Sale frameworks.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "overallScore": <0-100 based on actual call quality>,
+  "grade": "<Excellent|Good|Average|Needs Work>",
+  "duration": "${payload.duration || 'Unknown'}",
+  "sentiment": "<Positive|Neutral|Negative|Mixed based on actual tone>",
+  "language": "<actual language detected e.g. Hindi, English, Hinglish>",
+  "categoryScores": {
+    "Rapport": <0-100>,
+    "Needs Discovery": <0-100>,
+    "Product Presentation": <0-100>,
+    "Objection Handling": <0-100>,
+    "Closing": <0-100>,
+    "Follow-up Plan": <0-100>
+  },
+  "strengthsList": ["<specific strength from this call>", "<another specific strength>", "<third strength>"],
+  "improvementsList": ["<specific improvement needed based on what was said>", "<another specific gap>", "<third improvement>"],
+  "coachFeedback": "<2-3 sentences of specific coaching referencing actual moments in the call, mentioning SPIN/BANT/Challenger where relevant>",
+  "actionItems": ["<specific action for next call based on this conversation>", "<second action>", "<third action>", "<fourth action>"],
+  "transcriptSummary": "<2-3 sentence summary of what actually happened in this call>"
+}`;
   }
 
   private extractJson(text: string): AnalysisPayload {
