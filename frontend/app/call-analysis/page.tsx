@@ -326,7 +326,25 @@ export default function CallAnalysisPage() {
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-bold text-slate-800">Improvements</h3>
-                <div className="flex flex-wrap gap-2">{result.improvementsList.map((x) => <span key={x} className="rounded-full bg-amber-50 border border-amber-200 px-3 py-1.5 text-sm font-medium text-amber-700">{x}</span>)}</div>
+                <div className="flex flex-wrap gap-2">{result.improvementsList.map((x) => {
+                  // Map improvement keywords to Sales Learning topics
+                  const lower = x.toLowerCase();
+                  let learnLink = '/sales-learning';
+                  if (lower.includes('rapport') || lower.includes('trust') || lower.includes('introduction') || lower.includes('intro')) learnLink = '/sales-learning?topic=rapport';
+                  else if (lower.includes('spin') || lower.includes('need') || lower.includes('problem') || lower.includes('discovery') || lower.includes('question')) learnLink = '/sales-learning?topic=spin';
+                  else if (lower.includes('bant') || lower.includes('budget') || lower.includes('authority') || lower.includes('timeline') || lower.includes('qualify')) learnLink = '/sales-learning?topic=bant';
+                  else if (lower.includes('objection') || lower.includes('price') || lower.includes('cost') || lower.includes('expensive')) learnLink = '/sales-learning?topic=objection';
+                  else if (lower.includes('clos') || lower.includes('deal') || lower.includes('commit')) learnLink = '/sales-learning?topic=closing';
+                  else if (lower.includes('follow') || lower.includes('next') || lower.includes('callback')) learnLink = '/sales-learning?topic=followup';
+                  return (
+                    <div key={x} className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm font-medium text-amber-700 flex flex-col gap-1 max-w-xs">
+                      <span>{x}</span>
+                      <a href={learnLink} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-semibold mt-1">
+                        📚 Sales Academy mein seekho →
+                      </a>
+                    </div>
+                  );
+                })}</div>
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-bold text-slate-800">Action Items</h3>
