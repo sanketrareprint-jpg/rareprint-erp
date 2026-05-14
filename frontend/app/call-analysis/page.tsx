@@ -262,10 +262,10 @@ export default function CallAnalysisPage() {
                   const isAgent = line.startsWith('Agent:');
                   const isCustomer = line.startsWith('Customer:');
                   return (
-                    <div key={i} className={`rounded-lg px-3 py-2 text-sm ${isAgent ? 'bg-blue-50 border-l-4 border-blue-400' : isCustomer ? 'bg-green-50 border-l-4 border-green-400' : 'bg-white'}`}>
-                      {isAgent && <span className="text-xs font-bold text-blue-600 block">🎤 Agent</span>}
-                      {isCustomer && <span className="text-xs font-bold text-green-600 block">👤 Customer</span>}
-                      <span className="text-slate-700">{line.replace(/^(Agent|Customer): /, '')}</span>
+                    <div key={i} className={`rounded-lg px-3 py-2 ${isAgent ? 'bg-blue-50 border-l-4 border-blue-400' : isCustomer ? 'bg-green-50 border-l-4 border-green-400' : 'bg-white'}`}>
+                      {isAgent && <span className="text-sm font-bold text-blue-600 block">🎤 Agent</span>}
+                      {isCustomer && <span className="text-sm font-bold text-green-600 block">👤 Customer</span>}
+                      <span className="text-sm text-slate-700 leading-6">{line.replace(/^(Agent|Customer): /, '')}</span>
                     </div>
                   );
                 })}
@@ -322,33 +322,33 @@ export default function CallAnalysisPage() {
             <div className="mt-5 grid grid-cols-3 gap-4">
               <div>
                 <h3 className="mb-2 text-sm font-bold text-slate-800">Strengths</h3>
-                <div className="flex flex-wrap gap-2">{result.strengthsList.map((x) => <span key={x} className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">{x}</span>)}</div>
+                <div className="flex flex-wrap gap-2">{result.strengthsList.map((x) => <span key={x} className="rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-sm font-medium text-emerald-700">{x}</span>)}</div>
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-bold text-slate-800">Improvements</h3>
-                <div className="flex flex-wrap gap-2">{result.improvementsList.map((x) => <span key={x} className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{x}</span>)}</div>
+                <div className="flex flex-wrap gap-2">{result.improvementsList.map((x) => <span key={x} className="rounded-full bg-amber-50 border border-amber-200 px-3 py-1.5 text-sm font-medium text-amber-700">{x}</span>)}</div>
               </div>
               <div>
                 <h3 className="mb-2 text-sm font-bold text-slate-800">Action Items</h3>
-                <ol className="list-decimal space-y-1 pl-4 text-xs text-slate-700">{result.actionItems.map((x) => <li key={x}>{x}</li>)}</ol>
+                <ol className="list-decimal space-y-2 pl-4 text-sm text-slate-700">{result.actionItems.map((x) => <li key={x}>{x}</li>)}</ol>
               </div>
             </div>
 
-            <div className="mt-5 rounded-lg border-l-4 border-blue-500 bg-blue-50 p-3 text-sm text-slate-700">{result.coachFeedback}</div>
-            <div className="mt-4 max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 text-xs leading-6 text-slate-600 space-y-2">
+            <div className="mt-5 rounded-lg border-l-4 border-blue-500 bg-blue-50 p-4 text-sm leading-7 text-slate-700">{result.coachFeedback}</div>
+            <div className="mt-4 max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 space-y-2">
               {transcript.includes('Agent:') || transcript.includes('Customer:')
                 ? transcript.split('\n\n').filter(Boolean).map((line, i) => {
                     const isAgent = line.startsWith('Agent:');
                     const isCustomer = line.startsWith('Customer:');
                     return (
                       <div key={i} className={`rounded-lg px-3 py-2 ${isAgent ? 'bg-blue-50 border-l-4 border-blue-400' : isCustomer ? 'bg-green-50 border-l-4 border-green-400' : 'bg-white border border-slate-200'}`}>
-                        {isAgent && <span className="text-xs font-bold text-blue-600 block mb-1">🎤 Agent</span>}
-                        {isCustomer && <span className="text-xs font-bold text-green-600 block mb-1">👤 Customer</span>}
-                        <span>{line.replace(/^(Agent|Customer): /, '')}</span>
+                        {isAgent && <span className="text-sm font-bold text-blue-600 block mb-1">🎤 Agent</span>}
+                        {isCustomer && <span className="text-sm font-bold text-green-600 block mb-1">👤 Customer</span>}
+                        <span className="text-sm leading-6 text-slate-700">{line.replace(/^(Agent|Customer): /, '')}</span>
                       </div>
                     );
                   })
-                : <p className="whitespace-pre-wrap">{transcript}</p>
+                : <p className="text-sm whitespace-pre-wrap text-slate-600">{transcript}</p>
               }
             </div>
           </section>

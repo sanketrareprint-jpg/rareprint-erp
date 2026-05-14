@@ -268,26 +268,36 @@ export class CallAnalysisService {
   }
 
   private buildPrompt(payload: { agentName: string; customerName: string; callType: string; duration?: string; transcript: string }) {
-    return `You are an expert sales coach analyzing a real sales call for RarePrint, a printing business.
+    return `You are an expert sales coach analyzing a real sales call for RarePrint — a printing business in India.
 
-Agent: ${payload.agentName}
-Customer: ${payload.customerName}
+Agent Name: ${payload.agentName}
+Customer Name: ${payload.customerName}
 Call Type: ${payload.callType}
 Duration: ${payload.duration || 'Unknown'}
+
+IMPORTANT: Write ALL text fields (strengthsList, improvementsList, coachFeedback, actionItems, transcriptSummary) in Hinglish (mix of Hindi and English) so Indian sales agents can easily understand. Example: "Agent ne customer ka budget clearly confirm nahi kiya" or "Next call mein SPIN technique use karo".
+
+The transcript format is "Agent: [text]" and "Customer: [text]".
+The transcript may be in Hindi, Hinglish, or English — understand it fully.
 
 TRANSCRIPT:
 ${payload.transcript}
 
-Analyze this specific call transcript carefully. Reference actual quotes and moments from the transcript in your feedback.
-Use SPIN Selling, BANT, Challenger Sale frameworks.
+Analyze this specific conversation. Reference actual things said in the call. Be specific — mention exact moments, quotes, pricing discussed, objections raised.
 
-Return ONLY valid JSON (no markdown, no explanation):
+Use these frameworks:
+- SPIN Selling (Situation, Problem, Implication, Need-Payoff)
+- BANT (Budget, Authority, Need, Timeline)
+- Challenger Sale (teach, tailor, take control)
+- Objection handling, rapport building, closing techniques
+
+Return ONLY valid JSON (no markdown, no explanation outside JSON):
 {
-  "overallScore": <0-100 based on actual call quality>,
+  "overallScore": <0-100>,
   "grade": "<Excellent|Good|Average|Needs Work>",
   "duration": "${payload.duration || 'Unknown'}",
-  "sentiment": "<Positive|Neutral|Negative|Mixed based on actual tone>",
-  "language": "<actual language detected e.g. Hindi, English, Hinglish>",
+  "sentiment": "<Positive|Neutral|Negative|Mixed>",
+  "language": "<Hindi|English|Hinglish>",
   "categoryScores": {
     "Rapport": <0-100>,
     "Needs Discovery": <0-100>,
@@ -296,11 +306,11 @@ Return ONLY valid JSON (no markdown, no explanation):
     "Closing": <0-100>,
     "Follow-up Plan": <0-100>
   },
-  "strengthsList": ["<specific strength from this call>", "<another specific strength>", "<third strength>"],
-  "improvementsList": ["<specific improvement needed based on what was said>", "<another specific gap>", "<third improvement>"],
-  "coachFeedback": "<2-3 sentences of specific coaching referencing actual moments in the call, mentioning SPIN/BANT/Challenger where relevant>",
-  "actionItems": ["<specific action for next call based on this conversation>", "<second action>", "<third action>", "<fourth action>"],
-  "transcriptSummary": "<2-3 sentence summary of what actually happened in this call>"
+  "strengthsList": ["<Hinglish: specific strength from this call>", "<second>", "<third>"],
+  "improvementsList": ["<Hinglish: specific improvement based on what was said>", "<second>", "<third>"],
+  "coachFeedback": "<Hinglish: 3-4 sentences referencing actual call moments. What agent said, what they should have said. SPIN/BANT/Challenger reference.>",
+  "actionItems": ["<Hinglish: specific action for next call>", "<second>", "<third>", "<fourth>"],
+  "transcriptSummary": "<Hinglish: 2-3 sentence summary of what happened>"
 }`;
   }
 
