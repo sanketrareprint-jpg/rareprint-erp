@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, CheckCircle, Lock, ChevronRight, RotateCcw, Globe, XCircle, Flame, Star } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 
@@ -61,6 +61,8 @@ function getOpts(q: Question, lang: Lang): string[] {
 
 function SalesLearningPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoTopicId = searchParams.get('topicId');
   const [topics, setTopics] = useState<Topic[]>([]);
   const [progress, setProgress] = useState<Record<string, any>>({});
   const [streak, setStreak] = useState(0);
@@ -93,6 +95,19 @@ function SalesLearningPageContent() {
   }, [router]);
 
   useEffect(() => { fetchTopics(); }, [fetchTopics]);
+
+  // Auto-open topic from URL param (from Call Analysis links)
+  useEffect(() => {
+    if (!autoTopicId || !topics.length || phase !== 'list') return;
+    const topic = topics.find(t => t.id === autoTopicId);
+    if (!topic) return;
+    const token = getToken();
+    if (!token) return;
+    fetch(`${API}/sales-learning/topics/${topic.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(full => { setCurrentTopic({ ...topic, ...full }); setPhase('read'); })
+      .catch(() => { setCurrentTopic(topic); setPhase('read'); });
+  }, [autoTopicId, topics, phase]);
 
   const completedCount = topics.filter((t) => t.quizPassed || t.isCompleted || progress[t.id]?.quizPassed).length;
   const pct = topics.length ? Math.round((completedCount / topics.length) * 100) : 0;

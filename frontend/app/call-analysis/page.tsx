@@ -83,7 +83,43 @@ export default function CallAnalysisPage() {
 
   const [transcribeDuration, setTranscribeDuration] = useState<string | null>(null);
 
-  const transcribeWithAI = async () => {
+  const [academyTopics, setAcademyTopics] = useState<{id: string; titleEn: string; titleHi: string}[]>([]);
+
+  // Fetch sales learning topics for linking
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('rareprint_token') : null;
+    if (!token) return;
+    fetch(`${API_BASE_URL}/sales-learning/topics`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const list = Array.isArray(data) ? data : (data.topics || []);
+        setAcademyTopics(list.map((t: any) => ({ id: t.id, titleEn: t.titleEn || '', titleHi: t.titleHi || '' })));
+      }).catch(() => {});
+  }, []);
+
+  const getAcademyTopicId = (improvement: string): string | null => {
+    if (!academyTopics.length) return null;
+    const lower = improvement.toLowerCase();
+    // Keywords to match against topic titles
+    const keywords: string[] = [];
+    if (lower.includes('rapport') || lower.includes('trust') || lower.includes('intro')) keywords.push('rapport', 'introduction', 'trust');
+    else if (lower.includes('spin') || lower.includes('need') || lower.includes('discovery') || lower.includes('question') || lower.includes('situation') || lower.includes('problem')) keywords.push('spin', 'need', 'discover', 'question');
+    else if (lower.includes('bant') || lower.includes('budget') || lower.includes('authority') || lower.includes('timeline') || lower.includes('qualify')) keywords.push('bant', 'budget', 'qualify', 'authority');
+    else if (lower.includes('objection') || lower.includes('price') || lower.includes('cost') || lower.includes('expensive') || lower.includes('handling')) keywords.push('objection', 'handling', 'price');
+    else if (lower.includes('clos') || lower.includes('deal') || lower.includes('commit')) keywords.push('clos', 'deal', 'commit');
+    else if (lower.includes('follow') || lower.includes('next call') || lower.includes('callback')) keywords.push('follow', 'next');
+    else if (lower.includes('presentation') || lower.includes('product') || lower.includes('feature')) keywords.push('present', 'product', 'feature');
+
+    if (!keywords.length) return null;
+    // Find matching topic
+    const match = academyTopics.find(t =>
+      keywords.some(kw =>
+        t.titleEn.toLowerCase().includes(kw) || t.titleHi.toLowerCase().includes(kw)
+      )
+    );
+    return match?.id ?? null;
+  };
     if (!audioUrl || !fileName) return alert("Upload an audio file first");
     setIsTranscribing(true);
     setTranscript("");
@@ -327,15 +363,8 @@ export default function CallAnalysisPage() {
               <div>
                 <h3 className="mb-2 text-sm font-bold text-slate-800">Improvements</h3>
                 <div className="flex flex-wrap gap-2">{result.improvementsList.map((x) => {
-                  // Map improvement keywords to Sales Learning topics
-                  const lower = x.toLowerCase();
-                  let learnLink = '/sales-learning';
-                  if (lower.includes('rapport') || lower.includes('trust') || lower.includes('introduction') || lower.includes('intro')) learnLink = '/sales-learning?topic=rapport';
-                  else if (lower.includes('spin') || lower.includes('need') || lower.includes('problem') || lower.includes('discovery') || lower.includes('question')) learnLink = '/sales-learning?topic=spin';
-                  else if (lower.includes('bant') || lower.includes('budget') || lower.includes('authority') || lower.includes('timeline') || lower.includes('qualify')) learnLink = '/sales-learning?topic=bant';
-                  else if (lower.includes('objection') || lower.includes('price') || lower.includes('cost') || lower.includes('expensive')) learnLink = '/sales-learning?topic=objection';
-                  else if (lower.includes('clos') || lower.includes('deal') || lower.includes('commit')) learnLink = '/sales-learning?topic=closing';
-                  else if (lower.includes('follow') || lower.includes('next') || lower.includes('callback')) learnLink = '/sales-learning?topic=followup';
+                  const topicId = getAcademyTopicId(x);
+                  const learnLink = topicId ? `/sales-learning?topicId=${topicId}` : '/sales-learning';
                   return (
                     <div key={x} className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm font-medium text-amber-700 flex flex-col gap-1 max-w-xs">
                       <span>{x}</span>
