@@ -1,5 +1,6 @@
 ﻿import { Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { CallAnalysisService } from './call-analysis.service';
@@ -12,7 +13,7 @@ export class CallAnalysisController {
   constructor(private readonly service: CallAnalysisService) {}
 
   @Post('transcribe')
-  @UseInterceptors(FileInterceptor('audio'))
+  @UseInterceptors(FileInterceptor('audio', { storage: memoryStorage() }))
   transcribe(@UploadedFile() file: Express.Multer.File) {
     return this.service.transcribe(file);
   }
