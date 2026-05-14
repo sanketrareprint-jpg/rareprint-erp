@@ -412,7 +412,10 @@ export class OrdersService {
     receivedById: string,
     data: { amount: number; method: string; paymentAccountId: string; referenceNumber?: string; notes?: string; paymentDate?: string },
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true },
+    });
     if (!order) throw new NotFoundException('Order not found');
 
     const payment = await this.prisma.payment.create({
@@ -439,6 +442,20 @@ export class OrdersService {
     else paymentStatus = PaymentStatus.PENDING;
 
     await this.prisma.order.update({ where: { id: orderId }, data: { paymentStatus } });
+
+    if (order.customer.phone) {
+      void this.whatsapp.sendPaymentReceived({
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone,
+        orderNo: order.orderNumber,
+        amountReceived: Number(payment.amount),
+        paymentMode: payment.method,
+        referenceNo: payment.referenceNumber ?? '',
+        orderTotal: grandTotal,
+        totalPaid,
+        balanceRemaining: Math.max(0, grandTotal - totalPaid),
+      });
+    }
 
     return payment;
   }
