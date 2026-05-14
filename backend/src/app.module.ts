@@ -16,6 +16,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { VendorsModule } from './vendors/vendors.module';
 import { CrmModule } from './crm/crm.module';
 import { SalesLearningModule } from './sales-learning/sales-learning.module';
+import { CallAnalysisModule } from './call-analysis/call-analysis.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { SalesLearningModule } from './sales-learning/sales-learning.module';
     RateCalculatorModule,
     CrmModule,
     SalesLearningModule,
+    CallAnalysisModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

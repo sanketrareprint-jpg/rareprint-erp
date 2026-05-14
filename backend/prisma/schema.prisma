@@ -31,6 +31,7 @@ model User {
   quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
   milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
   learningStreaks     DailyLearningStreak[] @relation("UserStreak")
+  callAnalyses       CallAnalysis[]         @relation("UserCallAnalyses")
 }
 
 model Customer {
@@ -775,6 +776,34 @@ model DailyLearningStreak {
 
   @@unique([userId, date])
   @@index([userId])
+}
+
+model CallAnalysis {
+  id                 String   @id @default(cuid())
+  agentId            String
+  agent              User     @relation("UserCallAnalyses", fields: [agentId], references: [id])
+  agentName          String
+  customerName       String
+  callType           String
+  duration           String?
+  overallScore       Int
+  grade              String
+  sentiment          String?
+  language           String?
+  transcript         String?  @db.Text
+  transcriptSummary  String?  @db.Text
+  strengthsList      Json
+  improvementsList   Json
+  categoryScores     Json
+  coachFeedback      String?  @db.Text
+  actionItems        Json
+  hasRealTranscript  Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([createdAt])
+  @@index([grade])
 }
 
 // ============================================================

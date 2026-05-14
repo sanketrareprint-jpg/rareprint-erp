@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
-  Truck, DollarSign, Users, LogOut, Printer, Layers, Database, BarChart2, BookOpen,
+  Truck, DollarSign, Users, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
 } from "lucide-react";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
@@ -16,6 +16,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ADMIN: [
     { label: "Dashboard",  href: "/dashboard",       icon: LayoutDashboard },
     { label: "Orders",     href: "/orders",           icon: ShoppingCart },
+    { label: "Calls",      href: "/call-analysis",    icon: Phone },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
     { label: "Production", href: "/production",       icon: Package },
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
@@ -29,12 +30,14 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
   ],
   SALES_AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
