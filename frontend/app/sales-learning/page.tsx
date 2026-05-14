@@ -96,7 +96,7 @@ function SalesLearningPageContent() {
 
   useEffect(() => { fetchTopics(); }, [fetchTopics]);
 
-  // Auto-open topic from URL param (from Call Analysis links)
+  // Auto-open topic from URL param (from Call Analysis links) - bypass lock
   useEffect(() => {
     if (!autoTopicId || !topics.length || phase !== 'list') return;
     const topic = topics.find(t => t.id === autoTopicId);
@@ -105,8 +105,8 @@ function SalesLearningPageContent() {
     if (!token) return;
     fetch(`${API}/sales-learning/topics/${topic.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(full => { setCurrentTopic({ ...topic, ...full }); setPhase('read'); })
-      .catch(() => { setCurrentTopic(topic); setPhase('read'); });
+      .then(full => { setCurrentTopic({ ...topic, ...full, isLocked: false }); setPhase('read'); })
+      .catch(() => { setCurrentTopic({ ...topic, isLocked: false }); setPhase('read'); });
   }, [autoTopicId, topics, phase]);
 
   const completedCount = topics.filter((t) => t.quizPassed || t.isCompleted || progress[t.id]?.quizPassed).length;
