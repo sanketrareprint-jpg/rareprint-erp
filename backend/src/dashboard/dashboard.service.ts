@@ -8,17 +8,30 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getStats() {
-    const now       = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfLastMonth   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    const now = new Date();
+    const istOffsetMs = 330 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    const istYear = istNow.getUTCFullYear();
+    const istMonth = istNow.getUTCMonth();
+    const istDate = istNow.getUTCDate();
+    const daysInMonth = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
+    const daysElapsed = istDate;
+    const fromIstStart = (year: number, month: number, day: number) =>
+      new Date(Date.UTC(year, month, day) - istOffsetMs);
+
+    const startOfToday = fromIstStart(istYear, istMonth, istDate);
+    const startOfTomorrow = fromIstStart(istYear, istMonth, istDate + 1);
+    const startOfMonth = fromIstStart(istYear, istMonth, 1);
+    const startOfNextMonth = fromIstStart(istYear, istMonth + 1, 1);
+    const startOfLastMonth = fromIstStart(istYear, istMonth - 1, 1);
+    const endOfLastMonth = startOfMonth;
 
     const [
       allOrders,
+      todayOrders,
       thisMonthOrders,
       lastMonthOrders,
       allPayments,
-      thisMonthPayments,
       last7DaysOrders,
       recentOrders,
     ] = await Promise.all([
@@ -27,15 +40,18 @@ export class DashboardService {
         select: { orderDate: true, grandTotal: true, status: true },
       }),
       this.prisma.order.findMany({
-        where: { orderDate: { gte: startOfMonth }, status: { not: OrderStatus.CANCELLED } },
-        select: { id: true },
+        where: { orderDate: { gte: startOfToday, lt: startOfTomorrow }, status: { not: OrderStatus.CANCELLED } },
+        select: { grandTotal: true },
       }),
       this.prisma.order.findMany({
-        where: { orderDate: { gte: startOfLastMonth, lte: endOfLastMonth }, status: { not: OrderStatus.CANCELLED } },
-        select: { payments: { select: { amount: true } } },
+        where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED } },
+        select: { id: true, grandTotal: true },
+      }),
+      this.prisma.order.findMany({
+        where: { orderDate: { gte: startOfLastMonth, lt: endOfLastMonth }, status: { not: OrderStatus.CANCELLED } },
+        select: { grandTotal: true },
       }),
       this.prisma.payment.findMany(),
-      this.prisma.payment.findMany({ where: { paymentDate: { gte: startOfMonth } } }),
       this.prisma.order.findMany({
         where: { orderDate: { gte: new Date(now.getTime() - 7 * 86400000) }, status: { not: OrderStatus.CANCELLED } },
         orderBy: { orderDate: 'asc' },
@@ -48,11 +64,12 @@ export class DashboardService {
       }),
     ]);
 
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayValue = allOrders.filter(o => new Date(o.orderDate) >= startOfToday).reduce((s, o) => s + Number(o.grandTotal), 0);
-    const thisMonthRevenue = thisMonthPayments.reduce((s, p) => s + Number(p.amount), 0);
-    const lastMonthRevenue = lastMonthOrders.flatMap(o => o.payments).reduce((s, p) => s + Number(p.amount), 0);
-    const growth = lastMonthRevenue > 0 ? Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
+    const todayValue = todayOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
+    const thisMonthSale = thisMonthOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
+    const lastMonthRevenue = lastMonthOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
+    const averagePerDay = daysElapsed > 0 ? thisMonthSale / daysElapsed : 0;
+    const monthlyRunRate = averagePerDay * daysInMonth;
+    const growth = lastMonthRevenue > 0 ? Math.round(((thisMonthSale - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
 
     const totalOrderValue = allOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
     const totalPaid       = allPayments.reduce((s, p) => s + Number(p.amount), 0);
@@ -77,7 +94,7 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
 }));
 
     return {
-      revenue: { today: todayValue, thisMonth: thisMonthRevenue, lastMonth: lastMonthRevenue, growth },
+      revenue: { today: todayValue, thisMonth: thisMonthSale, lastMonth: lastMonthRevenue, growth, averagePerDay, monthlyRunRate, daysElapsed, daysInMonth },
       orders: {
         total: allOrders.length,
         thisMonth: thisMonthOrders.length,

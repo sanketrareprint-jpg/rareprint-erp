@@ -7,7 +7,16 @@ import { useRouter } from "next/navigation";
 import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap } from "lucide-react";
 
 type DashboardStats = {
-  revenue: { today: number; thisMonth: number; lastMonth: number; growth: number };
+  revenue: {
+    today: number;
+    thisMonth: number;
+    lastMonth: number;
+    growth: number;
+    averagePerDay?: number;
+    monthlyRunRate?: number;
+    daysElapsed?: number;
+    daysInMonth?: number;
+  };
   orders: { total: number; thisMonth: number; byStatus: Record<string, number>; last7Days: { date: string; count: number }[] };
   finance: { totalOrderValue: number; totalPaid: number; totalOutstanding: number };
   pending: { approval: number; dispatchApproval: number; inProduction: number; readyForDispatch: number };
@@ -100,13 +109,14 @@ export default function DashboardPage() {
         </div>
 
         {/* ── KPI Cards ── */}
-        <div className="grid grid-cols-6 gap-2">
+        <div className="grid grid-cols-7 gap-2">
           {[
-            { label: "Today's Sale",      value: fmt(stats.revenue.today ?? 0),            sub: "Orders placed today",                   color: "text-emerald-600" },
-            { label: "This Month",        value: fmt(stats.revenue.thisMonth),              sub: `${stats.revenue.growth >= 0 ? "+" : ""}${stats.revenue.growth}% vs last month`, color: "text-slate-900" },
-            { label: "Last Month",        value: fmt(stats.revenue.lastMonth),              sub: "Previous month",                        color: "text-slate-700" },
+            { label: "Today's Sale",      value: fmt(stats.revenue.today ?? 0),            sub: "Order value today",                   color: "text-emerald-600" },
+            { label: "This Month Sale",   value: fmt(stats.revenue.thisMonth),              sub: `${stats.orders.thisMonth} orders this month`, color: "text-slate-900" },
+            { label: "Avg / Day",         value: fmt(stats.revenue.averagePerDay ?? 0),     sub: `Based on ${stats.revenue.daysElapsed ?? 0} days`, color: "text-blue-600" },
+            { label: "Last Month",        value: fmt(stats.revenue.lastMonth),              sub: "Previous month sale",                  color: "text-slate-700" },
+            { label: "Monthly Run Rate",  value: fmt(stats.revenue.monthlyRunRate ?? 0),    sub: `Avg × ${stats.revenue.daysInMonth ?? 0} days`, color: "text-purple-600" },
             { label: "Outstanding",       value: fmt(stats.finance.totalOutstanding),       sub: `Billed: ${fmt(stats.finance.totalOrderValue)}`, color: "text-red-600" },
-            { label: "Orders This Month", value: String(stats.orders.thisMonth),            sub: `Total all time: ${stats.orders.total}`, color: "text-slate-900" },
             { label: "Needs Attention",   value: String(stats.pending.approval + stats.pending.dispatchApproval), sub: `${stats.pending.approval} approvals`, color: "text-orange-600" },
           ].map((card, i) => (
             <div key={i} className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
