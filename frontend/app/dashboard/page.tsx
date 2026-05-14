@@ -212,13 +212,13 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1 mb-1.5">
               <Trophy className="h-3 w-3 text-amber-500" />
               <p className="text-xs font-semibold text-slate-700">Sales Leaderboard</p>
-              <span className="text-xs text-slate-400 ml-auto">This month</span>
+              <span className="text-xs text-slate-400 ml-auto">{activeAgents.length} agents</span>
             </div>
             {agents.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-3">No sales agents yet</p>
             ) : (
-              <div className="space-y-0.5">
-                {activeAgents.slice(0, 8).map((agent, i) => (
+              <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
+                {activeAgents.map((agent, i) => (
                   <div key={agent.id} className={`flex items-center justify-between rounded px-1.5 py-1 ${i === 0 ? "bg-amber-50" : ""}`}>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span style={{ fontSize: "11px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>

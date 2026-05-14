@@ -121,7 +121,10 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
   // ── Agent leaderboard ────────────────────────────────────────────────────
   async getAgentLeaderboard() {
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const istOffsetMs = 330 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    const startOfMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - istOffsetMs);
+    const startOfNextMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 1) - istOffsetMs);
     const orders = await this.prisma.order.findMany({
       where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED } },
       include: { payments: true, salesAgent: { select: { id: true, fullName: true, email: true } } },
@@ -134,7 +137,7 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
       map[id].totalOrders++;
       map[id].totalRevenue += orderValue;
       map[id].totalValue += orderValue;
-      if (o.orderDate >= startOfMonth) { map[id].monthOrders++; map[id].monthRevenue += orderValue; }
+      if (o.orderDate >= startOfMonth && o.orderDate < startOfNextMonth) { map[id].monthOrders++; map[id].monthRevenue += orderValue; }
     }
     const allAgents = await this.prisma.user.findMany({
       where: { isActive: true },
