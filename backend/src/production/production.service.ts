@@ -45,16 +45,7 @@ export class ProductionService {
     });
 
     // Fetch designFiles separately since it's a JSON field not in TypeScript types
-    const itemIds = orders.flatMap(o => o.items.map(i => i.id));
-    let designFilesMap: Record<string, any[]> = {};
-    if (itemIds.length > 0) {
-      const results = await this.prisma.$queryRaw<{ id: string; designFiles: any }[]>`
-        SELECT id, "designFiles" FROM "OrderItem" WHERE id = ANY(${itemIds}::text[])
-      `;
-      designFilesMap = Object.fromEntries(
-        results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])
-      );
-    }
+    
 
     return orders.map((o) => ({
       id: o.id,
@@ -77,7 +68,7 @@ export class ProductionService {
         artworkNotes: i.artworkNotes,
         itemProductionStage: i.itemProductionStage,
         productionCategory: i.productionCategory ?? null,
-        designFiles: designFilesMap[i.id] ?? [],
+        designFiles: [],
       })),
     }));
   }
