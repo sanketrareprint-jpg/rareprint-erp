@@ -1,3 +1,6 @@
+import * as cryptoNode from 'crypto';
+if (!globalThis.crypto) { (globalThis as any).crypto = cryptoNode.webcrypto; }
+
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
