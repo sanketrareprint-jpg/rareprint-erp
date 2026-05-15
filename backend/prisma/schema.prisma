@@ -162,6 +162,7 @@ model JobWork {
   isPaid        Boolean     @default(false)
   paidAt        DateTime?
   completedAt   DateTime?
+  dueDate       DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   orderItem     OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -195,6 +196,8 @@ model PrintSheetItem {
   multiple      Int        // how many times this item fits on sheet
   quantityOnSheet Int      // quantity covered by this sheet placement
   areaSqInches  Float      // open size area * multiple
+  dueDate              DateTime?       
+  processingVendorName String?        
   createdAt     DateTime   @default(now())
   sheet         PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
   orderItem     OrderItem  @relation(fields: [orderItemId], references: [id])
@@ -813,4 +816,32 @@ model CallAnalysis {
 // quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
 // milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
 // learningStreaks     DailyLearningStreak[] @relation("UserStreak")
+model Notification {
+  id          String    @id @default(cuid())
+  type        String
+  title       String
+  message     String
+  orderId     String?
+  orderNo     String?
+  itemId      String?
+  sheetId     String?
+  jobWorkId   String?
+  toUserId    String
+  toUserName  String
+  fromSystem  Boolean   @default(true)
+  isRead      Boolean   @default(false)
+  isResolved  Boolean   @default(false)
+  resolvedAt  DateTime?
+  explanation String?
+  actionTaken String?
+  copyToAdmin Boolean   @default(false)
+  adminSeen   Boolean   @default(false)
+  priority    String    @default("NORMAL")
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
+  @@index([toUserId, isResolved])
+  @@index([type, isResolved])
+  @@index([orderId])
+}
