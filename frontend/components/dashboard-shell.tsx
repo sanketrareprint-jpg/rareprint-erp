@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { NotificationBell } from "./NotificationBell";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -147,6 +148,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+          {/* Notification Bell */}
+          <NotificationBell userRole={role} />
 
         {/* User + logout */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginTop: "8px" }}>
