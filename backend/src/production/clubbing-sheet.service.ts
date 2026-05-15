@@ -50,10 +50,9 @@ export class ClubbingSheetService {
     const itemIds = filtered.flatMap(o => o.items.map(i => i.id));
     let designFilesMap: Record<string, any[]> = {};
     if (itemIds.length > 0) {
-      const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
-        `SELECT id, "designFiles" FROM "OrderItem" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
-        ...itemIds
-      );
+      const results = await this.prisma.$queryRaw<{ id: string; designFiles: any }[]>`
+        SELECT id, "designFiles" FROM "OrderItem" WHERE id = ANY(${itemIds}::text[])
+      `;
       designFilesMap = Object.fromEntries(
         results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])
       );
