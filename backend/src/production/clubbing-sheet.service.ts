@@ -42,7 +42,7 @@ export class ClubbingSheetService {
   async getClubbingOrders() {
     const orders = await this.prisma.order.findMany({
       where: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
-      include: { customer: true, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: true, jobWorks: { include: { vendor: true } } } } },
+      include: { customer: { select: { businessName: true, phone: true } }, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: { select: { name: true } }, jobWorks: { include: { vendor: { select: { name: true, id: true } } } } } } },
       orderBy: { updatedAt: 'desc' },
     });
     const filtered = orders.filter(o => o.items.length > 0);
