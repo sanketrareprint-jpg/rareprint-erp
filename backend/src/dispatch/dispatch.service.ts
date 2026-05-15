@@ -175,7 +175,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -216,6 +216,8 @@ export class DispatchService {
           billingPincode: addr.pincode, billingState: addr.state,
           weightKg, subTotal: Number(order.grandTotal),
           courierCompanyId,
+          isCod: isCod ?? (order.notes?.includes('COD:') ?? false),
+          codAmount: codAmount ?? (() => { const m = order.notes?.match(/COD: ₹(\d+)/); return m ? Number(m[1]) : undefined; })(),
         });
         if (sr.shiprocketOrderId) {
           trackingRef    = sr.shiprocketOrderId;

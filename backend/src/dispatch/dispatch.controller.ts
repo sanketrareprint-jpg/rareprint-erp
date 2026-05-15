@@ -22,7 +22,7 @@ export class DispatchController {
 
   @Post('book')
   book(
-    @Body() body: { orderId: string; itemIds: string[]; rateId: string },
+    @Body() body: { orderId: string; itemIds: string[]; rateId: string; isCod?: boolean; codAmount?: number },
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.dispatchService.bookItems(
@@ -30,6 +30,8 @@ export class DispatchController {
       body.itemIds,
       body.rateId,
       req.user.id,
+      body.isCod ?? false,
+      body.codAmount,
     );
   }
 }

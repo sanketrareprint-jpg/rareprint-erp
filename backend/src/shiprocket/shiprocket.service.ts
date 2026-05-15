@@ -144,6 +144,8 @@ export class ShiprocketService {
     weightKg: number;
     subTotal: number;
     courierCompanyId: number;
+    isCod?: boolean;
+    codAmount?: number;
   }): Promise<{ shiprocketOrderId?: string; message?: string }> {
     if (!this.isConfigured()) return {};
     const token = await this.getAuthToken();
@@ -173,7 +175,8 @@ export class ShiprocketService {
           selling_price: Math.max(1, Math.round(input.subTotal)),
         },
       ],
-      payment_method: 'Prepaid',
+      payment_method: input.isCod ? 'COD' : 'Prepaid',
+      collectable_amount: input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : undefined,
       sub_total: Math.max(1, Math.round(input.subTotal)),
       length: 20,
       breadth: 15,
