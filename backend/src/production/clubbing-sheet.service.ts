@@ -1,4 +1,4 @@
-﻿// backend/src/production/clubbing-sheet.service.ts
+// backend/src/production/clubbing-sheet.service.ts
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JobWorkStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -42,7 +42,7 @@ export class ClubbingSheetService {
   async getClubbingOrders() {
     const orders = await this.prisma.order.findMany({
       where: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
-      include: { customer: { select: { businessName: true, phone: true } }, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: { select: { name: true } }, jobWorks: { include: { vendor: { select: { name: true, id: true } } } } } } },
+      include: { customer: { select: { businessName: true, phone: true } }, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } }, jobWorks: { include: { vendor: { select: { name: true, id: true } } } } } } },
       orderBy: { updatedAt: 'desc' },
     });
     const filtered = orders.filter(o => o.items.length > 0);

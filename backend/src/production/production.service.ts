@@ -40,7 +40,7 @@ export class ProductionService {
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true } } } },
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
       },
     });
 
