@@ -48,11 +48,9 @@ export class ProductionService {
     const itemIds = orders.flatMap(o => o.items.map(i => i.id));
     let designFilesMap: Record<string, any[]> = {};
     if (itemIds.length > 0) {
-      // Use a raw query per batch to get the JSON field
-      const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
-       `SELECT id, "designFiles" FROM "OrderItem" WHERE id = ANY($1::text[])`,
-        itemIds
-      );
+      const results = await this.prisma.$queryRaw<{ id: string; designFiles: any }[]>`
+        SELECT id, "designFiles" FROM "OrderItem" WHERE id = ANY(${itemIds}::text[])
+      `;
       designFilesMap = Object.fromEntries(
         results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])
       );
