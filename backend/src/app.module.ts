@@ -17,6 +17,7 @@ import { VendorsModule } from './vendors/vendors.module';
 import { CrmModule } from './crm/crm.module';
 import { SalesLearningModule } from './sales-learning/sales-learning.module';
 import { CallAnalysisModule } from './call-analysis/call-analysis.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { CallAnalysisModule } from './call-analysis/call-analysis.module';
     CrmModule,
     SalesLearningModule,
     CallAnalysisModule,
+    NotificationsModule, 
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

@@ -410,8 +410,6 @@ function SalesLearningPageContent() {
   return null;
 }
 
-import { Suspense } from "react";
-
 export default function SalesLearningPage() {
   return (
     <DashboardShell>
@@ -421,4 +419,5 @@ export default function SalesLearningPage() {
     </DashboardShell>
   );
 }
+
 
