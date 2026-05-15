@@ -1,4 +1,4 @@
-﻿// backend/src/production/production.service.ts
+// backend/src/production/production.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -50,8 +50,8 @@ export class ProductionService {
     if (itemIds.length > 0) {
       // Use a raw query per batch to get the JSON field
       const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
-        `SELECT id, "designFiles" FROM "OrderItem" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
-        ...itemIds
+       `SELECT id, "designFiles" FROM "OrderItem" WHERE id = ANY($1::text[])`,
+        itemIds
       );
       designFilesMap = Object.fromEntries(
         results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])
