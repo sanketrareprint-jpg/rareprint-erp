@@ -38,9 +38,9 @@ export class ProductionService {
       },
       orderBy: { updatedAt: 'desc' },
       include: {
-        customer: true,
+        customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { include: { product: true } },
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true } } } },
       },
     });
 
