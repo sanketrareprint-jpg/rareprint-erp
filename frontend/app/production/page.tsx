@@ -153,7 +153,10 @@ export default function ProductionPage() {
   // Sheet state
   const [createSheetModal, setCreateSheetModal] = useState(false);
   const [sheetForm, setSheetForm] = useState({ gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
+  const [editSheetModal, setEditSheetModal] = useState<PrintSheet | null>(null);
+  const [editSheetForm, setEditSheetForm] = useState({ sheetNo: "", gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
   const [savingSheet, setSavingSheet] = useState(false);
+  const [savingEditSheet, setSavingEditSheet] = useState(false);
   const [expandedSheet, setExpandedSheet] = useState<string | null>(null);
   const [placeableItems, setPlaceableItems] = useState<PlaceableItem[]>([]);
   const [loadingPlaceable, setLoadingPlaceable] = useState(false);
@@ -165,6 +168,7 @@ export default function ProductionPage() {
   const [multipleDialog, setMultipleDialog] = useState<{ sheetId: string; sheetNo: string; sheetQty: number; item: PlaceableItem; maxMultiple: number; suggestedMultiple: number } | null>(null);
   const [multipleValue, setMultipleValue] = useState("1");
   const [sheetSubTab, setSheetSubTab] = useState("unassigned");
+  const [sheetFilters, setSheetFilters] = useState({ product: "", size: "", gsm: "", sides: "" });
   const [processingSubTab, setProcessingSubTab] = useState<"printing"|"processing">("printing");
   const [settingDialog, setSettingDialog] = useState<{ sheetId: string; sheetNo: string } | null>(null);
   const [settingForm, setSettingForm] = useState({
@@ -387,6 +391,48 @@ export default function ProductionPage() {
       setCreateSheetModal(false); setSheetForm({ gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
       await loadAll();
     } finally { setSavingSheet(false); }
+  }
+
+  function openEditSheet(sheet: PrintSheet) {
+    if (sheet.status !== "INCOMPLETE") {
+      alert("Only incomplete sheets can be edited.");
+      return;
+    }
+    setEditSheetModal(sheet);
+    setEditSheetForm({
+      sheetNo: sheet.sheetNo,
+      gsm: String(sheet.gsm),
+      quality: sheet.quality,
+      quantity: String(sheet.quantity),
+      sizeInches: sheet.sizeInches,
+      printing: sheet.printing,
+    });
+  }
+
+  async function updateSheet() {
+    if (!editSheetModal) return;
+    if (!editSheetForm.sheetNo || !editSheetForm.gsm || !editSheetForm.quantity || !editSheetForm.sizeInches) {
+      alert("Fill sheet number, GSM, quantity and size");
+      return;
+    }
+    setSavingEditSheet(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/sheets/${editSheetModal.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetNo: editSheetForm.sheetNo,
+          gsm: Number(editSheetForm.gsm),
+          quality: editSheetForm.quality,
+          quantity: Number(editSheetForm.quantity),
+          sizeInches: editSheetForm.sizeInches,
+          printing: editSheetForm.printing,
+        }),
+      });
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
+      setEditSheetModal(null);
+      await loadAll();
+    } finally { setSavingEditSheet(false); }
   }
 
   async function loadPlaceableItems(gsm: number) {
@@ -918,11 +964,51 @@ export default function ProductionPage() {
               {sheetSubTab === "unassigned" && (() => {
                 const aqm: Record<string,number> = {};
                 sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
-                const items = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName, orderDate: o.orderDate, salesAgentName: o.salesAgentName })));
-                if (items.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
+                const rawItems = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName, orderDate: o.orderDate, salesAgentName: o.salesAgentName })));
+                const itemMeta = rawItems.map(item => ({ item, ...getItemDetails(item) }));
+                const uniq = (values: (string | null | undefined)[]) => Array.from(new Set(values.filter(Boolean).map(String))).sort((a,b) => a.localeCompare(b, undefined, { numeric: true }));
+                const filterOptions = {
+                  product: uniq(rawItems.map(i => i.productName)),
+                  size: uniq(itemMeta.map(i => i.size)),
+                  gsm: uniq(itemMeta.map(i => i.gsm)),
+                  sides: uniq(itemMeta.map(i => i.sides)),
+                };
+                const items = itemMeta
+                  .filter(({ item, size, gsm, sides }) =>
+                    (!sheetFilters.product || item.productName === sheetFilters.product) &&
+                    (!sheetFilters.size || size === sheetFilters.size) &&
+                    (!sheetFilters.gsm || gsm === sheetFilters.gsm) &&
+                    (!sheetFilters.sides || sides === sheetFilters.sides)
+                  )
+                  .map(({ item }) => item);
+                if (rawItems.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
                 return (
-                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="space-y-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {([
+                          ["product", "Product", filterOptions.product],
+                          ["size", "Size", filterOptions.size],
+                          ["gsm", "GSM", filterOptions.gsm],
+                          ["sides", "Sides", filterOptions.sides],
+                        ] as const).map(([key, label, options]) => (
+                          <label key={key} className="flex items-center gap-1 text-xs font-semibold text-slate-600">
+                            {label}
+                            <select value={sheetFilters[key]} onChange={e => setSheetFilters(p => ({ ...p, [key]: e.target.value }))} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none">
+                              <option value="">All</option>
+                              {options.map(option => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          </label>
+                        ))}
+                        <button onClick={() => setSheetFilters({ product: "", size: "", gsm: "", sides: "" })} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50">
+                          Clear
+                        </button>
+                        <span className="ml-auto text-xs text-slate-400">{items.length} of {rawItems.length}</span>
+                      </div>
+                    </div>
+                    {items.length === 0 ? <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No items match these filters.</div> : (
+                    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                      <table className="w-full text-xs">
                       <thead><tr className="border-b border-slate-100 bg-slate-50">
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
@@ -992,7 +1078,9 @@ export default function ProductionPage() {
                           </tr>
                         );
                       })}</tbody>
-                    </table>
+                      </table>
+                    </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1015,6 +1103,11 @@ export default function ProductionPage() {
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
                             <div className="flex items-center gap-2">
+                              {sheet.status === "INCOMPLETE" && (
+                                <button onClick={e => { e.stopPropagation(); openEditSheet(sheet); }} className="rounded-md border border-cyan-200 bg-white px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-50">
+                                  Edit
+                                </button>
+                              )}
                               <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
                                 {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
@@ -1546,6 +1639,59 @@ export default function ProductionPage() {
               <button onClick={createSheet} disabled={savingSheet}
                 className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
                 {savingSheet ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Create Sheet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Sheet Modal ── */}
+      {editSheetModal && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Edit Sheet</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Only incomplete sheets can be edited.</p>
+              </div>
+              <button onClick={() => setEditSheetModal(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Sheet Number *</label>
+                <input value={editSheetForm.sheetNo} onChange={e => setEditSheetForm(p => ({ ...p, sheetNo: e.target.value }))} placeholder="SHT-2026-001" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">GSM *</label>
+                <input type="number" value={editSheetForm.gsm} onChange={e => setEditSheetForm(p => ({ ...p, gsm: e.target.value }))} style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
+                <select value={editSheetForm.quality} onChange={e => setEditSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
+                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
+                <input type="number" value={editSheetForm.quantity} onChange={e => setEditSheetForm(p => ({ ...p, quantity: e.target.value }))} style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
+                <input value={editSheetForm.sizeInches} onChange={e => setEditSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
+                <select value={editSheetForm.printing} onChange={e => setEditSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
+                  <option value="SINGLE_SIDE">Single Side</option>
+                  <option value="DOUBLE_SIDE">Double Side</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditSheetModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={updateSheet} disabled={savingEditSheet}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                {savingEditSheet ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save Changes
               </button>
             </div>
           </div>

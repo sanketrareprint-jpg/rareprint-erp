@@ -82,6 +82,12 @@ export class ProductionController {
     return this.clubbingSheetService.createSheet(body);
   }
 
+  @Patch('sheets/:id')
+  updateSheet(
+    @Param('id') id: string,
+    @Body() body: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides },
+  ) { return this.clubbingSheetService.updateSheet(id, body); }
+
   // ── Static routes MUST come before parameterized routes (:id) ──
   @Get('sheets/placeable-items')
   getPlaceableItems(@Query('gsm') gsm: string) { return this.clubbingSheetService.getPlaceableItems(Number(gsm)); }

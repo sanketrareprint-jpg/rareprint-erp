@@ -114,6 +114,32 @@ export class ClubbingSheetService {
     return this.prisma.printSheet.create({ data: { sheetNo, ...data, areaSqInches: w * h } });
   }
 
+  async updateSheet(sheetId: string, data: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides }) {
+    const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
+    if (!sheet) throw new NotFoundException('Sheet not found');
+    if (sheet.status !== 'INCOMPLETE') throw new BadRequestException('Only incomplete sheets can be edited');
+
+    let areaSqInches: number | undefined;
+    if (data.sizeInches) {
+      const [w, h] = data.sizeInches.split('x').map(Number);
+      if (!w || !h) throw new BadRequestException('Invalid size format. Use WxH e.g. 18x23');
+      areaSqInches = w * h;
+      if (sheet.usedAreaSqInches > areaSqInches) throw new BadRequestException('New sheet size is smaller than used area');
+    }
+
+    return this.prisma.printSheet.update({
+      where: { id: sheetId },
+      data: {
+        ...(data.sheetNo && { sheetNo: data.sheetNo.trim() }),
+        ...(data.gsm !== undefined && { gsm: data.gsm }),
+        ...(data.quality && { quality: data.quality }),
+        ...(data.quantity !== undefined && { quantity: data.quantity }),
+        ...(data.sizeInches && { sizeInches: data.sizeInches, areaSqInches }),
+        ...(data.printing && { printing: data.printing }),
+      },
+    });
+  }
+
   async updateSheetStatus(sheetId: string, status: SheetStatus) {
     // Map sheet status → order item production stage
     const stageMap: Record<string, string> = {
