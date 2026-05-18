@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Bell, X, CheckCheck, AlertTriangle, Info, ChevronRight } from "lucide-react";
+import { MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
+import { Bell, X, ChevronRight } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "https://rareprint-erp-production.up.railway.app";
 const AUTH_KEY = "rareprint_token";
@@ -27,6 +28,23 @@ interface Notification {
   actionTaken?: string;
   copyToAdmin: boolean;
   createdAt: string;
+  productDetails?: {
+    productName?: string;
+    sku?: string;
+    quantity?: number;
+    size?: string | null;
+    openSize?: string | null;
+    gsm?: number | string | null;
+    sides?: string | null;
+    printingType?: string | null;
+    productionCategory?: string | null;
+    itemProductionStage?: string | null;
+    artworkNotes?: string | null;
+    productionNotes?: string | null;
+    customerName?: string | null;
+    customerPhone?: string | null;
+    salesAgentName?: string | null;
+  };
 }
 
 function timeAgo(dateStr: string) {
@@ -51,6 +69,7 @@ function priorityLabel(priority: string) {
 }
 
 export function NotificationBell({ userRole }: { userRole: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"mine" | "admin">("mine");
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -201,6 +220,30 @@ export function NotificationBell({ userRole }: { userRole: string }) {
 
   const displayList = tab === "admin" ? adminNotifs : notifications;
 
+  const productionTabFor = (type: string) => {
+    if (type.includes("CLUBBING")) return "clubbing";
+    if (type.includes("SHEET")) return "sheets";
+    if (type.includes("INHOUSE")) return "inhouse";
+    return "all";
+  };
+
+  const openLinkedProduct = (n: Notification) => {
+    if (!n.orderNo && !n.itemId && !n.sheetId) return;
+    const params = new URLSearchParams();
+    params.set("tab", productionTabFor(n.type));
+    if (n.orderNo) params.set("order", n.orderNo);
+    if (n.itemId) params.set("item", n.itemId);
+    if (n.sheetId) params.set("sheet", n.sheetId);
+    setOpen(false);
+    router.push(`/production?${params.toString()}`);
+  };
+
+  const handleCardClick = (event: ReactMouseEvent<HTMLDivElement>, n: Notification) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button") || target.closest("input") || target.closest("a")) return;
+    openLinkedProduct(n);
+  };
+
   return (
     <div ref={dropdownRef} style={{ position: "relative" }}>
       {/* Bell Button */}
@@ -223,7 +266,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
       {/* Dropdown */}
       {open && (
         <div style={{
-          position: "fixed", top: "10px", right: "10px", width: "380px", maxHeight: "85vh",
+          position: "fixed", top: "10px", right: "10px", width: "520px", maxWidth: "calc(100vw - 24px)", maxHeight: "85vh",
           background: "white", borderRadius: "14px", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
           display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden",
         }}>
@@ -263,10 +306,11 @@ export function NotificationBell({ userRole }: { userRole: string }) {
                 ✅ All clear — no notifications
               </div>
             ) : displayList.map(n => (
-              <div key={n.id} style={{
+              <div key={n.id} onClick={(event) => handleCardClick(event, n)} title="Open linked product in Production" style={{
                 padding: "12px 14px", borderBottom: "1px solid #f1f5f9",
                 background: n.isRead ? "white" : "#f8faff",
                 opacity: n.isResolved ? 0.6 : 1,
+                cursor: n.orderNo || n.itemId || n.sheetId ? "pointer" : "default",
               }}>
                 {/* Priority + Title */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "4px" }}>
@@ -285,8 +329,13 @@ export function NotificationBell({ userRole }: { userRole: string }) {
 
                 {/* Order No */}
                 {n.orderNo && (
-                  <div style={{ fontSize: "11px", color: "#2563eb", fontWeight: 600, marginBottom: "4px" }}>
-                    📋 {n.orderNo}
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", color: "#2563eb", fontWeight: 600, marginBottom: "4px" }}>
+                    <span>📋 {n.orderNo}</span>
+                    <button onClick={() => openLinkedProduct(n)} style={{
+                      border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1d4ed8",
+                      borderRadius: "999px", padding: "2px 8px", fontSize: "10px", fontWeight: 700,
+                      cursor: "pointer",
+                    }}>Open</button>
                   </div>
                 )}
 
@@ -294,6 +343,31 @@ export function NotificationBell({ userRole }: { userRole: string }) {
                 <div style={{ fontSize: "12px", color: "#475569", lineHeight: 1.4, marginBottom: "8px" }}>
                   {n.message}
                 </div>
+
+                {/* Product Details */}
+                {n.productDetails && (
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 10px",
+                    marginBottom: "8px", padding: "8px", border: "1px solid #e2e8f0",
+                    borderRadius: "8px", background: "#f8fafc", fontSize: "11px", color: "#334155",
+                  }}>
+                    <div style={{ gridColumn: "1 / -1", fontWeight: 800, color: "#0f172a", fontSize: "12px" }}>
+                      {n.productDetails.productName || "Product"}{n.productDetails.sku ? ` · ${n.productDetails.sku}` : ""}
+                    </div>
+                    <div><strong>Qty:</strong> {n.productDetails.quantity ?? "-"}</div>
+                    <div><strong>Size:</strong> {n.productDetails.size || "-"}</div>
+                    <div><strong>GSM:</strong> {n.productDetails.gsm || "-"}</div>
+                    <div><strong>Sides:</strong> {String(n.productDetails.sides || "-").replace(/_/g, " ")}</div>
+                    <div><strong>Stage:</strong> {String(n.productDetails.itemProductionStage || "-").replace(/_/g, " ")}</div>
+                    <div><strong>Agent:</strong> {n.productDetails.salesAgentName || "-"}</div>
+                    {n.productDetails.productionNotes && (
+                      <div style={{ gridColumn: "1 / -1" }}><strong>Production:</strong> {n.productDetails.productionNotes}</div>
+                    )}
+                    {n.productDetails.artworkNotes && (
+                      <div style={{ gridColumn: "1 / -1" }}><strong>Artwork:</strong> {n.productDetails.artworkNotes}</div>
+                    )}
+                  </div>
+                )}
 
                 {/* Resolved badge */}
                 {n.isResolved && (

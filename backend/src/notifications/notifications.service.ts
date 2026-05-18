@@ -32,6 +32,47 @@ export class NotificationsService {
     return this.prisma.notification.create({ data: { ...data, priority: data.priority ?? 'NORMAL' } });
   }
 
+  private async withProductDetails(notifications: any[]) {
+    const itemIds = [...new Set(notifications.map(n => n.itemId).filter(Boolean))];
+    if (itemIds.length === 0) return notifications;
+
+    const items = await this.prisma.orderItem.findMany({
+      where: { id: { in: itemIds } },
+      include: {
+        product: true,
+        order: { include: { customer: true, salesAgent: true } },
+      },
+    });
+    const byId = new Map(items.map(item => [item.id, item]));
+
+    return notifications.map(notification => {
+      const item = notification.itemId ? byId.get(notification.itemId) : null;
+      if (!item) return notification;
+      const product = item.product;
+      const order = item.order as any;
+      return {
+        ...notification,
+        productDetails: {
+          productName: product.name,
+          sku: product.sku,
+          quantity: item.quantity,
+          size: product.sizeInches,
+          openSize: product.openSizeInches,
+          gsm: product.gsm,
+          sides: product.sides,
+          printingType: product.printingType,
+          productionCategory: item.productionCategory,
+          itemProductionStage: item.itemProductionStage,
+          artworkNotes: item.artworkNotes,
+          productionNotes: item.productionNotes,
+          customerName: order.customer?.businessName,
+          customerPhone: order.customer?.phone,
+          salesAgentName: order.salesAgent?.fullName,
+        },
+      };
+    });
+  }
+
   // ── Cron: runs every hour ─────────────────────────────────────────────────
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -456,19 +497,21 @@ export class NotificationsService {
   // ── API Methods ───────────────────────────────────────────────────────────
 
   async getMyNotifications(userId: string) {
-    return this.prisma.notification.findMany({
+    const notifications = await this.prisma.notification.findMany({
       where: { toUserId: userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    return this.withProductDetails(notifications);
   }
 
   async getAdminNotifications() {
-    return this.prisma.notification.findMany({
+    const notifications = await this.prisma.notification.findMany({
       where: { copyToAdmin: true },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+    return this.withProductDetails(notifications);
   }
 
   async getUnreadCount(userId: string) {
@@ -501,6 +544,7 @@ export class NotificationsService {
         toUserId: admin.id, toUserName: admin.fullName,
         orderId: notif.orderId ?? undefined, orderNo: notif.orderNo ?? undefined,
         itemId: notif.itemId ?? undefined, sheetId: notif.sheetId ?? undefined,
+        jobWorkId: notif.jobWorkId ?? undefined,
       });
     }
     return notif;
@@ -516,6 +560,9 @@ export class NotificationsService {
         message: notif.message,
         toUserId: admin.id, toUserName: admin.fullName,
         orderId: notif.orderId ?? undefined, orderNo: notif.orderNo ?? undefined,
+        itemId: notif.itemId ?? undefined,
+        sheetId: notif.sheetId ?? undefined,
+        jobWorkId: notif.jobWorkId ?? undefined,
       });
     }
     return notif;

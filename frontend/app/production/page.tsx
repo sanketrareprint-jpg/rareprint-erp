@@ -201,6 +201,17 @@ export default function ProductionPage() {
 
   useEffect(() => { void loadAll(); }, [loadAll]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const order = params.get("order");
+    const targetTab = params.get("tab");
+    if (targetTab === "unassigned" || targetTab === "inhouse" || targetTab === "clubbing" || targetTab === "sheets" || targetTab === "all") {
+      setActiveTab(targetTab);
+    }
+    if (order) setSearch(order);
+  }, []);
+
   // Load saved processing vendors from sessionStorage
   useEffect(() => {
     try {
