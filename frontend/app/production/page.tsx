@@ -184,8 +184,9 @@ export default function ProductionPage() {
   const [sheetsData, setSheetsData] = useState<PrintSheet[]>([]);
   const [vendorsData, setVendorsData] = useState<Vendor[]>([]);
 
-  const loadAll = useCallback(async () => {
-    setError(null); setLoading(true);
+  const loadAll = useCallback(async (silent = false) => {
+    setError(null);
+    if (!silent) setLoading(true);
     try {
       const h = getAuthHeaders();
       const [oRes, cRes, sRes, vRes] = await Promise.all([
@@ -200,7 +201,7 @@ export default function ProductionPage() {
       setSheetsData(sRes.ok ? await sRes.json() : []);
       setVendorsData(vRes.ok ? await vRes.json() : []);
     } catch { setError("Network error."); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, [router]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
@@ -233,7 +234,7 @@ export default function ProductionPage() {
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Update failed"); }
-      await loadAll();
+      await loadAll(true);
     } finally { setUpdatingItemId(null); }
   }
 
@@ -253,7 +254,7 @@ export default function ProductionPage() {
     if (entries.length === 0) { alert("Select a category for at least one item"); return; }
     for (const [itemId, cat] of entries) await assignCategory(itemId, cat);
     setAssignModal(null); setCategorySelections({});
-    await loadAll();
+    await loadAll(true);
   }
 
   async function uploadFile(itemId: string, file: File) {
@@ -263,7 +264,7 @@ export default function ProductionPage() {
       formData.append("file", file);
       const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, { method: "POST", headers: (() => { const h = getAuthHeaders(); delete (h as any)["Content-Type"]; return h; })(), body: formData });
       if (!res.ok) { alert("Upload failed"); return; }
-      await loadAll();
+      await loadAll(true);
     } finally { setUploadingItemId(null); if (fileInputRefs.current[itemId]) fileInputRefs.current[itemId]!.value = ""; }
   }
 
@@ -272,7 +273,7 @@ export default function ProductionPage() {
     setDeletingFile(filename);
     try {
       await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, { method: "DELETE", headers: getAuthHeaders() });
-      await loadAll();
+      await loadAll(true);
     } finally { setDeletingFile(null); }
   }
 
@@ -302,7 +303,7 @@ export default function ProductionPage() {
       });
       if (!res.ok) { alert("Failed to add job work"); return; }
       setJwForm(p => ({ ...p, [itemId]: { vendorId: "", description: "", cost: "", vendorInvoiceNo: "" } }));
-      await loadAll();
+      await loadAll(true);
     } finally { setSavingJw(false); }
   }
 
@@ -321,7 +322,7 @@ export default function ProductionPage() {
         body: JSON.stringify({ stage: "PRINTING" }),
       });
       setSendDialog(null); setSendVendorId(""); setSendDesc("");
-      await loadAll();
+      await loadAll(true);
     } finally { setSendingSend(false); }
   }
 
@@ -345,7 +346,7 @@ export default function ProductionPage() {
         });
       }
       setReceiveDialog(null); setReceiveCost(""); setReceiveInvNo("");
-      await loadAll();
+      await loadAll(true);
     } finally { setSavingReceive(false); }
   }
 
@@ -354,13 +355,13 @@ export default function ProductionPage() {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    await loadAll();
+    await loadAll(true);
   }
 
   async function deleteJobWork(jwId: string) {
     if (!confirm("Remove this job work?")) return;
     await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${jwId}`, { method: "DELETE", headers: getAuthHeaders() });
-    await loadAll();
+    await loadAll(true);
   }
 
   // ── Vendor ───────────────────────────────────────────────────────────────
@@ -374,7 +375,7 @@ export default function ProductionPage() {
       });
       if (!res.ok) { alert("Failed"); return; }
       setVendorModal(false); setNewVendor({ name: "", phone: "", email: "", gstNumber: "" });
-      await loadAll();
+      await loadAll(true);
     } finally { setSavingVendor(false); }
   }
 
@@ -389,7 +390,7 @@ export default function ProductionPage() {
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setCreateSheetModal(false); setSheetForm({ gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
-      await loadAll();
+      await loadAll(true);
     } finally { setSavingSheet(false); }
   }
 
@@ -431,7 +432,7 @@ export default function ProductionPage() {
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setEditSheetModal(null);
-      await loadAll();
+      await loadAll(true);
     } finally { setSavingEditSheet(false); }
   }
 
@@ -505,7 +506,7 @@ export default function ProductionPage() {
         body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple: val, quantityOnSheet, areaSqInches: itemArea * val }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      await loadAll();
+      await loadAll(true);
       await loadPlaceableItems(sheet.gsm);
     } finally { setPlacingItem(null); }
   }
@@ -513,7 +514,7 @@ export default function ProductionPage() {
   async function removeSheetItem(id: string) {
     if (!confirm("Remove this item from sheet?")) return;
     await fetch(`${API_BASE_URL}/production/sheets/sheet-items/${id}`, { method: "DELETE", headers: getAuthHeaders() });
-    await loadAll();
+    await loadAll(true);
   }
 
   async function updateSheetStatus(sheetId: string, status: string) {
@@ -529,7 +530,7 @@ export default function ProductionPage() {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    await loadAll();
+    await loadAll(true);
     setExpandedSheet(prevExpanded);
   }
 
@@ -556,7 +557,7 @@ export default function ProductionPage() {
         method: "PATCH", headers: h, body: JSON.stringify({ status: "SETTING" }),
       });
       setSettingDialog(null);
-      await loadAll();
+      await loadAll(true);
       setProcessingSubTab("printing");
     } finally { setSavingSetting(false); }
   }
@@ -572,14 +573,14 @@ export default function ProductionPage() {
       });
       if (!res.ok) { alert("Failed"); return; }
       setStageVendorForm(p => ({ ...p, [sheetId]: { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" } }));
-      await loadAll();
+      await loadAll(true);
     } finally { setSavingStageVendor(false); }
   }
 
   async function deleteStageVendor(id: string) {
     if (!confirm("Remove vendor from this stage?")) return;
     await fetch(`${API_BASE_URL}/production/sheets/stage-vendors/${id}`, { method: "DELETE", headers: getAuthHeaders() });
-    await loadAll();
+    await loadAll(true);
   }
 
   // ── Derived counts ────────────────────────────────────────────────────────
@@ -626,7 +627,7 @@ export default function ProductionPage() {
             <div className="flex gap-2">
               <button onClick={() => setVendorModal(true)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">+ Vendor</button>
               {activeTab === "sheets" && <button onClick={() => setCreateSheetModal(true)} className="rounded-lg bg-cyan-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-cyan-700">+ New Sheet</button>}
-              <button onClick={loadAll} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
+              <button onClick={() => loadAll()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
             </div>
           </div>
 
@@ -750,7 +751,7 @@ export default function ProductionPage() {
                               </select>
                             </div>
                           </td>
-                              {userRole !== "INHOUSE" && <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200 ml-1">✕</button>}
+                              {userRole !== "INHOUSE" && <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200 ml-1">✕</button>}
                           <td className="px-3 py-1.5 max-w-[160px]">
                             {(() => {
                               const sa = sheetsData.flatMap(s => s.items.filter(si => si.orderItem.id === item.id).map(si => ({ no: s.sheetNo, qty: si.quantityOnSheet })));
@@ -913,7 +914,7 @@ export default function ProductionPage() {
                                       className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
                                       Send →
                                     </button>
-                                    <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button>
+                                    <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button>
                                   </div>
                                 )}
                                 {clubSubTab === "in_progress" && activeJw && (
@@ -1053,7 +1054,7 @@ export default function ProductionPage() {
                             </td>
                             <td className="px-3 py-2">
                               {compatibleSheets.length === 0 ? (
-                                <div className="flex items-center gap-1"><span className="text-slate-400 text-xs">No sheets</span><button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(); }} className="text-red-400 hover:text-red-600 font-bold text-sm leading-none ml-1">✕</button></div>
+                                <div className="flex items-center gap-1"><span className="text-slate-400 text-xs">No sheets</span><button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="text-red-400 hover:text-red-600 font-bold text-sm leading-none ml-1">✕</button></div>
                               ) : (
                                 <div className="flex items-center gap-1">
                                   <select id={`sel-${item.id}`} defaultValue="" className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
@@ -1323,7 +1324,7 @@ export default function ProductionPage() {
                                               body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
                                             });
                                             if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-                                            await loadAll();
+                                            await loadAll(true);
                                           } catch { alert("Network error"); }
                                         }}
                                         className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
