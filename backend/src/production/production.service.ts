@@ -33,9 +33,11 @@ function resolveItemDetails(item: {
   product: { sizeInches?: string | null; gsm?: number | null; sides?: string | null };
 }) {
   const notes = item.productionNotes ?? '';
+  // Stop at commas/newlines so "GSM: 70, Sides: DOUBLE_SIDE" doesn't
+  // capture "70," with a trailing comma.
   let size = notes.match(/Size[\s:]+([^\n,]+)/i)?.[1]?.trim() ?? null;
-  let gsm = notes.match(/GSM[\s:]+(\S+)/i)?.[1]?.trim() ?? null;
-  let sidesRaw = notes.match(/Sides[\s:]+(\S+)/i)?.[1]?.trim() ?? null;
+  let gsm = notes.match(/GSM[\s:]+([^,\n\s]+)/i)?.[1]?.trim() ?? null;
+  let sidesRaw = notes.match(/Sides[\s:]+([^,\n\s]+)/i)?.[1]?.trim() ?? null;
 
   if (!size && item.product.sizeInches) size = item.product.sizeInches;
   if (!gsm && item.product.gsm != null) gsm = String(item.product.gsm);
@@ -287,5 +289,3 @@ export class ProductionService {
     return { success: true, itemId, stage };
   }
 }
-
- 

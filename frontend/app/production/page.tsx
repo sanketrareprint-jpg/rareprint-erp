@@ -50,9 +50,11 @@ type PlaceableItem = { id: string; productName: string; sku: string; gsm: number
 function parseNotes(notes?: string) {
   if (!notes) return {};
   return {
+    // Stop at commas/newlines so "GSM: 70, Sides: DOUBLE_SIDE" doesn't
+    // produce "70," with a trailing comma.
     size: notes.match(/Size[\s:]+([^\n,]+)/i)?.[1]?.trim(),
-    gsm: notes.match(/GSM[\s:]+(\S+)/i)?.[1]?.trim(),
-    sides: notes.match(/Sides[\s:]+(\S+)/i)?.[1]?.trim(),
+    gsm: notes.match(/GSM[\s:]+([^,\n\s]+)/i)?.[1]?.trim(),
+    sides: notes.match(/Sides[\s:]+([^,\n\s]+)/i)?.[1]?.trim(),
   };
 }
 
@@ -926,11 +928,11 @@ export default function ProductionPage() {
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Assign Sheet</th>
                       </tr></thead>
                       <tbody>{items.map(item => {
-                        const notes = parseNotes(item.productionNotes);
+                        const { size, gsm, sides } = getItemDetails(item);
                         const assigned = aqm[item.id] || 0;
                         const balance = item.quantity - assigned;
                         // Find compatible sheets (same GSM, has space, sheetQty <= balanceQty)
-                        const itemGsm = notes.gsm ? parseInt(notes.gsm) : 0;
+                        const itemGsm = gsm ? parseInt(gsm) : 0;
                         const compatibleSheets = sheetsData.filter(s =>
                           (s.status === "INCOMPLETE" || s.status === "COMPLETE" || s.status === "SETTING") &&
                           s.gsm === itemGsm &&
@@ -943,9 +945,9 @@ export default function ProductionPage() {
                             <td className="px-3 py-2 text-slate-700">{item.customerName}</td>
                             <td className="px-3 py-2">{(item as any).salesAgentName ? <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{(item as any).salesAgentName}</span> : <span className="text-slate-400 text-xs">—</span>}</td>
                              <td className="px-3 py-2 font-semibold text-slate-800">{item.productName}</td>
-                            <td className="px-3 py-2 text-slate-500">{notes?.size || "—"}</td>
-                            <td className="px-3 py-2 text-slate-500">{notes.gsm || "—"}</td>
-                            <td className="px-3 py-2 text-slate-500">{notes.sides === "SINGLE_SIDE" ? "Single" : notes.sides === "DOUBLE_SIDE" ? "Double" : (notes.sides || "—")}</td>
+                            <td className="px-3 py-2 text-slate-500">{size || "—"}</td>
+                            <td className="px-3 py-2 text-slate-500">{gsm || "—"}</td>
+                            <td className="px-3 py-2 text-slate-500">{sides || "—"}</td>
                             <td className="px-3 py-2 font-semibold">{item.quantity}</td>
                             <td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
                             <td className="px-3 py-2 text-cyan-700 font-bold">{balance}</td>
@@ -967,7 +969,7 @@ export default function ProductionPage() {
                                   <button onClick={() => {
                                     const sel = document.getElementById(`sel-${item.id}`) as HTMLSelectElement;
                                     if (!sel?.value) { alert("Select a sheet first"); return; }
-                                    const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (notes?.size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
+                                    const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
                                     openMultipleDialog(sel.value, pi);
                                   }} className="inline-flex items-center gap-0.5 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-700">
                                     <Plus className="h-3 w-3" /> Assign
