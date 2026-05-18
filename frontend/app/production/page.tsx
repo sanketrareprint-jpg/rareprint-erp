@@ -839,7 +839,7 @@ export default function ProductionPage() {
                   if (clubSubTab === "in_progress") return item.jobWorks.some(j => j.status === "PENDING" || j.status === "IN_PROGRESS");
                   if (clubSubTab === "received") return item.jobWorks.some(j => j.status === "COMPLETED") && item.itemProductionStage !== "READY_FOR_DISPATCH";
                   return false;
-                }).map(item => ({ ...item, orderNo: o.orderNo, customerName: o.customerName, salesAgentName: o.salesAgentName, orderId: o.id })));
+                }).map(item => ({ ...item, orderNo: o.orderNo, customerName: o.customerName, salesAgentName: o.salesAgentName, orderDate: o.orderDate, orderId: o.id })));
 
                 if (allItems.length === 0) return (
                   <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">
