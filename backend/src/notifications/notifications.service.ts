@@ -34,41 +34,60 @@ export class NotificationsService {
 
   private async withProductDetails(notifications: any[]) {
     const itemIds = [...new Set(notifications.map(n => n.itemId).filter(Boolean))];
-    if (itemIds.length === 0) return notifications;
+    const orderIds = [...new Set(notifications.map(n => n.orderId).filter(Boolean))];
+    if (itemIds.length === 0 && orderIds.length === 0) return notifications;
 
     const items = await this.prisma.orderItem.findMany({
-      where: { id: { in: itemIds } },
+      where: {
+        OR: [
+          ...(itemIds.length ? [{ id: { in: itemIds } }] : []),
+          ...(orderIds.length ? [{ orderId: { in: orderIds } }] : []),
+        ],
+      },
       include: {
         product: true,
         order: { include: { customer: true, salesAgent: true } },
       },
     });
     const byId = new Map(items.map(item => [item.id, item]));
+    const byOrderId = new Map<string, typeof items>();
+    for (const item of items) {
+      const existing = byOrderId.get(item.orderId) ?? [];
+      existing.push(item);
+      byOrderId.set(item.orderId, existing);
+    }
 
-    return notifications.map(notification => {
-      const item = notification.itemId ? byId.get(notification.itemId) : null;
-      if (!item) return notification;
+    const toProductDetails = (item: (typeof items)[number]) => {
       const product = item.product;
       const order = item.order as any;
       return {
+        itemId: item.id,
+        productName: product.name,
+        sku: product.sku,
+        quantity: item.quantity,
+        size: product.sizeInches,
+        openSize: product.openSizeInches,
+        gsm: product.gsm,
+        sides: product.sides,
+        printingType: product.printingType,
+        productionCategory: item.productionCategory,
+        itemProductionStage: item.itemProductionStage,
+        artworkNotes: item.artworkNotes,
+        productionNotes: item.productionNotes,
+        customerName: order.customer?.businessName,
+        customerPhone: order.customer?.phone,
+        salesAgentName: order.salesAgent?.fullName,
+      };
+    };
+
+    return notifications.map(notification => {
+      const item = notification.itemId ? byId.get(notification.itemId) : null;
+      const orderItems = notification.orderId ? byOrderId.get(notification.orderId) ?? [] : [];
+      const productItems = orderItems.map(toProductDetails);
+      return {
         ...notification,
-        productDetails: {
-          productName: product.name,
-          sku: product.sku,
-          quantity: item.quantity,
-          size: product.sizeInches,
-          openSize: product.openSizeInches,
-          gsm: product.gsm,
-          sides: product.sides,
-          printingType: product.printingType,
-          productionCategory: item.productionCategory,
-          itemProductionStage: item.itemProductionStage,
-          artworkNotes: item.artworkNotes,
-          productionNotes: item.productionNotes,
-          customerName: order.customer?.businessName,
-          customerPhone: order.customer?.phone,
-          salesAgentName: order.salesAgent?.fullName,
-        },
+        productDetails: item ? toProductDetails(item) : productItems[0],
+        productItems,
       };
     });
   }

@@ -28,7 +28,12 @@ interface Notification {
   actionTaken?: string;
   copyToAdmin: boolean;
   createdAt: string;
-  productDetails?: {
+  productDetails?: ProductDetails;
+  productItems?: ProductDetails[];
+}
+
+interface ProductDetails {
+    itemId?: string;
     productName?: string;
     sku?: string;
     quantity?: number;
@@ -44,7 +49,6 @@ interface Notification {
     customerName?: string | null;
     customerPhone?: string | null;
     salesAgentName?: string | null;
-  };
 }
 
 function timeAgo(dateStr: string) {
@@ -244,6 +248,31 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     openLinkedProduct(n);
   };
 
+  const renderProductDetails = (item: ProductDetails, highlighted = false) => (
+    <div key={item.itemId || item.sku || item.productName} style={{
+      display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 10px",
+      padding: "8px", border: highlighted ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+      borderRadius: "8px", background: highlighted ? "#eff6ff" : "#f8fafc",
+      fontSize: "11px", color: "#334155",
+    }}>
+      <div style={{ gridColumn: "1 / -1", fontWeight: 800, color: "#0f172a", fontSize: "12px" }}>
+        {item.productName || "Product"}{item.sku ? ` · ${item.sku}` : ""}
+      </div>
+      <div><strong>Qty:</strong> {item.quantity ?? "-"}</div>
+      <div><strong>Size:</strong> {item.size || "-"}</div>
+      <div><strong>GSM:</strong> {item.gsm || "-"}</div>
+      <div><strong>Sides:</strong> {String(item.sides || "-").replace(/_/g, " ")}</div>
+      <div><strong>Stage:</strong> {String(item.itemProductionStage || "-").replace(/_/g, " ")}</div>
+      <div><strong>Agent:</strong> {item.salesAgentName || "-"}</div>
+      {item.productionNotes && (
+        <div style={{ gridColumn: "1 / -1" }}><strong>Production:</strong> {item.productionNotes}</div>
+      )}
+      {item.artworkNotes && (
+        <div style={{ gridColumn: "1 / -1" }}><strong>Artwork:</strong> {item.artworkNotes}</div>
+      )}
+    </div>
+  );
+
   return (
     <div ref={dropdownRef} style={{ position: "relative" }}>
       {/* Bell Button */}
@@ -345,26 +374,10 @@ export function NotificationBell({ userRole }: { userRole: string }) {
                 </div>
 
                 {/* Product Details */}
-                {n.productDetails && (
-                  <div style={{
-                    display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 10px",
-                    marginBottom: "8px", padding: "8px", border: "1px solid #e2e8f0",
-                    borderRadius: "8px", background: "#f8fafc", fontSize: "11px", color: "#334155",
-                  }}>
-                    <div style={{ gridColumn: "1 / -1", fontWeight: 800, color: "#0f172a", fontSize: "12px" }}>
-                      {n.productDetails.productName || "Product"}{n.productDetails.sku ? ` · ${n.productDetails.sku}` : ""}
-                    </div>
-                    <div><strong>Qty:</strong> {n.productDetails.quantity ?? "-"}</div>
-                    <div><strong>Size:</strong> {n.productDetails.size || "-"}</div>
-                    <div><strong>GSM:</strong> {n.productDetails.gsm || "-"}</div>
-                    <div><strong>Sides:</strong> {String(n.productDetails.sides || "-").replace(/_/g, " ")}</div>
-                    <div><strong>Stage:</strong> {String(n.productDetails.itemProductionStage || "-").replace(/_/g, " ")}</div>
-                    <div><strong>Agent:</strong> {n.productDetails.salesAgentName || "-"}</div>
-                    {n.productDetails.productionNotes && (
-                      <div style={{ gridColumn: "1 / -1" }}><strong>Production:</strong> {n.productDetails.productionNotes}</div>
-                    )}
-                    {n.productDetails.artworkNotes && (
-                      <div style={{ gridColumn: "1 / -1" }}><strong>Artwork:</strong> {n.productDetails.artworkNotes}</div>
+                {(n.productItems?.length || n.productDetails) && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
+                    {(n.productItems?.length ? n.productItems : n.productDetails ? [n.productDetails] : []).map(item =>
+                      renderProductDetails(item, Boolean(n.itemId && item.itemId === n.itemId))
                     )}
                   </div>
                 )}
