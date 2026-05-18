@@ -26,6 +26,10 @@ type OrderItem = {
   unitPrice: number; lineTotal: number; productionNotes?: string;
   artworkNotes?: string; itemProductionStage: ProductionStage;
   productionCategory: ProductionCategory | null;
+  // Resolved by backend: prefers productionNotes, falls back to product table
+  size?: string | null;
+  gsm?: string | null;
+  sides?: string | null;
   designFiles?: DesignFile[];
 };
 type ProductionOrder = {
@@ -36,7 +40,7 @@ type ProductionOrder = {
 };
 type Vendor = { id: string; name: string; phone?: string; };
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
-type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
+type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; size?: string | null; gsm?: string | null; sides?: string | null; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
 type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
@@ -46,9 +50,23 @@ type PlaceableItem = { id: string; productName: string; sku: string; gsm: number
 function parseNotes(notes?: string) {
   if (!notes) return {};
   return {
-    size: notes.match(/Size:\s*([^,]+)/)?.[1]?.trim(),
-    gsm: notes.match(/GSM:\s*([^,]+)/)?.[1]?.trim(),
-    sides: notes.match(/Sides:\s*([^,]+)/)?.[1]?.trim(),
+    size: notes.match(/Size[\s:]+([^\n,]+)/i)?.[1]?.trim(),
+    gsm: notes.match(/GSM[\s:]+(\S+)/i)?.[1]?.trim(),
+    sides: notes.match(/Sides[\s:]+(\S+)/i)?.[1]?.trim(),
+  };
+}
+
+// Get product details, preferring backend-resolved fields, then falling back
+// to parsing productionNotes. The backend already does this resolution but
+// older API responses or stale caches may not include them — keep the
+// fallback so the UI never shows "—" when data is actually available.
+function getItemDetails(item: { size?: string | null; gsm?: string | null; sides?: string | null; productionNotes?: string }) {
+  const parsed = parseNotes(item.productionNotes);
+  const sidesRaw = item.sides ?? parsed.sides ?? null;
+  return {
+    size: item.size ?? parsed.size ?? null,
+    gsm: item.gsm ?? parsed.gsm ?? null,
+    sides: sidesRaw === "SINGLE_SIDE" ? "Single" : sidesRaw === "DOUBLE_SIDE" ? "Double" : sidesRaw,
   };
 }
 function fmt(n: number) { return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n); }
@@ -604,7 +622,7 @@ export default function ProductionPage() {
                   </div>
                   <div className="divide-y divide-slate-50">
                     {o.items.filter(i => !i.productionCategory).map(item => {
-                      const { size, gsm, sides } = parseNotes(item.productionNotes);
+                      const { size, gsm, sides } = getItemDetails(item);
                       return (
                         <div key={item.id} className="flex items-center gap-4 px-4 py-2 text-xs flex-wrap">
                           <span className="font-medium text-slate-800">{item.productName}</span>
@@ -647,7 +665,7 @@ export default function ProductionPage() {
                   {flatItems.length === 0 ? (
                     <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
                   ) : flatItems.map(item => {
-                    const { size, gsm, sides } = parseNotes(item.productionNotes);
+                    const { size, gsm, sides } = getItemDetails(item);
                     const isUpdating = updatingItemId === item.id;
                     const isUploading = uploadingItemId === item.id;
                     const designFiles = item.designFiles ?? [];
@@ -795,7 +813,7 @@ export default function ProductionPage() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {allItems.map((item: any) => {
-                          const { size, gsm, sides } = parseNotes(item.productionNotes);
+                          const { size, gsm, sides } = getItemDetails(item);
                           const activeJw = item.jobWorks.find((j: JobWork) => j.status === "PENDING" || j.status === "IN_PROGRESS" || j.status === "COMPLETED");
                           const completedJw = item.jobWorks.find((j: JobWork) => j.status === "COMPLETED");
                           return (
@@ -810,7 +828,7 @@ export default function ProductionPage() {
                               </td>
                               <td className="px-3 py-2 text-slate-600">{size ?? "—"}</td>
                               <td className="px-3 py-2 text-slate-600">{gsm ?? "—"}</td>
-                              <td className="px-3 py-2 text-slate-600">{sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : (sides ?? "—")}</td>
+                              <td className="px-3 py-2 text-slate-600">{sides ?? "—"}</td>
                               <td className="px-3 py-2 font-semibold text-slate-800">{item.quantity}</td>
                               <td className="px-3 py-2">
                                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${stageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>

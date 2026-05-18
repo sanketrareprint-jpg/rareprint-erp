@@ -16,6 +16,29 @@ function summarizeDesignFiles(value: unknown) {
     .filter((file) => file.filename);
 }
 
+// Resolve size / gsm / sides for a production item, preferring values
+// embedded in productionNotes and falling back to the product's own fields.
+function resolveItemDetails(item: {
+  productionNotes?: string | null;
+  product: { sizeInches?: string | null; gsm?: number | null; sides?: string | null };
+}) {
+  const notes = item.productionNotes ?? '';
+  let size = notes.match(/Size[\s:]+([^\n,]+)/i)?.[1]?.trim() ?? null;
+  let gsm = notes.match(/GSM[\s:]+(\S+)/i)?.[1]?.trim() ?? null;
+  let sidesRaw = notes.match(/Sides[\s:]+(\S+)/i)?.[1]?.trim() ?? null;
+
+  if (!size && item.product.sizeInches) size = item.product.sizeInches;
+  if (!gsm && item.product.gsm != null) gsm = String(item.product.gsm);
+  if (!sidesRaw && item.product.sides) sidesRaw = item.product.sides;
+
+  const sides =
+    sidesRaw === 'SINGLE_SIDE' ? 'Single'
+    : sidesRaw === 'DOUBLE_SIDE' ? 'Double'
+    : (sidesRaw ?? null);
+
+  return { size, gsm, sides };
+}
+
 @Injectable()
 export class ClubbingSheetService {
   constructor(private readonly prisma: PrismaService) {}
@@ -62,9 +85,18 @@ export class ClubbingSheetService {
     return filtered.map(o => ({
       id: o.id, orderNo: o.orderNumber, customerName: o.customer.businessName, customerPhone: o.customer.phone,
       salesAgentName: o.salesAgent?.fullName ?? null, orderDate: o.orderDate.toISOString(),
-      items: o.items.map(i => ({ id: i.id, productName: i.product.name, quantity: i.quantity, productionNotes: i.productionNotes, artworkNotes: i.artworkNotes, itemProductionStage: i.itemProductionStage,
-        designFiles: designFilesMap[i.id] ?? [],
-        jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, completedAt: j.completedAt?.toISOString() ?? null })) })),
+      items: o.items.map(i => {
+        const { size, gsm, sides } = resolveItemDetails(i);
+        return {
+          id: i.id, productName: i.product.name, quantity: i.quantity,
+          productionNotes: i.productionNotes, artworkNotes: i.artworkNotes,
+          itemProductionStage: i.itemProductionStage,
+          // Resolved product details (prefer notes, fall back to product table)
+          size, gsm, sides,
+          designFiles: designFilesMap[i.id] ?? [],
+          jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, completedAt: j.completedAt?.toISOString() ?? null })),
+        };
+      }),
     }));
   }
 
