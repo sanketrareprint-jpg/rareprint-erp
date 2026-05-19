@@ -84,7 +84,108 @@ function fmt(n: number) {
   return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// ─── RESULT CARD ─────────────────────────────────────────────────────────────
+
+// ─── DYNAMIC RATE SECTION (generic add/remove key-value rows) ─────────────────
+function DynamicRateSection({
+  data, onUpdate, step = 1, addKeyPlaceholder = "key", addValPlaceholder = "rate",
+  formatLabel,
+}: {
+  data: Record<string, number>;
+  onUpdate: (d: Record<string, number>) => void;
+  step?: number;
+  addKeyPlaceholder?: string;
+  addValPlaceholder?: string;
+  formatLabel?: (k: string) => string;
+}) {
+  const [nk, setNk] = useState("");
+  const [nv, setNv] = useState("");
+  const del = (k: string) => { const n = { ...data }; delete n[k]; onUpdate(n); };
+  const change = (k: string, v: number) => onUpdate({ ...data, [k]: v });
+  const add = () => {
+    const k = nk.trim(); if (!k || nv === "") return;
+    onUpdate({ ...data, [k]: parseFloat(nv) }); setNk(""); setNv("");
+  };
+  return (
+    <div className="space-y-1.5">
+      {Object.entries(data || {}).map(([k, v]) => (
+        <div key={k} className="flex gap-2 items-center">
+          <span className="flex-1 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1.5 truncate min-w-0">
+            {formatLabel ? formatLabel(k) : k}
+          </span>
+          <input type="number" step={step} value={v}
+            onChange={e => change(k, +e.target.value)}
+            className="w-28 border border-slate-200 rounded-lg text-xs px-2 py-1.5 shrink-0" />
+          <button onClick={() => del(k)}
+            className="text-red-400 hover:text-red-600 text-lg font-bold w-6 shrink-0 leading-none" title="Remove">×</button>
+        </div>
+      ))}
+      <div className="flex gap-2 items-center pt-2 border-t border-dashed border-slate-200">
+        <input placeholder={addKeyPlaceholder} value={nk} onChange={e => setNk(e.target.value)}
+          className="flex-1 border border-blue-200 rounded-lg text-xs px-2 py-1.5 min-w-0" />
+        <input type="number" step={step} placeholder={addValPlaceholder} value={nv} onChange={e => setNv(e.target.value)}
+          className="w-28 border border-blue-200 rounded-lg text-xs px-2 py-1.5 shrink-0" />
+        <button onClick={add}
+          className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold shrink-0">+ Add</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── DYNAMIC PAPER RATES (structured parent + type key) ───────────────────────
+function DynamicPaperRates({ data, onUpdate }: { data: Record<string, number>; onUpdate: (d: Record<string, number>) => void }) {
+  const [np, setNp] = useState("1823");
+  const [nt, setNt] = useState("");
+  const [nr, setNr] = useState("");
+  const del = (k: string) => { const n = { ...data }; delete n[k]; onUpdate(n); };
+  const change = (k: string, v: number) => onUpdate({ ...data, [k]: v });
+  const fmtKey = (k: string) => {
+    const [p, ...rest] = k.split("-");
+    const pl = p === "1823" ? "18×23\"" : p === "1925" ? "19×25\"" : p === "1520" ? "15×20\"" : p + "\"";
+    return pl + " " + rest.join("-");
+  };
+  const add = () => {
+    const t = nt.trim().replace(/\s+/g, ""); if (!t || nr === "") return;
+    onUpdate({ ...data, [np + "-" + t]: parseFloat(nr) }); setNt(""); setNr("");
+  };
+  return (
+    <div className="space-y-1.5">
+      {Object.entries(data || {}).map(([k, v]) => (
+        <div key={k} className="flex gap-2 items-center">
+          <span className="flex-1 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1.5 truncate min-w-0">{fmtKey(k)}</span>
+          <input type="number" value={v} onChange={e => change(k, +e.target.value)}
+            className="w-28 border border-slate-200 rounded-lg text-xs px-2 py-1.5 shrink-0" />
+          <button onClick={() => del(k)}
+            className="text-red-400 hover:text-red-600 text-lg font-bold w-6 shrink-0 leading-none" title="Remove">×</button>
+        </div>
+      ))}
+      <p className="text-xs text-slate-400">Per-sheet rate = ream rate ÷ 500</p>
+      <div className="grid grid-cols-4 gap-2 pt-2 border-t border-dashed border-slate-200 items-end">
+        <div>
+          <p className="text-xs text-slate-500 mb-1">Parent</p>
+          <select value={np} onChange={e => setNp(e.target.value)}
+            className="w-full border border-blue-200 rounded-lg text-xs px-2 py-1.5 bg-white">
+            <option value="1823">18×23"</option>
+            <option value="1925">19×25"</option>
+            <option value="1520">15×20"</option>
+          </select>
+        </div>
+        <div className="col-span-2">
+          <p className="text-xs text-slate-500 mb-1">Type key (e.g. ivory100, art130)</p>
+          <input placeholder="ivory100" value={nt} onChange={e => setNt(e.target.value)}
+            className="w-full border border-blue-200 rounded-lg text-xs px-2 py-1.5" />
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-1">₹/ream</p>
+          <input type="number" placeholder="0" value={nr} onChange={e => setNr(e.target.value)}
+            className="w-full border border-blue-200 rounded-lg text-xs px-2 py-1.5" />
+        </div>
+      </div>
+      <button onClick={add}
+        className="w-full bg-blue-500 hover:bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold mt-1">+ Add Paper Type</button>
+    </div>
+  );
+}
+
 function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; perLabel?: string; desc?: string }) {
   const perVal = result.perPiece ?? result.perSticker ?? 0;
   return (
@@ -391,6 +492,11 @@ export default function RateCalculatorPage() {
       return next;
     });
   };
+
+  const updateRateSection = (section: string, next: Record<string, number>) => {
+    setRates((prev: any) => ({ ...prev, [section]: next }));
+  };
+
 
   const TABS: { id: Tab; label: string }[] = [
     { id: "forward", label: "→ Forward Quote" },
@@ -723,6 +829,7 @@ export default function RateCalculatorPage() {
           </>
         )}
 
+
         {/* ── MASTER RATES ── */}
         {tab === "rates" && (
           ratesLoading ? (
@@ -737,42 +844,27 @@ export default function RateCalculatorPage() {
             <>
               {/* Multiplier */}
               <Card title="💰 Selling Multiplier (covers Margin + GST)">
-                <div className="grid grid-cols-1 gap-3">
-                  <Field label="Default Multiplier (×) — applied to total cost to get selling price">
-                    <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
-                  </Field>
-                  <p className="text-xs text-slate-400">
-                    Example: cost ₹6,100 × {rates.multiplier ?? 1.67} = ₹{(6100 * (rates.multiplier ?? 1.67)).toFixed(0)} selling price
-                  </p>
-                </div>
+                <Field label="Default Multiplier (×) — applied to total cost to get selling price">
+                  <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
+                </Field>
+                <p className="text-xs text-slate-400 mt-2">
+                  {"Example: cost ₹6,100 × " + (rates.multiplier ?? 1.67) + " = ₹" + (6100 * (rates.multiplier ?? 1.67)).toFixed(0) + " selling price"}
+                </p>
               </Card>
 
-              {/* Paper */}
+              {/* Paper — fully dynamic */}
               <Card title="📄 Paper Rates (₹ per ream of 500 sheets)">
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    ["1823-bond70",  "18×23\" 70 GSM Bond"],
-                    ["1823-bond80",  "18×23\" 80 GSM Bond"],
-                    ["1823-map90",   "18×23\" 90 GSM Maplitho"],
-                    ["1823-map100",  "18×23\" 100 GSM Maplitho"],
-                    ["1925-bond70",  "19×25\" 70 GSM Bond"],
-                    ["1925-bond80",  "19×25\" 80 GSM Bond"],
-                    ["1925-map90",   "19×25\" 90 GSM Maplitho"],
-                    ["1925-map100",  "19×25\" 100 GSM Maplitho"],
-                  ].map(([key, label]) => (
-                    <Field key={key} label={`${label} (₹)`}>
-                      <Input type="number" value={rates.paper?.[key] ?? ""} onChange={e => updateRate(`paper.${key}`, +e.target.value)} />
-                    </Field>
-                  ))}
-                </div>
-                <p className="text-xs text-slate-400 mt-2">Per-sheet rate = ream rate ÷ 500</p>
+                <DynamicPaperRates
+                  data={rates.paper ?? {}}
+                  onUpdate={d => updateRateSection("paper", d)}
+                />
               </Card>
 
-              {/* Printing */}
+              {/* Printing — structural, keep fixed */}
               <Card title="🖨 Offset Printing Rates">
                 <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
-                  <strong>4-Color:</strong> billed per parent sheet (block rounding to 1000). &nbsp;
-                  <strong>1-Color / 2-Color:</strong> billed per piece (parent sheets × cuts/sheet), flat rate per 1000 pieces.
+                  <strong>4-Color:</strong> billed per parent sheet (block rounding to 1000).{" "}
+                  <strong>1-Color / 2-Color:</strong> flat rate per 1,000 pieces.
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="4-Color — First 1,000 parent sheets (₹)">
@@ -781,16 +873,16 @@ export default function RateCalculatorPage() {
                   <Field label="4-Color — Each next 1,000 sheets (₹)">
                     <Input type="number" value={rates.printing?.['4color']?.nextK ?? ""} onChange={e => updateRate("printing.4color.nextK", +e.target.value)} />
                   </Field>
-                  <Field label="1-Color — Flat rate per 1,000 pieces (₹)">
+                  <Field label="1-Color — Flat per 1,000 pieces (₹)">
                     <Input type="number" value={rates.printing?.['1color']?.flat ?? ""} onChange={e => updateRate("printing.1color.flat", +e.target.value)} />
                   </Field>
-                  <Field label="2-Color — Flat rate per 1,000 pieces (₹)">
+                  <Field label="2-Color — Flat per 1,000 pieces (₹)">
                     <Input type="number" value={rates.printing?.['2color']?.flat ?? ""} onChange={e => updateRate("printing.2color.flat", +e.target.value)} />
                   </Field>
                 </div>
               </Card>
 
-              {/* Plate */}
+              {/* Plate & Punching */}
               <Card title="🔲 Plate & Punching">
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Plate Rate (₹/plate) — 1-color=1 plate, 4-color=4 plates">
@@ -802,62 +894,52 @@ export default function RateCalculatorPage() {
                 </div>
               </Card>
 
-              {/* Pad Binding */}
-              <Card title="📎 Gum Pad Binding Rates (₹/pad)">
-                <div className="grid grid-cols-3 gap-3">
-                  {(["A4","A5","A6","A8","1/3A4"] as const).map(sz => (
-                    <Field key={sz} label={sz + " Pad (₹)"}>
-                      <Input type="number" value={rates.padBinding?.[sz] ?? ""} onChange={e => updateRate("padBinding." + sz, +e.target.value)} />
-                    </Field>
-                  ))}
-                </div>
+              {/* Pad Binding — dynamic */}
+              <Card title="📎 Gum Pad Binding (₹/pad) — add/remove sizes">
+                <DynamicRateSection
+                  data={rates.padBinding ?? {}}
+                  onUpdate={d => updateRateSection("padBinding", d)}
+                  addKeyPlaceholder="size (e.g. A3, custom)"
+                  addValPlaceholder="₹/pad"
+                  formatLabel={k => k + " Pad"}
+                />
               </Card>
 
-              {/* Bill Book Binding */}
-              <Card title="📒 Bill Book Binding Rates (₹/book)">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="A4 Bill Book (₹/book)">
-                    <Input type="number" value={rates.billBookBinding?.A4 ?? ""} onChange={e => updateRate("billBookBinding.A4", +e.target.value)} />
-                  </Field>
-                  <Field label="A8 Bill Book (₹/book)">
-                    <Input type="number" value={rates.billBookBinding?.A8 ?? ""} onChange={e => updateRate("billBookBinding.A8", +e.target.value)} />
-                  </Field>
-                </div>
+              {/* Bill Book Binding — dynamic */}
+              <Card title="📒 Bill Book Binding (₹/book) — add/remove sizes">
+                <DynamicRateSection
+                  data={rates.billBookBinding ?? {}}
+                  onUpdate={d => updateRateSection("billBookBinding", d)}
+                  addKeyPlaceholder="size (e.g. A5, A6)"
+                  addValPlaceholder="₹/book"
+                  formatLabel={k => k + " Bill Book"}
+                />
               </Card>
 
-              {/* Lamination */}
-              <Card title="✨ Lamination Rates (₹ per 100 sq inch)">
+              {/* Lamination — dynamic */}
+              <Card title="✨ Lamination (₹/100 sq in) — add/remove types">
                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  {"Formula: (sheet area ÷ 100) × rate × qty sheets. 18×23\" sheet = 414 sq in → per sheet = 4.14 × rate"}
+                  {"Formula: (sheet area ÷ 100) × rate × sheets. 18×23\" = 414 sq in → ₹4.14 × rate per sheet"}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Gloss Lamination (₹/100 sq in)">
-                    <Input type="number" step="0.01" value={rates.lamination?.gloss ?? ""} onChange={e => updateRate("lamination.gloss", +e.target.value)} />
-                  </Field>
-                  <Field label="Matt Lamination (₹/100 sq in)">
-                    <Input type="number" step="0.01" value={rates.lamination?.matt ?? ""} onChange={e => updateRate("lamination.matt", +e.target.value)} />
-                  </Field>
-                </div>
+                <DynamicRateSection
+                  data={rates.lamination ?? {}}
+                  onUpdate={d => updateRateSection("lamination", d)}
+                  step={0.01}
+                  addKeyPlaceholder="type (e.g. gloss, matt, uvspot)"
+                  addValPlaceholder="₹/100sqin"
+                  formatLabel={k => k.charAt(0).toUpperCase() + k.slice(1) + " Lamination"}
+                />
               </Card>
 
-              {/* Envelope Making */}
-              <Card title="✉️ Envelope Making Rate (₹/piece)">
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    ["env4x5",     "4x5 Medicine Pouch"],
-                    ["env425x925", "4.25x9.25 Office / DL"],
-                    ["env425x45",  "4.25x4.5 Small"],
-                    ["env425x63",  "4.25x6.3 Medium"],
-                    ["env525x75",  "5.25x7.5 Document"],
-                    ["env85x11",   "8.5x11 A4 Envelope"],
-                    ["env9x12",    "9x12 Catalog"],
-                    ["env11x17",   "11x17 Large"],
-                  ].map(([key, lbl]) => (
-                    <Field key={key} label={lbl + " (₹)"}>
-                      <Input type="number" step="0.5" value={rates.envelope?.[key] ?? ""} onChange={e => updateRate("envelope." + key, +e.target.value)} />
-                    </Field>
-                  ))}
-                </div>
+              {/* Envelope Making — dynamic */}
+              <Card title="✉️ Envelope Making (₹/piece) — add/remove sizes">
+                <DynamicRateSection
+                  data={rates.envelope ?? {}}
+                  onUpdate={d => updateRateSection("envelope", d)}
+                  step={0.5}
+                  addKeyPlaceholder="key (e.g. env6x9, env5x7)"
+                  addValPlaceholder="₹/pc"
+                />
               </Card>
 
               <button onClick={saveRates} className="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700">
