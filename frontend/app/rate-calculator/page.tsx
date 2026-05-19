@@ -1,19 +1,29 @@
-﻿"use client";
+"use client";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 
-// ─── TYPES ───────────────────────────────────────────────────────────────────
+// ─── TYPES ────────────────────────────────────────────────────────────────────
 type Tab = "forward" | "reverse" | "sticker" | "rates";
-type LamOption = "none" | "single" | "double";
-type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string; };
+type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
+type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
-type Result = { breakdown: BreakdownRow[]; subtotal: number; marginAmt: number; gstAmt: number; total: number; perPiece?: number; perSticker?: number; totalQty?: number; description?: string; };
+type Result = {
+  breakdown: BreakdownRow[];
+  subtotal: number;
+  total: number;
+  perPiece?: number;
+  perSticker?: number;
+  totalQty?: number;
+  multiplier?: number;
+  description?: string;
+};
 
+// Cuts per parent sheet — used in UI hints
 const CUTS: Record<string, Record<string, number>> = {
-  '1823': { A4:4, A5:8, A6:16, A8:64, '1/3A4':6, DL:6, visiting:32 },
-  '1925': { A4:4, A5:8, A6:16, A8:64, '1/3A4':6, DL:6, visiting:40 },
+  '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32 },
+  '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40 },
 };
 
 function fmt(n: number) {
@@ -35,20 +45,18 @@ function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; 
           </div>
         ))}
         <div className="flex justify-between text-xs py-1 border-b border-green-100">
-          <span className="text-slate-600">Subtotal</span>
+          <span className="text-slate-600">Total Cost (before multiplier)</span>
           <span className="font-semibold">{fmt(result.subtotal)}</span>
         </div>
-        <div className="flex justify-between text-xs py-1 border-b border-green-100">
-          <span className="text-slate-600">Margin</span>
-          <span className="font-semibold">{fmt(result.marginAmt)}</span>
-        </div>
-        <div className="flex justify-between text-xs py-1 border-b border-green-100">
-          <span className="text-slate-600">GST</span>
-          <span className="font-semibold">{fmt(result.gstAmt)}</span>
-        </div>
+        {result.multiplier && (
+          <div className="flex justify-between text-xs py-1 border-b border-green-100">
+            <span className="text-slate-500">Multiplier applied</span>
+            <span className="text-slate-500">×{result.multiplier}</span>
+          </div>
+        )}
       </div>
       <div className="bg-green-700 text-white rounded-lg px-4 py-2.5 flex justify-between items-center mt-3">
-        <span className="font-bold text-sm">Total Quote</span>
+        <span className="font-bold text-sm">Total Quote (incl. margin + GST)</span>
         <span className="font-extrabold text-lg">{fmt(result.total)}</span>
       </div>
       {perVal > 0 && (
@@ -61,12 +69,14 @@ function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; 
   );
 }
 
-// ─── LAYER COMPONENT ─────────────────────────────────────────────────────────
+// ─── LAYER ROW ────────────────────────────────────────────────────────────────
 function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
   layer: Layer; idx: number;
   onChange: (f: Partial<Layer>) => void;
   onRemove: () => void; canRemove: boolean;
 }) {
+  const cuts = CUTS[layer.psize]?.[layer.fsize] ?? 4;
+  const parentSheets = Math.ceil(layer.qty / cuts);
   return (
     <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 relative">
       <p className="text-xs font-bold text-slate-400 mb-2">LAYER {idx + 1}</p>
@@ -76,14 +86,14 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Paper Size</label>
-          <select value={layer.psize} onChange={e => onChange({ psize: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5">
+          <select value={layer.psize} onChange={e => onChange({ psize: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
             <option value="1823">18×23 inch</option>
             <option value="1925">19×25 inch</option>
           </select>
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">GSM / Paper</label>
-          <select value={layer.gsm} onChange={e => onChange({ gsm: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5">
+          <select value={layer.gsm} onChange={e => onChange({ gsm: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
             <option value="bond70">70 GSM Bond</option>
             <option value="bond80">80 GSM Bond</option>
             <option value="map90">90 GSM Maplitho</option>
@@ -91,12 +101,12 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
           </select>
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-500 block mb-1">Print Quantity</label>
+          <label className="text-xs font-semibold text-slate-500 block mb-1">Print Quantity (pieces)</label>
           <input type="number" value={layer.qty} onChange={e => onChange({ qty: +e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5" />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Final Size</label>
-          <select value={layer.fsize} onChange={e => onChange({ fsize: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5">
+          <select value={layer.fsize} onChange={e => onChange({ fsize: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
             <option value="A4">A4</option><option value="A5">A5</option>
             <option value="A6">A6</option><option value="A8">A8</option>
             <option value="1/3A4">1/3 A4</option><option value="DL">DL</option>
@@ -104,7 +114,7 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Colors</label>
-          <select value={layer.colors} onChange={e => onChange({ colors: +e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5">
+          <select value={layer.colors} onChange={e => onChange({ colors: +e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
             <option value={1}>1 Color</option>
             <option value={2}>2 Color</option>
             <option value={4}>4 Colors (CMYK)</option>
@@ -112,21 +122,24 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Sides</label>
-          <select value={layer.sides} onChange={e => onChange({ sides: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5">
+          <select value={layer.sides} onChange={e => onChange({ sides: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
             <option value="single">Single Side</option>
             <option value="double">Double Side</option>
           </select>
         </div>
       </div>
       <p className="text-xs text-slate-400 mt-2">
-        Cuts per sheet: <strong>{CUTS[layer.psize]?.[layer.fsize] ?? 4}</strong> →
-        Parent sheets needed: <strong>{Math.ceil(layer.qty / (CUTS[layer.psize]?.[layer.fsize] ?? 4)).toLocaleString()}</strong>
+        Cuts/sheet: <strong>{cuts}</strong> → Parent sheets: <strong>{parentSheets.toLocaleString()}</strong>
+        {layer.colors === 4
+          ? <> → Printing billed on <strong>{parentSheets.toLocaleString()} parent sheets</strong></>
+          : <> → Printing billed on <strong>{(parentSheets * cuts).toLocaleString()} pieces</strong> (flat rate)</>
+        }
       </p>
     </div>
   );
 }
 
-// ─── FIELD HELPER ─────────────────────────────────────────────────────────────
+// ─── SMALL UI HELPERS ─────────────────────────────────────────────────────────
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -159,30 +172,43 @@ export default function RateCalculatorPage() {
 
   // ── Forward State ──
   const [layers, setLayers] = useState<Layer[]>([{ psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }]);
-  const [fCustomer, setFCustomer] = useState(""); const [fJob, setFJob] = useState("");
-  const [fLam, setFLam] = useState<LamOption>("none"); const [fPad, setFPad] = useState("no");
-  const [fPadSize, setFPadSize] = useState("A4"); const [fPads, setFPads] = useState(0);
-  const [fPunch, setFPunch] = useState("no"); const [fEnv, setFEnv] = useState("none");
-  const [fMargin, setFMargin] = useState(15); const [fGst, setFGst] = useState(18);
+  const [fCustomer, setFCustomer] = useState("");
+  const [fJob, setFJob] = useState("");
+  const [fLam, setFLam] = useState<LamOption>("none");
+  const [fPad, setFPad] = useState("no");
+  const [fPadSize, setFPadSize] = useState("A4");
+  const [fPads, setFPads] = useState(0);
+  const [fPunch, setFPunch] = useState("no");
+  const [fEnv, setFEnv] = useState("none");
+  const [fMult, setFMult] = useState<number | "">("");  // blank = use master default
 
   // ── Reverse State ──
-  const [rCustomer, setRCustomer] = useState(""); const [rProduct, setRProduct] = useState("pads");
-  const [rQty, setRQty] = useState(50); const [rSheets, setRSheets] = useState(100);
-  const [rSize, setRSize] = useState("A4"); const [rPaper, setRPaper] = useState("bond80");
-  const [rParent, setRParent] = useState("1823"); const [rColors, setRColors] = useState(4);
-  const [rSides, setRSides] = useState("single"); const [rLam, setRLam] = useState<LamOption>("none");
-  const [rMargin, setRMargin] = useState(15); const [rGst, setRGst] = useState(18);
+  const [rCustomer, setRCustomer] = useState("");
+  const [rProduct, setRProduct] = useState("pads");
+  const [rQty, setRQty] = useState(50);
+  const [rSheets, setRSheets] = useState(100);
+  const [rSize, setRSize] = useState("A4");
+  const [rPaper, setRPaper] = useState("map100");
+  const [rParent, setRParent] = useState("1823");
+  const [rColors, setRColors] = useState(4);
+  const [rSides, setRSides] = useState("single");
+  const [rLam, setRLam] = useState<LamOption>("none");
+  const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
   // ── Sticker State ──
   const [sW, setSW] = useState(2); const [sH, setSH] = useState(3);
-  const [sQty, setSQty] = useState(4000); const [sCols, setSCols] = useState(2);
-  const [sRows, setSRows] = useState(2); const [sMarg, setSMarg] = useState(0.25);
-  const [sMode, setSMode] = useState("inhouse"); const [sHalfcut, setSHalfcut] = useState("no");
-  const [sPaperRate, setSPaperRate] = useState(3.5); const [sPrintRate, setSPrintRate] = useState(5);
-  const [sHcPct, setSHcPct] = useState(30); const [sVendorRate, setSVendorRate] = useState(0.035);
-  const [sMinQty, setSMinQty] = useState(1000); const [sTransport, setSTransport] = useState(100);
-  const [sHcPct2, setSHcPct2] = useState(30); const [sMargin, setSMargin] = useState(15);
-  const [sGst, setSGst] = useState(18);
+  const [sQty, setSQty] = useState(4000);
+  const [sCols, setSCols] = useState(2); const [sRows, setSRows] = useState(2);
+  const [sMarg, setSMarg] = useState(0.25);
+  const [sMode, setSMode] = useState("inhouse");
+  const [sHalfcut, setSHalfcut] = useState("no");
+  const [sPaperRate, setSPaperRate] = useState(3.5);
+  const [sPrintRate, setSPrintRate] = useState(5);
+  const [sHcPct, setSHcPct] = useState(30);
+  const [sVendorRate, setSVendorRate] = useState(0.035);
+  const [sTransport, setSTransport] = useState(100);
+  const [sHcPct2, setSHcPct2] = useState(30);
+  const [sMult, setSMult] = useState<number | "">("");
 
   // ── Rates State ──
   const [rates, setRates] = useState<any>(null);
@@ -190,7 +216,7 @@ export default function RateCalculatorPage() {
   const [ratesLoading, setRatesLoading] = useState(true);
   const [ratesError, setRatesError] = useState<string | null>(null);
 
-  // Sheet info
+  // Sheet info for sticker preview
   const sheetW = (sCols * sW + 2 * sMarg).toFixed(2);
   const sheetH = (sRows * sH + 2 * sMarg).toFixed(2);
   const stickersPerSheet = sCols * sRows;
@@ -201,13 +227,15 @@ export default function RateCalculatorPage() {
     setRatesError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/rate-calculator/rates`, { headers: getAuthHeaders() });
-      if (!res.ok) {
-        setRatesError(`Failed to load rates: ${res.status} ${res.statusText} (${res.url})`);
-        return;
-      }
-      setRates(await res.json());
-    } catch (error) {
-      setRatesError(`Unable to load master rates. Please refresh.`);
+      if (!res.ok) { setRatesError(`Failed to load rates: ${res.status}`); return; }
+      const data = await res.json();
+      setRates(data);
+      // Pre-fill multiplier placeholders from master
+      setFMult("");
+      setRMult("");
+      setSMult("");
+    } catch {
+      setRatesError("Unable to load master rates. Please refresh.");
     } finally {
       setRatesLoading(false);
     }
@@ -229,18 +257,32 @@ export default function RateCalculatorPage() {
 
   const calcForward = async () => {
     const r = await post("forward", {
-      layers, lam: fLam, padSize: fPadSize, pads: fPad === "yes" ? fPads : 0,
-      punch: fPunch === "yes", envelope: fEnv, margin: fMargin, gst: fGst,
-      customer: fCustomer, job: fJob,
+      layers,
+      lam: fLam,
+      padSize: fPadSize,
+      pads: fPad === "yes" ? fPads : 0,
+      punch: fPunch === "yes",
+      envelope: fEnv,
+      multiplier: fMult !== "" ? fMult : undefined,
+      customer: fCustomer,
+      job: fJob,
     });
     if (r) { setResult(r); setResultDesc(`Job: ${fJob || "—"} | Customer: ${fCustomer || "—"}`); }
   };
 
   const calcReverse = async () => {
     const r = await post("reverse", {
-      product: rProduct, qty: rQty, sheetsPerUnit: rSheets, fsize: rSize,
-      paper: rPaper, parent: rParent, colors: rColors, sides: rSides,
-      lam: rLam, margin: rMargin, gst: rGst, customer: rCustomer,
+      product: rProduct,
+      qty: rQty,
+      sheetsPerUnit: rSheets,
+      fsize: rSize,
+      paper: rPaper,
+      parent: rParent,
+      colors: rColors,
+      sides: rSides,
+      lam: rLam,
+      multiplier: rMult !== "" ? rMult : undefined,
+      customer: rCustomer,
     });
     if (r) { setResult(r); setResultDesc(r.description || ""); }
   };
@@ -250,8 +292,8 @@ export default function RateCalculatorPage() {
       stickerW: sW, stickerH: sH, qty: sQty, cols: sCols, rows: sRows,
       margin: sMarg, mode: sMode, halfcut: sHalfcut === "yes",
       paperRate: sPaperRate, printRate: sPrintRate, hcPct: sHcPct,
-      vendorRate: sVendorRate, minQty: sMinQty, transport: sTransport, hcPct2: sHcPct2,
-      profitMargin: sMargin, gst: sGst,
+      vendorRate: sVendorRate, transport: sTransport, hcPct2: sHcPct2,
+      multiplier: sMult !== "" ? sMult : undefined,
     });
     if (r) { setResult(r); setResultDesc(`${sQty.toLocaleString()} stickers | ${stickersPerSheet}/sheet | ${sheetsNeeded} sheets`); }
   };
@@ -271,7 +313,10 @@ export default function RateCalculatorPage() {
       const next = { ...prev };
       const parts = path.split(".");
       let obj = next;
-      for (let i = 0; i < parts.length - 1; i++) { obj[parts[i]] = { ...obj[parts[i]] }; obj = obj[parts[i]]; }
+      for (let i = 0; i < parts.length - 1; i++) {
+        obj[parts[i]] = { ...obj[parts[i]] };
+        obj = obj[parts[i]];
+      }
       obj[parts[parts.length - 1]] = val;
       return next;
     });
@@ -283,6 +328,14 @@ export default function RateCalculatorPage() {
     { id: "sticker", label: "🏷 Sticker" },
     { id: "rates", label: "⚙ Master Rates" },
   ];
+
+  // Multiplier hint label
+  const masterMult = rates?.multiplier ?? 1.67;
+  const multHint = `Default from master: ×${masterMult}`;
+
+  const reverseCuts = CUTS[rParent]?.[rSize] ?? 4;
+  const reversePieces = rProduct === "pads" || rProduct === "billbook" ? rQty * rSheets : rQty;
+  const reverseParentSheets = Math.ceil(reversePieces / reverseCuts);
 
   return (
     <DashboardShell>
@@ -312,15 +365,18 @@ export default function RateCalculatorPage() {
               </div>
             </Card>
 
-            <Card title="📄 Paper Layers — Add multiple for Bill Books etc.">
+            <Card title="📄 Paper Layers">
               {layers.map((l, i) => (
                 <LayerRow key={i} layer={l} idx={i}
                   onChange={f => setLayers(prev => prev.map((x, j) => j === i ? { ...x, ...f } : x))}
                   onRemove={() => setLayers(prev => prev.filter((_, j) => j !== i))}
                   canRemove={layers.length > 1} />
               ))}
-              <button onClick={() => setLayers(p => [...p, { psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }])}
-                className="border border-dashed border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">+ Add Layer</button>
+              <button
+                onClick={() => setLayers(p => [...p, { psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }])}
+                className="border border-dashed border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
+                + Add Layer
+              </button>
             </Card>
 
             <Card title="✂️ Finishing Options">
@@ -328,13 +384,16 @@ export default function RateCalculatorPage() {
                 <Field label="Lamination">
                   <Select value={fLam} onChange={e => setFLam(e.target.value as LamOption)}>
                     <option value="none">None</option>
-                    <option value="single">Single Side</option>
-                    <option value="double">Double Side</option>
+                    <option value="gloss-single">Gloss — Single Side</option>
+                    <option value="gloss-double">Gloss — Double Side</option>
+                    <option value="matt-single">Matt — Single Side</option>
+                    <option value="matt-double">Matt — Double Side</option>
                   </Select>
                 </Field>
                 <Field label="Pad Binding">
                   <Select value={fPad} onChange={e => setFPad(e.target.value)}>
-                    <option value="no">No</option><option value="yes">Yes</option>
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
                   </Select>
                 </Field>
                 {fPad === "yes" && <>
@@ -351,7 +410,8 @@ export default function RateCalculatorPage() {
                 </>}
                 <Field label="File Punching">
                   <Select value={fPunch} onChange={e => setFPunch(e.target.value)}>
-                    <option value="no">No</option><option value="yes">Yes</option>
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
                   </Select>
                 </Field>
                 <Field label="Envelope Making">
@@ -364,15 +424,18 @@ export default function RateCalculatorPage() {
               </div>
             </Card>
 
-            <Card title="💰 Margin & Output">
-              <div className="grid grid-cols-3 gap-3 items-end">
-                <Field label="Profit Margin %"><Input type="number" value={fMargin} onChange={e => setFMargin(+e.target.value)} /></Field>
-                <Field label="GST %"><Input type="number" value={fGst} onChange={e => setFGst(+e.target.value)} /></Field>
+            <Card title="💰 Selling Multiplier">
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <Field label={`Multiplier (×) — ${multHint}`}>
+                  <Input type="number" step="0.01" placeholder={String(masterMult)}
+                    value={fMult} onChange={e => setFMult(e.target.value === "" ? "" : +e.target.value)} />
+                </Field>
                 <button onClick={calcForward} disabled={loading}
                   className="bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
                   {loading ? "Calculating…" : "🧮 Calculate"}
                 </button>
               </div>
+              <p className="text-xs text-slate-400 mt-2">Leave blank to use default multiplier from Master Rates. The multiplier covers margin + GST together.</p>
             </Card>
 
             {result && <ResultCard result={result} desc={resultDesc} />}
@@ -383,7 +446,7 @@ export default function RateCalculatorPage() {
         {tab === "reverse" && (
           <>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 mb-3">
-              📌 Enter what your customer wants — the system calculates sheets, costs and quote automatically.
+              📌 Enter what your customer wants — the system calculates parent sheets, costs and quote automatically.
             </div>
 
             <Card title="📦 Customer Requirement">
@@ -391,12 +454,12 @@ export default function RateCalculatorPage() {
                 <Field label="Customer Name"><Input value={rCustomer} onChange={e => setRCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
                 <Field label="Product Type">
                   <Select value={rProduct} onChange={e => setRProduct(e.target.value)}>
-                    <option value="pads">Pads</option>
+                    <option value="pads">Pads (Gum Binding)</option>
+                    <option value="billbook">Bill Book (Duplicate)</option>
                     <option value="letterhead">Letterheads</option>
                     <option value="envelope">Envelopes</option>
                     <option value="file">Files with Punching</option>
                     <option value="visiting">Visiting Cards</option>
-                    <option value="billbook">Bill Book (Duplicate)</option>
                   </Select>
                 </Field>
               </div>
@@ -404,14 +467,20 @@ export default function RateCalculatorPage() {
 
             <Card title="🔢 Requirement Details">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <Field label="Quantity"><Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} /></Field>
+                <Field label={rProduct === "pads" || rProduct === "billbook" ? "No. of Pads / Books" : "Quantity"}>
+                  <Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                </Field>
                 {(rProduct === "pads" || rProduct === "billbook") && (
-                  <Field label="Sheets per Pad"><Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} /></Field>
+                  <Field label="Pages per Pad">
+                    <Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} />
+                  </Field>
                 )}
                 <Field label="Final Size">
                   <Select value={rSize} onChange={e => setRSize(e.target.value)}>
-                    <option value="A4">A4</option><option value="A5">A5</option>
-                    <option value="A6">A6</option><option value="A8">A8</option>
+                    <option value="A4">A4</option>
+                    <option value="A5">A5</option>
+                    <option value="A6">A6</option>
+                    <option value="A8">A8</option>
                     <option value="1/3A4">1/3 A4</option>
                     <option value="DL">DL Envelope</option>
                     <option value="visiting">Visiting Card</option>
@@ -447,29 +516,42 @@ export default function RateCalculatorPage() {
                 <Field label="Lamination">
                   <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
                     <option value="none">None</option>
-                    <option value="single">Single Side</option>
-                    <option value="double">Double Side</option>
+                    <option value="gloss-single">Gloss — Single Side</option>
+                    <option value="gloss-double">Gloss — Double Side</option>
+                    <option value="matt-single">Matt — Single Side</option>
+                    <option value="matt-double">Matt — Double Side</option>
                   </Select>
                 </Field>
               </div>
-              {rProduct === "pads" && rSize && rParent && (
-                <p className="text-xs text-slate-400 mt-2">
-                  Cuts per parent sheet ({rParent === "1823" ? "18×23" : "19×25"}"): <strong>{CUTS[rParent]?.[rSize] ?? 4}</strong> →
-                  Total print sheets: <strong>{(rQty * rSheets).toLocaleString()}</strong> →
-                  Parent sheets needed: <strong>{Math.ceil((rQty * rSheets) / (CUTS[rParent]?.[rSize] ?? 4)).toLocaleString()}</strong>
-                </p>
-              )}
+
+              {/* Auto-calculation hint */}
+              <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs text-slate-600">
+                <strong>Auto-calculation:</strong>&nbsp;
+                {rProduct === "pads" || rProduct === "billbook"
+                  ? <>{rQty} × {rSheets} pages = <strong>{reversePieces.toLocaleString()} total pieces</strong></>
+                  : <strong>{reversePieces.toLocaleString()} pieces</strong>
+                }
+                {" → "}{reverseCuts} cuts/sheet
+                {" → "}<strong>{reverseParentSheets.toLocaleString()} parent sheets of {rParent === "1823" ? "18×23\"" : "19×25\""}</strong>
+                {rColors === 4
+                  ? <> → 4-color printing billed on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
+                  : <> → {rColors}-color printing billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
+                }
+              </div>
             </Card>
 
-            <Card title="💰 Margin">
-              <div className="grid grid-cols-3 gap-3 items-end">
-                <Field label="Profit Margin %"><Input type="number" value={rMargin} onChange={e => setRMargin(+e.target.value)} /></Field>
-                <Field label="GST %"><Input type="number" value={rGst} onChange={e => setRGst(+e.target.value)} /></Field>
+            <Card title="💰 Selling Multiplier">
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <Field label={`Multiplier (×) — ${multHint}`}>
+                  <Input type="number" step="0.01" placeholder={String(masterMult)}
+                    value={rMult} onChange={e => setRMult(e.target.value === "" ? "" : +e.target.value)} />
+                </Field>
                 <button onClick={calcReverse} disabled={loading}
                   className="bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
                   {loading ? "Calculating…" : "🧮 Calculate"}
                 </button>
               </div>
+              <p className="text-xs text-slate-400 mt-2">Leave blank to use default multiplier from Master Rates.</p>
             </Card>
 
             {result && <ResultCard result={result} desc={resultDesc} />}
@@ -481,9 +563,9 @@ export default function RateCalculatorPage() {
           <>
             <Card title="🏷 Sticker Details">
               <div className="grid grid-cols-3 gap-3">
-                <Field label="Sticker Width (in)"><Input type="number" step="0.1" value={sW} onChange={e => setSW(+e.target.value)} /></Field>
-                <Field label="Sticker Height (in)"><Input type="number" step="0.1" value={sH} onChange={e => setSH(+e.target.value)} /></Field>
-                <Field label="Quantity Required"><Input type="number" value={sQty} onChange={e => setSQty(+e.target.value)} /></Field>
+                <Field label="Width (in)"><Input type="number" step="0.1" value={sW} onChange={e => setSW(+e.target.value)} /></Field>
+                <Field label="Height (in)"><Input type="number" step="0.1" value={sH} onChange={e => setSH(+e.target.value)} /></Field>
+                <Field label="Quantity"><Input type="number" value={sQty} onChange={e => setSQty(+e.target.value)} /></Field>
               </div>
             </Card>
 
@@ -495,8 +577,6 @@ export default function RateCalculatorPage() {
                 <Field label="Columns"><Input type="number" value={sCols} onChange={e => setSCols(+e.target.value)} /></Field>
                 <Field label="Rows"><Input type="number" value={sRows} onChange={e => setSRows(+e.target.value)} /></Field>
                 <Field label="Margin per side (in)"><Input type="number" step="0.05" value={sMarg} onChange={e => setSMarg(+e.target.value)} /></Field>
-                <Field label="Sheet Width (auto)"><Input value={sheetW + '"'} readOnly className="bg-slate-50 text-slate-500" /></Field>
-                <Field label="Sheet Height (auto)"><Input value={sheetH + '"'} readOnly className="bg-slate-50 text-slate-500" /></Field>
               </div>
             </Card>
 
@@ -504,7 +584,7 @@ export default function RateCalculatorPage() {
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <Field label="Mode">
                   <Select value={sMode} onChange={e => setSMode(e.target.value)}>
-                    <option value="inhouse">In-House (Paper + Printing)</option>
+                    <option value="inhouse">In-House</option>
                     <option value="outsource">Outsource to Vendor</option>
                   </Select>
                 </Field>
@@ -514,7 +594,6 @@ export default function RateCalculatorPage() {
                   </Select>
                 </Field>
               </div>
-
               {sMode === "inhouse" && (
                 <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100">
                   <Field label="Paper Rate (₹/sheet)"><Input type="number" step="0.1" value={sPaperRate} onChange={e => setSPaperRate(+e.target.value)} /></Field>
@@ -525,17 +604,18 @@ export default function RateCalculatorPage() {
               {sMode === "outsource" && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
                   <Field label="Rate per sq in (₹)"><Input type="number" step="0.001" value={sVendorRate} onChange={e => setSVendorRate(+e.target.value)} /></Field>
-                  <Field label="Min Qty"><Input type="number" value={sMinQty} onChange={e => setSMinQty(+e.target.value)} /></Field>
                   <Field label="Transport (₹)"><Input type="number" value={sTransport} onChange={e => setSTransport(+e.target.value)} /></Field>
-                  {sHalfcut === "yes" && <Field label="Half Cut % of total"><Input type="number" value={sHcPct2} onChange={e => setSHcPct2(+e.target.value)} /></Field>}
+                  {sHalfcut === "yes" && <Field label="Half Cut %"><Input type="number" value={sHcPct2} onChange={e => setSHcPct2(+e.target.value)} /></Field>}
                 </div>
               )}
             </Card>
 
-            <Card title="💰 Margin">
-              <div className="grid grid-cols-3 gap-3 items-end">
-                <Field label="Profit Margin %"><Input type="number" value={sMargin} onChange={e => setSMargin(+e.target.value)} /></Field>
-                <Field label="GST %"><Input type="number" value={sGst} onChange={e => setSGst(+e.target.value)} /></Field>
+            <Card title="💰 Selling Multiplier">
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <Field label={`Multiplier (×) — ${multHint}`}>
+                  <Input type="number" step="0.01" placeholder={String(masterMult)}
+                    value={sMult} onChange={e => setSMult(e.target.value === "" ? "" : +e.target.value)} />
+                </Field>
                 <button onClick={calcSticker} disabled={loading}
                   className="bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
                   {loading ? "Calculating…" : "🧮 Calculate"}
@@ -554,68 +634,122 @@ export default function RateCalculatorPage() {
           ) : ratesError ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center text-amber-800 text-sm">
               <p className="font-semibold mb-2">Unable to load master rates</p>
-              <p>{ratesError}</p>
+              <p className="text-xs">{ratesError}</p>
               <button onClick={loadRates} className="mt-4 rounded-lg bg-amber-600 text-white px-4 py-2 text-xs font-semibold hover:bg-amber-700">Retry</button>
             </div>
           ) : rates ? (
             <>
-              <Card title="📄 Paper Rates (per ream of 500 sheets)">
+              {/* Multiplier */}
+              <Card title="💰 Selling Multiplier (covers Margin + GST)">
+                <div className="grid grid-cols-1 gap-3">
+                  <Field label="Default Multiplier (×) — applied to total cost to get selling price">
+                    <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
+                  </Field>
+                  <p className="text-xs text-slate-400">
+                    Example: cost ₹6,100 × {rates.multiplier ?? 1.67} = ₹{(6100 * (rates.multiplier ?? 1.67)).toFixed(0)} selling price
+                  </p>
+                </div>
+              </Card>
+
+              {/* Paper */}
+              <Card title="📄 Paper Rates (₹ per ream of 500 sheets)">
                 <div className="grid grid-cols-2 gap-3">
-                  {[["1823-bond70","18×23\" 70 GSM Bond"],["1823-bond80","18×23\" 80 GSM Bond"],
-                    ["1925-bond70","19×25\" 70 GSM Bond"],["1925-bond80","19×25\" 80 GSM Bond"],
-                    ["1823-map90","18×23\" 90 GSM Maplitho"],["1925-map90","19×25\" 90 GSM Maplitho"],
-                    ["1823-map100","18×23\" 100 GSM Maplitho"],["1925-map100","19×25\" 100 GSM Maplitho"],
+                  {[
+                    ["1823-bond70",  "18×23\" 70 GSM Bond"],
+                    ["1823-bond80",  "18×23\" 80 GSM Bond"],
+                    ["1823-map90",   "18×23\" 90 GSM Maplitho"],
+                    ["1823-map100",  "18×23\" 100 GSM Maplitho"],
+                    ["1925-bond70",  "19×25\" 70 GSM Bond"],
+                    ["1925-bond80",  "19×25\" 80 GSM Bond"],
+                    ["1925-map90",   "19×25\" 90 GSM Maplitho"],
+                    ["1925-map100",  "19×25\" 100 GSM Maplitho"],
                   ].map(([key, label]) => (
                     <Field key={key} label={`${label} (₹)`}>
                       <Input type="number" value={rates.paper?.[key] ?? ""} onChange={e => updateRate(`paper.${key}`, +e.target.value)} />
                     </Field>
                   ))}
                 </div>
+                <p className="text-xs text-slate-400 mt-2">Per-sheet rate = ream rate ÷ 500</p>
               </Card>
 
+              {/* Printing */}
               <Card title="🖨 Offset Printing Rates">
+                <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
+                  <strong>4-Color:</strong> billed per parent sheet (block rounding to 1000). &nbsp;
+                  <strong>1-Color / 2-Color:</strong> billed per piece (parent sheets × cuts/sheet), flat rate per 1000 pieces.
+                </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {[["first1k.1","First 1000 — 1 Color"],["first1k.2","First 1000 — 2 Color"],["first1k.4","First 1000 — 4 Color CMYK"],
-                    ["nextK.1","Next 1000 — 1 Color"],["nextK.2","Next 1000 — 2 Color"],["nextK.4","Next 1000 — 4 Color"],
-                  ].map(([key, label]) => (
-                    <Field key={key} label={`${label} (₹)`}>
-                      <Input type="number" value={rates.printing?.[key.split(".")[0]]?.[key.split(".")[1]] ?? ""} onChange={e => updateRate(`printing.${key}`, +e.target.value)} />
-                    </Field>
-                  ))}
+                  <Field label="4-Color — First 1,000 parent sheets (₹)">
+                    <Input type="number" value={rates.printing?.['4color']?.first1k ?? ""} onChange={e => updateRate("printing.4color.first1k", +e.target.value)} />
+                  </Field>
+                  <Field label="4-Color — Each next 1,000 sheets (₹)">
+                    <Input type="number" value={rates.printing?.['4color']?.nextK ?? ""} onChange={e => updateRate("printing.4color.nextK", +e.target.value)} />
+                  </Field>
+                  <Field label="1-Color — Flat rate per 1,000 pieces (₹)">
+                    <Input type="number" value={rates.printing?.['1color']?.flat ?? ""} onChange={e => updateRate("printing.1color.flat", +e.target.value)} />
+                  </Field>
+                  <Field label="2-Color — Flat rate per 1,000 pieces (₹)">
+                    <Input type="number" value={rates.printing?.['2color']?.flat ?? ""} onChange={e => updateRate("printing.2color.flat", +e.target.value)} />
+                  </Field>
                 </div>
               </Card>
 
+              {/* Plate */}
               <Card title="🔲 Plate & Punching">
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Plate Rate (₹/plate)"><Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} /></Field>
-                  <Field label="File Punching (₹/piece)"><Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} /></Field>
+                  <Field label="Plate Rate (₹/plate) — 1-color=1 plate, 4-color=4 plates">
+                    <Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} />
+                  </Field>
+                  <Field label="File Punching (₹/piece)">
+                    <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
+                  </Field>
                 </div>
               </Card>
 
-              <Card title="📎 Pad Binding Rates (₹/pad)">
+              {/* Pad Binding */}
+              <Card title="📎 Gum Pad Binding Rates (₹/pad)">
                 <div className="grid grid-cols-3 gap-3">
-                  {["A4","A5","A6","A8","1/3A4"].map(sz => (
-                    <Field key={sz} label={`${sz} Pad`}>
+                  {(["A4","A5","A6","A8","1/3A4"] as const).map(sz => (
+                    <Field key={sz} label={`${sz} Pad (₹)`}>
                       <Input type="number" value={rates.padBinding?.[sz] ?? ""} onChange={e => updateRate(`padBinding.${sz}`, +e.target.value)} />
                     </Field>
                   ))}
                 </div>
               </Card>
 
-              <Card title="✨ Lamination Rates (₹/sheet)">
+              {/* Bill Book Binding */}
+              <Card title="📒 Bill Book Binding Rates (₹/book)">
                 <div className="grid grid-cols-2 gap-3">
-                  {[["A4-single","A4 Single"],["A4-double","A4 Double"],["A3-single","A3 Single"],["A3-double","A3 Double"]].map(([k,l]) => (
-                    <Field key={k} label={`${l} Side (₹)`}>
-                      <Input type="number" value={rates.lamination?.[k] ?? ""} onChange={e => updateRate(`lamination.${k}`, +e.target.value)} />
-                    </Field>
-                  ))}
+                  <Field label="A4 Bill Book (₹/book)">
+                    <Input type="number" value={rates.billBookBinding?.A4 ?? ""} onChange={e => updateRate("billBookBinding.A4", +e.target.value)} />
+                  </Field>
+                  <Field label="A8 Bill Book (₹/book)">
+                    <Input type="number" value={rates.billBookBinding?.A8 ?? ""} onChange={e => updateRate("billBookBinding.A8", +e.target.value)} />
+                  </Field>
                 </div>
               </Card>
 
+              {/* Lamination */}
+              <Card title="✨ Lamination Rates (₹ per 100 sq inch)">
+                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
+                  Formula: (sheet area ÷ 100) × rate × qty sheets. &nbsp;
+                  18×23" sheet = 414 sq in → per sheet = 4.14 × rate
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Gloss Lamination (₹/100 sq in)">
+                    <Input type="number" step="0.01" value={rates.lamination?.gloss ?? ""} onChange={e => updateRate("lamination.gloss", +e.target.value)} />
+                  </Field>
+                  <Field label="Matt Lamination (₹/100 sq in)">
+                    <Input type="number" step="0.01" value={rates.lamination?.matt ?? ""} onChange={e => updateRate("lamination.matt", +e.target.value)} />
+                  </Field>
+                </div>
+              </Card>
+
+              {/* Envelope */}
               <Card title="✉️ Envelope Making (₹/piece)">
                 <div className="grid grid-cols-2 gap-3">
-                  {["DL","A4","A5","C4"].map(sz => (
-                    <Field key={sz} label={`${sz} Envelope`}>
+                  {(["DL","A4","A5","C4"] as const).map(sz => (
+                    <Field key={sz} label={`${sz} Envelope (₹)`}>
                       <Input type="number" value={rates.envelope?.[sz] ?? ""} onChange={e => updateRate(`envelope.${sz}`, +e.target.value)} />
                     </Field>
                   ))}
@@ -635,4 +769,3 @@ export default function RateCalculatorPage() {
     </DashboardShell>
   );
 }
-

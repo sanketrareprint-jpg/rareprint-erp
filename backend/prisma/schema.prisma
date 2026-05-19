@@ -816,6 +816,12 @@ model CallAnalysis {
 // quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
 // milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
 // learningStreaks     DailyLearningStreak[] @relation("UserStreak")
+model SystemConfig {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
 model Notification {
   id          String    @id @default(cuid())
   type        String
@@ -839,9 +845,4 @@ model Notification {
   priority    String    @default("NORMAL")
   dueDate     DateTime?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([toUserId, isResolved])
-  @@index([type, isResolved])
-  @@index([orderId])
-}
+  updatedAt 
