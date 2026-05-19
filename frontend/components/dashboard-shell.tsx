@@ -6,7 +6,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
-  Truck, DollarSign, Users, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
+  Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
+  Menu,
 } from "lucide-react";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
@@ -75,6 +76,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router   = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const u = getStoredUser();
@@ -93,10 +95,29 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const name     = user?.fullName ?? "…";
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+    <div className="erp-shell" style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+
+      <header className="erp-mobile-topbar">
+        <button
+          type="button"
+          className="erp-mobile-icon-button"
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label="Open menu"
+        >
+          <Menu size={22} />
+        </button>
+        <Link href="/dashboard" className="erp-mobile-brand" aria-label="RarePrint dashboard">
+          <span className="erp-mobile-logo"><Printer size={18} /></span>
+          <span>
+            <strong>RarePrint</strong>
+            <small>{role.replace("_", " ")}</small>
+          </span>
+        </Link>
+        <NotificationBell userRole={role} />
+      </header>
 
       {/* ── Dark navy icon sidebar ── */}
-      <aside style={{
+      <aside className="erp-sidebar" style={{
         width: "72px", minWidth: "72px",
         background: "#1e3a5f",
         display: "flex", flexDirection: "column", alignItems: "center",
@@ -128,7 +149,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             const Icon   = item.icon;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
-              <Link key={item.href} href={item.href} style={{
+              <Link key={item.href} href={item.href} className="erp-sidebar-link" style={{
                 display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center",
                 width: "56px", height: "50px", borderRadius: "10px",
@@ -149,7 +170,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
           {/* Notification Bell */}
-          <NotificationBell userRole={role} />
+          <div className="erp-desktop-notifications">
+            <NotificationBell userRole={role} />
+          </div>
 
         {/* User + logout */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginTop: "8px" }}>
@@ -178,9 +201,71 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main style={{ flex: 1, overflow: "auto", background: "#f8fafc" }}>
+      <main className="erp-main" style={{ flex: 1, overflow: "auto", background: "#f8fafc" }}>
         {children}
       </main>
+
+      <nav className="erp-bottom-nav" aria-label="Primary navigation">
+        {navItems.slice(0, 6).map((item) => {
+          const Icon = item.icon;
+          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`erp-bottom-nav-item${active ? " is-active" : ""}`}
+            >
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {mobileMenuOpen && (
+        <div className="erp-mobile-menu-backdrop" onClick={() => setMobileMenuOpen(false)}>
+          <div className="erp-mobile-menu" onClick={(event) => event.stopPropagation()}>
+            <div className="erp-mobile-menu-head">
+              <div className="erp-mobile-brand">
+                <span className="erp-mobile-logo"><Printer size={18} /></span>
+                <span>
+                  <strong>RarePrint ERP</strong>
+                  <small>{name}</small>
+                </span>
+              </div>
+              <button
+                type="button"
+                className="erp-mobile-icon-button"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Close menu"
+              >
+                ×
+              </button>
+            </div>
+            <div className="erp-mobile-menu-grid">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`erp-mobile-menu-item${active ? " is-active" : ""}`}
+                  >
+                    <Icon size={20} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+            <button onClick={handleLogout} className="erp-mobile-logout">
+              <LogOut size={16} />
+              Sign out
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -24,3 +24,386 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.erp-mobile-topbar,
+.erp-bottom-nav,
+.erp-mobile-menu-backdrop {
+  display: none;
+}
+
+.erp-desktop-notifications {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0f172a;
+  }
+
+  body {
+    background: #f8fafc;
+    color: #0f172a;
+    overscroll-behavior-y: contain;
+  }
+
+  .erp-shell {
+    display: block !important;
+    height: auto !important;
+    min-height: 100dvh;
+    overflow: visible !important;
+    background: #f8fafc;
+  }
+
+  .erp-sidebar {
+    display: none !important;
+  }
+
+  .erp-main {
+    min-height: 100dvh;
+    width: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+    padding: calc(env(safe-area-inset-top) + 64px) 12px calc(env(safe-area-inset-bottom) + 84px);
+    background: #f8fafc !important;
+  }
+
+  .erp-main > div {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .erp-mobile-topbar {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: calc(env(safe-area-inset-top) + 56px);
+    padding: env(safe-area-inset-top) 14px 0;
+    border-bottom: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(14px);
+  }
+
+  .erp-mobile-icon-button {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #dbe4ee;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #0f172a;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    line-height: 1;
+    font-weight: 500;
+  }
+
+  .erp-mobile-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    color: #0f172a;
+    text-decoration: none;
+  }
+
+  .erp-mobile-brand strong,
+  .erp-mobile-brand small {
+    display: block;
+    max-width: 44vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .erp-mobile-brand strong {
+    font-size: 15px;
+    line-height: 1.05;
+    letter-spacing: 0;
+  }
+
+  .erp-mobile-brand small {
+    margin-top: 2px;
+    font-size: 11px;
+    color: #64748b;
+  }
+
+  .erp-mobile-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    background: #2563eb;
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+
+  .erp-bottom-nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 9000;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
+    border-top: 1px solid #dbe4ee;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.12);
+    scrollbar-width: none;
+  }
+
+  .erp-bottom-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .erp-bottom-nav-item {
+    min-width: 74px;
+    height: 54px;
+    border-radius: 14px;
+    color: #64748b;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .erp-bottom-nav-item.is-active {
+    color: #ffffff;
+    background: #2563eb;
+    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.28);
+  }
+
+  .erp-mobile-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9500;
+    display: block;
+    background: rgba(15, 23, 42, 0.42);
+  }
+
+  .erp-mobile-menu {
+    width: min(88vw, 360px);
+    height: 100%;
+    overflow-y: auto;
+    background: #ffffff;
+    padding: calc(env(safe-area-inset-top) + 14px) 14px 18px;
+    box-shadow: 18px 0 48px rgba(15, 23, 42, 0.24);
+  }
+
+  .erp-mobile-menu-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .erp-mobile-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 16px 0;
+  }
+
+  .erp-mobile-menu-item {
+    min-height: 78px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #f8fafc;
+    color: #334155;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .erp-mobile-menu-item.is-active {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+
+  .erp-mobile-logout {
+    width: 100%;
+    border: 1px solid #fee2e2;
+    border-radius: 14px;
+    background: #fff7f7;
+    color: #dc2626;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    font-weight: 800;
+  }
+
+  .erp-main h1 {
+    font-size: 26px !important;
+    line-height: 1.15 !important;
+    letter-spacing: 0 !important;
+  }
+
+  .erp-main p,
+  .erp-main span,
+  .erp-main td,
+  .erp-main th,
+  .erp-main button,
+  .erp-main input,
+  .erp-main select,
+  .erp-main textarea {
+    letter-spacing: 0 !important;
+  }
+
+  .erp-main input,
+  .erp-main select,
+  .erp-main textarea {
+    min-height: 42px;
+    font-size: 16px !important;
+  }
+
+  .erp-main button {
+    min-height: 40px;
+  }
+
+  .erp-main .grid {
+    min-width: 0;
+  }
+
+  .erp-main .grid-cols-7,
+  .erp-main .grid-cols-5,
+  .erp-main .grid-cols-4,
+  .erp-main .grid-cols-3,
+  .erp-main .md\:grid-cols-3,
+  .erp-main .md\:grid-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .erp-main .grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .erp-main .lg\:p-6,
+  .erp-main .lg\:p-8,
+  .erp-main .p-8,
+  .erp-main .p-6 {
+    padding: 12px !important;
+  }
+
+  .erp-main .px-6,
+  .erp-main .px-8 {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .erp-main .py-6,
+  .erp-main .py-8 {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .erp-main .max-w-7xl,
+  .erp-main .max-w-5xl,
+  .erp-main .max-w-4xl,
+  .erp-main .max-w-3xl,
+  .erp-main .max-w-2xl,
+  .erp-main .max-w-xl,
+  .erp-main .max-w-lg,
+  .erp-main .max-w-md,
+  .erp-main .max-w-sm,
+  .erp-main .max-w-xs {
+    max-width: 100% !important;
+  }
+
+  .erp-main .overflow-x-auto {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 14px;
+  }
+
+  .erp-main table {
+    width: max-content !important;
+    min-width: 100%;
+  }
+
+  .erp-main th,
+  .erp-main td {
+    white-space: nowrap;
+  }
+
+  .erp-main .flex {
+    min-width: 0;
+  }
+
+  .erp-main .flex-wrap {
+    row-gap: 8px;
+  }
+
+  .erp-main .rounded-2xl {
+    border-radius: 16px !important;
+  }
+
+  .erp-main .shadow-xl,
+  .erp-main .shadow-2xl {
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.18) !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .erp-main {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .erp-main .grid-cols-7,
+  .erp-main .grid-cols-5,
+  .erp-main .grid-cols-4,
+  .erp-main .grid-cols-3,
+  .erp-main .md\:grid-cols-3,
+  .erp-main .md\:grid-cols-4 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .erp-main h1 {
+    font-size: 24px !important;
+  }
+}

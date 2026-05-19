@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { RegisterServiceWorker } from "./register-service-worker";
 import "./globals.css";
 
@@ -16,6 +16,13 @@ export const metadata: Metadata = {
     icon: "/rareprint-app-icon.svg",
     apple: "/rareprint-app-icon.svg",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({
