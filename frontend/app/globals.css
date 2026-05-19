@@ -59,7 +59,10 @@ textarea {
     --foreground: #0f172a;
   }
 
+  html,
   body {
+    height: 100%;
+    overflow: hidden;
     background: #f8fafc;
     color: #0f172a;
     overscroll-behavior-y: contain;
@@ -67,9 +70,9 @@ textarea {
 
   .erp-shell {
     display: block !important;
-    height: auto !important;
-    min-height: 100dvh;
-    overflow: visible !important;
+    height: 100dvh !important;
+    min-height: 0;
+    overflow: hidden !important;
     background: #f8fafc;
   }
 
@@ -78,11 +81,18 @@ textarea {
   }
 
   .erp-main {
-    min-height: 100dvh;
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 56px);
+    right: 0;
+    bottom: calc(env(safe-area-inset-bottom) + 72px);
+    left: 0;
+    min-height: 0;
     width: 100% !important;
     overflow-x: hidden !important;
-    overflow-y: visible !important;
-    padding: calc(env(safe-area-inset-top) + 64px) 12px calc(env(safe-area-inset-bottom) + 84px);
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 12px;
     background: #f8fafc !important;
   }
 

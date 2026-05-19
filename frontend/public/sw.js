@@ -1,4 +1,4 @@
-const CACHE_NAME = "rareprint-erp-app-v1";
+const CACHE_NAME = "rareprint-erp-app-v2";
 const APP_SHELL = ["/dashboard", "/crm", "/orders", "/production", "/manifest.webmanifest", "/rareprint-app-icon.svg"];
 
 self.addEventListener("install", (event) => {
