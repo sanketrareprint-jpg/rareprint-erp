@@ -818,7 +818,7 @@ model CallAnalysis {
 // learningStreaks     DailyLearningStreak[] @relation("UserStreak")
 model SystemConfig {
   key       String   @id
-  value     String   @db.Text
+  value     String
   updatedAt DateTime @updatedAt
 }
 
@@ -845,4 +845,9 @@ model Notification {
   priority    String    @default("NORMAL")
   dueDate     DateTime?
   createdAt   DateTime  @default(now())
-  updatedAt 
+  updatedAt   DateTime  @updatedAt
+
+  @@index([toUserId, isResolved])
+  @@index([type, isResolved])
+  @@index([orderId])
+}
