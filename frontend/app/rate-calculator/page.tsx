@@ -20,10 +20,64 @@ type Result = {
   description?: string;
 };
 
-// Cuts per parent sheet — used in UI hints
+// Cuts per parent sheet — mirrors backend CUTS table
 const CUTS: Record<string, Record<string, number>> = {
-  '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32 },
-  '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40 },
+  '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32, file: 1,
+            env4x5: 6, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 1, env11x17: 1 },
+  '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40, file: 2,
+            env4x5: 8, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2 },
+  '1520': { env9x12: 1 },
+};
+
+// Per-product config
+type ProductConfig = {
+  label: string;
+  fixedSize?: string;
+  fixedParent?: string;
+  sizes?: { value: string; label: string }[];
+  hasSheetsPerUnit?: boolean;
+  fixedInfo?: string;
+  // envelope-style: auto-set & optionally lock parent sheet based on chosen size
+  sizeParentMap?: Record<string, string>;
+  sizeParentLocked?: Record<string, boolean>;
+};
+
+const ENVELOPE_SIZES = [
+  { value: "env4x5",     label: "4×5\" Medicine Pouch" },
+  { value: "env425x925", label: "4.25×9.25\" Office / DL" },
+  { value: "env425x45",  label: "4.25×4.5\" Small" },
+  { value: "env425x63",  label: "4.25×6.3\" Medium" },
+  { value: "env525x75",  label: "5.25×7.5\" Document" },
+  { value: "env85x11",   label: "8.5×11\" A4 Envelope" },
+  { value: "env9x12",    label: "9×12\" Catalog" },
+  { value: "env11x17",   label: "11×17\" Large" },
+];
+
+const PRODUCT_CONFIG: Record<string, ProductConfig> = {
+  pads:       { label: "Pads (Gum Binding)", hasSheetsPerUnit: true,
+                sizes: [{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"A6",label:"A6"},{value:"A8",label:"A8"},{value:"1/3A4",label:"1/3 A4"}] },
+  billbook:   { label: "Bill Book (Duplicate)", hasSheetsPerUnit: true,
+                sizes: [{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"A8",label:"A8"}] },
+  letterhead: { label: "Letterheads",
+                sizes: [{value:"A4",label:"A4"},{value:"A5",label:"A5"}] },
+  pamphlet:   { label: "Pamphlet / Leaflet",
+                sizes: [{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"A6",label:"A6"},{value:"1/3A4",label:"1/3 A4 (DL size)"},{value:"DL",label:"DL"}] },
+  envelope:   { label: "Envelopes", sizes: ENVELOPE_SIZES,
+                sizeParentMap: {
+                  env9x12:    "1520",  // fits only on 15×20" sheet
+                  env11x17:   "1823",  // fits only on 18×23" sheet
+                  env85x11:   "1925",  // best yield on 19×25" (2/sheet vs 1/sheet)
+                },
+                sizeParentLocked: {
+                  env9x12:  true,   // MUST use 15×20
+                  env11x17: true,   // MUST use 18×23
+                } },
+  file:       { label: "Files with Punching",
+                fixedSize: "file", fixedParent: "1925",
+                fixedInfo: "Fixed: 12×18 inch size | 19×25\" parent sheet | 2 per sheet" },
+  visiting:   { label: "Visiting Cards",
+                fixedSize: "visiting",
+                fixedInfo: "Fixed: 3.5×2\" visiting card | 32 per 18×23\" / 40 per 19×25\" sheet" },
 };
 
 function fmt(n: number) {
@@ -195,6 +249,22 @@ export default function RateCalculatorPage() {
   const [rLam, setRLam] = useState<LamOption>("none");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
+  // Auto-set size/parent when product changes
+  useEffect(() => {
+    const cfg = PRODUCT_CONFIG[rProduct];
+    if (cfg?.fixedSize)   setRSize(cfg.fixedSize);
+    if (cfg?.fixedParent) setRParent(cfg.fixedParent);
+    if (!cfg?.fixedSize && cfg?.sizes?.[0]) setRSize(cfg.sizes[0].value);
+  }, [rProduct]);
+
+  // Auto-set parent sheet when envelope size changes (sizeParentMap)
+  useEffect(() => {
+    const cfg = PRODUCT_CONFIG[rProduct];
+    const mappedParent = cfg?.sizeParentMap?.[rSize];
+    if (mappedParent) setRParent(mappedParent);
+    else if (!cfg?.fixedParent) setRParent("1823"); // default for unlocked sizes
+  }, [rProduct, rSize]);
+
   // ── Sticker State ──
   const [sW, setSW] = useState(2); const [sH, setSH] = useState(3);
   const [sQty, setSQty] = useState(4000);
@@ -336,6 +406,8 @@ export default function RateCalculatorPage() {
   const reverseCuts = CUTS[rParent]?.[rSize] ?? 4;
   const reversePieces = rProduct === "pads" || rProduct === "billbook" ? rQty * rSheets : rQty;
   const reverseParentSheets = Math.ceil(reversePieces / reverseCuts);
+  const parentLabel = rParent === "1520" ? "15×20\"" : rParent === "1823" ? "18×23\"" : "19×25\"";
+  const rSizeParentLocked = !!(PRODUCT_CONFIG[rProduct]?.sizeParentLocked?.[rSize]);
 
   return (
     <DashboardShell>
@@ -417,8 +489,7 @@ export default function RateCalculatorPage() {
                 <Field label="Envelope Making">
                   <Select value={fEnv} onChange={e => setFEnv(e.target.value)}>
                     <option value="none">None</option>
-                    <option value="DL">DL</option><option value="A4">A4</option>
-                    <option value="A5">A5</option><option value="C4">C4</option>
+                    {ENVELOPE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </Select>
                 </Field>
               </div>
@@ -454,38 +525,44 @@ export default function RateCalculatorPage() {
                 <Field label="Customer Name"><Input value={rCustomer} onChange={e => setRCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
                 <Field label="Product Type">
                   <Select value={rProduct} onChange={e => setRProduct(e.target.value)}>
-                    <option value="pads">Pads (Gum Binding)</option>
-                    <option value="billbook">Bill Book (Duplicate)</option>
-                    <option value="letterhead">Letterheads</option>
-                    <option value="envelope">Envelopes</option>
-                    <option value="file">Files with Punching</option>
-                    <option value="visiting">Visiting Cards</option>
+                    {Object.entries(PRODUCT_CONFIG).map(([val, cfg]) => (
+                      <option key={val} value={val}>{cfg.label}</option>
+                    ))}
                   </Select>
                 </Field>
               </div>
             </Card>
 
             <Card title="🔢 Requirement Details">
+              {/* Fixed-size product info badge */}
+              {PRODUCT_CONFIG[rProduct]?.fixedInfo && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-medium mb-3">
+                  📐 {PRODUCT_CONFIG[rProduct].fixedInfo}
+                </div>
+              )}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <Field label={rProduct === "pads" || rProduct === "billbook" ? "No. of Pads / Books" : "Quantity"}>
+                <Field label={PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit ? "No. of Pads / Books" : "Quantity"}>
                   <Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} />
                 </Field>
-                {(rProduct === "pads" || rProduct === "billbook") && (
-                  <Field label="Pages per Pad">
+
+                {/* Pages per pad — only for pads/billbook */}
+                {PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit && (
+                  <Field label="Pages per Pad / Book">
                     <Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} />
                   </Field>
                 )}
-                <Field label="Final Size">
-                  <Select value={rSize} onChange={e => setRSize(e.target.value)}>
-                    <option value="A4">A4</option>
-                    <option value="A5">A5</option>
-                    <option value="A6">A6</option>
-                    <option value="A8">A8</option>
-                    <option value="1/3A4">1/3 A4</option>
-                    <option value="DL">DL Envelope</option>
-                    <option value="visiting">Visiting Card</option>
-                  </Select>
-                </Field>
+
+                {/* Final size — hidden when fixed */}
+                {!PRODUCT_CONFIG[rProduct]?.fixedSize && PRODUCT_CONFIG[rProduct]?.sizes && (
+                  <Field label="Final Size">
+                    <Select value={rSize} onChange={e => setRSize(e.target.value)}>
+                      {PRODUCT_CONFIG[rProduct].sizes!.map(s => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+
                 <Field label="Paper Type">
                   <Select value={rPaper} onChange={e => setRPaper(e.target.value)}>
                     <option value="bond70">70 GSM Bond</option>
@@ -494,12 +571,27 @@ export default function RateCalculatorPage() {
                     <option value="map100">100 GSM Maplitho</option>
                   </Select>
                 </Field>
-                <Field label="Parent Sheet Size">
-                  <Select value={rParent} onChange={e => setRParent(e.target.value)}>
-                    <option value="1823">18×23 inch</option>
-                    <option value="1925">19×25 inch</option>
-                  </Select>
-                </Field>
+
+                {/* Parent sheet — hidden when product-fixed; locked badge when size-fixed */}
+                {!PRODUCT_CONFIG[rProduct]?.fixedParent && (
+                  rSizeParentLocked ? (
+                    <div className="col-span-1">
+                      <label className="text-xs font-semibold text-slate-500 block mb-1">Parent Sheet Size</label>
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-xs text-amber-800 font-medium">
+                        🔒 Auto: {parentLabel} (required for this size)
+                      </div>
+                    </div>
+                  ) : (
+                    <Field label="Parent Sheet Size">
+                      <Select value={rParent} onChange={e => setRParent(e.target.value)}>
+                        <option value="1823">18×23 inch</option>
+                        <option value="1925">19×25 inch</option>
+                        <option value="1520">15×20 inch (Catalog Envelope)</option>
+                      </Select>
+                    </Field>
+                  )
+                )}
+
                 <Field label="No. of Colors">
                   <Select value={rColors} onChange={e => setRColors(+e.target.value)}>
                     <option value={1}>1 Color</option>
@@ -531,11 +623,15 @@ export default function RateCalculatorPage() {
                   ? <>{rQty} × {rSheets} pages = <strong>{reversePieces.toLocaleString()} total pieces</strong></>
                   : <strong>{reversePieces.toLocaleString()} pieces</strong>
                 }
-                {" → "}{reverseCuts} cuts/sheet
-                {" → "}<strong>{reverseParentSheets.toLocaleString()} parent sheets of {rParent === "1823" ? "18×23\"" : "19×25\""}</strong>
-                {rColors === 4
-                  ? <> → 4-color printing billed on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
-                  : <> → {rColors}-color printing billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
+                {reverseCuts > 0
+                  ? <>{" → "}{reverseCuts} cuts/sheet
+                      {" → "}<strong>{reverseParentSheets.toLocaleString()} parent sheets of {parentLabel}</strong>
+                      {rColors === 4
+                        ? <> → 4-color billed on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
+                        : <> → {rColors}-color billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
+                      }
+                    </>
+                  : <span className="text-amber-600"> → ⚠ This size is not available on {parentLabel} parent sheet</span>
                 }
               </div>
             </Card>
@@ -710,8 +806,8 @@ export default function RateCalculatorPage() {
               <Card title="📎 Gum Pad Binding Rates (₹/pad)">
                 <div className="grid grid-cols-3 gap-3">
                   {(["A4","A5","A6","A8","1/3A4"] as const).map(sz => (
-                    <Field key={sz} label={`${sz} Pad (₹)`}>
-                      <Input type="number" value={rates.padBinding?.[sz] ?? ""} onChange={e => updateRate(`padBinding.${sz}`, +e.target.value)} />
+                    <Field key={sz} label={sz + " Pad (₹)"}>
+                      <Input type="number" value={rates.padBinding?.[sz] ?? ""} onChange={e => updateRate("padBinding." + sz, +e.target.value)} />
                     </Field>
                   ))}
                 </div>
@@ -732,8 +828,7 @@ export default function RateCalculatorPage() {
               {/* Lamination */}
               <Card title="✨ Lamination Rates (₹ per 100 sq inch)">
                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Formula: (sheet area ÷ 100) × rate × qty sheets. &nbsp;
-                  18×23" sheet = 414 sq in → per sheet = 4.14 × rate
+                  {"Formula: (sheet area ÷ 100) × rate × qty sheets. 18×23\" sheet = 414 sq in → per sheet = 4.14 × rate"}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Gloss Lamination (₹/100 sq in)">
@@ -745,21 +840,30 @@ export default function RateCalculatorPage() {
                 </div>
               </Card>
 
-              {/* Envelope */}
-              <Card title="✉️ Envelope Making (₹/piece)">
+              {/* Envelope Making */}
+              <Card title="✉️ Envelope Making Rate (₹/piece)">
                 <div className="grid grid-cols-2 gap-3">
-                  {(["DL","A4","A5","C4"] as const).map(sz => (
-                    <Field key={sz} label={`${sz} Envelope (₹)`}>
-                      <Input type="number" value={rates.envelope?.[sz] ?? ""} onChange={e => updateRate(`envelope.${sz}`, +e.target.value)} />
+                  {[
+                    ["env4x5",     "4x5 Medicine Pouch"],
+                    ["env425x925", "4.25x9.25 Office / DL"],
+                    ["env425x45",  "4.25x4.5 Small"],
+                    ["env425x63",  "4.25x6.3 Medium"],
+                    ["env525x75",  "5.25x7.5 Document"],
+                    ["env85x11",   "8.5x11 A4 Envelope"],
+                    ["env9x12",    "9x12 Catalog"],
+                    ["env11x17",   "11x17 Large"],
+                  ].map(([key, lbl]) => (
+                    <Field key={key} label={lbl + " (₹)"}>
+                      <Input type="number" step="0.5" value={rates.envelope?.[key] ?? ""} onChange={e => updateRate("envelope." + key, +e.target.value)} />
                     </Field>
                   ))}
                 </div>
               </Card>
 
               <button onClick={saveRates} className="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700">
-                💾 Save All Rates
+                {"💾 Save All Rates"}
               </button>
-              {ratesSaved && <p className="text-center text-green-600 font-semibold text-sm mt-2">✅ Rates saved!</p>}
+              {ratesSaved && <p className="text-center text-green-600 font-semibold text-sm mt-2">{"✅ Rates saved!"}</p>}
             </>
           ) : (
             <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500 text-sm">No master rates available.</div>

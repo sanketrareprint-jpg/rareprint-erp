@@ -4,13 +4,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const CUTS: Record<string, Record<string, number>> = {
-  '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32 },
-  '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40 },
+  // file = 12x18 inch (rotated, fits 2 per 19x25); visiting = 3.5x2 inch
+  // envelope open size formula: openW = closed_W*2+0.5, openH = closed_H+1
+  //   env4x5    : 4x5 medicine pouch    -> open 8.5x6"   -> 18x23: 6/sheet, 19x25: 8/sheet
+  //   env425x925: 4.25x9.25 office      -> open 9x10.25" -> 4/sheet both
+  //   env425x45 : 4.25x4.5 small        -> open 9x5.5"   -> 8/sheet both
+  //   env425x63 : 4.25x6.3 medium       -> open 9x7.3"   -> 6/sheet both
+  //   env525x75 : 5.25x7.5 document     -> open 11x8.5"  -> 4/sheet both (rotated)
+  //   env85x11  : 8.5x11 A4-size        -> open 17.5x12" -> 1/18x23, 2/19x25
+  //   env9x12   : 9x12 catalog          -> open 18.5x13" -> 1/15x20 only (rotated 13x18.5)
+  //   env11x17  : 11x17 large           -> open 22.5x18" -> 1/18x23 only (22.5 along 23" side)
+  '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32, file: 1,
+            env4x5: 6, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 1, env11x17: 1 },
+  '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40, file: 2,
+            env4x5: 8, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2 },
+  '1520': { env9x12: 1 }, // 15x20 parent — catalog envelope only
 };
 
 const SHEET_AREA: Record<string, number> = {
   '1823': 18 * 23,
   '1925': 19 * 25,
+  '1520': 15 * 20,
 };
 
 const DEFAULT_RATES: any = {
@@ -30,7 +44,16 @@ const DEFAULT_RATES: any = {
   billBookBinding: { A4: 25, A8: 15 },
   punch: 2,
   lamination: { gloss: 0.34, matt: 0.50 },
-  envelope: { DL: 2.5, A4: 4, A5: 3, C4: 5 },
+  envelope: {
+    env4x5:     2,    // 4x5 medicine pouch
+    env425x925: 2.5,  // 4.25x9.25 office (DL style)
+    env425x45:  2,    // 4.25x4.5 small
+    env425x63:  2,    // 4.25x6.3 medium
+    env525x75:  2.5,  // 5.25x7.5 document
+    env85x11:   4,    // 8.5x11 A4 size
+    env9x12:    5,    // 9x12 catalog
+    env11x17:   6,    // 11x17 large
+  },
   sticker: { vendorRate: 0.035, minQty: 1000, transport: 100, halfCutPct: 30 },
   multiplier: 1.67,
 };
@@ -239,8 +262,7 @@ export class RateCalculatorService {
       breakdown.push({ label: 'File Punching (' + qty.toLocaleString() + ' pcs)', amount: pu });
     }
     if (product === 'envelope') {
-      const envSize = fsize === 'DL' ? 'DL' : 'A5';
-      const ec = (rates.envelope?.[envSize] ?? DEFAULT_RATES.envelope[envSize] ?? 3) * qty;
+      const ec = (rates.envelope?.[fsize] ?? DEFAULT_RATES.envelope[fsize] ?? 3) * qty;
       subtotal += ec;
       breakdown.push({ label: 'Envelope Making (' + qty.toLocaleString() + ' pcs)', amount: ec });
     }
