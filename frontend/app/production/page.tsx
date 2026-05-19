@@ -714,46 +714,46 @@ export default function ProductionPage() {
                 const isExpanded = expandedFileItemId === item.id;
                 const sheetAssignments = sheetsData.flatMap(s => s.items.filter(si => si.orderItem.id === item.id).map(si => ({ no: s.sheetNo, qty: si.quantityOnSheet })));
                 return (
-                  <div key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="bg-slate-900 px-4 py-3 text-white">
+                  <div key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <div className="bg-slate-900 px-3 py-2 text-white">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="text-lg font-bold leading-none">{item.orderNo}</p>
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>
+                            <p className="text-base font-bold leading-none">{item.orderNo}</p>
+                            <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>
                             {activeTab === "all" && (
                               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${item.productionCategory ? categoryColors[item.productionCategory] : "bg-red-50 text-red-600"}`}>
                                 {item.productionCategory ? categoryLabels[item.productionCategory] : "Unassigned"}
                               </span>
                             )}
                           </div>
-                          <p className="mt-2 truncate text-sm font-semibold">{item.customerName}</p>
+                          <p className="mt-1 truncate text-sm font-semibold">{item.customerName}</p>
                           <p className="text-xs text-slate-300">{item.customerPhone ?? "No phone"}</p>
                         </div>
-                        {item.salesAgentName && <span className="rounded-full bg-white/15 px-2 py-1 text-xs font-bold">{item.salesAgentName}</span>}
+                        {item.salesAgentName && <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold">{item.salesAgentName}</span>}
                       </div>
                     </div>
-                    <div className="p-4">
+                    <div className="p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-900">{item.productName}</p>
-                          {item.artworkNotes && <p className="mt-1 text-xs text-slate-400">{item.artworkNotes}</p>}
+                          <p className="truncate font-bold text-slate-900">{item.productName}</p>
+                          {item.artworkNotes && <p className="truncate text-xs text-slate-400">{item.artworkNotes}</p>}
                         </div>
-                        <span className="shrink-0 rounded-xl bg-slate-100 px-3 py-1 text-sm font-bold text-slate-900">Qty: {item.quantity}</span>
+                        <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-900">Qty: {item.quantity}</span>
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-500">
-                        <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Size</span>{size ?? "—"}</div>
-                        <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">GSM</span>{gsm ?? "—"}</div>
-                        <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Sides</span>{sides ?? "—"}</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-semibold text-slate-500">
+                        <span className="rounded-full bg-slate-50 px-2 py-1">Size {size ?? "—"}</span>
+                        <span className="rounded-full bg-slate-50 px-2 py-1">{gsm ?? "—"} GSM</span>
+                        <span className="rounded-full bg-slate-50 px-2 py-1">{sides ?? "—"}</span>
                       </div>
-                      <div className="mt-3 flex items-center gap-2">
+                      <div className="mt-2 flex items-center gap-2">
                         {isUpdating && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
                         <select value={item.itemProductionStage} disabled={isUpdating} onChange={e => updateItemStage(item.id, e.target.value as ProductionStage)}
-                          className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm font-bold outline-none disabled:opacity-60 ${stageColors[item.itemProductionStage]}`}>
+                          className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm font-bold outline-none disabled:opacity-60 ${stageColors[item.itemProductionStage]}`}>
                           {PRODUCTION_STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                         </select>
                         {userRole !== "INHOUSE" && (
-                          <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
+                          <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                         )}
                       </div>
                       {sheetAssignments.length > 0 && (
@@ -761,12 +761,12 @@ export default function ProductionPage() {
                           {sheetAssignments.map((a, i) => <span key={i} className="rounded-full bg-cyan-50 border border-cyan-200 px-2 py-1 text-xs font-bold text-cyan-700">{a.no} · {a.qty}</span>)}
                         </div>
                       )}
-                      <div className="mt-3 flex gap-2">
-                        <button onClick={() => setExpandedFileItemId(isExpanded ? null : item.id)} className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${designFiles.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={() => setExpandedFileItemId(isExpanded ? null : item.id)} className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold ${designFiles.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
                           Files {designFiles.length}
                         </button>
                         <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                        <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading} className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">
+                        <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading} className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">
                           {isUploading ? "Uploading..." : "Upload"}
                         </button>
                       </div>
@@ -938,55 +938,55 @@ export default function ProductionPage() {
                       const df = item.designFiles ?? [];
                       const isExp = expandedFileItemId === item.id;
                       return (
-                        <div key={item.id} className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm">
-                          <div className="bg-orange-600 px-4 py-3 text-white">
+                        <div key={item.id} className="overflow-hidden rounded-xl border border-orange-100 bg-white shadow-sm">
+                          <div className="bg-orange-600 px-3 py-2 text-white">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold leading-none">{item.orderNo}</p>
-                                  <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${item.orderDate ? ageColor(item.orderDate) : "bg-white/20 text-white"}`}>{item.orderDate ? orderAge(item.orderDate) : "—"}</span>
+                                  <p className="text-base font-bold leading-none">{item.orderNo}</p>
+                                  <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${item.orderDate ? ageColor(item.orderDate) : "bg-white/20 text-white"}`}>{item.orderDate ? orderAge(item.orderDate) : "—"}</span>
                                 </div>
-                                <p className="mt-2 truncate text-sm font-semibold">{item.customerName}</p>
+                                <p className="mt-1 truncate text-sm font-semibold">{item.customerName}</p>
                               </div>
-                              {(item as any).salesAgentName && <span className="rounded-full bg-white/15 px-2 py-1 text-xs font-bold">{(item as any).salesAgentName}</span>}
+                              {(item as any).salesAgentName && <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold">{(item as any).salesAgentName}</span>}
                             </div>
                           </div>
-                          <div className="p-4">
+                          <div className="p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="font-bold text-slate-900">{item.productName}</p>
-                                {item.artworkNotes && <p className="mt-1 text-xs text-slate-400">{item.artworkNotes}</p>}
+                                <p className="truncate font-bold text-slate-900">{item.productName}</p>
+                                {item.artworkNotes && <p className="truncate text-xs text-slate-400">{item.artworkNotes}</p>}
                               </div>
                               <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-bold ${stageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>{item.itemProductionStage.replace(/_/g, " ")}</span>
                             </div>
-                            <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-semibold text-slate-500">
-                              <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Qty</span>{item.quantity}</div>
-                              <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Size</span>{size ?? "—"}</div>
-                              <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">GSM</span>{gsm ?? "—"}</div>
-                              <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Sides</span>{sides ?? "—"}</div>
+                            <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-semibold text-slate-500">
+                              <span className="rounded-full bg-slate-50 px-2 py-1">Qty {item.quantity}</span>
+                              <span className="rounded-full bg-slate-50 px-2 py-1">Size {size ?? "—"}</span>
+                              <span className="rounded-full bg-slate-50 px-2 py-1">{gsm ?? "—"} GSM</span>
+                              <span className="rounded-full bg-slate-50 px-2 py-1">{sides ?? "—"}</span>
                             </div>
                             {clubSubTab !== "unassigned" && (
-                              <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm">
+                              <div className="mt-2 rounded-lg bg-orange-50 px-3 py-2 text-xs">
                                 <div className="flex justify-between gap-2"><span className="text-slate-500">Vendor</span><strong className="text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "—"}</strong></div>
                                 {clubSubTab === "in_progress" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Cost</span><strong>{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</strong></div>}
                                 {clubSubTab === "received" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Invoice</span><strong>{completedJw?.vendorInvoiceNo ?? "—"}</strong></div>}
                               </div>
                             )}
-                            <div className="mt-3 flex gap-2">
-                              <button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${df.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>Files {df.length}</button>
+                            <div className="mt-2 flex gap-2">
+                              <button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold ${df.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>Files {df.length}</button>
                               <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                              <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
+                              <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
                             </div>
                             {isExp && df.length > 0 && (
                               <div className="mt-3 space-y-2 rounded-xl bg-blue-50 p-3">
                                 {df.map((f: any) => <div key={f.filename} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs"><FileText className="h-3 w-3 text-slate-400" /><span className="min-w-0 flex-1 truncate">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="font-bold text-blue-700">Open</button></div>)}
                               </div>
                             )}
-                            <div className="mt-3 flex gap-2">
+                            <div className="mt-2 flex gap-2">
                               {clubSubTab === "unassigned" && (
                                 <>
-                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }} className="flex-1 rounded-xl bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
-                                  <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="flex-1 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
+                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
+                                  <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="flex-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                                 </>
                               )}
                               {clubSubTab === "in_progress" && activeJw && <button onClick={() => { setReceiveDialog({ jwId: activeJw.id, vendorName: activeJw.vendorName, productName: item.productName }); setReceiveCost(""); setReceiveInvNo(""); }} className="w-full rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white">Received</button>}
@@ -1171,46 +1171,46 @@ export default function ProductionPage() {
                         const df = item.designFiles ?? [];
                         const isExp = expandedFileItemId === item.id;
                         return (
-                          <div key={item.id} className="overflow-hidden rounded-2xl border border-cyan-100 bg-white shadow-sm">
-                            <div className="bg-cyan-700 px-4 py-3 text-white">
+                          <div key={item.id} className="overflow-hidden rounded-xl border border-cyan-100 bg-white shadow-sm">
+                            <div className="bg-cyan-700 px-3 py-2 text-white">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
-                                    <p className="text-lg font-bold leading-none">{item.orderNo}</p>
-                                    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${item.orderDate ? ageColor(item.orderDate) : "bg-white/20 text-white"}`}>{item.orderDate ? orderAge(item.orderDate) : "—"}</span>
+                                    <p className="text-base font-bold leading-none">{item.orderNo}</p>
+                                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${item.orderDate ? ageColor(item.orderDate) : "bg-white/20 text-white"}`}>{item.orderDate ? orderAge(item.orderDate) : "—"}</span>
                                   </div>
-                                  <p className="mt-2 truncate text-sm font-semibold">{item.customerName}</p>
+                                  <p className="mt-1 truncate text-sm font-semibold">{item.customerName}</p>
                                 </div>
-                                {(item as any).salesAgentName && <span className="rounded-full bg-white/15 px-2 py-1 text-xs font-bold">{(item as any).salesAgentName}</span>}
+                                {(item as any).salesAgentName && <span className="rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold">{(item as any).salesAgentName}</span>}
                               </div>
                             </div>
-                            <div className="p-4">
-                              <p className="font-bold text-slate-900">{item.productName}</p>
-                              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-500">
-                                <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Size</span>{size || "—"}</div>
-                                <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">GSM</span>{gsm || "—"}</div>
-                                <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Sides</span>{sides || "—"}</div>
+                            <div className="p-3">
+                              <p className="truncate font-bold text-slate-900">{item.productName}</p>
+                              <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-semibold text-slate-500">
+                                <span className="rounded-full bg-slate-50 px-2 py-1">Size {size || "—"}</span>
+                                <span className="rounded-full bg-slate-50 px-2 py-1">{gsm || "—"} GSM</span>
+                                <span className="rounded-full bg-slate-50 px-2 py-1">{sides || "—"}</span>
                               </div>
-                              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                                <div className="rounded-xl bg-slate-50 p-2"><p className="text-xs font-semibold text-slate-400">Order</p><p className="font-bold text-slate-900">{item.quantity}</p></div>
-                                <div className="rounded-xl bg-orange-50 p-2"><p className="text-xs font-semibold text-orange-500">Assigned</p><p className="font-bold text-orange-700">{assigned}</p></div>
-                                <div className="rounded-xl bg-cyan-50 p-2"><p className="text-xs font-semibold text-cyan-500">Balance</p><p className="font-bold text-cyan-700">{balance}</p></div>
+                              <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+                                <div className="rounded-lg bg-slate-50 px-2 py-1"><p className="text-[10px] font-semibold text-slate-400">Order</p><p className="text-sm font-bold text-slate-900">{item.quantity}</p></div>
+                                <div className="rounded-lg bg-orange-50 px-2 py-1"><p className="text-[10px] font-semibold text-orange-500">Assigned</p><p className="text-sm font-bold text-orange-700">{assigned}</p></div>
+                                <div className="rounded-lg bg-cyan-50 px-2 py-1"><p className="text-[10px] font-semibold text-cyan-500">Balance</p><p className="text-sm font-bold text-cyan-700">{balance}</p></div>
                               </div>
-                              <div className="mt-3 flex gap-2">
-                                <button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${df.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>Files {df.length}</button>
+                              <div className="mt-2 flex gap-2">
+                                <button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold ${df.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>Files {df.length}</button>
                                 <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                                <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
+                                <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
                               </div>
                               {isExp && df.length > 0 && <div className="mt-3 space-y-2 rounded-xl bg-blue-50 p-3">{df.map((f: any) => <div key={f.filename} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs"><FileText className="h-3 w-3 text-slate-400" /><span className="min-w-0 flex-1 truncate">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="font-bold text-blue-700">Open</button></div>)}</div>}
-                              <div className="mt-3">
+                              <div className="mt-2">
                                 {compatibleSheets.length === 0 ? (
                                   <div className="flex gap-2">
-                                    <span className="flex-1 rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-400">No compatible sheet</span>
-                                    <button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
+                                    <span className="flex-1 rounded-lg bg-slate-50 px-3 py-2 text-sm font-bold text-slate-400">No compatible sheet</span>
+                                    <button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                                   </div>
                                 ) : (
                                   <div className="flex gap-2">
-                                    <select id={`mobile-sel-${item.id}`} defaultValue="" className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none">
+                                    <select id={`mobile-sel-${item.id}`} defaultValue="" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none">
                                       <option value="">Select sheet...</option>
                                       {compatibleSheets.map(s => <option key={s.id} value={s.id}>{s.sheetNo} - {s.quantity} Qty</option>)}
                                     </select>
@@ -1219,7 +1219,7 @@ export default function ProductionPage() {
                                       if (!sel?.value) { alert("Select a sheet first"); return; }
                                       const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
                                       openMultipleDialog(sel.value, pi);
-                                    }} className="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-bold text-white">Assign</button>
+                                    }} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white">Assign</button>
                                   </div>
                                 )}
                               </div>
@@ -1505,26 +1505,26 @@ export default function ProductionPage() {
                           <>
                           <div className="space-y-3 md:hidden">
                             {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
-                              <div key={si.id} className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm">
-                                <div className="bg-orange-700 px-4 py-3 text-white">
+                              <div key={si.id} className="overflow-hidden rounded-xl border border-orange-100 bg-white shadow-sm">
+                                <div className="bg-orange-700 px-3 py-2 text-white">
                                   <div className="flex items-center justify-between gap-3">
                                     <div>
-                                      <p className="text-lg font-bold">{si.orderItem.order.orderNumber}</p>
+                                      <p className="text-base font-bold">{si.orderItem.order.orderNumber}</p>
                                       <p className="text-xs text-orange-100">Sheet {si.sheet.sheetNo}</p>
                                     </div>
                                     {si.orderItem.order.orderDate && <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span>}
                                   </div>
                                   <p className="mt-2 truncate text-sm font-semibold">{si.orderItem.order.customer.businessName}</p>
                                 </div>
-                                <div className="p-4">
-                                  <p className="font-bold text-slate-900">{si.orderItem.product.name}</p>
-                                  <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs font-semibold text-slate-500">
-                                    <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Size</span>{si.orderItem.product.sizeInches}"</div>
-                                    <div className="rounded-xl bg-slate-50 p-2"><span className="block text-slate-400">Qty</span>{si.quantityOnSheet}</div>
+                                <div className="p-3">
+                                  <p className="truncate font-bold text-slate-900">{si.orderItem.product.name}</p>
+                                  <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-semibold text-slate-500">
+                                    <span className="rounded-full bg-slate-50 px-2 py-1">Size {si.orderItem.product.sizeInches}"</span>
+                                    <span className="rounded-full bg-slate-50 px-2 py-1">Qty {si.quantityOnSheet}</span>
                                   </div>
-                                  <div className="mt-3">
+                                  <div className="mt-2">
                                     <label className="mb-1 block text-xs font-bold text-slate-500">Processing Vendor</label>
-                                    <select value={getItemVendor(si.orderItem.id)} onChange={e => saveItemVendor(si.orderItem.id, e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none">
+                                    <select value={getItemVendor(si.orderItem.id)} onChange={e => saveItemVendor(si.orderItem.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none">
                                       <option value="">Select Vendor...</option>
                                       {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                     </select>
@@ -1542,7 +1542,7 @@ export default function ProductionPage() {
                                         await loadAll(true);
                                       } catch { alert("Network error"); }
                                     }}
-                                    className="mt-3 w-full rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white">
+                                    className="mt-2 w-full rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white">
                                     Mark Ready
                                   </button>
                                 </div>
