@@ -427,6 +427,41 @@ textarea {
     box-shadow: 0 18px 50px rgba(15, 23, 42, 0.18) !important;
   }
 
+  .erp-main .md\:hidden .bg-blue-700,
+  .erp-main .md\:hidden .bg-slate-900,
+  .erp-main .md\:hidden .bg-orange-600,
+  .erp-main .md\:hidden .bg-orange-700,
+  .erp-main .md\:hidden .bg-cyan-700 {
+    background: #f8fafc !important;
+    color: #0f172a !important;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .erp-main .md\:hidden .text-white {
+    color: #0f172a !important;
+  }
+
+  .erp-main .md\:hidden .text-blue-100,
+  .erp-main .md\:hidden .text-orange-100,
+  .erp-main .md\:hidden .text-slate-300 {
+    color: #64748b !important;
+  }
+
+  .erp-main .md\:hidden .bg-white\/15,
+  .erp-main .md\:hidden .bg-white\/20 {
+    background: #eff6ff !important;
+    color: #1d4ed8 !important;
+  }
+
+  .erp-main .md\:hidden .rounded-xl,
+  .erp-main .md\:hidden .rounded-2xl {
+    border-radius: 12px !important;
+  }
+
+  .erp-main .md\:hidden .shadow-sm {
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+  }
+
   .create-order-page {
     padding: 0 !important;
     max-width: 100% !important;
