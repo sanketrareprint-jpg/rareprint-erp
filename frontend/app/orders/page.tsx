@@ -484,7 +484,96 @@ export default function OrdersPage() {
             {loading ? (
               <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : (
-              <div className="rounded-xl border border-slate-200 bg-white shadow-sm" style={{ overflowX: "auto" }}>
+              <>
+              <div className="space-y-3 md:hidden">
+                {filteredOrders.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">No orders found.</div>
+                ) : filteredOrders.map(o => (
+                  <div key={o.id} className={`overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ${selectedOrderIds.has(o.id) ? "ring-2 ring-indigo-200" : ""}`}>
+                    <div className="bg-blue-700 px-4 py-3 text-white">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            {activeTab === "dispatch" && (
+                              <button onClick={() => toggleOrderSelection(o.id, o.customerName)} className="rounded-lg bg-white/15 p-1">
+                                {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                              </button>
+                            )}
+                            <p className="text-lg font-bold leading-none">{o.orderNo}</p>
+                            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">
+                              {orderAge(o.date)}
+                            </span>
+                          </div>
+                          <p className="mt-2 truncate text-sm font-semibold">{o.customerName}</p>
+                          <p className="text-xs text-blue-100">{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })} · {o.customerPhone ?? "No phone"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-blue-100">Balance</p>
+                          <p className="text-base font-bold">{fmt(o.balanceDue)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100 text-center">
+                      <div className="px-2 py-3">
+                        <p className="text-xs font-semibold text-slate-400">Total</p>
+                        <p className="text-sm font-bold text-slate-900">{fmt(o.totalAmount)}</p>
+                      </div>
+                      <div className="px-2 py-3">
+                        <p className="text-xs font-semibold text-slate-400">Paid</p>
+                        <p className="text-sm font-bold text-emerald-700">{fmt(o.advancePaid)}</p>
+                      </div>
+                      <div className="px-2 py-3">
+                        <p className="text-xs font-semibold text-slate-400">Ready</p>
+                        <p className="text-sm font-bold text-indigo-700">{o.readyItemsCount ?? 0}/{o.totalItemsCount ?? o.itemDetails?.length ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 p-4">
+                      {o.salesAgentName && <span className="inline-flex rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{o.salesAgentName}</span>}
+                      <div className="space-y-2">
+                        {(o.itemDetails?.length ? o.itemDetails : o.products.split(" | ").map(p => ({ productName: p, size: null, gsm: null, sides: null, quantity: 0, lineTotal: 0, itemProductionStage: "" }))).map((item: any, idx) => (
+                          <div key={idx} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="font-bold text-slate-900">{item.productName}</p>
+                              {item.itemProductionStage && <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>{itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}</span>}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
+                              {item.size && <span>{item.size}</span>}
+                              {item.gsm && <span>{item.gsm} GSM</span>}
+                              {item.sides && <span>{item.sides}</span>}
+                              {!!item.quantity && <span>Qty: {item.quantity}</span>}
+                              {!!item.lineTotal && <span className="text-emerald-700">{fmt(item.lineTotal)}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
+                          className="flex-1 rounded-xl bg-emerald-600 p-2.5 text-white"><CreditCard className="mx-auto h-4 w-4" /></button>
+                        <button title="Payment History" onClick={() => togglePayments(o.id)}
+                          className="flex-1 rounded-xl border border-slate-200 p-2.5 text-slate-600">{expandedPayments === o.id ? <ChevronUp className="mx-auto h-4 w-4" /> : <ChevronDown className="mx-auto h-4 w-4" />}</button>
+                        <button title="Order Journey" onClick={() => toggleJourney(o.id)}
+                          className="flex-1 rounded-xl border border-blue-200 bg-blue-50 p-2.5 text-blue-700"><FileText className="mx-auto h-4 w-4" /></button>
+                        {o.status === "PENDING_APPROVAL" ? (
+                          <button title="Edit Order" onClick={() => router.push(`/orders/edit?id=${o.id}`)}
+                            className="flex-1 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-amber-700">Edit</button>
+                        ) : <span />}
+                        {o.items && o.items.length > 0 && (
+                          <button title="Design Files" onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
+                            className="flex-1 rounded-xl border border-purple-200 bg-purple-50 p-2.5 text-purple-700"><Paperclip className="mx-auto h-4 w-4" /></button>
+                        )}
+                      </div>
+                      {expandedPayments === o.id && (
+                        <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                          {!orderPayments[o.id] ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : orderPayments[o.id].length === 0 ? "No payments recorded yet."
+                            : orderPayments[o.id].map(p => <div key={p.id} className="flex justify-between border-b border-slate-100 py-1 last:border-0"><span>{new Date(p.paymentDate).toLocaleDateString("en-IN")} · {METHOD_LABELS[p.method] ?? p.method}</span><strong className="text-emerald-700">{fmt(Number(p.amount))}</strong></div>)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block" style={{ overflowX: "auto" }}>
                 <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                   <thead>
                     <tr>
@@ -709,6 +798,7 @@ export default function OrdersPage() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
         </div>
