@@ -127,10 +127,10 @@ export default function CreateOrderPage() {
 
   return (
     <DashboardShell>
-      <div style={{ padding: "1rem 1.5rem", maxWidth: "900px", margin: "0 auto" }}>
+      <div className="create-order-page" style={{ padding: "1rem 1.5rem", maxWidth: "900px", margin: "0 auto" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+        <div className="create-order-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
           <div>
             <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Create New Order</h1>
             <p style={{ fontSize: "12px", color: "#64748b", margin: "2px 0 0" }}>Fill in customer and product details</p>
@@ -142,13 +142,13 @@ export default function CreateOrderPage() {
         </div>
 
         {/* Top row: Customer + Lead Source + Notes */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: "10px", marginBottom: "10px" }}>
+        <div className="create-order-top-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: "10px", marginBottom: "10px" }}>
 
           {/* Customer Details */}
-          <div style={S.section}>
+          <div className="create-order-section" style={S.section}>
             <p style={S.sectionTitle}>Customer Details</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <div style={{ gridColumn: "span 2" }}>
+            <div className="create-order-field-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
                 <label style={S.label}>Full Name *</label>
                 <input value={customer.name} onChange={e => setCustomer(c => ({ ...c, name: e.target.value }))}
                   placeholder="Customer / Business Name" style={S.input} />
@@ -163,7 +163,7 @@ export default function CreateOrderPage() {
                 <input value={customer.email} onChange={e => setCustomer(c => ({ ...c, email: e.target.value }))}
                   placeholder="email@example.com" style={S.input} />
               </div>
-              <div style={{ gridColumn: "span 2" }}>
+              <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
                 <label style={S.label}>Address</label>
                 <input value={customer.address} onChange={e => setCustomer(c => ({ ...c, address: e.target.value }))}
                   placeholder="Street address" style={S.input} />
@@ -185,7 +185,7 @@ export default function CreateOrderPage() {
 
           {/* Lead Source + Notes stacked */}
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={S.section}>
+            <div className="create-order-section" style={S.section}>
               <p style={S.sectionTitle}>Lead Source</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <div>
@@ -212,7 +212,7 @@ export default function CreateOrderPage() {
                 )}
               </div>
             </div>
-            <div style={S.section}>
+            <div className="create-order-section" style={S.section}>
               <p style={S.sectionTitle}>Order Notes</p>
               <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)} rows={4}
                 placeholder="Any additional notes or instructions..."
@@ -222,17 +222,17 @@ export default function CreateOrderPage() {
         </div>
 
         {/* Products */}
-        <div style={S.section}>
+        <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Products / Line Items</p>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
+          <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
             {["Product","Size","GSM","Sides","Qty","Rate/Unit","Amount",""].map(h => (
               <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
             ))}
           </div>
           {lineItems.map((item, idx) => (
             <div key={idx}>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
-                <div style={{ position: "relative" }}>
+              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+                <div className="create-order-product-picker" style={{ position: "relative" }}>
                   <input
                     type="text"
                     placeholder="Search product..."
@@ -294,7 +294,7 @@ export default function CreateOrderPage() {
               </div>
             </div>
           ))}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="create-order-total-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setLineItems(p => [...p, emptyLine()])}
               style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px dashed #93c5fd", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#2563eb", background: "none", cursor: "pointer" }}>
               <Plus style={{ width: 14, height: 14 }} /> Add Item
@@ -307,7 +307,7 @@ export default function CreateOrderPage() {
         </div>
 
         {/* Submit */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", paddingBottom: "24px" }}>
+        <div className="create-order-submit-row" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", paddingBottom: "24px" }}>
           <button onClick={() => router.push("/orders")}
             style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "8px 16px", fontSize: "13px", fontWeight: 500, color: "#334155", background: "white", cursor: "pointer" }}>
             Cancel

@@ -64,9 +64,9 @@ function SalesLearningAdminPageContent() {
   const maxActivity = Math.max(...last7Days.map(d => (d._sum?.topicsRead || 0) + (d._sum?.quizzesDone || 0)), 1);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "system-ui,sans-serif", color: "#1e293b" }}>
+    <div className="academy-admin-page" style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "system-ui,sans-serif", color: "#1e293b" }}>
       {/* Header */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div className="academy-admin-header" style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#ef4444)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <BarChart2 size={18} color="#fff" />
@@ -81,9 +81,9 @@ function SalesLearningAdminPageContent() {
         </button>
       </div>
 
-      <div style={{ padding: "24px 28px", maxWidth: 1300, margin: "0 auto" }}>
+      <div className="academy-admin-body" style={{ padding: "24px 28px", maxWidth: 1300, margin: "0 auto" }}>
         {/* Summary cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 24 }}>
+        <div className="academy-admin-summary" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 24 }}>
           {[
             { label: "Total Users", value: summary.totalUsers, icon: Users, color: "#3b82f6", bg: "#eff6ff" },
             { label: "Active Today", value: summary.activeToday, icon: Flame, color: "#f59e0b", bg: "#fffbeb" },
@@ -103,7 +103,7 @@ function SalesLearningAdminPageContent() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f1f5f9", padding: 4, borderRadius: 10, width: "fit-content" }}>
+        <div className="academy-admin-tabs" style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f1f5f9", padding: 4, borderRadius: 10, width: "fit-content" }}>
           {(["overview", "topics", "leaderboard"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={tabStyle(tab === t)}>
               {t === "overview" ? "📊 Overview" : t === "topics" ? "📚 Topics" : "🏆 Leaderboard"}
@@ -113,7 +113,7 @@ function SalesLearningAdminPageContent() {
 
         {/* OVERVIEW TAB */}
         {tab === "overview" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div className="academy-admin-overview" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             {/* Daily Activity Chart */}
             <div style={cardStyle}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 20 }}>📈 Daily Activity (Last 7 Days)</div>

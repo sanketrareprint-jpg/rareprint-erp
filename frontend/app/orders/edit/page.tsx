@@ -105,17 +105,17 @@ function EditOrderPageInner() {
   if (loading) return <DashboardShell><div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"200px"}}><Loader2 style={{width:32,height:32,color:"#2563eb"}} /></div></DashboardShell>;
   return (
     <DashboardShell>
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+      <div className="create-order-page" style={{ maxWidth: 900, margin: "0 auto", padding: "16px" }}>
+        <div className="create-order-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
           <div>
             <h1 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a" }}>Edit Order #{orderNo}</h1>
             <p style={{ fontSize: "12px", color: "#64748b" }}>Only editable before accounts approval</p>
           </div>
           <button onClick={() => router.push("/orders")} style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>← Back</button>
         </div>
-        <div style={S.section}>
+        <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Customer Details</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+          <div className="create-order-field-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
             {([["Full Name *","name","Customer / Business Name"],["Phone","phone","09XXXXXXXXX"],["Email","email","email@example.com"],["Address","address","Street address"],["City","city","City"],["State","state","State"],["Pincode","pincode","Pincode"]] as [string,string,string][]).map(([label,field,ph]) => (
               <div key={field}>
                 <label style={S.label}>{label}</label>
@@ -124,21 +124,21 @@ function EditOrderPageInner() {
             ))}
           </div>
         </div>
-        <div style={S.section}>
+        <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Order Notes</p>
           <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)} rows={3} placeholder="Any additional notes..." style={{ ...S.input, resize: "vertical" }} />
         </div>
-        <div style={S.section}>
+        <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Products / Line Items</p>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
+          <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
             {["Product","Size","GSM","Sides","Qty","Rate/Unit","Amount",""].map(h => (
               <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
             ))}
           </div>
           {lineItems.map((item, idx) => (
             <div key={idx}>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
-                <div style={{ position: "relative" }}>
+              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+                <div className="create-order-product-picker" style={{ position: "relative" }}>
                   <input type="text" placeholder="Search product..."
                     value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
@@ -182,7 +182,7 @@ function EditOrderPageInner() {
               </div>
             </div>
           ))}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="create-order-total-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setLineItems(p => [...p, emptyLine()])}
               style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px dashed #93c5fd", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#2563eb", background: "none", cursor: "pointer" }}>
               <Plus style={{ width: 14, height: 14 }} /> Add Item
@@ -190,7 +190,7 @@ function EditOrderPageInner() {
             <span style={{ fontSize: "20px", fontWeight: 700, color: "#0f172a" }}>{fmt(orderTotal)}</span>
           </div>
         </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", paddingBottom: "24px" }}>
+        <div className="create-order-submit-row" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", paddingBottom: "24px" }}>
           <button onClick={() => router.push("/orders")} style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "8px 16px", fontSize: "13px", color: "#334155", background: "white", cursor: "pointer" }}>Cancel</button>
           <button onClick={submitEdit} disabled={submitting}
             style={{ display: "inline-flex", alignItems: "center", gap: "6px", borderRadius: "6px", border: "none", background: "#f59e0b", padding: "8px 20px", fontSize: "13px", fontWeight: 600, color: "white", cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>

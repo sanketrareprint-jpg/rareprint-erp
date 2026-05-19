@@ -149,9 +149,9 @@ function SalesLearningPageContent() {
     const grouped: Record<number, Topic[]> = {};
     topics.forEach(t => { if (!grouped[t.groupNumber]) grouped[t.groupNumber] = []; grouped[t.groupNumber].push(t); });
     return (
-      <div style={{ minHeight: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
+      <div className="sales-academy-page sales-academy-list" style={{ minHeight: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
         {/* Topbar */}
-        <div style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 40 }}>
+        <div className="sales-academy-topbar" style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 40 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#f59e0b,#ef4444)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <BookOpen size={18} color="#fff" />
@@ -169,7 +169,7 @@ function SalesLearningPageContent() {
         </div>
 
         {/* Progress bar */}
-        <div style={{ background: "#fff", borderBottom: "1px solid #f1f5f9", padding: "10px 24px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div className="sales-academy-progress" style={{ background: "#fff", borderBottom: "1px solid #f1f5f9", padding: "10px 24px", display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ flex: 1, background: "#e2e8f0", borderRadius: 99, height: 7, overflow: "hidden" }}>
             <div style={{ height: "100%", background: "linear-gradient(90deg,#f59e0b,#ef4444)", width: `${pct}%`, transition: "width 0.5s", borderRadius: 99 }} />
           </div>
@@ -177,7 +177,7 @@ function SalesLearningPageContent() {
         </div>
 
         {/* Grid */}
-        <div style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
+        <div className="sales-academy-list-body" style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
           {loading ? (
             <div style={{ textAlign: "center", padding: 80, color: "#94a3b8" }}>Loading topics...</div>
           ) : (
@@ -186,7 +186,7 @@ function SalesLearningPageContent() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 10 }}>
                   Group {group} — {gTopics.length} Topics
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 8 }}>
+                <div className="sales-academy-topic-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 8 }}>
                   {gTopics.map(topic => {
                     const prog = progress[topic.id]; const isDone = !!(prog?.quizPassed || topic.quizPassed || topic.isCompleted); const isLocked = topic.isLocked;
                     const diff = DIFF[topic.difficulty] || DIFF.BEGINNER;
@@ -221,22 +221,22 @@ function SalesLearningPageContent() {
     const diff = DIFF[currentTopic.difficulty] || DIFF.BEGINNER;
     const kp = Array.isArray(currentTopic.keyPoints) ? currentTopic.keyPoints : (typeof currentTopic.keyPoints === "string" ? JSON.parse(currentTopic.keyPoints) : []);
     return (
-      <div style={{ height: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className="sales-academy-page sales-academy-read" style={{ height: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Topbar */}
-        <div style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative" }}>
+        <div className="sales-academy-read-topbar" style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative" }}>
           <button onClick={() => setPhase("list")} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
             ← {lang === "en" ? "All Topics" : "सभी टॉपिक"}
           </button>
-          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontWeight: 700, fontSize: 14, color: "#0f172a", maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>
+          <div className="sales-academy-read-title" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontWeight: 700, fontSize: 14, color: "#0f172a", maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>
             Topic {currentTopic.orderIndex}: {lang === "en" ? currentTopic.titleEn : currentTopic.titleHi}
           </div>
           {langBtn}
         </div>
 
         {/* Two-column body */}
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div className="sales-academy-read-body" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           {/* LEFT */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", borderRight: "1px solid #e2e8f0" }}>
+          <div className="sales-academy-content-col" style={{ flex: 1, overflowY: "auto", padding: "20px 24px", borderRight: "1px solid #e2e8f0" }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: diff.color, background: diff.bg, padding: "3px 10px", borderRadius: 4, border: `1px solid ${diff.border}` }}>{diff.label}</span>
               <span style={{ fontSize: 11, color: "#94a3b8" }}>📖 {currentTopic.sourceBook}</span>
@@ -263,7 +263,7 @@ function SalesLearningPageContent() {
           </div>
 
           {/* RIGHT */}
-          <div style={{ width: 300, flexShrink: 0, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 12, background: "#f8fafc" }}>
+          <div className="sales-academy-side-col" style={{ width: 300, flexShrink: 0, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 12, background: "#f8fafc" }}>
             {/* Key Takeaways */}
             {kp.length > 0 && (
               <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 12, padding: "16px" }}>
@@ -313,7 +313,7 @@ function SalesLearningPageContent() {
     const opts = getOpts(rawQ, lang);
     const totalQs = currentTopic.questions.length;
     return (
-      <div style={{ height: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className="sales-academy-page sales-academy-quiz" style={{ height: "100vh", background: "#f8fafc", color: "#1e293b", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Topbar */}
         <div style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative" }}>
           <span style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Quiz — Topic {currentTopic.orderIndex}</span>
@@ -327,9 +327,9 @@ function SalesLearningPageContent() {
         </div>
 
         {/* Two-column quiz */}
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div className="sales-academy-quiz-body" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           {/* LEFT: question */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 48px", borderRight: "1px solid #e2e8f0", background: "#fff" }}>
+          <div className="sales-academy-quiz-question" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 48px", borderRight: "1px solid #e2e8f0", background: "#fff" }}>
             <div style={{ maxWidth: 480, width: "100%" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>Question {currentQ + 1} of {totalQs}</div>
               <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.6, margin: "0 0 28px", color: "#0f172a" }}>
@@ -354,7 +354,7 @@ function SalesLearningPageContent() {
           </div>
 
           {/* RIGHT: options */}
-          <div style={{ width: 420, flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center", padding: "32px 28px", gap: 10, background: "#f8fafc" }}>
+          <div className="sales-academy-quiz-options" style={{ width: 420, flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center", padding: "32px 28px", gap: 10, background: "#f8fafc" }}>
             {opts.length > 0 ? opts.map((opt, idx) => {
               let bg = "#fff", border = "#e2e8f0", color = "#334155", fontWeight = 500;
               if (selectedAnswer !== null) {
