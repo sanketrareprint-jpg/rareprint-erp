@@ -84,6 +84,15 @@ function fmt(n: number) {
   return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Converts type key like "bond70" → "70 GSM Bond", "map90" → "90 GSM Maplitho"
+function formatPaperType(type: string): string {
+  const m = type.match(/^([a-z]+)(\d+(?:\.\d+)?)$/i);
+  if (!m) return type;
+  const [, name, gsm] = m;
+  const n = name.toLowerCase();
+  const pname = n === 'bond' ? 'Bond' : n === 'map' ? 'Maplitho' : n.charAt(0).toUpperCase() + n.slice(1);
+  return gsm + ' GSM ' + pname;
+}
 
 // ─── DYNAMIC RATE SECTION (generic add/remove key-value rows) ─────────────────
 function DynamicRateSection({
@@ -225,10 +234,11 @@ function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; 
 }
 
 // ─── LAYER ROW ────────────────────────────────────────────────────────────────
-function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
+function LayerRow({ layer, idx, onChange, onRemove, canRemove, paperOptions }: {
   layer: Layer; idx: number;
   onChange: (f: Partial<Layer>) => void;
   onRemove: () => void; canRemove: boolean;
+  paperOptions: { value: string; label: string }[];
 }) {
   const cuts = CUTS[layer.psize]?.[layer.fsize] ?? 4;
   const parentSheets = Math.ceil(layer.qty / cuts);
@@ -249,10 +259,7 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove }: {
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">GSM / Paper</label>
           <select value={layer.gsm} onChange={e => onChange({ gsm: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            <option value="bond70">70 GSM Bond</option>
-            <option value="bond80">80 GSM Bond</option>
-            <option value="map90">90 GSM Maplitho</option>
-            <option value="map100">100 GSM Maplitho</option>
+            {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
         </div>
         <div>
@@ -386,6 +393,7 @@ export default function RateCalculatorPage() {
   const [ratesSaved, setRatesSaved] = useState(false);
   const [ratesLoading, setRatesLoading] = useState(true);
   const [ratesError, setRatesError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Sheet info for sticker preview
   const sheetW = (sCols * sW + 2 * sMarg).toFixed(2);
@@ -471,12 +479,21 @@ export default function RateCalculatorPage() {
 
   const saveRates = async () => {
     if (!rates) return;
-    await fetch(`${API_BASE_URL}/rate-calculator/rates`, {
-      method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify(rates),
-    });
-    setRatesSaved(true);
-    setTimeout(() => setRatesSaved(false), 2000);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/rate-calculator/rates`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(rates),
+      });
+      if (res.ok) {
+        setRatesSaved(true);
+        setTimeout(() => setRatesSaved(false), 3000);
+      } else {
+        setSaveError("Save failed (HTTP " + res.status + "). Try again.");
+      }
+    } catch {
+      setSaveError("Save failed — check your connection.");
+    }
   };
 
   const updateRate = (path: string, val: number) => {
@@ -497,6 +514,18 @@ export default function RateCalculatorPage() {
     setRates((prev: any) => ({ ...prev, [section]: next }));
   };
 
+
+  // Derive paper type options from master rates (keeps dropdowns in sync with Master Rates)
+  const DEFAULT_PAPER_OPTIONS = [
+    { value: 'bond70', label: '70 GSM Bond' },
+    { value: 'bond80', label: '80 GSM Bond' },
+    { value: 'map90', label: '90 GSM Maplitho' },
+    { value: 'map100', label: '100 GSM Maplitho' },
+  ];
+  const paperOptions: { value: string; label: string }[] = rates?.paper
+    ? [...new Set(Object.keys(rates.paper).map((k: string) => k.split('-').slice(1).join('-')))]
+        .map(t => ({ value: t, label: formatPaperType(t) }))
+    : DEFAULT_PAPER_OPTIONS;
 
   const TABS: { id: Tab; label: string }[] = [
     { id: "forward", label: "→ Forward Quote" },
@@ -548,7 +577,8 @@ export default function RateCalculatorPage() {
                 <LayerRow key={i} layer={l} idx={i}
                   onChange={f => setLayers(prev => prev.map((x, j) => j === i ? { ...x, ...f } : x))}
                   onRemove={() => setLayers(prev => prev.filter((_, j) => j !== i))}
-                  canRemove={layers.length > 1} />
+                  canRemove={layers.length > 1}
+                  paperOptions={paperOptions} />
               ))}
               <button
                 onClick={() => setLayers(p => [...p, { psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }])}
@@ -671,10 +701,7 @@ export default function RateCalculatorPage() {
 
                 <Field label="Paper Type">
                   <Select value={rPaper} onChange={e => setRPaper(e.target.value)}>
-                    <option value="bond70">70 GSM Bond</option>
-                    <option value="bond80">80 GSM Bond</option>
-                    <option value="map90">90 GSM Maplitho</option>
-                    <option value="map100">100 GSM Maplitho</option>
+                    {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                   </Select>
                 </Field>
 
@@ -916,36 +943,38 @@ export default function RateCalculatorPage() {
                 />
               </Card>
 
+
               {/* Lamination — dynamic */}
               <Card title="✨ Lamination (₹/100 sq in) — add/remove types">
                 <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  {"Formula: (sheet area ÷ 100) × rate × sheets. 18×23\" = 414 sq in → ₹4.14 × rate per sheet"}
+                  {"Formula: (sheet area / 100) x rate x sheets. 18x23 sheet = 414 sq in, per sheet = 4.14 x rate"}
                 </div>
                 <DynamicRateSection
                   data={rates.lamination ?? {}}
                   onUpdate={d => updateRateSection("lamination", d)}
                   step={0.01}
-                  addKeyPlaceholder="type (e.g. gloss, matt, uvspot)"
-                  addValPlaceholder="₹/100sqin"
+                  addKeyPlaceholder="type (e.g. matt, uvspot, softtouch)"
+                  addValPlaceholder="r/100sqin"
                   formatLabel={k => k.charAt(0).toUpperCase() + k.slice(1) + " Lamination"}
                 />
               </Card>
 
               {/* Envelope Making — dynamic */}
-              <Card title="✉️ Envelope Making (₹/piece) — add/remove sizes">
+              <Card title="Envelope Making (r/piece) — add/remove sizes">
                 <DynamicRateSection
                   data={rates.envelope ?? {}}
                   onUpdate={d => updateRateSection("envelope", d)}
                   step={0.5}
                   addKeyPlaceholder="key (e.g. env6x9, env5x7)"
-                  addValPlaceholder="₹/pc"
+                  addValPlaceholder="r/pc"
                 />
               </Card>
 
               <button onClick={saveRates} className="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700">
-                {"💾 Save All Rates"}
+                Save All Rates
               </button>
-              {ratesSaved && <p className="text-center text-green-600 font-semibold text-sm mt-2">{"✅ Rates saved!"}</p>}
+              {ratesSaved && <p className="text-center text-green-600 font-semibold text-sm mt-2">Rates saved successfully!</p>}
+              {saveError && <p className="text-center text-red-600 text-sm mt-2">{"Error: " + saveError}</p>}
             </>
           ) : (
             <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500 text-sm">No master rates available.</div>
