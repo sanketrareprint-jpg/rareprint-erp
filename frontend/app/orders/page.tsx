@@ -41,6 +41,7 @@ type Payment = {
   notes?: string; paymentDate: string; paymentAccount: { name: string };
 };
 type RateQuote = { carrierName: string; amount: number; estimatedDays: number; rateId?: string; };
+type PagedOrders = { data: Order[]; page: number; limit: number; total: number; hasMore: boolean };
 
 const METHOD_LABELS: Record<string, string> = {
   CASH: "Cash", UPI: "UPI (GPay/PhonePe/Paytm)",
@@ -66,6 +67,7 @@ const itemStageLabels: Record<string, string> = {
 };
 
 const IN_PROGRESS_STATUSES = ["APPROVED", "IN_PRODUCTION"];
+const ORDER_PAGE_SIZE = 25;
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
@@ -100,6 +102,13 @@ export default function OrdersPage() {
   const [readyOrders, setReadyOrders] = useState<Order[]>([]);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [readyPage, setReadyPage] = useState(1);
+  const [ordersTotal, setOrdersTotal] = useState(0);
+  const [readyTotal, setReadyTotal] = useState(0);
+  const [ordersHasMore, setOrdersHasMore] = useState(false);
+  const [readyHasMore, setReadyHasMore] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "inprogress" | "dispatch">("all");
   const [expandedPayments, setExpandedPayments] = useState<string | null>(null);
   const [expandedJourney, setExpandedJourney] = useState<string | null>(null);
@@ -143,24 +152,39 @@ export default function OrdersPage() {
     referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10),
   });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (nextPage = 1, append = false) => {
+    append ? setLoadingMore(true) : setLoading(true);
     const headers = getAuthHeaders();
+    const params = new URLSearchParams({
+      page: String(nextPage),
+      limit: String(ORDER_PAGE_SIZE),
+      status: statusFilter,
+    });
+    if (search.trim()) params.set("search", search.trim());
     const [oRes, rRes, aRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/orders`, { headers }),
-      fetch(`${API_BASE_URL}/orders/ready-for-dispatch`, { headers }),
+      fetch(`${API_BASE_URL}/orders?${params}`, { headers }),
+      fetch(`${API_BASE_URL}/orders/ready-for-dispatch?${params}`, { headers }),
       fetch(`${API_BASE_URL}/orders/payment-accounts`, { headers }),
     ]);
     if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-    setOrders(await oRes.json());
-    const rawReady = rRes.ok ? await rRes.json() : [];
+    const ordersPayload: PagedOrders = await oRes.json();
+    setOrders(prev => append ? [...prev, ...(ordersPayload.data ?? [])] : (ordersPayload.data ?? []));
+    setOrdersPage(ordersPayload.page ?? nextPage);
+    setOrdersTotal(ordersPayload.total ?? 0);
+    setOrdersHasMore(Boolean(ordersPayload.hasMore));
+    const readyPayload: PagedOrders = rRes.ok ? await rRes.json() : { data: [], page: nextPage, limit: ORDER_PAGE_SIZE, total: 0, hasMore: false };
+    const rawReady = readyPayload.data ?? [];
     const cu = (() => { try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; } })();
-    setReadyOrders(cu?.role === "SALES_AGENT" ? rawReady.filter((o: any) => o.salesAgentName === cu.fullName) : rawReady);
+    const visibleReady = cu?.role === "SALES_AGENT" ? rawReady.filter((o: any) => o.salesAgentName === cu.fullName) : rawReady;
+    setReadyOrders(prev => append ? [...prev, ...visibleReady] : visibleReady);
+    setReadyPage(readyPayload.page ?? nextPage);
+    setReadyTotal(readyPayload.total ?? visibleReady.length);
+    setReadyHasMore(Boolean(readyPayload.hasMore));
     const accs = await aRes.json();
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
-    setLoading(false);
-  }, [router]);
+    append ? setLoadingMore(false) : setLoading(false);
+  }, [router, search, statusFilter]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -367,10 +391,18 @@ export default function OrdersPage() {
   }, [orders, readyOrders, activeTab, search, statusFilter]);
 
   const tabs = [
-    { key: "all",        label: "All Orders",         count: allOrders.length },
+    { key: "all",        label: "All Orders",         count: ordersTotal || allOrders.length },
     { key: "inprogress", label: "In Progress",         count: inProgressOrders.length },
-    { key: "dispatch",   label: "Ready for Dispatch",  count: readyOrders.length },
+    { key: "dispatch",   label: "Ready for Dispatch",  count: readyTotal || readyOrders.length },
   ] as const;
+
+  const canLoadMore = activeTab === "dispatch" ? readyHasMore : ordersHasMore;
+  const loadedCount = activeTab === "dispatch" ? readyOrders.length : orders.length;
+  const totalCount = activeTab === "dispatch" ? readyTotal : ordersTotal;
+  const loadMore = () => {
+    const nextPage = activeTab === "dispatch" ? readyPage + 1 : ordersPage + 1;
+    void load(nextPage, true);
+  };
 
   function renderProductsCell(o: Order) {
     if (o.itemDetails && o.itemDetails.length > 0) {
@@ -440,7 +472,9 @@ export default function OrdersPage() {
                   <X className="h-3 w-3" /> Clear
                 </button>
               )}
-              <span className="text-xs text-slate-400 self-center">{filteredOrders.length} result{filteredOrders.length !== 1 ? "s" : ""}</span>
+              <span className="text-xs text-slate-400 self-center">
+                Showing {filteredOrders.length} of {totalCount || filteredOrders.length}
+              </span>
             </div>
 
             {/* Tabs */}
@@ -797,6 +831,18 @@ export default function OrdersPage() {
                     ))}
                   </tbody>
                 </table>
+                {canLoadMore && (
+                  <div className="flex items-center justify-center border-t border-slate-200 bg-slate-50 px-4 py-3">
+                    <button
+                      onClick={loadMore}
+                      disabled={loadingMore}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loadingMore && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Load next {ORDER_PAGE_SIZE} orders
+                    </button>
+                  </div>
+                )}
               </div>
               </>
             )}

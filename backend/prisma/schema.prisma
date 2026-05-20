@@ -280,6 +280,11 @@ model Order {
   productionJobs   ProductionJob[]
   shipments        Shipment[]
   statusLogs       StatusLog[]
+
+  @@index([status, orderDate])
+  @@index([salesAgentId, orderDate])
+  @@index([customerId, orderDate])
+  @@index([productionStage])
 }
 
 model OrderItem {
@@ -306,6 +311,8 @@ model OrderItem {
   sheetItems          PrintSheetItem[]
 
   @@index([orderId, productId])
+  @@index([itemProductionStage, updatedAt])
+  @@index([productionCategory, itemProductionStage])
 }
 
 model Payment {
@@ -328,6 +335,9 @@ model Payment {
   order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id])
   receivedBy       User?          @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+
+  @@index([orderId, verificationStatus])
+  @@index([paymentDate])
 }
 
 model Invoice {

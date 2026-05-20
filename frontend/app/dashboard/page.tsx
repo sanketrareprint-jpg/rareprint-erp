@@ -45,11 +45,6 @@ const statusColors: Record<string, string> = {
   CANCELLED: "bg-red-100 text-red-800",
 };
 const MEDAL = ["🥇","🥈","🥉"];
-async function fetchJson(url: string) {
-  const res = await fetch(url, { headers: getAuthHeaders() });
-  if (!res.ok) return null;
-  return res.json();
-}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -64,20 +59,15 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/dashboard/stats`, { headers: getAuthHeaders() });
+      const res = await fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
-      setStats(await res.json());
-      const [a, c, p, l] = await Promise.all([
-        fetchJson(`${API_BASE_URL}/dashboard/agent-leaderboard`),
-        fetchJson(`${API_BASE_URL}/dashboard/category-stage-quantities`),
-        fetchJson(`${API_BASE_URL}/dashboard/avg-production-time`),
-        fetchJson(`${API_BASE_URL}/dashboard/lead-source-analytics`),
-      ]);
-      if (a) setAgents(a);
-      if (c) setCatStages(c);
-      if (p) setAvgProd(p);
-      if (l) setLeadData(l);
+      const data = await res.json();
+      setStats(data.stats);
+      setAgents(data.agents ?? []);
+      setCatStages(data.catStages ?? []);
+      setAvgProd(data.avgProd ?? []);
+      setLeadData(data.leadData ?? null);
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, [router]);

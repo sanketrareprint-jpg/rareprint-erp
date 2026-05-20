@@ -71,6 +71,19 @@ function summarizeDesignFiles(value: unknown): DesignFileSummary[] {
     .filter((file) => file.filename);
 }
 
+type OrderListQuery = {
+  page?: string | number;
+  limit?: string | number;
+  status?: string;
+  search?: string;
+};
+
+function paging(query: OrderListQuery) {
+  const page = Math.max(1, Number(query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
+  return { page, limit, skip: (page - 1) * limit };
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -103,9 +116,27 @@ export class OrdersService {
     return String(next);
   }
 
-  async findAllForTable() {
-    const orders = await this.prisma.order.findMany({
+  async findAllForTable(query: OrderListQuery = {}) {
+    const { page, limit, skip } = paging(query);
+    const where: Prisma.OrderWhereInput = {};
+    if (query.status && query.status !== 'ALL') where.status = query.status as OrderStatus;
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = [
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { customer: { businessName: { contains: search, mode: 'insensitive' } } },
+        { customer: { phone: { contains: search } } },
+        { salesAgent: { fullName: { contains: search, mode: 'insensitive' } } },
+        { items: { some: { product: { name: { contains: search, mode: 'insensitive' } } } } },
+      ];
+    }
+
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+      where,
       orderBy: { orderDate: 'desc' },
+      skip,
+      take: limit,
       select: {
         id: true,
         orderNumber: true,
@@ -136,12 +167,14 @@ export class OrdersService {
         },
         payments: true,
       },
-    });
+    }),
+      this.prisma.order.count({ where }),
+    ]);
     const designFileCounts = await this.getDesignFileCounts(
       orders.flatMap((o) => o.items.map((i) => i.id)),
     );
 
-    return orders.map((o) => {
+    const data = orders.map((o) => {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = Math.max(0, total - advancePaid);
@@ -167,6 +200,7 @@ export class OrdersService {
         })),
       };
     });
+    return { data, page, limit, total, hasMore: page * limit < total };
   }
 
   async create(
@@ -633,7 +667,8 @@ export class OrdersService {
     return { success: true, processedOrders: results.length };
   }
 
-  async getOrdersWithReadyItems() {
+  async getOrdersWithReadyItems(query: OrderListQuery = {}) {
+    const { page, limit, skip } = paging(query);
     const EXCLUDED_STATUSES = [
       OrderStatus.PENDING_DISPATCH_APPROVAL,
       OrderStatus.DISPATCHED,
@@ -641,12 +676,27 @@ export class OrdersService {
       OrderStatus.CANCELLED,
     ];
 
-    const orders = await this.prisma.order.findMany({
-      where: {
-        status: { notIn: EXCLUDED_STATUSES },
-        items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
-      },
+    const where: Prisma.OrderWhereInput = {
+      status: { notIn: EXCLUDED_STATUSES },
+      items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
+    };
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = [
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { customer: { businessName: { contains: search, mode: 'insensitive' } } },
+        { customer: { phone: { contains: search } } },
+        { salesAgent: { fullName: { contains: search, mode: 'insensitive' } } },
+        { items: { some: { product: { name: { contains: search, mode: 'insensitive' } } } } },
+      ];
+    }
+
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+      where,
       orderBy: { orderDate: 'desc' },
+      skip,
+      take: limit,
       select: {
         id: true,
         orderNumber: true,
@@ -677,12 +727,14 @@ export class OrdersService {
         },
         payments: true,
       },
-    });
+    }),
+      this.prisma.order.count({ where }),
+    ]);
     const designFileCounts = await this.getDesignFileCounts(
       orders.flatMap((o) => o.items.map((i) => i.id)),
     );
 
-    return orders.map((o) => {
+    const data = orders.map((o) => {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = Math.max(0, total - advancePaid);
@@ -711,6 +763,7 @@ export class OrdersService {
         })),
       };
     });
+    return { data, page, limit, total, hasMore: page * limit < total };
   }
 }
 

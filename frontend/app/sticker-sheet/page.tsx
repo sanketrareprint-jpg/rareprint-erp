@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { jsPDF } from 'jspdf';
 import { DashboardShell } from "@/components/dashboard-shell";
 
 const PAGE_WIDTH = 864;
@@ -163,9 +162,18 @@ function StickerSheetContent() {
     drawPreview();
   }, [drawPreview]);
 
+  useEffect(() => {
+    return () => {
+      if (image) URL.revokeObjectURL(image);
+    };
+  }, [image]);
+
   const handleUpload = (file: File) => {
     setFileName(file.name);
-    setImage(URL.createObjectURL(file));
+    setImage(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,6 +193,7 @@ function StickerSheetContent() {
     setIsGenerating(true);
 
     try {
+      const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'pt',

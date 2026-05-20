@@ -7,6 +7,17 @@ import { OrderStatus, OrderProductionStage } from '@prisma/client';
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async getSummary() {
+    const [stats, agents, catStages, avgProd, leadData] = await Promise.all([
+      this.getStats(),
+      this.getAgentLeaderboard(),
+      this.getCategoryStageQuantities(),
+      this.getAvgProductionTime(),
+      this.getLeadSourceAnalytics(),
+    ]);
+    return { stats, agents, catStages, avgProd, leadData };
+  }
+
   async getStats() {
     const now = new Date();
     const istOffsetMs = 330 * 60 * 1000;
@@ -27,31 +38,42 @@ export class DashboardService {
     const endOfLastMonth = startOfMonth;
 
     const [
-      allOrders,
-      todayOrders,
-      thisMonthOrders,
-      lastMonthOrders,
-      allPayments,
+      allOrderAgg,
+      thisMonthOrderCount,
+      todayOrderAgg,
+      thisMonthOrderAgg,
+      lastMonthOrderAgg,
+      allPaymentAgg,
+      statusCounts,
       last7DaysOrders,
       recentOrders,
     ] = await Promise.all([
-      this.prisma.order.findMany({
+      this.prisma.order.aggregate({
         where: { status: { not: OrderStatus.CANCELLED } },
-        select: { orderDate: true, grandTotal: true, status: true },
+        _count: { _all: true },
+        _sum: { grandTotal: true },
       }),
-      this.prisma.order.findMany({
-        where: { orderDate: { gte: startOfToday, lt: startOfTomorrow }, status: { not: OrderStatus.CANCELLED } },
-        select: { grandTotal: true },
-      }),
-      this.prisma.order.findMany({
+      this.prisma.order.count({
         where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED } },
-        select: { id: true, grandTotal: true },
       }),
-      this.prisma.order.findMany({
+      this.prisma.order.aggregate({
+        where: { orderDate: { gte: startOfToday, lt: startOfTomorrow }, status: { not: OrderStatus.CANCELLED } },
+        _sum: { grandTotal: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED } },
+        _sum: { grandTotal: true },
+      }),
+      this.prisma.order.aggregate({
         where: { orderDate: { gte: startOfLastMonth, lt: endOfLastMonth }, status: { not: OrderStatus.CANCELLED } },
-        select: { grandTotal: true },
+        _sum: { grandTotal: true },
       }),
-      this.prisma.payment.findMany(),
+      this.prisma.payment.aggregate({ _sum: { amount: true } }),
+      this.prisma.order.groupBy({
+        by: ['status'],
+        where: { status: { not: OrderStatus.CANCELLED } },
+        _count: { _all: true },
+      }),
       this.prisma.order.findMany({
         where: { orderDate: { gte: new Date(now.getTime() - 7 * 86400000) }, status: { not: OrderStatus.CANCELLED } },
         orderBy: { orderDate: 'asc' },
@@ -64,18 +86,18 @@ export class DashboardService {
       }),
     ]);
 
-    const todayValue = todayOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
-    const thisMonthSale = thisMonthOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
-    const lastMonthRevenue = lastMonthOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
+    const todayValue = Number(todayOrderAgg._sum.grandTotal ?? 0);
+    const thisMonthSale = Number(thisMonthOrderAgg._sum.grandTotal ?? 0);
+    const lastMonthRevenue = Number(lastMonthOrderAgg._sum.grandTotal ?? 0);
     const averagePerDay = daysElapsed > 0 ? thisMonthSale / daysElapsed : 0;
     const monthlyRunRate = averagePerDay * daysInMonth;
     const growth = lastMonthRevenue > 0 ? Math.round(((thisMonthSale - lastMonthRevenue) / lastMonthRevenue) * 100) : 0;
 
-    const totalOrderValue = allOrders.reduce((s, o) => s + Number(o.grandTotal), 0);
-    const totalPaid       = allPayments.reduce((s, p) => s + Number(p.amount), 0);
+    const totalOrderValue = Number(allOrderAgg._sum.grandTotal ?? 0);
+    const totalPaid       = Number(allPaymentAgg._sum.amount ?? 0);
 
     const byStatus: Record<string, number> = {};
-    for (const o of allOrders) byStatus[o.status] = (byStatus[o.status] ?? 0) + 1;
+    for (const row of statusCounts) byStatus[row.status] = row._count._all;
 
     // Last 7 days by date
    const dayMap: Record<string, { count: number; revenue: number }> = {};
@@ -96,8 +118,8 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     return {
       revenue: { today: todayValue, thisMonth: thisMonthSale, lastMonth: lastMonthRevenue, growth, averagePerDay, monthlyRunRate, daysElapsed, daysInMonth },
       orders: {
-        total: allOrders.length,
-        thisMonth: thisMonthOrders.length,
+        total: allOrderAgg._count._all,
+        thisMonth: thisMonthOrderCount,
         byStatus,
         last7Days,
       },

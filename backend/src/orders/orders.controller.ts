@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UploadedFile,
@@ -14,9 +15,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import { diskStorage } from 'multer';
 import { extname, join } from 'path';
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import type { Request, Response } from 'express';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
@@ -40,14 +40,23 @@ export class OrdersController {
 
   @Get()
   @UseGuards(AuthGuard('jwt'))
-  findAll() {
-    return this.ordersService.findAllForTable();
+  findAll(
+    @Query('page') page = '1',
+    @Query('limit') limit = '25',
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.ordersService.findAllForTable({ page, limit, status, search });
   }
 
   @Get('ready-for-dispatch')
   @UseGuards(AuthGuard('jwt'))
-  getReadyForDispatch() {
-    return this.ordersService.getOrdersWithReadyItems();
+  getReadyForDispatch(
+    @Query('page') page = '1',
+    @Query('limit') limit = '25',
+    @Query('search') search?: string,
+  ) {
+    return this.ordersService.getOrdersWithReadyItems({ page, limit, search });
   }
 
   @Get('payment-accounts')
@@ -180,7 +189,7 @@ export class OrdersController {
     const files: DesignFile[] = Array.isArray((item as any).designFiles)
       ? ((item as any).designFiles as DesignFile[])
       : [];
-    return files;
+    return files.map(({ base64, ...file }) => file);
   }
 
   /** POST /orders/items/:itemId/design-files — upload a file */
@@ -196,17 +205,19 @@ export class OrdersController {
     if (!item) throw new Error('Order item not found');
     const existing: DesignFile[] = Array.isArray((item as any).designFiles) ? ((item as any).designFiles as DesignFile[]) : [];
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}${extname(file.originalname)}`;
+    ensureUploadsDir();
+    const filePath = join(UPLOADS_DIR, unique);
+    writeFileSync(filePath, file.buffer);
     const newFile: DesignFile = {
       filename: unique,
       originalName: file.originalname,
       uploadedAt: new Date().toISOString(),
       size: file.size,
-      base64: file.buffer.toString('base64'),
       mimeType: file.mimetype,
     };
     await (this.prisma.orderItem as any).update({
       where: { id: itemId },
-      data: { designFiles: [...existing, newFile] },
+      data: { designFiles: [...existing.map(({ base64, ...file }) => file), newFile] },
     });
     return { success: true, file: { filename: newFile.filename, originalName: newFile.originalName, uploadedAt: newFile.uploadedAt, size: newFile.size } };
   }
