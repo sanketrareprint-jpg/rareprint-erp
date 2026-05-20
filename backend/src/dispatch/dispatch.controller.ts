@@ -30,7 +30,7 @@ export class DispatchController {
       body.itemIds,
       body.rateId,
       req.user.id,
-      body.isCod ?? false,
+      body.isCod,  // do NOT coerce undefined→false; service falls back to order notes detection
       body.codAmount,
     );
   }

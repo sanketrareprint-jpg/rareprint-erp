@@ -93,6 +93,7 @@ export class DispatchService {
       customerPhone: string | null; salesAgentName: string | null;
       shipTo: string; weightKg: number; orderDate: string;
       totalItems: number; readyItemsCount: number;
+      isCod: boolean; codAmount: number | null;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
         productionNotes: string | null; weightKg: number;
@@ -106,6 +107,11 @@ export class DispatchService {
       );
       if (readyItems.length === 0) continue;
 
+      // Detect COD from notes — handle both formats written by submitForDispatch and submitDispatchBatch
+      const notesIsCod = /\bCOD[:\s]/i.test(o.notes ?? '');
+      const notesCodeAmountMatch = (o.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i);
+      const notescodAmount = notesCodeAmountMatch ? Number(notesCodeAmountMatch[1]) : null;
+
       result.push({
         id: o.id,
         orderNo: o.orderNumber,
@@ -117,6 +123,8 @@ export class DispatchService {
         orderDate: o.orderDate.toISOString(),
         totalItems: o.items.length,
         readyItemsCount: readyItems.length,
+        isCod: notesIsCod,
+        codAmount: notescodAmount,
         readyItems: readyItems.map((i) => {
           const { size, gsm, sides } = parseProductionNotes(i.productionNotes);
           return {
@@ -216,8 +224,8 @@ export class DispatchService {
           billingPincode: addr.pincode, billingState: addr.state,
           weightKg, subTotal: Number(order.grandTotal),
           courierCompanyId,
-          isCod: isCod ?? (order.notes?.includes('COD:') ?? false),
-          codAmount: codAmount ?? (() => { const m = order.notes?.match(/COD: ₹(\d+)/); return m ? Number(m[1]) : undefined; })(),
+          isCod: isCod ?? /\bCOD[:\s]/i.test(order.notes ?? ''),
+          codAmount: codAmount ?? (() => { const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i); return m ? Number(m[1]) : undefined; })(),
         });
         if (sr.shiprocketOrderId) {
           trackingRef    = sr.shiprocketOrderId;

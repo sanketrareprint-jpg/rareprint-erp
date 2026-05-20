@@ -13,6 +13,7 @@ type DispatchOrder = {
   customerPhone?: string; salesAgentName?: string;
   shipTo: string; weightKg: number; orderDate: string;
   totalItems: number; readyItems: ReadyItem[];
+  isCod: boolean; codAmount: number | null;
 };
 
 type RateQuote = { rateId: string; carrierName: string; amount: number; currency: string; estimatedDays: number; };
@@ -103,12 +104,13 @@ export default function DispatchPage() {
     if (itemIds.length === 0) { alert("Select at least one item"); return; }
     const rateId = selectedRate[orderId];
     if (!rateId) { alert("Fetch and select a shipping rate first"); return; }
+    const orderData = orders.find(o => o.id === orderId);
     setBookingId(orderId);
     try {
       const res = await fetch(`${API_BASE_URL}/dispatch/book`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, itemIds, rateId }),
+        body: JSON.stringify({ orderId, itemIds, rateId, isCod: orderData?.isCod ?? false, codAmount: orderData?.codAmount ?? undefined }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Booking failed"); return; }
@@ -204,6 +206,11 @@ export default function DispatchPage() {
                           {o.salesAgentName && (
                             <span className="rounded-full bg-blue-50 text-blue-700 px-2.5 py-1 text-xs font-semibold border border-blue-100">
                               👤 {o.salesAgentName}
+                            </span>
+                          )}
+                          {o.isCod && (
+                            <span className="rounded-full bg-amber-100 text-amber-800 px-2.5 py-1 text-xs font-bold border border-amber-200">
+                              💰 COD{o.codAmount ? ` ₹${o.codAmount}` : ""}
                             </span>
                           )}
                           <div>
