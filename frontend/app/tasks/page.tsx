@@ -1,0 +1,226 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DashboardShell } from "@/components/dashboard-shell";
+import { API_BASE_URL } from "@/lib/api";
+import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
+import { CheckCircle2, Clock, Loader2, Plus, UserCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+type UserOption = { id: string; fullName: string; email: string; role: string };
+type Task = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+  dueDate?: string | null;
+  createdAt: string;
+  createdBy: { id: string; fullName: string; role: string };
+  assignedTo: { id: string; fullName: string; role: string };
+};
+type TaskView = "assigned" | "created" | "all";
+type FormState = {
+  title: string;
+  description: string;
+  assignedToId: string;
+  priority: Task["priority"];
+  dueDate: string;
+};
+
+const statusLabels: Record<Task["status"], string> = {
+  OPEN: "Open",
+  IN_PROGRESS: "In Progress",
+  DONE: "Done",
+  CANCELLED: "Cancelled",
+};
+
+const priorityClass: Record<Task["priority"], string> = {
+  LOW: "bg-slate-100 text-slate-600",
+  NORMAL: "bg-blue-50 text-blue-700",
+  HIGH: "bg-orange-50 text-orange-700",
+  URGENT: "bg-red-50 text-red-700",
+};
+
+export default function TasksPage() {
+  const router = useRouter();
+  const [currentUser] = useState(() => getStoredUser());
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [view, setView] = useState<TaskView>("assigned");
+  const [status, setStatus] = useState("ALL");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<FormState>({
+    title: "",
+    description: "",
+    assignedToId: currentUser?.id ?? "",
+    priority: "NORMAL",
+    dueDate: "",
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ view, status });
+      const [taskRes, userRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/tasks?${params}`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/tasks/users`, { headers: getAuthHeaders() }),
+      ]);
+      if (taskRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+      setTasks(taskRes.ok ? await taskRes.json() : []);
+      const userList = userRes.ok ? await userRes.json() : [];
+      const userOptions = currentUser && !userList.some((user: UserOption) => user.id === currentUser.id)
+        ? [{ id: currentUser.id, fullName: currentUser.fullName, email: currentUser.email, role: currentUser.role }, ...userList]
+        : userList;
+      setUsers(userOptions);
+      setForm(prev => ({ ...prev, assignedToId: prev.assignedToId || currentUser?.id || userList[0]?.id || "" }));
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser, router, status, view]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const counts = useMemo(() => ({
+    open: tasks.filter(t => t.status === "OPEN").length,
+    progress: tasks.filter(t => t.status === "IN_PROGRESS").length,
+    done: tasks.filter(t => t.status === "DONE").length,
+  }), [tasks]);
+
+  async function createTask() {
+    if (!form.title.trim()) { alert("Task title is required"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title,
+          description: form.description || undefined,
+          assignedToId: form.assignedToId || currentUser?.id,
+          priority: form.priority,
+          dueDate: form.dueDate || undefined,
+        }),
+      });
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message || "Could not create task"); return; }
+      setForm({ title: "", description: "", assignedToId: currentUser?.id ?? "", priority: "NORMAL", dueDate: "" });
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateTask(id: string, patch: Partial<Task>) {
+    const res = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) { alert("Could not update task"); return; }
+    const updated = await res.json();
+    setTasks(prev => prev.map(task => task.id === id ? updated : task));
+  }
+
+  return (
+    <DashboardShell>
+      <div className="p-4 md:p-6 space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Tasks</h1>
+            <p className="text-sm text-slate-500">Create work, assign it to a user, and track what is assigned to you.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2"><p className="font-bold text-slate-900">{counts.open}</p><p className="text-slate-500">Open</p></div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2"><p className="font-bold text-blue-700">{counts.progress}</p><p className="text-slate-500">Progress</p></div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2"><p className="font-bold text-green-700">{counts.done}</p><p className="text-slate-500">Done</p></div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <Plus className="h-4 w-4 text-blue-600" />
+              <h2 className="font-semibold text-slate-900">New Task</h2>
+            </div>
+            <div className="space-y-3">
+              <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Task title" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Details" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Assigned To</label>
+                <select value={form.assignedToId} onChange={e => setForm(p => ({ ...p, assignedToId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                  {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">Defaults to the user currently using ERP.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+                <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
+              </div>
+              <button onClick={createTask} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Create Task
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              {[
+                ["assigned", "My Assigned"],
+                ["created", "Created By Me"],
+                ...(currentUser?.role === "ADMIN" ? [["all", "All Tasks"]] : []),
+              ].map(([key, label]) => (
+                <button key={key} onClick={() => setView(key as TaskView)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === key ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>{label}</button>
+              ))}
+              <select value={status} onChange={e => setStatus(e.target.value)} className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold outline-none">
+                <option value="ALL">All Status</option>
+                {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+            ) : tasks.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">No tasks found.</div>
+            ) : (
+              <div className="space-y-2">
+                {tasks.map(task => (
+                  <div key={task.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-slate-900">{task.title}</h3>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{task.priority}</span>
+                        </div>
+                        {task.description && <p className="text-sm text-slate-500">{task.description}</p>}
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                          <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5" /> Assigned: {task.assignedTo.fullName}</span>
+                          <span>Created: {task.createdBy.fullName}</span>
+                          {task.dueDate && <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Due {new Date(task.dueDate).toLocaleDateString("en-IN")}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none">
+                          {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                        <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </DashboardShell>
+  );
+}
