@@ -45,6 +45,19 @@ function resolveItemDetails(item: {
 export class ClubbingSheetService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private sheetItemInclude() {
+    return {
+      orderItem: {
+        select: {
+          id: true,
+          itemProductionStage: true,
+          product: { select: { name: true, sizeInches: true, gsm: true } },
+          order: { select: { orderNumber: true, orderDate: true, customer: { select: { businessName: true } } } },
+        },
+      },
+    } as const;
+  }
+
   async getJobWorks(orderItemId: string) {
     return this.prisma.jobWork.findMany({ where: { orderItemId }, include: { vendor: true }, orderBy: { createdAt: 'asc' } });
   }
@@ -103,7 +116,49 @@ export class ClubbingSheetService {
   }
 
   async listSheets() {
-    return this.prisma.printSheet.findMany({ orderBy: { createdAt: 'desc' }, include: { items: { include: { orderItem: { include: { product: true, order: { include: { customer: true } } } } } }, stageVendors: { include: { vendor: true } } } });
+    return this.prisma.printSheet.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        sheetNo: true,
+        gsm: true,
+        quality: true,
+        quantity: true,
+        sizeInches: true,
+        areaSqInches: true,
+        printing: true,
+        status: true,
+        usedAreaSqInches: true,
+        items: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            multiple: true,
+            quantityOnSheet: true,
+            areaSqInches: true,
+            orderItem: {
+              select: {
+                id: true,
+                itemProductionStage: true,
+                product: { select: { name: true, sizeInches: true, gsm: true } },
+                order: { select: { orderNumber: true, orderDate: true, customer: { select: { businessName: true } } } },
+              },
+            },
+          },
+        },
+        stageVendors: {
+          select: {
+            id: true,
+            stage: true,
+            vendorId: true,
+            cost: true,
+            description: true,
+            vendorInvoiceNo: true,
+            vendor: { select: { name: true } },
+          },
+        },
+      },
+    });
   }
 
   async createSheet(data: { gsm: number; quality: SheetQuality; quantity: number; sizeInches: string; printing: ProductSides }) {
@@ -185,7 +240,7 @@ export class ClubbingSheetService {
   }
 
   async getSheetOrderItems() {
-    const sheetItems = await this.prisma.printSheetItem.findMany({
+      const sheetItems = await this.prisma.printSheetItem.findMany({
       include: { sheet: { include: { stageVendors: { include: { vendor: true } } } }, orderItem: { include: { product: true, order: { include: { customer: true, salesAgent: { select: { id: true, fullName: true } } } } } } },
     });
     return sheetItems.map(si => ({
@@ -200,12 +255,31 @@ export class ClubbingSheetService {
   }
 
   async getSheetItems(sheetId: string) {
-    return this.prisma.printSheetItem.findMany({ where: { sheetId }, include: { orderItem: { include: { product: true, order: { include: { customer: true } } } } } });
+    return this.prisma.printSheetItem.findMany({ where: { sheetId }, include: this.sheetItemInclude() });
   }
 
   async getPlaceableItems(gsm: number) {
-    const items = await this.prisma.orderItem.findMany({ where: { productionCategory: 'SHEET_PRODUCTION', product: { gsm } }, include: { product: true, order: { include: { customer: true } }, sheetItems: true } });
-    return items.filter(i => i.sheetItems.length === 0).map(i => ({ id: i.id, productName: i.product.name, sku: i.product.sku, gsm: i.product.gsm, openSizeInches: i.product.sizeInches, quantity: i.quantity, productionNotes: i.productionNotes, orderNo: (i.order as any).orderNumber, customerName: (i.order as any).customer.businessName }));
+    const items = await this.prisma.orderItem.findMany({
+      where: {
+        productionCategory: 'SHEET_PRODUCTION',
+        product: { gsm },
+        itemProductionStage: { not: 'READY_FOR_DISPATCH' },
+        order: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
+      },
+      select: {
+        id: true,
+        quantity: true,
+        productionNotes: true,
+        product: { select: { name: true, sku: true, gsm: true, sizeInches: true } },
+        order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+        sheetItems: { select: { quantityOnSheet: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 200,
+    });
+    return items
+      .filter(i => i.sheetItems.reduce((sum, si) => sum + si.quantityOnSheet, 0) < i.quantity)
+      .map(i => ({ id: i.id, productName: i.product.name, sku: i.product.sku, gsm: i.product.gsm, openSizeInches: i.product.sizeInches, quantity: i.quantity, productionNotes: i.productionNotes, orderNo: (i.order as any).orderNumber, customerName: (i.order as any).customer.businessName }));
   }
 
   async placeItemOnSheet(sheetId: string, data: { orderItemId: string; productId: string; multiple: number; quantityOnSheet: number; areaSqInches: number }) {
@@ -219,21 +293,26 @@ export class ClubbingSheetService {
     }
     const newUsed = data.areaSqInches > 1 ? sheet.usedAreaSqInches + data.areaSqInches : sheet.usedAreaSqInches;
     if (data.areaSqInches > 1 && newUsed > sheet.areaSqInches) throw new BadRequestException('Not enough space on sheet');
-    const [item, updatedSheet] = await this.prisma.$transaction([
+    const [, updatedSheet] = await this.prisma.$transaction([
       this.prisma.printSheetItem.create({ data: { sheetId, orderItemId: data.orderItemId, productId, multiple: data.multiple, quantityOnSheet: data.quantityOnSheet, areaSqInches: data.areaSqInches } }),
       this.prisma.printSheet.update({ where: { id: sheetId }, data: { usedAreaSqInches: newUsed } }),
     ]);
+    const item = await this.prisma.printSheetItem.findFirstOrThrow({
+      where: { sheetId, orderItemId: data.orderItemId },
+      orderBy: { createdAt: 'desc' },
+      include: this.sheetItemInclude(),
+    });
     return { item, sheet: updatedSheet };
   }
 
   async removeItemFromSheet(sheetItemId: string) {
     const si = await this.prisma.printSheetItem.findUnique({ where: { id: sheetItemId } });
     if (!si) throw new NotFoundException('Sheet item not found');
-    await this.prisma.$transaction([
+    const [, updatedSheet] = await this.prisma.$transaction([
       this.prisma.printSheetItem.delete({ where: { id: sheetItemId } }),
       this.prisma.printSheet.update({ where: { id: si.sheetId }, data: { usedAreaSqInches: { decrement: si.areaSqInches } } }),
     ]);
-    return { success: true };
+    return { success: true, sheetId: si.sheetId, sheet: updatedSheet };
   }
 
   async addSheetStageVendor(data: { sheetId: string; stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string }) {

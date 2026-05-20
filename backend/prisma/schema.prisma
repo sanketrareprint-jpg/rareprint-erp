@@ -185,6 +185,9 @@ model PrintSheet {
   updatedAt     DateTime        @updatedAt
   items         PrintSheetItem[]
   stageVendors  SheetStageVendor[]
+
+  @@index([status, updatedAt])
+  @@index([gsm, status])
 }
 
 // ── Items placed on a sheet ──────────────────────────────────────────────────
@@ -202,6 +205,10 @@ model PrintSheetItem {
   sheet         PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
   orderItem     OrderItem  @relation(fields: [orderItemId], references: [id])
   product       Product    @relation(fields: [productId], references: [id])
+
+  @@index([sheetId])
+  @@index([orderItemId])
+  @@index([productId])
 }
 
 // ── Stage-wise vendors for sheet production ──────────────────────────────────

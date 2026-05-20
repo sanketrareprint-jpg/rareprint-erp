@@ -184,6 +184,11 @@ export default function ProductionPage() {
   const [sheetsData, setSheetsData] = useState<PrintSheet[]>([]);
   const [vendorsData, setVendorsData] = useState<Vendor[]>([]);
 
+  const loadSheets = useCallback(async () => {
+    const res = await fetch(`${API_BASE_URL}/production/sheets`, { headers: getAuthHeaders() });
+    if (res.ok) setSheetsData(await res.json());
+  }, []);
+
   const loadAll = useCallback(async (silent = false) => {
     setError(null);
     if (!silent) setLoading(true);
@@ -390,7 +395,9 @@ export default function ProductionPage() {
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setCreateSheetModal(false); setSheetForm({ gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
-      await loadAll(true);
+      const created = await res.json().catch(() => null);
+      if (created?.id) setSheetsData(prev => [{ ...created, items: [], stageVendors: [] }, ...prev]);
+      else await loadSheets();
     } finally { setSavingSheet(false); }
   }
 
@@ -432,7 +439,9 @@ export default function ProductionPage() {
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setEditSheetModal(null);
-      await loadAll(true);
+      const updated = await res.json().catch(() => null);
+      if (updated?.id) setSheetsData(prev => prev.map(sheet => sheet.id === updated.id ? { ...sheet, ...updated } : sheet));
+      else await loadSheets();
     } finally { setSavingEditSheet(false); }
   }
 
@@ -506,15 +515,45 @@ export default function ProductionPage() {
         body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple: val, quantityOnSheet, areaSqInches: itemArea * val }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      await loadAll(true);
+      const payload = await res.json().catch(() => null);
+      if (payload?.sheet?.id && payload?.item?.id) {
+        setSheetsData(prev => prev.map(sheet => sheet.id === sheetId
+          ? {
+              ...sheet,
+              usedAreaSqInches: payload.sheet.usedAreaSqInches,
+              items: [...sheet.items, payload.item],
+            }
+          : sheet
+        ));
+        setPlaceableItems(prev => prev.filter(pi => {
+          if (pi.id !== item.id) return true;
+          const assignedAfter = alreadyAssigned + quantityOnSheet;
+          return assignedAfter < pi.quantity;
+        }));
+      } else {
+        await loadSheets();
+      }
       await loadPlaceableItems(sheet.gsm);
     } finally { setPlacingItem(null); }
   }
 
   async function removeSheetItem(id: string) {
     if (!confirm("Remove this item from sheet?")) return;
-    await fetch(`${API_BASE_URL}/production/sheets/sheet-items/${id}`, { method: "DELETE", headers: getAuthHeaders() });
-    await loadAll(true);
+    const res = await fetch(`${API_BASE_URL}/production/sheets/sheet-items/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+    if (!res.ok) { alert("Failed to remove item"); return; }
+    const payload = await res.json().catch(() => null);
+    if (payload?.sheetId) {
+      setSheetsData(prev => prev.map(sheet => sheet.id === payload.sheetId
+        ? {
+            ...sheet,
+            usedAreaSqInches: payload.sheet?.usedAreaSqInches ?? Math.max(0, sheet.usedAreaSqInches),
+            items: sheet.items.filter(item => item.id !== id),
+          }
+        : sheet
+      ));
+    } else {
+      await loadSheets();
+    }
   }
 
   async function updateSheetStatus(sheetId: string, status: string) {
@@ -526,11 +565,26 @@ export default function ProductionPage() {
       return;
     }
     const prevExpanded = expandedSheet;
-    await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
+    const res = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    await loadAll(true);
+    if (res.ok) {
+      const stageMap: Record<string, string> = { INCOMPLETE: "NOT_PRINTED", COMPLETE: "NOT_PRINTED", SETTING: "NOT_PRINTED", PRINTING: "PRINTING", PROCESSING: "PROCESSING", DONE: "READY_FOR_DISPATCH" };
+      setSheetsData(prev => prev.map(sheet => sheet.id === sheetId
+        ? {
+            ...sheet,
+            status,
+            items: sheet.items.map(si => ({
+              ...si,
+              orderItem: { ...si.orderItem, itemProductionStage: stageMap[status] ?? si.orderItem.itemProductionStage },
+            })),
+          }
+        : sheet
+      ));
+    } else {
+      await loadSheets();
+    }
     setExpandedSheet(prevExpanded);
   }
 
