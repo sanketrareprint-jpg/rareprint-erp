@@ -153,6 +153,13 @@ export class ShiprocketService {
       process.env.SHIPROCKET_PICKUP_LOCATION?.trim() || 'Primary';
     const orderDate = new Date().toISOString().slice(0, 10);
 
+    // For COD orders, the declared value Shiprocket sees must equal what we want
+    // collected — otherwise Shiprocket overrides collectable_amount with sub_total.
+    // Use the COD amount as sub_total/selling_price; full order total for Prepaid.
+    const declaredValue = input.isCod
+      ? Math.max(1, Math.round(input.codAmount ?? input.subTotal))
+      : Math.max(1, Math.round(input.subTotal));
+
     const body = {
       order_id: input.orderNumber,
       order_date: orderDate,
@@ -172,12 +179,12 @@ export class ShiprocketService {
           name: 'Print order',
           sku: input.orderNumber,
           units: 1,
-          selling_price: Math.max(1, Math.round(input.subTotal)),
+          selling_price: declaredValue,
         },
       ],
       payment_method: input.isCod ? 'COD' : 'Prepaid',
-      collectable_amount: input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : undefined,
-      sub_total: Math.max(1, Math.round(input.subTotal)),
+      collectable_amount: input.isCod ? declaredValue : undefined,
+      sub_total: declaredValue,
       length: 20,
       breadth: 15,
       height: 10,
