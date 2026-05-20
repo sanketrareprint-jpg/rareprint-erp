@@ -250,28 +250,37 @@ function ResultCard({ result, perLabel = "Per Piece", desc, isAdmin = true }: {
 // Office agents: 10% of selling price  = ~1/4 of profit at ×1.67
 // WFH agents:   12% of selling price  = ~30% of profit at ×1.67
 // When discount given → profit shrinks; % of selling stays same, % of profit goes up
-const COMMISSION_RATES = { office: 0.10, wfh: 0.12 };
+// Commission formula:
+//   Office = Profit / 4   (where Profit = Selling Price - Our Cost)
+//   WFH    = Profit / 4 + 2% of Selling Price  (2% extra on top of office)
+function calcCommission(price: number, cost: number, type: "office" | "wfh"): number {
+  const profit = price - cost;
+  const base = Math.max(0, profit) / 4;
+  if (type === "office") return base;
+  return base + price * 0.02; // WFH gets 2% of order value on top
+}
 
 function CommissionPanel({ cost, total, qty, isAdmin }: {
   cost: number; total: number; qty: number; isAdmin: boolean;
 }) {
   const [agentType, setAgentType] = useState<"office" | "wfh">("office");
   const [customPrice, setCustomPrice] = useState("");
-  const rate = COMMISSION_RATES[agentType];
 
   const scenarios = [
-    { label: "No Discount", price: total, disc: 0 },
-    { label: "5% Discount",  price: total * 0.95, disc: 5 },
+    { label: "No Discount", price: total,        disc: 0  },
+    { label: "5% Discount",  price: total * 0.95, disc: 5  },
     { label: "10% Discount", price: total * 0.90, disc: 10 },
   ];
 
-  const customVal = customPrice !== "" ? parseFloat(customPrice) : null;
-  const belowCost = customVal !== null && customVal < cost;
+  const customVal  = customPrice !== "" ? parseFloat(customPrice) : null;
+  const belowCost  = customVal !== null && customVal < cost;
+  const profitOf   = (p: number) => p - cost;
+  const profitPct  = (p: number) => p > 0 ? ((p - cost) / p * 100) : 0;
+  const comm       = (p: number) => calcCommission(p, cost, agentType);
+  const commPctP   = (p: number) => profitOf(p) > 0 ? (comm(p) / profitOf(p) * 100) : 0;
 
-  const commissionOf = (price: number) => price * rate;
-  const profitOf     = (price: number) => price - cost;
-  const profitPct    = (price: number) => cost > 0 ? ((price - cost) / price * 100) : 0;
-  const commPctOfProfit = (price: number) => profitOf(price) > 0 ? (commissionOf(price) / profitOf(price) * 100) : 0;
+  const officeComm = calcCommission(total, cost, "office");
+  const wfhComm    = calcCommission(total, cost, "wfh");
 
   return (
     <div className="border border-blue-200 rounded-xl p-4 mt-3 bg-blue-50">
@@ -280,37 +289,37 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
         <div className="flex gap-1">
           <button onClick={() => setAgentType("office")}
             className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${agentType === "office" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-blue-600 border-blue-300"}`}>
-            🏢 Office (10%)
+            🏢 Office — {fmt(officeComm)}
           </button>
           <button onClick={() => setAgentType("wfh")}
             className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${agentType === "wfh" ? "bg-purple-600 text-white border-purple-600" : "bg-white text-purple-600 border-purple-300"}`}>
-            🏠 WFH (12%)
+            🏠 WFH — {fmt(wfhComm)}
           </button>
         </div>
       </div>
 
       <p className="text-xs text-blue-600 mb-3">
-        Commission = <strong>{(rate * 100).toFixed(0)}% of selling price</strong>
-        {isAdmin && <> = ~{(rate / (1 - 1/1.67) * 100 / 1.67).toFixed(0)}% of profit at ×1.67 multiplier</>}
+        {agentType === "office"
+          ? <><strong>Office:</strong> Commission = Profit ÷ 4 &nbsp;(Profit = Selling − Cost)</>
+          : <><strong>WFH:</strong> Commission = Profit ÷ 4 + 2% of Selling Price</>
+        }
       </p>
 
       {/* Scenario table */}
       <div className="rounded-lg overflow-hidden border border-blue-200">
-        {/* Header */}
         <div className={`grid text-xs font-bold text-white py-2 px-3 ${isAdmin ? "grid-cols-5" : "grid-cols-3"} bg-blue-700`}>
           <span>Scenario</span>
           <span className="text-right">Order Value</span>
-          {isAdmin && <><span className="text-right">Profit</span><span className="text-right">Net (after comm.)</span></>}
-          <span className="text-right">Your Commission</span>
+          {isAdmin && <><span className="text-right">Profit</span><span className="text-right">Net (you keep)</span></>}
+          <span className="text-right">Commission</span>
         </div>
-        {/* Rows */}
         {scenarios.map((s, i) => {
-          const comm = commissionOf(s.price);
-          const profit = profitOf(s.price);
-          const net = profit - comm;
-          const belowCostRow = s.price < cost;
+          const c    = comm(s.price);
+          const prof = profitOf(s.price);
+          const net  = prof - c;
+          const loss = s.price < cost;
           return (
-            <div key={i} className={`grid text-xs py-2 px-3 border-t border-blue-100 items-center ${isAdmin ? "grid-cols-5" : "grid-cols-3"} ${belowCostRow ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-blue-50/40"}`}>
+            <div key={i} className={`grid text-xs py-2 px-3 border-t border-blue-100 items-center ${isAdmin ? "grid-cols-5" : "grid-cols-3"} ${loss ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-blue-50/40"}`}>
               <span className="font-medium text-slate-700">
                 {s.label}
                 {s.disc > 0 && <span className="ml-1 text-orange-600 font-bold">-{s.disc}%</span>}
@@ -318,17 +327,17 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
               <span className="text-right font-semibold">{fmt(s.price)}</span>
               {isAdmin && (
                 <>
-                  <span className={`text-right ${profit < 0 ? "text-red-600 font-bold" : "text-slate-600"}`}>
-                    {fmt(profit)}
-                    {profit > 0 && <span className="text-slate-400 ml-1">({profitPct(s.price).toFixed(1)}%)</span>}
+                  <span className={`text-right ${prof < 0 ? "text-red-600 font-bold" : "text-slate-600"}`}>
+                    {fmt(prof)}
+                    {prof > 0 && <span className="text-slate-400 ml-1">({profitPct(s.price).toFixed(1)}%)</span>}
                   </span>
-                  <span className={`text-right ${net < 0 ? "text-red-600" : "text-green-700"} font-semibold`}>{fmt(net)}</span>
+                  <span className={`text-right font-semibold ${net < 0 ? "text-red-600" : "text-green-700"}`}>{fmt(net)}</span>
                 </>
               )}
               <span className="text-right font-bold text-blue-700">
-                {fmt(comm)}
-                {isAdmin && profit > 0 && (
-                  <span className="text-slate-400 font-normal ml-1">({commPctOfProfit(s.price).toFixed(0)}% of P)</span>
+                {fmt(c)}
+                {isAdmin && prof > 0 && (
+                  <span className="text-slate-400 font-normal ml-1">({commPctP(s.price).toFixed(0)}% of P)</span>
                 )}
               </span>
             </div>
@@ -338,7 +347,7 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
         <div className={`grid text-xs py-2 px-3 border-t-2 border-blue-300 items-center ${isAdmin ? "grid-cols-5" : "grid-cols-3"} bg-amber-50`}>
           <span className="font-medium text-slate-700">Custom Rate</span>
           <span className="text-right">
-            <input type="number" placeholder={fmt(total).replace("₹","")} value={customPrice}
+            <input type="number" placeholder="enter price" value={customPrice}
               onChange={e => setCustomPrice(e.target.value)}
               className="w-full text-right border border-amber-300 rounded px-1 py-0.5 text-xs bg-white max-w-[90px] ml-auto block" />
           </span>
@@ -348,31 +357,31 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
                 {customVal !== null ? (belowCost ? "BELOW COST" : fmt(profitOf(customVal))) : "—"}
               </span>
               <span className={`text-right text-xs ${customVal !== null && !belowCost ? "text-green-700 font-semibold" : "text-slate-300"}`}>
-                {customVal !== null && !belowCost ? fmt(profitOf(customVal) - commissionOf(customVal)) : "—"}
+                {customVal !== null && !belowCost ? fmt(profitOf(customVal) - comm(customVal)) : "—"}
               </span>
             </>
           )}
           <span className={`text-right font-bold ${customVal !== null ? (belowCost ? "text-red-600" : "text-blue-700") : "text-slate-300"}`}>
-            {customVal !== null ? (belowCost ? "⚠ Loss!" : fmt(commissionOf(customVal))) : "—"}
+            {customVal !== null ? (belowCost ? "Loss!" : fmt(comm(customVal))) : "—"}
           </span>
         </div>
       </div>
 
       {belowCost && isAdmin && (
         <p className="text-xs text-red-600 font-semibold mt-2">
-          ⚠ Custom price ₹{Number(customPrice).toLocaleString()} is below your cost of {fmt(cost)}. Selling at this price means a loss.
+          Custom price {fmt(Number(customPrice))} is below your cost of {fmt(cost)} — selling at a loss.
         </p>
       )}
-
       {isAdmin && qty > 0 && (
         <p className="text-xs text-slate-500 mt-2">
-          Per piece commission (no discount): <strong>{fmt(total * rate / qty)}</strong> per piece
+          Per piece (no discount): Office <strong>{fmt(officeComm / qty)}</strong> · WFH <strong>{fmt(wfhComm / qty)}</strong>
         </p>
       )}
-
       <p className="text-xs text-slate-400 mt-2 border-t border-blue-200 pt-2">
-        Formula: Commission = Selling Price × {(rate * 100).toFixed(0)}%
-        {isAdmin && " | At ×1.67: Office gets ¼ of profit, WFH gets ~30% of profit"}
+        {agentType === "office"
+          ? "Office formula: Profit ÷ 4  (≈ ¼ of margin)"
+          : "WFH formula: Profit ÷ 4  +  2% of order value  (office commission + 2% extra)"
+        }
       </p>
     </div>
   );
@@ -993,25 +1002,13 @@ export default function RateCalculatorPage() {
                   </Select>
                 </Field>
 
-                {/* Parent sheet — hidden when product-fixed; locked badge when size-fixed */}
-                {!PRODUCT_CONFIG[rProduct]?.fixedParent && (
-                  rSizeParentLocked ? (
-                    <div className="col-span-1">
-                      <label className="text-xs font-semibold text-slate-500 block mb-1">Parent Sheet Size</label>
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-xs text-amber-800 font-medium">
-                        🔒 Auto: {parentLabel} (required for this size)
-                      </div>
-                    </div>
-                  ) : (
-                    <Field label="Parent Sheet Size">
-                      <Select value={rParent} onChange={e => setRParent(e.target.value)}>
-                        <option value="1823">18×23 inch</option>
-                        <option value="1925">19×25 inch</option>
-                        <option value="1520">15×20 inch (Catalog Envelope)</option>
-                      </Select>
-                    </Field>
-                  )
-                )}
+                {/* Parent sheet — always auto-selected & locked, never a free dropdown */}
+                <div className="col-span-1">
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Parent Sheet Size</label>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-xs text-amber-800 font-medium">
+                    🔒 Auto: {parentLabel}
+                  </div>
+                </div>
 
                 <Field label="No. of Colors">
                   <Select value={rColors} onChange={e => setRColors(+e.target.value)}>
@@ -1026,6 +1023,8 @@ export default function RateCalculatorPage() {
                     <option value="double">Double Side</option>
                   </Select>
                 </Field>
+                {/* Lamination only for products that get laminated */}
+                {["letterhead","pamphlet","visiting","file"].includes(rProduct) && (
                 <Field label="Lamination">
                   <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
                     <option value="none">None</option>
@@ -1035,6 +1034,7 @@ export default function RateCalculatorPage() {
                     <option value="matt-double">Matt — Double Side</option>
                   </Select>
                 </Field>
+                )}
               </div>
 
               {/* Auto-calculation hint */}
