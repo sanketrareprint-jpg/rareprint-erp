@@ -7,8 +7,9 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu,
+  Menu, CheckSquare,
 } from "lucide-react";
+import { getAuthHeaders } from "@/lib/auth";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
@@ -19,6 +20,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard",  href: "/dashboard",       icon: LayoutDashboard },
     { label: "Orders",     href: "/orders",           icon: ShoppingCart },
     { label: "Calls",      href: "/call-analysis",    icon: Phone },
+    { label: "Tasks",      href: "/tasks",            icon: CheckSquare },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
     { label: "Production", href: "/production",       icon: Package },
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
@@ -33,6 +35,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Calls", href: "/call-analysis", icon: Phone },
+    { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
   ],
@@ -40,6 +43,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Calls", href: "/call-analysis", icon: Phone },
+    { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
@@ -47,15 +51,18 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ACCOUNTS: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
   ],
   PRODUCTION: [
     { label: "Dashboard",  href: "/dashboard",     icon: LayoutDashboard },
     { label: "Production", href: "/production",     icon: Package },
+    { label: "Tasks",      href: "/tasks",          icon: CheckSquare },
     { label: "Sticker",    href: "/sticker-sheet",  icon: Layers },
   ],
   DISPATCH: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
     { label: "Dispatch",  href: "/dispatch",  icon: Truck },
   ],
 };
@@ -72,17 +79,29 @@ function getStoredUser(): StoredUser | null {
   } catch { return null; }
 }
 
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router   = useRouter();
-  const [user, setUser] = useState<StoredUser | null>(null);
+  const [user] = useState<StoredUser | null>(() => getStoredUser());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [coins, setCoins] = useState<number | null>(null);
 
   useEffect(() => {
-    const u = getStoredUser();
-    if (!u) { router.replace("/login"); return; }
-    setUser(u);
-  }, [router]);
+    if (!user) router.replace("/login");
+  }, [router, user]);
+
+  // Fetch coin wallet for this user
+  useEffect(() => {
+    if (!user) return;
+    const isPrajakta = user.fullName.toUpperCase().includes("PRAJAKTA");
+    if (!isPrajakta) return; // Only fetch for Prajakta for now
+    fetch(`${API}/rewards/wallet`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.coins !== undefined) setCoins(data.coins); })
+      .catch(() => {/* silent */});
+  }, [user]);
 
   const handleLogout = () => {
     localStorage.removeItem("rareprint_user");
@@ -176,6 +195,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
         {/* User + logout */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginTop: "8px" }}>
+          {/* Coin wallet badge — shown for Prajakta */}
+          {coins !== null && (
+            <div title={`${coins} reward coins`} style={{
+              display: "flex", flexDirection: "column", alignItems: "center",
+              background: "#92400e", borderRadius: "8px",
+              padding: "4px 6px", marginBottom: "2px",
+              cursor: "default",
+            }}>
+              <span style={{ fontSize: "14px", lineHeight: 1 }}>🪙</span>
+              <span style={{ fontSize: "9px", fontWeight: 700, color: "#fde68a", lineHeight: 1.2 }}>
+                {coins}
+              </span>
+            </div>
+          )}
           <div style={{
             width: "34px", height: "34px", borderRadius: "50%",
             background: "#2563eb", display: "flex", alignItems: "center",
@@ -232,6 +265,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   <strong>RarePrint ERP</strong>
                   <small>{name}</small>
                 </span>
+                {coins !== null && (
+                  <span title={`${coins} reward coins`} style={{
+                    marginLeft: "auto", background: "#92400e", borderRadius: "8px",
+                    padding: "3px 8px", fontSize: "12px", fontWeight: 700, color: "#fde68a",
+                    display: "flex", alignItems: "center", gap: "4px",
+                  }}>
+                    🪙 {coins}
+                  </span>
+                )}
               </div>
               <button
                 type="button"

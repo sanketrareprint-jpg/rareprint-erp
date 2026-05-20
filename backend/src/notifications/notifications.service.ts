@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { RewardsService } from '../rewards/rewards.service';
 
 @Injectable()
 export class NotificationsService {
@@ -19,6 +20,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly rewards: RewardsService,
   ) {}
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -657,7 +659,13 @@ export class NotificationsService {
   }
 
   async resolveNotification(id: string, actionTaken: string) {
-    return this.prisma.notification.update({ where: { id }, data: { isResolved: true, resolvedAt: new Date(), actionTaken } });
+    const updated = await this.prisma.notification.update({
+      where: { id },
+      data: { isResolved: true, resolvedAt: new Date(), actionTaken },
+    });
+    // Award coins to Prajakta if the linked order task was actually completed
+    this.rewards.awardCoinsForNotification(id).catch(() => {/* non-blocking */});
+    return updated;
   }
 
   async addExplanation(id: string, explanation: string) {

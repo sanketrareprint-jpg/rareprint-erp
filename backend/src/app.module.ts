@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -19,9 +20,12 @@ import { CrmModule } from './crm/crm.module';
 import { SalesLearningModule } from './sales-learning/sales-learning.module';
 import { CallAnalysisModule } from './call-analysis/call-analysis.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { TasksModule } from './tasks/tasks.module';
+import { RewardsModule } from './rewards/rewards.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     ScheduleModule.forRoot(),
     AuthModule,
@@ -36,7 +40,9 @@ import { NotificationsModule } from './notifications/notifications.module';
     CrmModule,
     SalesLearningModule,
     CallAnalysisModule,
-    NotificationsModule, 
+    NotificationsModule,
+    TasksModule,
+    RewardsModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

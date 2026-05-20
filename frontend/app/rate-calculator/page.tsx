@@ -31,9 +31,9 @@ type Result = {
 // Cuts per parent sheet — mirrors backend CUTS table
 const CUTS: Record<string, Record<string, number>> = {
   '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32, file: 1,
-            env4x5: 6, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 1, env11x17: 1 },
+            env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 1, env11x17: 1 },
   '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40, file: 2,
-            env4x5: 8, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2 },
+            env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2 },
   '1520': { env9x12: 1 },
 };
 
@@ -51,7 +51,6 @@ type ProductConfig = {
 };
 
 const ENVELOPE_SIZES = [
-  { value: "env4x5",     label: "4×5\" Medicine Pouch" },
   { value: "env425x925", label: "4.25×9.25\" Office / DL" },
   { value: "env425x45",  label: "4.25×4.5\" Small" },
   { value: "env425x63",  label: "4.25×6.3\" Medium" },
@@ -512,21 +511,21 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove, paperOptions }: {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="text-xs font-semibold text-slate-500 block mb-1">{label}</label>
+      <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">{label}</label>
       {children}
     </div>
   );
 }
 function Input({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 focus:outline-none focus:border-blue-400" />;
+  return <input {...props} className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />;
 }
 function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
-  return <select {...props} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">{children}</select>;
+  return <select {...props} className="w-full border border-slate-200 rounded text-xs px-2 py-1 bg-white">{children}</select>;
 }
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 mb-3">
-      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">{title}</p>
+    <div className="bg-white rounded-lg border border-slate-200 p-3 mb-2">
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">{title}</p>
       {children}
     </div>
   );
@@ -829,337 +828,358 @@ export default function RateCalculatorPage() {
 
   return (
     <DashboardShell>
-      <div className="p-4 max-w-3xl mx-auto pb-16">
-        <div className="mb-4">
-          <h1 className="text-xl font-bold text-slate-900">Rate Calculator</h1>
-          <p className="text-sm text-slate-500">Offset · Reverse · Sticker · Master Rates</p>
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* ── Tab bar ── */}
+        <div className="flex gap-1 bg-slate-100 px-2 pt-2 pb-0 shrink-0">
+          <div className="flex gap-1 bg-slate-100 rounded-t-lg p-1 flex-wrap flex-1">
+            <span className="hidden md:flex items-center px-2 text-xs font-bold text-blue-700 whitespace-nowrap">Rate Calc</span>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => {
+                setTab(t.id); setResult(null);
+                if (t.id === "history") loadHistory();
+                if (t.id === "clubbing") loadClubbing();
+              }}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all min-w-[52px] ${tab === t.id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* TABS */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4 flex-wrap">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => {
-              setTab(t.id); setResult(null);
-              if (t.id === "history") loadHistory();
-              if (t.id === "clubbing") loadClubbing();
-            }}
-              className={`flex-1 py-2 px-1 rounded-lg text-xs font-semibold transition-all min-w-[60px] ${tab === t.id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* ── Tab content ── */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-4 pt-2">
 
         {/* ── FORWARD ── */}
         {tab === "forward" && (
-          <>
-            <Card title="📋 Job Details">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Customer Name"><Input value={fCustomer} onChange={e => setFCustomer(e.target.value)} placeholder="e.g. ABC Traders" /></Field>
-                <Field label="Job Name"><Input value={fJob} onChange={e => setFJob(e.target.value)} placeholder="e.g. Letterhead" /></Field>
-              </div>
-            </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 items-start">
+            {/* Left: inputs */}
+            <div>
+              <Card title="📋 Job Details">
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Customer Name"><Input value={fCustomer} onChange={e => setFCustomer(e.target.value)} placeholder="e.g. ABC Traders" /></Field>
+                  <Field label="Job Name"><Input value={fJob} onChange={e => setFJob(e.target.value)} placeholder="e.g. Letterhead" /></Field>
+                </div>
+              </Card>
 
-            <Card title="📄 Paper Layers">
-              {layers.map((l, i) => (
-                <LayerRow key={i} layer={l} idx={i}
-                  onChange={f => setLayers(prev => prev.map((x, j) => j === i ? { ...x, ...f } : x))}
-                  onRemove={() => setLayers(prev => prev.filter((_, j) => j !== i))}
-                  canRemove={layers.length > 1}
-                  paperOptions={paperOptions} />
-              ))}
-              <button
-                onClick={() => setLayers(p => [...p, { psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }])}
-                className="border border-dashed border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
-                + Add Layer
-              </button>
-            </Card>
+              <Card title="📄 Paper Layers">
+                {layers.map((l, i) => (
+                  <LayerRow key={i} layer={l} idx={i}
+                    onChange={f => setLayers(prev => prev.map((x, j) => j === i ? { ...x, ...f } : x))}
+                    onRemove={() => setLayers(prev => prev.filter((_, j) => j !== i))}
+                    canRemove={layers.length > 1}
+                    paperOptions={paperOptions} />
+                ))}
+                <button
+                  onClick={() => setLayers(p => [...p, { psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }])}
+                  className="border border-dashed border-slate-300 rounded px-3 py-1 text-xs text-slate-500 hover:bg-slate-50">
+                  + Add Layer
+                </button>
+              </Card>
 
-            <Card title="✂️ Finishing Options">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <Field label="Lamination">
-                  <Select value={fLam} onChange={e => setFLam(e.target.value as LamOption)}>
-                    <option value="none">None</option>
-                    <option value="gloss-single">Gloss — Single Side</option>
-                    <option value="gloss-double">Gloss — Double Side</option>
-                    <option value="matt-single">Matt — Single Side</option>
-                    <option value="matt-double">Matt — Double Side</option>
-                  </Select>
-                </Field>
-                <Field label="Pad Binding">
-                  <Select value={fPad} onChange={e => setFPad(e.target.value)}>
-                    <option value="no">No</option>
-                    <option value="yes">Yes</option>
-                  </Select>
-                </Field>
-                {fPad === "yes" && <>
-                  <Field label="Pad Size">
-                    <Select value={fPadSize} onChange={e => setFPadSize(e.target.value)}>
-                      <option value="A4">A4</option><option value="A5">A5</option>
-                      <option value="A6">A6</option><option value="A8">A8</option>
-                      <option value="1/3A4">1/3 A4</option>
+              <Card title="✂️ Finishing">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <Field label="Lamination">
+                    <Select value={fLam} onChange={e => setFLam(e.target.value as LamOption)}>
+                      <option value="none">None</option>
+                      <option value="gloss-single">Gloss Single</option>
+                      <option value="gloss-double">Gloss Double</option>
+                      <option value="matt-single">Matt Single</option>
+                      <option value="matt-double">Matt Double</option>
                     </Select>
                   </Field>
-                  <Field label="No. of Pads">
-                    <Input type="number" value={fPads} onChange={e => setFPads(+e.target.value)} />
+                  <Field label="Pad Binding">
+                    <Select value={fPad} onChange={e => setFPad(e.target.value)}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </Select>
                   </Field>
-                </>}
-                <Field label="File Punching">
-                  <Select value={fPunch} onChange={e => setFPunch(e.target.value)}>
-                    <option value="no">No</option>
-                    <option value="yes">Yes</option>
-                  </Select>
-                </Field>
-                <Field label="Envelope Making">
-                  <Select value={fEnv} onChange={e => setFEnv(e.target.value)}>
-                    <option value="none">None</option>
-                    {ENVELOPE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </Select>
-                </Field>
-              </div>
-            </Card>
+                  {fPad === "yes" && <>
+                    <Field label="Pad Size">
+                      <Select value={fPadSize} onChange={e => setFPadSize(e.target.value)}>
+                        <option value="A4">A4</option><option value="A5">A5</option>
+                        <option value="A6">A6</option><option value="A8">A8</option>
+                        <option value="1/3A4">1/3 A4</option>
+                      </Select>
+                    </Field>
+                    <Field label="No. of Pads">
+                      <Input type="number" value={fPads} onChange={e => setFPads(+e.target.value)} />
+                    </Field>
+                  </>}
+                  <Field label="File Punching">
+                    <Select value={fPunch} onChange={e => setFPunch(e.target.value)}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </Select>
+                  </Field>
+                  <Field label="Envelope Making">
+                    <Select value={fEnv} onChange={e => setFEnv(e.target.value)}>
+                      <option value="none">None</option>
+                      {ENVELOPE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </Select>
+                  </Field>
+                </div>
+              </Card>
 
-            <Card title="💰 Selling Multiplier">
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <Field label={`Multiplier (×) — ${multHint}`}>
-                  <Input type="number" step="0.01" placeholder={String(masterMult)}
-                    value={fMult} onChange={e => setFMult(e.target.value === "" ? "" : +e.target.value)} />
-                </Field>
-                <button onClick={calcForward} disabled={loading}
-                  className="bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
-                  {loading ? "Calculating…" : "🧮 Calculate"}
-                </button>
-              </div>
-              <p className="text-xs text-slate-400 mt-2">Leave blank to use default multiplier from Master Rates. The multiplier covers margin + GST together.</p>
-            </Card>
+              <Card title="💰 Multiplier">
+                <div className="grid grid-cols-2 gap-2 items-end">
+                  <Field label={`Multiplier (×) — ${multHint}`}>
+                    <Input type="number" step="0.01" placeholder={String(masterMult)}
+                      value={fMult} onChange={e => setFMult(e.target.value === "" ? "" : +e.target.value)} />
+                  </Field>
+                  <button onClick={calcForward} disabled={loading}
+                    className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
+                    {loading ? "Calculating…" : "🧮 Calculate"}
+                  </button>
+                </div>
+              </Card>
+            </div>
 
-            {result && (
-              <>
-                <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
-                <CommissionPanel
-                  cost={result.subtotal}
-                  total={result.total}
-                  qty={result.totalQty ?? layers[0]?.qty ?? 0}
-                  isAdmin={isAdmin}
-                />
-              </>
-            )}
-          </>
+            {/* Right: result */}
+            <div className="lg:sticky lg:top-0">
+              {result && (
+                <>
+                  <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                  <CommissionPanel
+                    cost={result.subtotal}
+                    total={result.total}
+                    qty={result.totalQty ?? layers[0]?.qty ?? 0}
+                    isAdmin={isAdmin}
+                  />
+                </>
+              )}
+              {!result && (
+                <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
+                  <span className="text-2xl">🧮</span>
+                  Fill details and click Calculate
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* ── REVERSE ── */}
         {tab === "reverse" && (
-          <>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 mb-3">
-              📌 Enter what your customer wants — the system calculates parent sheets, costs and quote automatically.
-            </div>
-
-            <Card title="📦 Customer Requirement">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Customer Name"><Input value={rCustomer} onChange={e => setRCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
-                <Field label="Product Type">
-                  <Select value={rProduct} onChange={e => setRProduct(e.target.value)}>
-                    {Object.entries(PRODUCT_CONFIG).map(([val, cfg]) => (
-                      <option key={val} value={val}>{cfg.label}</option>
-                    ))}
-                  </Select>
-                </Field>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 items-start">
+            {/* Left: inputs */}
+            <div>
+              <div className="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-xs text-blue-700 mb-2">
+                📌 Enter what your customer wants — costs and quote calculated automatically.
               </div>
-            </Card>
 
-            <Card title="🔢 Requirement Details">
-              {/* Fixed-size product info badge */}
-              {PRODUCT_CONFIG[rProduct]?.fixedInfo && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-medium mb-3">
-                  📐 {PRODUCT_CONFIG[rProduct].fixedInfo}
-                </div>
-              )}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <Field label={PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit ? "No. of Pads / Books" : "Quantity"}>
-                  <Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} />
-                </Field>
-
-                {/* Pages per pad — only for pads/billbook */}
-                {PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit && (
-                  <Field label="Pages per Pad / Book">
-                    <Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} />
-                  </Field>
-                )}
-
-                {/* Final size — hidden when fixed */}
-                {!PRODUCT_CONFIG[rProduct]?.fixedSize && PRODUCT_CONFIG[rProduct]?.sizes && (
-                  <Field label="Final Size">
-                    <Select value={rSize} onChange={e => setRSize(e.target.value)}>
-                      {PRODUCT_CONFIG[rProduct].sizes!.map(s => (
-                        <option key={s.value} value={s.value}>{s.label}</option>
+              <Card title="📦 Requirement">
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Customer Name"><Input value={rCustomer} onChange={e => setRCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
+                  <Field label="Product Type">
+                    <Select value={rProduct} onChange={e => setRProduct(e.target.value)}>
+                      {Object.entries(PRODUCT_CONFIG).map(([val, cfg]) => (
+                        <option key={val} value={val}>{cfg.label}</option>
                       ))}
                     </Select>
                   </Field>
-                )}
-
-                <Field label="Paper Type">
-                  <Select value={rPaper} onChange={e => setRPaper(e.target.value)}>
-                    {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                  </Select>
-                </Field>
-
-                {/* Parent sheet — always auto-selected & locked, never a free dropdown */}
-                <div className="col-span-1">
-                  <label className="text-xs font-semibold text-slate-500 block mb-1">Parent Sheet Size</label>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-xs text-amber-800 font-medium">
-                    🔒 Auto: {parentLabel}
-                  </div>
                 </div>
+              </Card>
 
-                <Field label="No. of Colors">
-                  <Select value={rColors} onChange={e => setRColors(+e.target.value)}>
-                    <option value={1}>1 Color</option>
-                    <option value={2}>2 Color</option>
-                    <option value={4}>4 Colors (CMYK)</option>
-                  </Select>
-                </Field>
-                <Field label="Printing Side">
-                  <Select value={rSides} onChange={e => setRSides(e.target.value)}>
-                    <option value="single">Single Side</option>
-                    <option value="double">Double Side</option>
-                  </Select>
-                </Field>
-                {/* Lamination only for products that get laminated */}
-                {["letterhead","pamphlet","visiting","file"].includes(rProduct) && (
-                <Field label="Lamination">
-                  <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
-                    <option value="none">None</option>
-                    <option value="gloss-single">Gloss — Single Side</option>
-                    <option value="gloss-double">Gloss — Double Side</option>
-                    <option value="matt-single">Matt — Single Side</option>
-                    <option value="matt-double">Matt — Double Side</option>
-                  </Select>
-                </Field>
+              <Card title="🔢 Details">
+                {PRODUCT_CONFIG[rProduct]?.fixedInfo && (
+                  <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs text-amber-800 font-medium mb-2">
+                    📐 {PRODUCT_CONFIG[rProduct].fixedInfo}
+                  </div>
                 )}
-              </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <Field label={PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit ? "No. of Pads / Books" : "Quantity"}>
+                    <Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                  </Field>
+                  {PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit && (
+                    <Field label="Pages per Pad / Book">
+                      <Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} />
+                    </Field>
+                  )}
+                  {!PRODUCT_CONFIG[rProduct]?.fixedSize && PRODUCT_CONFIG[rProduct]?.sizes && (
+                    <Field label="Final Size">
+                      <Select value={rSize} onChange={e => setRSize(e.target.value)}>
+                        {PRODUCT_CONFIG[rProduct].sizes!.map(s => (
+                          <option key={s.value} value={s.value}>{s.label}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  )}
+                  <Field label="Paper Type">
+                    <Select value={rPaper} onChange={e => setRPaper(e.target.value)}>
+                      {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </Select>
+                  </Field>
+                  <div className="col-span-1">
+                    <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Parent Sheet Size</label>
+                    <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs text-amber-800 font-medium">
+                      🔒 Auto: {parentLabel}
+                    </div>
+                  </div>
+                  <Field label="No. of Colors">
+                    <Select value={rColors} onChange={e => setRColors(+e.target.value)}>
+                      <option value={1}>1 Color</option>
+                      <option value={2}>2 Color</option>
+                      <option value={4}>4 Colors (CMYK)</option>
+                    </Select>
+                  </Field>
+                  <Field label="Printing Side">
+                    <Select value={rSides} onChange={e => setRSides(e.target.value)}>
+                      <option value="single">Single Side</option>
+                      <option value="double">Double Side</option>
+                    </Select>
+                  </Field>
+                  {["letterhead","pamphlet","visiting","file"].includes(rProduct) && (
+                    <Field label="Lamination">
+                      <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
+                        <option value="none">None</option>
+                        <option value="gloss-single">Gloss Single</option>
+                        <option value="gloss-double">Gloss Double</option>
+                        <option value="matt-single">Matt Single</option>
+                        <option value="matt-double">Matt Double</option>
+                      </Select>
+                    </Field>
+                  )}
+                </div>
+                <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                  {rProduct === "pads" || rProduct === "billbook"
+                    ? <>{rQty} × {rSheets} pages = <strong>{reversePieces.toLocaleString()} pieces</strong></>
+                    : <strong>{reversePieces.toLocaleString()} pieces</strong>
+                  }
+                  {reverseCuts > 0
+                    ? <> → {reverseCuts} cuts → <strong>{reverseParentSheets.toLocaleString()} sheets of {parentLabel}</strong>
+                        {rColors === 4
+                          ? <> → 4-color on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
+                          : <> → billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
+                        }
+                      </>
+                    : <span className="text-amber-600"> → ⚠ Size not available on {parentLabel}</span>
+                  }
+                </div>
+              </Card>
 
-              {/* Auto-calculation hint */}
-              <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs text-slate-600">
-                <strong>Auto-calculation:</strong>&nbsp;
-                {rProduct === "pads" || rProduct === "billbook"
-                  ? <>{rQty} × {rSheets} pages = <strong>{reversePieces.toLocaleString()} total pieces</strong></>
-                  : <strong>{reversePieces.toLocaleString()} pieces</strong>
-                }
-                {reverseCuts > 0
-                  ? <>{" → "}{reverseCuts} cuts/sheet
-                      {" → "}<strong>{reverseParentSheets.toLocaleString()} parent sheets of {parentLabel}</strong>
-                      {rColors === 4
-                        ? <> → 4-color billed on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
-                        : <> → {rColors}-color billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
-                      }
-                    </>
-                  : <span className="text-amber-600"> → ⚠ This size is not available on {parentLabel} parent sheet</span>
-                }
-              </div>
-            </Card>
+              <Card title="💰 Multiplier">
+                <div className="grid grid-cols-2 gap-2 items-end">
+                  <Field label={`Multiplier (×) — ${multHint}`}>
+                    <Input type="number" step="0.01" placeholder={String(masterMult)}
+                      value={rMult} onChange={e => setRMult(e.target.value === "" ? "" : +e.target.value)} />
+                  </Field>
+                  <button onClick={calcReverse} disabled={loading}
+                    className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
+                    {loading ? "Calculating…" : "🧮 Calculate"}
+                  </button>
+                </div>
+              </Card>
+            </div>
 
-            <Card title="💰 Selling Multiplier">
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <Field label={`Multiplier (×) — ${multHint}`}>
-                  <Input type="number" step="0.01" placeholder={String(masterMult)}
-                    value={rMult} onChange={e => setRMult(e.target.value === "" ? "" : +e.target.value)} />
-                </Field>
-                <button onClick={calcReverse} disabled={loading}
-                  className="bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
-                  {loading ? "Calculating…" : "🧮 Calculate"}
-                </button>
-              </div>
-              <p className="text-xs text-slate-400 mt-2">Leave blank to use default multiplier from Master Rates.</p>
-            </Card>
-
-            {result && (
-              <>
-                <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
-                {result?.clubbing && (
-                  <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
-                )}
-                <CommissionPanel
-                  cost={result.subtotal}
-                  total={result.total}
-                  qty={result.totalQty ?? rQty}
-                  isAdmin={isAdmin}
-                />
-              </>
-            )}
-          </>
+            {/* Right: result */}
+            <div className="lg:sticky lg:top-0">
+              {result && (
+                <>
+                  <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                  {result?.clubbing && (
+                    <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
+                  )}
+                  <CommissionPanel
+                    cost={result.subtotal}
+                    total={result.total}
+                    qty={result.totalQty ?? rQty}
+                    isAdmin={isAdmin}
+                  />
+                </>
+              )}
+              {!result && (
+                <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
+                  <span className="text-2xl">🧮</span>
+                  Fill details and click Calculate
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* ── STICKER ── */}
         {tab === "sticker" && (
-          <>
-            <Card title="🏷 Sticker Details">
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Width (in)"><Input type="number" step="0.1" value={sW} onChange={e => setSW(+e.target.value)} /></Field>
-                <Field label="Height (in)"><Input type="number" step="0.1" value={sH} onChange={e => setSH(+e.target.value)} /></Field>
-                <Field label="Quantity"><Input type="number" value={sQty} onChange={e => setSQty(+e.target.value)} /></Field>
-              </div>
-            </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 items-start">
+            {/* Left: inputs */}
+            <div>
+              <Card title="🏷 Sticker Details">
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Width (in)"><Input type="number" step="0.1" value={sW} onChange={e => setSW(+e.target.value)} /></Field>
+                  <Field label="Height (in)"><Input type="number" step="0.1" value={sH} onChange={e => setSH(+e.target.value)} /></Field>
+                  <Field label="Quantity"><Input type="number" value={sQty} onChange={e => setSQty(+e.target.value)} /></Field>
+                </div>
+              </Card>
 
-            <Card title="📐 Sheet Layout">
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
-                Grid: {sCols}×{sRows} = <strong>{stickersPerSheet} stickers/sheet</strong> | Sheet: <strong>{sheetW}" × {sheetH}"</strong> | Sheets needed: <strong>{sheetsNeeded}</strong>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Columns"><Input type="number" value={sCols} onChange={e => setSCols(+e.target.value)} /></Field>
-                <Field label="Rows"><Input type="number" value={sRows} onChange={e => setSRows(+e.target.value)} /></Field>
-                <Field label="Margin per side (in)"><Input type="number" step="0.05" value={sMarg} onChange={e => setSMarg(+e.target.value)} /></Field>
-              </div>
-            </Card>
+              <Card title="📐 Sheet Layout">
+                <div className="bg-blue-50 border border-blue-100 rounded p-2 text-xs text-blue-700 mb-2">
+                  Grid: {sCols}×{sRows} = <strong>{stickersPerSheet} stickers/sheet</strong> · Sheet: <strong>{sheetW}"×{sheetH}"</strong> · Sheets: <strong>{sheetsNeeded}</strong>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Columns"><Input type="number" value={sCols} onChange={e => setSCols(+e.target.value)} /></Field>
+                  <Field label="Rows"><Input type="number" value={sRows} onChange={e => setSRows(+e.target.value)} /></Field>
+                  <Field label="Margin/side (in)"><Input type="number" step="0.05" value={sMarg} onChange={e => setSMarg(+e.target.value)} /></Field>
+                </div>
+              </Card>
 
-            <Card title="⚙ Calculation Mode">
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <Field label="Mode">
-                  <Select value={sMode} onChange={e => setSMode(e.target.value)}>
-                    <option value="inhouse">In-House</option>
-                    <option value="outsource">Outsource to Vendor</option>
-                  </Select>
-                </Field>
-                <Field label="Half Cutting">
-                  <Select value={sHalfcut} onChange={e => setSHalfcut(e.target.value)}>
-                    <option value="no">No</option><option value="yes">Yes</option>
-                  </Select>
-                </Field>
-              </div>
-              {sMode === "inhouse" && (
-                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100">
-                  <Field label="Paper Rate (₹/sheet)"><Input type="number" step="0.1" value={sPaperRate} onChange={e => setSPaperRate(+e.target.value)} /></Field>
-                  <Field label="Printing Rate (₹/sheet)"><Input type="number" step="0.1" value={sPrintRate} onChange={e => setSPrintRate(+e.target.value)} /></Field>
-                  {sHalfcut === "yes" && <Field label="Half Cut % of total"><Input type="number" value={sHcPct} onChange={e => setSHcPct(+e.target.value)} /></Field>}
+              <Card title="⚙ Mode">
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <Field label="Mode">
+                    <Select value={sMode} onChange={e => setSMode(e.target.value)}>
+                      <option value="inhouse">In-House</option>
+                      <option value="outsource">Outsource</option>
+                    </Select>
+                  </Field>
+                  <Field label="Half Cutting">
+                    <Select value={sHalfcut} onChange={e => setSHalfcut(e.target.value)}>
+                      <option value="no">No</option><option value="yes">Yes</option>
+                    </Select>
+                  </Field>
+                </div>
+                {sMode === "inhouse" && (
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                    <Field label="Paper (₹/sheet)"><Input type="number" step="0.1" value={sPaperRate} onChange={e => setSPaperRate(+e.target.value)} /></Field>
+                    <Field label="Printing (₹/sheet)"><Input type="number" step="0.1" value={sPrintRate} onChange={e => setSPrintRate(+e.target.value)} /></Field>
+                    {sHalfcut === "yes" && <Field label="Half Cut %"><Input type="number" value={sHcPct} onChange={e => setSHcPct(+e.target.value)} /></Field>}
+                  </div>
+                )}
+                {sMode === "outsource" && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+                    <Field label="₹/sq in"><Input type="number" step="0.001" value={sVendorRate} onChange={e => setSVendorRate(+e.target.value)} /></Field>
+                    <Field label="Transport (₹)"><Input type="number" value={sTransport} onChange={e => setSTransport(+e.target.value)} /></Field>
+                    {sHalfcut === "yes" && <Field label="Half Cut %"><Input type="number" value={sHcPct2} onChange={e => setSHcPct2(+e.target.value)} /></Field>}
+                  </div>
+                )}
+              </Card>
+
+              <Card title="💰 Multiplier">
+                <div className="grid grid-cols-2 gap-2 items-end">
+                  <Field label={`Multiplier (×) — ${multHint}`}>
+                    <Input type="number" step="0.01" placeholder={String(masterMult)}
+                      value={sMult} onChange={e => setSMult(e.target.value === "" ? "" : +e.target.value)} />
+                  </Field>
+                  <button onClick={calcSticker} disabled={loading}
+                    className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
+                    {loading ? "Calculating…" : "🧮 Calculate"}
+                  </button>
+                </div>
+              </Card>
+            </div>
+
+            {/* Right: result */}
+            <div className="lg:sticky lg:top-0">
+              {result && (
+                <>
+                  <ResultCard result={result} perLabel="Per Sticker" desc={resultDesc} isAdmin={isAdmin} />
+                  <CommissionPanel cost={result.subtotal} total={result.total} qty={sQty} isAdmin={isAdmin} />
+                </>
+              )}
+              {!result && (
+                <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
+                  <span className="text-2xl">🏷</span>
+                  Fill details and click Calculate
                 </div>
               )}
-              {sMode === "outsource" && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
-                  <Field label="Rate per sq in (₹)"><Input type="number" step="0.001" value={sVendorRate} onChange={e => setSVendorRate(+e.target.value)} /></Field>
-                  <Field label="Transport (₹)"><Input type="number" value={sTransport} onChange={e => setSTransport(+e.target.value)} /></Field>
-                  {sHalfcut === "yes" && <Field label="Half Cut %"><Input type="number" value={sHcPct2} onChange={e => setSHcPct2(+e.target.value)} /></Field>}
-                </div>
-              )}
-            </Card>
-
-            <Card title="💰 Selling Multiplier">
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <Field label={`Multiplier (×) — ${multHint}`}>
-                  <Input type="number" step="0.01" placeholder={String(masterMult)}
-                    value={sMult} onChange={e => setSMult(e.target.value === "" ? "" : +e.target.value)} />
-                </Field>
-                <button onClick={calcSticker} disabled={loading}
-                  className="bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
-                  {loading ? "Calculating…" : "🧮 Calculate"}
-                </button>
-              </div>
-            </Card>
-
-            {result && (
-              <>
-                <ResultCard result={result} perLabel="Per Sticker" desc={resultDesc} isAdmin={isAdmin} />
-                <CommissionPanel cost={result.subtotal} total={result.total} qty={sQty} isAdmin={isAdmin} />
-              </>
-            )}
-          </>
+            </div>
+          </div>
         )}
 
 
@@ -1435,7 +1455,42 @@ export default function RateCalculatorPage() {
           </>
         )}
 
-      </div>
+        </div>{/* end tab content scroll area */}
+      </div>{/* end flex-col h-full */}
+    </DashboardShell>
+  );
+}
+
+// ─── ADD TIER ROW ─────────────────────────────────────────────────────────────
+function AddTierRow({ onAdd }: { onAdd: (tier: string, val: string) => void }) {
+  const [qty, setQty] = useState("");
+  const [rate, setRate] = useState("");
+  const handle = () => {
+    if (!qty || !rate) return;
+    const tier = String(Math.max(1000, Math.round(Number(qty) / 1000) * 1000));
+    onAdd(tier, rate);
+    setQty(""); setRate("");
+  };
+  return (
+    <div className="flex gap-2 items-center pt-1 border-t border-dashed border-slate-200">
+      <input type="number" step="1000" min="1000" placeholder="qty" value={qty}
+        onChange={e => setQty(e.target.value)}
+        className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
+      <input type="number" step="0.1" placeholder="per pc" value={rate}
+        onChange={e => setRate(e.target.value)}
+        className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
+      <button onClick={handle}
+        className="bg-blue-500 hover:bg-blue-600 text-white rounded px-2 py-1 text-xs font-semibold">+ Add</button>
+    </div>
+  );
+}
+            {clubbingSaved && <p className="text-center text-purple-700 font-semibold text-sm mt-2">Clubbing rates saved!</p>}
+            {clubbingError && <p className="text-center text-red-600 text-sm mt-2">{clubbingError}</p>}
+          </>
+        )}
+
+        </div>{/* end tab content scroll area */}
+      </div>{/* end flex-col h-full */}
     </DashboardShell>
   );
 }

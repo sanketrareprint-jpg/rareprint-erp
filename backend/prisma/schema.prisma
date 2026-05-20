@@ -25,6 +25,8 @@ model User {
   shipmentsHandled  Shipment[]      @relation("ShipmentHandledBy")
   statusLogsCreated StatusLog[]     @relation("StatusChangedBy")
   itemStageLogs     ItemStageLog[]  @relation("ItemStageChangedBy")
+  tasksCreated      Task[]          @relation("TaskCreatedBy")
+  tasksAssigned     Task[]          @relation("TaskAssignedTo")
   agentLeads     Lead[]         @relation("AgentLeads")
   leadActivities LeadActivity[] @relation("ActivityCreator")
   learningProgress   UserTopicProgress[]   @relation("UserLearning")
@@ -813,6 +815,40 @@ model DailyLearningStreak {
   @@index([userId])
 }
 
+model Task {
+  id           String      @id @default(cuid())
+  title        String
+  description  String?
+  status       TaskStatus  @default(OPEN)
+  priority     TaskPriority @default(NORMAL)
+  dueDate      DateTime?
+  createdById  String
+  assignedToId String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  completedAt  DateTime?
+  createdBy    User        @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User        @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+
+  @@index([assignedToId, status, dueDate])
+  @@index([createdById, createdAt])
+  @@index([status, dueDate])
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 model CallAnalysis {
   id                 String   @id @default(cuid())
   agentId            String
@@ -872,6 +908,29 @@ model QuoteHistory {
 
   @@index([createdAt])
   @@index([customer])
+}
+
+// ── Reward System ────────────────────────────────────────────────────────────
+model RewardWallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  coins        Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  transactions RewardTransaction[]
+}
+
+model RewardTransaction {
+  id             String       @id @default(cuid())
+  walletId       String
+  coins          Int
+  reason         String
+  notificationId String?
+  orderId        String?
+  createdAt      DateTime     @default(now())
+  wallet         RewardWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
 }
 
 model Notification {
