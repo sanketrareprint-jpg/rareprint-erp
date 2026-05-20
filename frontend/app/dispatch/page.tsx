@@ -7,6 +7,7 @@ import { Loader2, Package, Truck, CheckSquare, Square, Search, X } from "lucide-
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
+type Warehouse = { id: string; name: string; pincode: string; location: string };
 
 type DispatchOrder = {
   id: string; orderNo: string; customerName: string;
@@ -54,6 +55,9 @@ export default function DispatchPage() {
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [courierFilter, setCourierFilter] = useState("ALL");
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [selectedWarehouse, setSelectedWarehouse] = useState<Record<string, string>>({});
+  const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setError(null); setLoading(true);
@@ -71,6 +75,15 @@ export default function DispatchPage() {
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/dispatch/warehouses`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: Warehouse[]) => {
+        if (Array.isArray(data) && data.length > 0) setWarehouses(data);
+      })
+      .catch(() => {});
+  }, []);
 
   function toggleItem(orderId: string, itemId: string) {
     setSelectedItems(prev => {
@@ -91,7 +104,12 @@ export default function DispatchPage() {
   async function fetchRates(orderId: string) {
     setRatesLoading(orderId);
     try {
-      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}`, { headers: getAuthHeaders() });
+      const wid = selectedWarehouse[orderId] || warehouses[0]?.id || "";
+      const wkg = parseFloat(weightOverride[orderId] || "0");
+      const params = new URLSearchParams();
+      if (wid) params.set("warehouseId", wid);
+      if (wkg > 0) params.set("weightKg", String(wkg));
+      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) { alert("Could not fetch rates"); return; }
       const data = await res.json();
       setRates(prev => ({ ...prev, [orderId]: data.rates }));
@@ -110,7 +128,13 @@ export default function DispatchPage() {
       const res = await fetch(`${API_BASE_URL}/dispatch/book`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, itemIds, rateId, isCod: orderData?.isCod ?? false, codAmount: orderData?.codAmount ?? undefined }),
+        body: JSON.stringify({
+          orderId, itemIds, rateId,
+          isCod: orderData?.isCod ?? false,
+          codAmount: orderData?.codAmount ?? undefined,
+          warehouseId: selectedWarehouse[orderId] || warehouses[0]?.id,
+          weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
+        }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Booking failed"); return; }
@@ -271,10 +295,35 @@ export default function DispatchPage() {
 
                     {/* Rates */}
                     <div className="px-6 py-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Shipping</p>
+                      <div className="flex flex-wrap items-end gap-3 mb-3">
+                        <div className="flex-1 min-w-[160px]">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Shipping</p>
+                          {warehouses.length > 1 && (
+                            <select
+                              value={selectedWarehouse[o.id] || warehouses[0]?.id || ""}
+                              onChange={e => setSelectedWarehouse(prev => ({ ...prev, [o.id]: e.target.value }))}
+                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
+                              {warehouses.map(w => (
+                                <option key={w.id} value={w.id}>{w.name} ({w.pincode})</option>
+                              ))}
+                            </select>
+                          )}
+                          {warehouses.length === 1 && (
+                            <p className="text-xs text-slate-600">📦 {warehouses[0]?.name} ({warehouses[0]?.pincode})</p>
+                          )}
+                        </div>
+                        <div className="min-w-[110px]">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Weight (kg)</p>
+                          <input
+                            type="number" step="0.1" min="0.1"
+                            placeholder={selectedWeight.toFixed(2)}
+                            value={weightOverride[o.id] || ""}
+                            onChange={e => setWeightOverride(prev => ({ ...prev, [o.id]: e.target.value }))}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
+                          />
+                        </div>
                         <button onClick={() => fetchRates(o.id)} disabled={ratesLoading === o.id || !someSelected}
-                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">
+                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50 self-end">
                           {ratesLoading === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
                           Fetch Rates
                         </button>

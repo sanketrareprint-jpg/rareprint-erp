@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { DispatchService } from './dispatch.service';
@@ -15,14 +15,32 @@ export class DispatchController {
     return this.dispatchService.listReadyForDispatch();
   }
 
+  @Get('warehouses')
+  getWarehouses() {
+    return this.dispatchService.getWarehouses();
+  }
+
   @Get('rates/:orderId')
-  getRates(@Param('orderId') orderId: string) {
-    return this.dispatchService.getRates(orderId);
+  getRates(
+    @Param('orderId') orderId: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('weightKg') weightKgStr?: string,
+  ) {
+    const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
+    return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride);
   }
 
   @Post('book')
   book(
-    @Body() body: { orderId: string; itemIds: string[]; rateId: string; isCod?: boolean; codAmount?: number },
+    @Body() body: {
+      orderId: string;
+      itemIds: string[];
+      rateId: string;
+      isCod?: boolean;
+      codAmount?: number;
+      warehouseId?: string;
+      weightKgOverride?: number;
+    },
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.dispatchService.bookItems(
@@ -30,8 +48,10 @@ export class DispatchController {
       body.itemIds,
       body.rateId,
       req.user.id,
-      body.isCod,  // do NOT coerce undefined→false; service falls back to order notes detection
+      body.isCod,
       body.codAmount,
+      body.warehouseId,
+      body.weightKgOverride,
     );
   }
 }

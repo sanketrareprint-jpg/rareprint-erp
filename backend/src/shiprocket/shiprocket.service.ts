@@ -146,10 +146,12 @@ export class ShiprocketService {
     courierCompanyId: number;
     isCod?: boolean;
     codAmount?: number;
+    pickupLocation?: string;
   }): Promise<{ shiprocketOrderId?: string; message?: string }> {
     if (!this.isConfigured()) return {};
     const token = await this.getAuthToken();
     const pickupLocation =
+      input.pickupLocation?.trim() ||
       process.env.SHIPROCKET_PICKUP_LOCATION?.trim() || 'Primary';
     const orderDate = new Date().toISOString().slice(0, 10);
 
