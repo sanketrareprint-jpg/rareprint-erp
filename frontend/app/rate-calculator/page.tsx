@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type Tab = "forward" | "reverse" | "sticker" | "rates" | "history" | "clubbing";
@@ -203,30 +203,35 @@ function DynamicPaperRates({ data, onUpdate }: { data: Record<string, number>; o
   );
 }
 
-function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; perLabel?: string; desc?: string }) {
+function ResultCard({ result, perLabel = "Per Piece", desc, isAdmin = true }: {
+  result: Result; perLabel?: string; desc?: string; isAdmin?: boolean;
+}) {
   const perVal = result.perPiece ?? result.perSticker ?? 0;
   return (
     <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-4">
       <p className="text-sm font-bold text-green-800 mb-2">📊 Quote Breakdown</p>
       {desc && <p className="text-xs text-slate-500 mb-3">{desc}</p>}
-      <div className="space-y-1">
-        {result.breakdown.map((r, i) => (
-          <div key={i} className="flex justify-between text-xs py-1 border-b border-green-100">
-            <span className="text-slate-600">{r.label}</span>
-            <span className="font-semibold text-slate-800">{fmt(r.amount)}</span>
-          </div>
-        ))}
-        <div className="flex justify-between text-xs py-1 border-b border-green-100">
-          <span className="text-slate-600">Total Cost (before multiplier)</span>
-          <span className="font-semibold">{fmt(result.subtotal)}</span>
-        </div>
-        {result.multiplier && (
+      {/* Cost breakdown — admin only */}
+      {isAdmin && (
+        <div className="space-y-1">
+          {result.breakdown.map((r, i) => (
+            <div key={i} className="flex justify-between text-xs py-1 border-b border-green-100">
+              <span className="text-slate-600">{r.label}</span>
+              <span className="font-semibold text-slate-800">{fmt(r.amount)}</span>
+            </div>
+          ))}
           <div className="flex justify-between text-xs py-1 border-b border-green-100">
-            <span className="text-slate-500">Multiplier applied</span>
-            <span className="text-slate-500">×{result.multiplier}</span>
+            <span className="text-slate-600">Total Cost (before multiplier)</span>
+            <span className="font-semibold">{fmt(result.subtotal)}</span>
           </div>
-        )}
-      </div>
+          {result.multiplier && (
+            <div className="flex justify-between text-xs py-1 border-b border-green-100">
+              <span className="text-slate-500">Multiplier applied</span>
+              <span className="text-slate-500">×{result.multiplier}</span>
+            </div>
+          )}
+        </div>
+      )}
       <div className="bg-green-700 text-white rounded-lg px-4 py-2.5 flex justify-between items-center mt-3">
         <span className="font-bold text-sm">Total Quote (incl. margin + GST)</span>
         <span className="font-extrabold text-lg">{fmt(result.total)}</span>
@@ -237,6 +242,138 @@ function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; 
           <span className="font-bold">{fmt(perVal)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── COMMISSION PANEL ─────────────────────────────────────────────────────────
+// Office agents: 10% of selling price  = ~1/4 of profit at ×1.67
+// WFH agents:   12% of selling price  = ~30% of profit at ×1.67
+// When discount given → profit shrinks; % of selling stays same, % of profit goes up
+const COMMISSION_RATES = { office: 0.10, wfh: 0.12 };
+
+function CommissionPanel({ cost, total, qty, isAdmin }: {
+  cost: number; total: number; qty: number; isAdmin: boolean;
+}) {
+  const [agentType, setAgentType] = useState<"office" | "wfh">("office");
+  const [customPrice, setCustomPrice] = useState("");
+  const rate = COMMISSION_RATES[agentType];
+
+  const scenarios = [
+    { label: "No Discount", price: total, disc: 0 },
+    { label: "5% Discount",  price: total * 0.95, disc: 5 },
+    { label: "10% Discount", price: total * 0.90, disc: 10 },
+  ];
+
+  const customVal = customPrice !== "" ? parseFloat(customPrice) : null;
+  const belowCost = customVal !== null && customVal < cost;
+
+  const commissionOf = (price: number) => price * rate;
+  const profitOf     = (price: number) => price - cost;
+  const profitPct    = (price: number) => cost > 0 ? ((price - cost) / price * 100) : 0;
+  const commPctOfProfit = (price: number) => profitOf(price) > 0 ? (commissionOf(price) / profitOf(price) * 100) : 0;
+
+  return (
+    <div className="border border-blue-200 rounded-xl p-4 mt-3 bg-blue-50">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-sm font-bold text-blue-800">💰 Commission Calculator</p>
+        <div className="flex gap-1">
+          <button onClick={() => setAgentType("office")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${agentType === "office" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-blue-600 border-blue-300"}`}>
+            🏢 Office (10%)
+          </button>
+          <button onClick={() => setAgentType("wfh")}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${agentType === "wfh" ? "bg-purple-600 text-white border-purple-600" : "bg-white text-purple-600 border-purple-300"}`}>
+            🏠 WFH (12%)
+          </button>
+        </div>
+      </div>
+
+      <p className="text-xs text-blue-600 mb-3">
+        Commission = <strong>{(rate * 100).toFixed(0)}% of selling price</strong>
+        {isAdmin && <> = ~{(rate / (1 - 1/1.67) * 100 / 1.67).toFixed(0)}% of profit at ×1.67 multiplier</>}
+      </p>
+
+      {/* Scenario table */}
+      <div className="rounded-lg overflow-hidden border border-blue-200">
+        {/* Header */}
+        <div className={`grid text-xs font-bold text-white py-2 px-3 ${isAdmin ? "grid-cols-5" : "grid-cols-3"} bg-blue-700`}>
+          <span>Scenario</span>
+          <span className="text-right">Order Value</span>
+          {isAdmin && <><span className="text-right">Profit</span><span className="text-right">Net (after comm.)</span></>}
+          <span className="text-right">Your Commission</span>
+        </div>
+        {/* Rows */}
+        {scenarios.map((s, i) => {
+          const comm = commissionOf(s.price);
+          const profit = profitOf(s.price);
+          const net = profit - comm;
+          const belowCostRow = s.price < cost;
+          return (
+            <div key={i} className={`grid text-xs py-2 px-3 border-t border-blue-100 items-center ${isAdmin ? "grid-cols-5" : "grid-cols-3"} ${belowCostRow ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-blue-50/40"}`}>
+              <span className="font-medium text-slate-700">
+                {s.label}
+                {s.disc > 0 && <span className="ml-1 text-orange-600 font-bold">-{s.disc}%</span>}
+              </span>
+              <span className="text-right font-semibold">{fmt(s.price)}</span>
+              {isAdmin && (
+                <>
+                  <span className={`text-right ${profit < 0 ? "text-red-600 font-bold" : "text-slate-600"}`}>
+                    {fmt(profit)}
+                    {profit > 0 && <span className="text-slate-400 ml-1">({profitPct(s.price).toFixed(1)}%)</span>}
+                  </span>
+                  <span className={`text-right ${net < 0 ? "text-red-600" : "text-green-700"} font-semibold`}>{fmt(net)}</span>
+                </>
+              )}
+              <span className="text-right font-bold text-blue-700">
+                {fmt(comm)}
+                {isAdmin && profit > 0 && (
+                  <span className="text-slate-400 font-normal ml-1">({commPctOfProfit(s.price).toFixed(0)}% of P)</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+        {/* Custom price row */}
+        <div className={`grid text-xs py-2 px-3 border-t-2 border-blue-300 items-center ${isAdmin ? "grid-cols-5" : "grid-cols-3"} bg-amber-50`}>
+          <span className="font-medium text-slate-700">Custom Rate</span>
+          <span className="text-right">
+            <input type="number" placeholder={fmt(total).replace("₹","")} value={customPrice}
+              onChange={e => setCustomPrice(e.target.value)}
+              className="w-full text-right border border-amber-300 rounded px-1 py-0.5 text-xs bg-white max-w-[90px] ml-auto block" />
+          </span>
+          {isAdmin && (
+            <>
+              <span className={`text-right ${customVal !== null ? (belowCost ? "text-red-600 font-bold" : "text-slate-600") : "text-slate-300"}`}>
+                {customVal !== null ? (belowCost ? "BELOW COST" : fmt(profitOf(customVal))) : "—"}
+              </span>
+              <span className={`text-right text-xs ${customVal !== null && !belowCost ? "text-green-700 font-semibold" : "text-slate-300"}`}>
+                {customVal !== null && !belowCost ? fmt(profitOf(customVal) - commissionOf(customVal)) : "—"}
+              </span>
+            </>
+          )}
+          <span className={`text-right font-bold ${customVal !== null ? (belowCost ? "text-red-600" : "text-blue-700") : "text-slate-300"}`}>
+            {customVal !== null ? (belowCost ? "⚠ Loss!" : fmt(commissionOf(customVal))) : "—"}
+          </span>
+        </div>
+      </div>
+
+      {belowCost && isAdmin && (
+        <p className="text-xs text-red-600 font-semibold mt-2">
+          ⚠ Custom price ₹{Number(customPrice).toLocaleString()} is below your cost of {fmt(cost)}. Selling at this price means a loss.
+        </p>
+      )}
+
+      {isAdmin && qty > 0 && (
+        <p className="text-xs text-slate-500 mt-2">
+          Per piece commission (no discount): <strong>{fmt(total * rate / qty)}</strong> per piece
+        </p>
+      )}
+
+      <p className="text-xs text-slate-400 mt-2 border-t border-blue-200 pt-2">
+        Formula: Commission = Selling Price × {(rate * 100).toFixed(0)}%
+        {isAdmin && " | At ×1.67: Office gets ¼ of profit, WFH gets ~30% of profit"}
+      </p>
     </div>
   );
 }
@@ -389,6 +526,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function RateCalculatorPage() {
   const [tab, setTab] = useState<Tab>("forward");
+  const [isAdmin, setIsAdmin] = useState(true); // default true until user loaded
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [resultDesc, setResultDesc] = useState("");
@@ -490,7 +628,13 @@ export default function RateCalculatorPage() {
     }
   }, []);
 
-  useEffect(() => { loadRates(); }, [loadRates]);
+  useEffect(() => {
+    loadRates();
+    const user = getStoredUser();
+    // Only ADMIN and INHOUSE/ACCOUNTS roles see full cost breakdown
+    const adminRoles = ["ADMIN", "INHOUSE", "ACCOUNTS"];
+    setIsAdmin(!user || adminRoles.includes(user.role));
+  }, [loadRates]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -654,14 +798,15 @@ export default function RateCalculatorPage() {
         .map(t => ({ value: t, label: formatPaperType(t) }))
     : DEFAULT_PAPER_OPTIONS;
 
-  const TABS: { id: Tab; label: string }[] = [
+  const ALL_TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: "forward",  label: "→ Forward" },
     { id: "reverse",  label: "↺ Reverse" },
     { id: "sticker",  label: "🏷 Sticker" },
-    { id: "rates",    label: "⚙ Rates" },
+    { id: "rates",    label: "⚙ Rates",    adminOnly: true },
     { id: "history",  label: "📋 History" },
-    { id: "clubbing", label: "🤝 Clubbing" },
+    { id: "clubbing", label: "🤝 Clubbing", adminOnly: true },
   ];
+  const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly);
 
   // Multiplier hint label
   const masterMult = rates?.multiplier ?? 1.67;
@@ -778,7 +923,17 @@ export default function RateCalculatorPage() {
               <p className="text-xs text-slate-400 mt-2">Leave blank to use default multiplier from Master Rates. The multiplier covers margin + GST together.</p>
             </Card>
 
-            {result && <ResultCard result={result} desc={resultDesc} />}
+            {result && (
+              <>
+                <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                <CommissionPanel
+                  cost={result.subtotal}
+                  total={result.total}
+                  qty={result.totalQty ?? layers[0]?.qty ?? 0}
+                  isAdmin={isAdmin}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -916,9 +1071,19 @@ export default function RateCalculatorPage() {
               <p className="text-xs text-slate-400 mt-2">Leave blank to use default multiplier from Master Rates.</p>
             </Card>
 
-            {result && <ResultCard result={result} desc={resultDesc} />}
-            {result?.clubbing && (
-              <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
+            {result && (
+              <>
+                <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                {result?.clubbing && (
+                  <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
+                )}
+                <CommissionPanel
+                  cost={result.subtotal}
+                  total={result.total}
+                  qty={result.totalQty ?? rQty}
+                  isAdmin={isAdmin}
+                />
+              </>
             )}
           </>
         )}
@@ -988,7 +1153,12 @@ export default function RateCalculatorPage() {
               </div>
             </Card>
 
-            {result && <ResultCard result={result} perLabel="Per Sticker" desc={resultDesc} />}
+            {result && (
+              <>
+                <ResultCard result={result} perLabel="Per Sticker" desc={resultDesc} isAdmin={isAdmin} />
+                <CommissionPanel cost={result.subtotal} total={result.total} qty={sQty} isAdmin={isAdmin} />
+              </>
+            )}
           </>
         )}
 
@@ -1125,15 +1295,13 @@ export default function RateCalculatorPage() {
                 <h2 className="text-sm font-bold text-slate-800">Quote History</h2>
                 <p className="text-xs text-slate-500">All saved quotes — latest first</p>
               </div>
-              <button onClick={loadHistory} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-3 py-1.5 font-medium">
-                Refresh
-              </button>
+              <button onClick={loadHistory} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-3 py-1.5 font-medium">Refresh</button>
             </div>
             {historyLoading ? (
               <div className="bg-white rounded-xl border border-slate-200 p-10 text-center text-slate-500 text-sm">Loading history...</div>
             ) : history.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-10 text-center text-slate-400 text-sm">
-                No quotes yet. Calculate a quote and it will appear here.
+                No quotes yet. Calculate a quote — it will appear here automatically.
               </div>
             ) : (
               <div className="space-y-2">
@@ -1153,7 +1321,7 @@ export default function RateCalculatorPage() {
                         </div>
                         <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                           {h.qty && <span className="text-xs text-slate-500">Qty: <strong>{Number(h.qty).toLocaleString()}</strong></span>}
-                          <span className="text-xs text-slate-500">Cost: <strong className="text-slate-700">{fmt(h.subtotal)}</strong></span>
+                          {isAdmin && <span className="text-xs text-slate-500">Cost: <strong>{fmt(h.subtotal)}</strong></span>}
                           <span className="text-xs font-bold text-green-700">Total: {fmt(h.total)}</span>
                           {h.perPiece && <span className="text-xs text-teal-700">Per pc: {fmt(h.perPiece)}</span>}
                         </div>
@@ -1161,17 +1329,19 @@ export default function RateCalculatorPage() {
                           {new Date(h.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                           {" · x"}{h.multiplier}
                         </p>
-                        <details className="mt-2">
-                          <summary className="text-xs text-blue-600 cursor-pointer hover:underline">View breakdown</summary>
-                          <div className="mt-1.5 space-y-0.5 pl-2 border-l-2 border-slate-100">
-                            {(h.breakdown || []).map((b: any, i: number) => (
-                              <div key={i} className="flex justify-between text-xs text-slate-600 py-0.5">
-                                <span className="truncate pr-2">{b.label}</span>
-                                <span className="shrink-0 font-medium">{fmt(b.amount)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
+                        {isAdmin && (
+                          <details className="mt-2">
+                            <summary className="text-xs text-blue-600 cursor-pointer hover:underline">View breakdown</summary>
+                            <div className="mt-1.5 space-y-0.5 pl-2 border-l-2 border-slate-100">
+                              {(h.breakdown || []).map((b: any, i: number) => (
+                                <div key={i} className="flex justify-between text-xs text-slate-600 py-0.5">
+                                  <span className="truncate pr-2">{b.label}</span>
+                                  <span className="shrink-0 font-medium">{fmt(b.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
                       </div>
                       <button onClick={() => deleteHistoryItem(h.id)}
                         className="shrink-0 text-slate-300 hover:text-red-500 text-lg font-bold leading-none" title="Delete">x</button>
@@ -1190,20 +1360,16 @@ export default function RateCalculatorPage() {
               <strong>Clubbing Vendor Master</strong> — Store your vendor rates by size, sides and qty tier.
               When you run a 4-color Reverse quote, the system auto-compares and highlights the winner.
             </div>
-
             <Card title="Vendor Info">
               <Field label="Vendor / Firm Name">
-                <Input
-                  value={clubbingData.vendorName ?? ""}
+                <Input value={clubbingData.vendorName ?? ""}
                   onChange={e => setClubbingData((p: any) => ({ ...p, vendorName: e.target.value }))}
-                  placeholder="e.g. Mehta Offset Works"
-                />
+                  placeholder="e.g. Mehta Offset Works" />
               </Field>
             </Card>
-
             <Card title="Vendor Rates — Per Piece">
               <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
-                Enter rate per piece for each size + sides combination. Qty tiers must be multiples of 1000 (min 1000).
+                Enter rate per piece for each size and sides. Qty tiers must be multiples of 1000 (min 1000).
                 The system picks the nearest tier at or below the job quantity.
               </div>
               {(["A4","A5","A6","A8","1/3A4","DL","letterhead"] as string[]).map(size => {
@@ -1211,13 +1377,7 @@ export default function RateCalculatorPage() {
                 const updateSizeRate = (sides: "single"|"double", tier: string, val: string) => {
                   setClubbingData((p: any) => ({
                     ...p,
-                    rates: {
-                      ...p.rates,
-                      [size]: {
-                        ...sizeRates,
-                        [sides]: { ...sizeRates[sides], [tier]: val === "" ? undefined : parseFloat(val) }
-                      }
-                    }
+                    rates: { ...p.rates, [size]: { ...sizeRates, [sides]: { ...sizeRates[sides], [tier]: val === "" ? undefined : parseFloat(val) } } }
                   }));
                 };
                 const removeTier = (sides: "single"|"double", tier: string) => {
@@ -1231,10 +1391,7 @@ export default function RateCalculatorPage() {
                   if (!tier || !val) return;
                   setClubbingData((p: any) => ({
                     ...p,
-                    rates: {
-                      ...p.rates,
-                      [size]: { ...(p.rates?.[size] ?? {}), [sides]: { ...(p.rates?.[size]?.[sides] ?? {}), [tier]: parseFloat(val) } }
-                    }
+                    rates: { ...p.rates, [size]: { ...(p.rates?.[size] ?? {}), [sides]: { ...(p.rates?.[size]?.[sides] ?? {}), [tier]: parseFloat(val) } } }
                   }));
                 };
                 return (
@@ -1270,7 +1427,6 @@ export default function RateCalculatorPage() {
                 );
               })}
             </Card>
-
             <button onClick={saveClubbing} className="w-full bg-purple-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-purple-700 mt-2">
               Save Clubbing Rates
             </button>
