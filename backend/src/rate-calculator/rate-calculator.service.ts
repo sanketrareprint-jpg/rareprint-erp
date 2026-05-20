@@ -104,6 +104,76 @@ export class RateCalculatorService {
     return { success: true };
   }
 
+  // ── Clubbing Vendor Rates (stored in SystemConfig) ───────────────────────
+  async getClubbingRates(): Promise<any> {
+    try {
+      const rows = await (this.prisma as any).$queryRawUnsafe(
+        `SELECT value FROM "SystemConfig" WHERE key = 'clubbing_vendor_rates' LIMIT 1`
+      );
+      if (rows && rows[0]?.value) return JSON.parse(rows[0].value);
+    } catch {}
+    return { vendorName: '', rates: {} };
+  }
+
+  async saveClubbingRates(data: any): Promise<{ success: boolean }> {
+    const json = JSON.stringify(data);
+    try {
+      await (this.prisma as any).$queryRawUnsafe(
+        `INSERT INTO "SystemConfig" (key, value, "updatedAt") VALUES ('clubbing_vendor_rates', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $1, "updatedAt" = NOW()`,
+        json
+      );
+    } catch {}
+    return { success: true };
+  }
+
+  // ── Quote History ────────────────────────────────────────────────────────
+  async saveHistory(dto: any): Promise<{ success: boolean; id: string }> {
+    try {
+      const rec = await (this.prisma as any).quoteHistory.create({
+        data: {
+          calcType:    dto.calcType    ?? 'forward',
+          customer:    dto.customer    ?? null,
+          job:         dto.job         ?? null,
+          product:     dto.product     ?? null,
+          qty:         dto.qty         ? Number(dto.qty) : null,
+          breakdown:   dto.breakdown   ?? [],
+          subtotal:    Number(dto.subtotal  ?? 0),
+          total:       Number(dto.total     ?? 0),
+          perPiece:    dto.perPiece != null ? Number(dto.perPiece) : null,
+          multiplier:  Number(dto.multiplier ?? 1.67),
+          inputParams: dto.inputParams ?? {},
+        },
+      });
+      return { success: true, id: rec.id };
+    } catch (e: any) {
+      console.error('saveHistory error', e?.message);
+      return { success: false, id: '' };
+    }
+  }
+
+  async listHistory(limit = 100): Promise<any[]> {
+    try {
+      return await (this.prisma as any).quoteHistory.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+    } catch (e: any) {
+      console.error('listHistory error', e?.message);
+      return [];
+    }
+  }
+
+  async deleteHistory(id: string): Promise<{ success: boolean }> {
+    try {
+      await (this.prisma as any).quoteHistory.delete({ where: { id } });
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────────
   private getPrintCost(rates: any, colors: number, parentSheets: number, cutsPerSheet: number, sidesMult = 1): number {
     if (colors === 4) {
       const first1k = rates.printing?.['4color']?.first1k ?? DEFAULT_RATES.printing['4color'].first1k;
@@ -149,6 +219,23 @@ export class RateCalculatorService {
     const rateKey = finish === 'matt' ? 'matt' : 'gloss';
     const ratePer100 = rates.lamination?.[rateKey] ?? DEFAULT_RATES.lamination[rateKey] ?? 0.34;
     return (sqIn / 100) * ratePer100 * sheets * sideMul;
+  }
+
+  // ── Clubbing vendor cost lookup ──────────────────────────────────────────
+  private getClubbingCost(clubbing: any, fsize: string, sides: string, qty: number): number | null {
+    const sizeRates = clubbing?.rates?.[fsize];
+    if (!sizeRates) return null;
+    const sidesRates = sizeRates[sides === 'double' ? 'double' : 'single'];
+    if (!sidesRates) return null;
+    // Find nearest qty tier (round down to nearest 1000, min 1000)
+    const tier = Math.max(1000, Math.floor(qty / 1000) * 1000);
+    // Check exact tier, then walk down to find the closest
+    const tiers = Object.keys(sidesRates).map(Number).sort((a, b) => b - a);
+    const matched = tiers.find(t => t <= tier);
+    if (matched == null) return null;
+    const ratePerPiece = sidesRates[String(matched)];
+    if (ratePerPiece == null) return null;
+    return ratePerPiece * qty;
   }
 
   async calcForward(dto: any) {
@@ -272,8 +359,30 @@ export class RateCalculatorService {
       breakdown.push({ label: 'Lamination (' + lam + ', ' + totalParentSheets.toLocaleString() + ' sheets)', amount: lc });
     }
 
+    // Clubbing comparison (4-color only)
+    let clubbing: any = null;
+    if (colors === 4) {
+      try {
+        const cRates = await this.getClubbingRates();
+        const vendorCost = this.getClubbingCost(cRates, fsize, sides, totalPieces);
+        if (vendorCost !== null) {
+          // Vendor cost = paper+print+plate absorbed; additional costs computed below
+          let ourSubtotal = subtotal;
+          const total = ourSubtotal * multiplier;
+          clubbing = {
+            vendorName: cRates.vendorName ?? 'Vendor',
+            vendorCost,
+            vendorTotal: vendorCost * multiplier,
+            ourCost: ourSubtotal,
+            ourTotal: total,
+            winner: vendorCost < ourSubtotal ? 'vendor' : 'ours',
+          };
+        }
+      } catch {}
+    }
+
     const total = subtotal * multiplier;
-    return { breakdown, subtotal, total, perPiece: qty > 0 ? total / qty : 0, totalPieces, totalParentSheets, cutsPerSheet, description, multiplier, customer };
+    return { breakdown, subtotal, total, perPiece: qty > 0 ? total / qty : 0, totalPieces, totalParentSheets, cutsPerSheet, description, multiplier, customer, clubbing };
   }
 
   async calcSticker(dto: any) {

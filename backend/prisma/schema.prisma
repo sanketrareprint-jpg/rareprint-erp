@@ -822,6 +822,26 @@ model SystemConfig {
   updatedAt DateTime @updatedAt
 }
 
+// ── Rate Calculator: Quote History ───────────────────────────────────────────
+model QuoteHistory {
+  id          String   @id @default(cuid())
+  calcType    String   // "forward" | "reverse" | "sticker"
+  customer    String?
+  job         String?
+  product     String?
+  qty         Int?
+  breakdown   Json
+  subtotal    Float
+  total       Float
+  perPiece    Float?
+  multiplier  Float    @default(1.67)
+  inputParams Json     // full input DTO for reference
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([customer])
+}
+
 model Notification {
   id          String    @id @default(cuid())
   type        String

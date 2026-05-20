@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type Tab = "forward" | "reverse" | "sticker" | "rates";
+type Tab = "forward" | "reverse" | "sticker" | "rates" | "history" | "clubbing";
 type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
@@ -18,6 +18,14 @@ type Result = {
   totalQty?: number;
   multiplier?: number;
   description?: string;
+  clubbing?: {
+    vendorName: string;
+    vendorCost: number;
+    vendorTotal: number;
+    ourCost: number;
+    ourTotal: number;
+    winner: "vendor" | "ours";
+  };
 };
 
 // Cuts per parent sheet — mirrors backend CUTS table
@@ -233,6 +241,59 @@ function ResultCard({ result, perLabel = "Per Piece", desc }: { result: Result; 
   );
 }
 
+// ─── CLUBBING COMPARISON CARD ─────────────────────────────────────────────────
+function ClubbingComparisonCard({ clubbing, multiplier }: {
+  clubbing: NonNullable<Result["clubbing"]>;
+  multiplier?: number;
+}) {
+  const mult = multiplier ?? 1.67;
+  const ourWins = clubbing.winner === "ours";
+  return (
+    <div className="border border-purple-200 rounded-xl p-4 mt-3 bg-purple-50">
+      <p className="text-sm font-bold text-purple-800 mb-3">🤝 Clubbing Vendor Comparison</p>
+      <p className="text-xs text-purple-600 mb-3">
+        4-color job — comparing our in-house cost vs {clubbing.vendorName}
+        <span className="ml-1 text-slate-500">(vendor absorbs paper + printing + plates; lamination excluded)</span>
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {/* Our cost */}
+        <div className={`rounded-lg p-3 border-2 ${ourWins ? "border-green-400 bg-green-50" : "border-slate-200 bg-white"}`}>
+          <p className="text-xs font-bold text-slate-600 mb-2">🏭 Our In-House</p>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Base cost</span>
+              <span>{fmt(clubbing.ourCost)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">After ×{mult}</span>
+              <span className="font-bold">{fmt(clubbing.ourTotal)}</span>
+            </div>
+          </div>
+          {ourWins && <p className="text-xs text-green-700 font-bold mt-2">✅ WINNER — Lower Cost</p>}
+        </div>
+        {/* Vendor cost */}
+        <div className={`rounded-lg p-3 border-2 ${!ourWins ? "border-green-400 bg-green-50" : "border-slate-200 bg-white"}`}>
+          <p className="text-xs font-bold text-slate-600 mb-2">🚚 {clubbing.vendorName}</p>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Vendor cost</span>
+              <span>{fmt(clubbing.vendorCost)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">After ×{mult}</span>
+              <span className="font-bold">{fmt(clubbing.vendorTotal)}</span>
+            </div>
+          </div>
+          {!ourWins && <p className="text-xs text-green-700 font-bold mt-2">✅ WINNER — Lower Cost</p>}
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 mt-2">
+        💡 Binding/Punching + Envelope Making are charged separately on top of whichever option wins.
+      </p>
+    </div>
+  );
+}
+
 // ─── LAYER ROW ────────────────────────────────────────────────────────────────
 function LayerRow({ layer, idx, onChange, onRemove, canRemove, paperOptions }: {
   layer: Layer; idx: number;
@@ -395,6 +456,15 @@ export default function RateCalculatorPage() {
   const [ratesError, setRatesError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // ── History State ──
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ── Clubbing Vendor State ──
+  const [clubbingData, setClubbingData] = useState<any>({ vendorName: "", rates: {} });
+  const [clubbingSaved, setClubbingSaved] = useState(false);
+  const [clubbingError, setClubbingError] = useState<string | null>(null);
+
   // Sheet info for sticker preview
   const sheetW = (sCols * sW + 2 * sMarg).toFixed(2);
   const sheetH = (sRows * sH + 2 * sMarg).toFixed(2);
@@ -422,6 +492,58 @@ export default function RateCalculatorPage() {
 
   useEffect(() => { loadRates(); }, [loadRates]);
 
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/rate-calculator/history?limit=200`, { headers: getAuthHeaders() });
+      if (res.ok) setHistory(await res.json());
+    } finally { setHistoryLoading(false); }
+  }, []);
+
+  const deleteHistoryItem = async (id: string) => {
+    await fetch(`${API_BASE_URL}/rate-calculator/history/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+    setHistory(prev => prev.filter(h => h.id !== id));
+  };
+
+  const loadClubbing = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/rate-calculator/clubbing-rates`, { headers: getAuthHeaders() });
+      if (res.ok) setClubbingData(await res.json());
+    } catch {}
+  }, []);
+
+  const saveClubbing = async () => {
+    setClubbingError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/rate-calculator/clubbing-rates`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(clubbingData),
+      });
+      if (res.ok) { setClubbingSaved(true); setTimeout(() => setClubbingSaved(false), 3000); }
+      else setClubbingError("Save failed (HTTP " + res.status + ").");
+    } catch { setClubbingError("Save failed — check connection."); }
+  };
+
+  // Auto-save quote to history
+  const saveToHistory = async (calcType: string, inputParams: any, result: any, product?: string, qty?: number) => {
+    try {
+      await fetch(`${API_BASE_URL}/rate-calculator/history`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          calcType, product: product ?? calcType,
+          qty, customer: inputParams.customer ?? inputParams.rCustomer ?? "",
+          job: inputParams.job ?? inputParams.fJob ?? "",
+          breakdown: result.breakdown ?? [],
+          subtotal: result.subtotal ?? 0,
+          total: result.total ?? 0,
+          perPiece: result.perPiece ?? result.perSticker ?? null,
+          multiplier: result.multiplier ?? 1.67,
+          inputParams,
+        }),
+      });
+    } catch {}
+  };
+
   const post = async (endpoint: string, body: any) => {
     setLoading(true); setResult(null);
     try {
@@ -435,46 +557,51 @@ export default function RateCalculatorPage() {
   };
 
   const calcForward = async () => {
-    const r = await post("forward", {
-      layers,
-      lam: fLam,
-      padSize: fPadSize,
+    const body = {
+      layers, lam: fLam, padSize: fPadSize,
       pads: fPad === "yes" ? fPads : 0,
-      punch: fPunch === "yes",
-      envelope: fEnv,
+      punch: fPunch === "yes", envelope: fEnv,
       multiplier: fMult !== "" ? fMult : undefined,
-      customer: fCustomer,
-      job: fJob,
-    });
-    if (r) { setResult(r); setResultDesc(`Job: ${fJob || "—"} | Customer: ${fCustomer || "—"}`); }
+      customer: fCustomer, job: fJob,
+    };
+    const r = await post("forward", body);
+    if (r) {
+      setResult(r);
+      setResultDesc(`Job: ${fJob || "—"} | Customer: ${fCustomer || "—"}`);
+      saveToHistory("forward", body, r, "Forward Quote", layers[0]?.qty);
+    }
   };
 
   const calcReverse = async () => {
-    const r = await post("reverse", {
-      product: rProduct,
-      qty: rQty,
-      sheetsPerUnit: rSheets,
-      fsize: rSize,
-      paper: rPaper,
-      parent: rParent,
-      colors: rColors,
-      sides: rSides,
-      lam: rLam,
+    const body = {
+      product: rProduct, qty: rQty, sheetsPerUnit: rSheets,
+      fsize: rSize, paper: rPaper, parent: rParent,
+      colors: rColors, sides: rSides, lam: rLam,
       multiplier: rMult !== "" ? rMult : undefined,
       customer: rCustomer,
-    });
-    if (r) { setResult(r); setResultDesc(r.description || ""); }
+    };
+    const r = await post("reverse", body);
+    if (r) {
+      setResult(r);
+      setResultDesc(r.description || "");
+      saveToHistory("reverse", body, r, rProduct, rQty);
+    }
   };
 
   const calcSticker = async () => {
-    const r = await post("sticker", {
+    const body = {
       stickerW: sW, stickerH: sH, qty: sQty, cols: sCols, rows: sRows,
       margin: sMarg, mode: sMode, halfcut: sHalfcut === "yes",
       paperRate: sPaperRate, printRate: sPrintRate, hcPct: sHcPct,
       vendorRate: sVendorRate, transport: sTransport, hcPct2: sHcPct2,
       multiplier: sMult !== "" ? sMult : undefined,
-    });
-    if (r) { setResult(r); setResultDesc(`${sQty.toLocaleString()} stickers | ${stickersPerSheet}/sheet | ${sheetsNeeded} sheets`); }
+    };
+    const r = await post("sticker", body);
+    if (r) {
+      setResult(r);
+      setResultDesc(`${sQty.toLocaleString()} stickers | ${stickersPerSheet}/sheet | ${sheetsNeeded} sheets`);
+      saveToHistory("sticker", body, r, "Sticker", sQty);
+    }
   };
 
   const saveRates = async () => {
@@ -528,10 +655,12 @@ export default function RateCalculatorPage() {
     : DEFAULT_PAPER_OPTIONS;
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: "forward", label: "→ Forward Quote" },
-    { id: "reverse", label: "↺ Reverse" },
-    { id: "sticker", label: "🏷 Sticker" },
-    { id: "rates", label: "⚙ Master Rates" },
+    { id: "forward",  label: "→ Forward" },
+    { id: "reverse",  label: "↺ Reverse" },
+    { id: "sticker",  label: "🏷 Sticker" },
+    { id: "rates",    label: "⚙ Rates" },
+    { id: "history",  label: "📋 History" },
+    { id: "clubbing", label: "🤝 Clubbing" },
   ];
 
   // Multiplier hint label
@@ -553,10 +682,14 @@ export default function RateCalculatorPage() {
         </div>
 
         {/* TABS */}
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4 flex-wrap">
           {TABS.map(t => (
-            <button key={t.id} onClick={() => { setTab(t.id); setResult(null); }}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all ${tab === t.id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            <button key={t.id} onClick={() => {
+              setTab(t.id); setResult(null);
+              if (t.id === "history") loadHistory();
+              if (t.id === "clubbing") loadClubbing();
+            }}
+              className={`flex-1 py-2 px-1 rounded-lg text-xs font-semibold transition-all min-w-[60px] ${tab === t.id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
               {t.label}
             </button>
           ))}
@@ -784,6 +917,9 @@ export default function RateCalculatorPage() {
             </Card>
 
             {result && <ResultCard result={result} desc={resultDesc} />}
+            {result?.clubbing && (
+              <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
+            )}
           </>
         )}
 
@@ -980,7 +1116,194 @@ export default function RateCalculatorPage() {
             <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500 text-sm">No master rates available.</div>
           )
         )}
+
+        {/* ── HISTORY ── */}
+        {tab === "history" && (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Quote History</h2>
+                <p className="text-xs text-slate-500">All saved quotes — latest first</p>
+              </div>
+              <button onClick={loadHistory} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-3 py-1.5 font-medium">
+                Refresh
+              </button>
+            </div>
+            {historyLoading ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-10 text-center text-slate-500 text-sm">Loading history...</div>
+            ) : history.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-10 text-center text-slate-400 text-sm">
+                No quotes yet. Calculate a quote and it will appear here.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {history.map((h: any) => (
+                  <div key={h.id} className="bg-white border border-slate-200 rounded-xl p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            h.calcType === "forward" ? "bg-blue-100 text-blue-700" :
+                            h.calcType === "reverse" ? "bg-purple-100 text-purple-700" :
+                            "bg-amber-100 text-amber-700"
+                          }`}>{h.calcType.toUpperCase()}</span>
+                          <span className="text-xs font-semibold text-slate-700 truncate">{h.product || "—"}</span>
+                          {h.customer && <span className="text-xs text-slate-500">Customer: {h.customer}</span>}
+                          {h.job && <span className="text-xs text-slate-500">Job: {h.job}</span>}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                          {h.qty && <span className="text-xs text-slate-500">Qty: <strong>{Number(h.qty).toLocaleString()}</strong></span>}
+                          <span className="text-xs text-slate-500">Cost: <strong className="text-slate-700">{fmt(h.subtotal)}</strong></span>
+                          <span className="text-xs font-bold text-green-700">Total: {fmt(h.total)}</span>
+                          {h.perPiece && <span className="text-xs text-teal-700">Per pc: {fmt(h.perPiece)}</span>}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {new Date(h.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          {" · x"}{h.multiplier}
+                        </p>
+                        <details className="mt-2">
+                          <summary className="text-xs text-blue-600 cursor-pointer hover:underline">View breakdown</summary>
+                          <div className="mt-1.5 space-y-0.5 pl-2 border-l-2 border-slate-100">
+                            {(h.breakdown || []).map((b: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs text-slate-600 py-0.5">
+                                <span className="truncate pr-2">{b.label}</span>
+                                <span className="shrink-0 font-medium">{fmt(b.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                      <button onClick={() => deleteHistoryItem(h.id)}
+                        className="shrink-0 text-slate-300 hover:text-red-500 text-lg font-bold leading-none" title="Delete">x</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── CLUBBING MASTER ── */}
+        {tab === "clubbing" && (
+          <>
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-700 mb-3">
+              <strong>Clubbing Vendor Master</strong> — Store your vendor rates by size, sides and qty tier.
+              When you run a 4-color Reverse quote, the system auto-compares and highlights the winner.
+            </div>
+
+            <Card title="Vendor Info">
+              <Field label="Vendor / Firm Name">
+                <Input
+                  value={clubbingData.vendorName ?? ""}
+                  onChange={e => setClubbingData((p: any) => ({ ...p, vendorName: e.target.value }))}
+                  placeholder="e.g. Mehta Offset Works"
+                />
+              </Field>
+            </Card>
+
+            <Card title="Vendor Rates — Per Piece">
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
+                Enter rate per piece for each size + sides combination. Qty tiers must be multiples of 1000 (min 1000).
+                The system picks the nearest tier at or below the job quantity.
+              </div>
+              {(["A4","A5","A6","A8","1/3A4","DL","letterhead"] as string[]).map(size => {
+                const sizeRates = clubbingData.rates?.[size] ?? { single: {}, double: {} };
+                const updateSizeRate = (sides: "single"|"double", tier: string, val: string) => {
+                  setClubbingData((p: any) => ({
+                    ...p,
+                    rates: {
+                      ...p.rates,
+                      [size]: {
+                        ...sizeRates,
+                        [sides]: { ...sizeRates[sides], [tier]: val === "" ? undefined : parseFloat(val) }
+                      }
+                    }
+                  }));
+                };
+                const removeTier = (sides: "single"|"double", tier: string) => {
+                  setClubbingData((p: any) => {
+                    const next = { ...(p.rates?.[size]?.[sides] ?? {}) };
+                    delete next[tier];
+                    return { ...p, rates: { ...p.rates, [size]: { ...(p.rates?.[size] ?? {}), [sides]: next } } };
+                  });
+                };
+                const addTier = (sides: "single"|"double", tier: string, val: string) => {
+                  if (!tier || !val) return;
+                  setClubbingData((p: any) => ({
+                    ...p,
+                    rates: {
+                      ...p.rates,
+                      [size]: { ...(p.rates?.[size] ?? {}), [sides]: { ...(p.rates?.[size]?.[sides] ?? {}), [tier]: parseFloat(val) } }
+                    }
+                  }));
+                };
+                return (
+                  <details key={size} className="border border-slate-200 rounded-lg mb-2">
+                    <summary className="px-3 py-2 text-xs font-bold text-slate-700 cursor-pointer hover:bg-slate-50 rounded-lg flex items-center gap-2">
+                      <span className="bg-slate-100 px-2 py-0.5 rounded font-mono">{size}</span>
+                      <span className="text-slate-400 font-normal">click to expand</span>
+                    </summary>
+                    <div className="p-3 space-y-4">
+                      {(["single","double"] as ("single"|"double")[]).map(sides => {
+                        const tiers = Object.entries(sizeRates[sides] ?? {}).sort(([a],[b]) => Number(a)-Number(b));
+                        return (
+                          <div key={sides}>
+                            <p className="text-xs font-semibold text-slate-600 mb-1.5">{sides === "single" ? "Single Side" : "Double Side"}</p>
+                            <div className="space-y-1">
+                              {tiers.map(([tier, val]) => (
+                                <div key={tier} className="flex gap-2 items-center">
+                                  <span className="text-xs text-slate-500 w-20 shrink-0">Qty {Number(tier).toLocaleString()}</span>
+                                  <input type="number" step="0.1" value={val as number}
+                                    onChange={e => updateSizeRate(sides, tier, e.target.value)}
+                                    className="w-24 border border-slate-200 rounded text-xs px-2 py-1" />
+                                  <span className="text-xs text-slate-400">per pc</span>
+                                  <button onClick={() => removeTier(sides, tier)} className="text-red-400 hover:text-red-600 text-base font-bold leading-none">x</button>
+                                </div>
+                              ))}
+                              <AddTierRow onAdd={(tier, val) => addTier(sides, tier, val)} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
+                );
+              })}
+            </Card>
+
+            <button onClick={saveClubbing} className="w-full bg-purple-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-purple-700 mt-2">
+              Save Clubbing Rates
+            </button>
+            {clubbingSaved && <p className="text-center text-purple-700 font-semibold text-sm mt-2">Clubbing rates saved!</p>}
+            {clubbingError && <p className="text-center text-red-600 text-sm mt-2">{clubbingError}</p>}
+          </>
+        )}
+
       </div>
     </DashboardShell>
+  );
+}
+
+// ─── ADD TIER ROW ─────────────────────────────────────────────────────────────
+function AddTierRow({ onAdd }: { onAdd: (tier: string, val: string) => void }) {
+  const [qty, setQty] = useState("");
+  const [rate, setRate] = useState("");
+  const handle = () => {
+    if (!qty || !rate) return;
+    const tier = String(Math.max(1000, Math.round(Number(qty) / 1000) * 1000));
+    onAdd(tier, rate);
+    setQty(""); setRate("");
+  };
+  return (
+    <div className="flex gap-2 items-center pt-1 border-t border-dashed border-slate-200">
+      <input type="number" step="1000" min="1000" placeholder="qty" value={qty}
+        onChange={e => setQty(e.target.value)}
+        className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
+      <input type="number" step="0.1" placeholder="per pc" value={rate}
+        onChange={e => setRate(e.target.value)}
+        className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
+      <button onClick={handle}
+        className="bg-blue-500 hover:bg-blue-600 text-white rounded px-2 py-1 text-xs font-semibold">+ Add</button>
+    </div>
   );
 }
