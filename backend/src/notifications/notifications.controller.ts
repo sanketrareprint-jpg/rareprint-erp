@@ -35,6 +35,16 @@ export class NotificationsController {
     return this.svc.triggerManualCheck();
   }
 
+  @Post('order-reassurance/run')
+  runOrderReassurance() {
+    return this.svc.sendDueOrderReassuranceMessages();
+  }
+
+  @Get('order-reassurance/history/:orderId')
+  getOrderReassuranceHistory(@Param('orderId') orderId: string) {
+    return this.svc.getOrderReassuranceHistory(orderId);
+  }
+
   @Post('ask-design/:itemId')
   notifySalesAgentDesign(@Param('itemId') itemId: string) {
     return this.svc.notifySalesAgentDesign(itemId);

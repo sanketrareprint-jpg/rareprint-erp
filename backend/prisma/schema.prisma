@@ -280,6 +280,7 @@ model Order {
   productionJobs   ProductionJob[]
   shipments        Shipment[]
   statusLogs       StatusLog[]
+  reassuranceLogs  OrderReassuranceLog[]
 
   @@index([status, orderDate])
   @@index([salesAgentId, orderDate])
@@ -435,6 +436,20 @@ model StatusLog {
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId, createdAt])
+}
+
+model OrderReassuranceLog {
+  id           String   @id @default(cuid())
+  orderId      String
+  orderNo      String
+  campaignName String
+  success      Boolean  @default(false)
+  error        String?
+  sentAt       DateTime @default(now())
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, sentAt])
+  @@index([sentAt])
 }
 
 // ── Enums ────────────────────────────────────────────────────────────────────

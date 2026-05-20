@@ -1,10 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly reassuranceCampaigns = [
+    'order_reassurance_01',
+    'order_reassurance_02',
+    'order_reassurance_03',
+    'order_reassurance_04',
+    'order_reassurance_05',
+    'order_reassurance_06',
+    'order_reassurance_07',
+  ];
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsapp: WhatsAppService,
+  ) {}
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -97,6 +112,7 @@ export class NotificationsService {
   @Cron(CronExpression.EVERY_HOUR)
   async runAllChecks() {
     await Promise.allSettled([
+      this.sendDueOrderReassuranceMessages(),
       this.checkRule1_ProductionUnassigned(),
       this.checkRule2_InhouseDesignAttachedNotStarted(),
       this.checkRule3_InhouseDesignMissing(),
@@ -113,6 +129,99 @@ export class NotificationsService {
       this.checkRule11c_SheetProcessingFollowUp(),
       this.checkRule11d_SheetProcessingDueDatePassed(),
     ]);
+  }
+
+  async sendDueOrderReassuranceMessages() {
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: {
+          notIn: [
+            OrderStatus.READY_FOR_DISPATCH,
+            OrderStatus.PENDING_DISPATCH_APPROVAL,
+            OrderStatus.PARTIALLY_DISPATCHED,
+            OrderStatus.DISPATCHED,
+            OrderStatus.DELIVERED,
+            OrderStatus.CANCELLED,
+          ],
+        },
+        orderDate: { lte: twoDaysAgo },
+        customer: { phone: { not: null } },
+        statusLogs: { none: { createdAt: { gte: startOfToday } } },
+      },
+      include: {
+        customer: true,
+        salesAgent: true,
+        reassuranceLogs: { orderBy: { sentAt: 'desc' }, take: 1 },
+        items: {
+          select: {
+            stageLogs: {
+              where: { createdAt: { gte: startOfToday } },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: { orderDate: 'asc' },
+      take: 100,
+    });
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const order of orders) {
+      if (order.items.some((item) => item.stageLogs.length > 0)) {
+        skipped++;
+        continue;
+      }
+
+      const lastLog = order.reassuranceLogs[0];
+      if (lastLog && lastLog.sentAt > twoDaysAgo) {
+        skipped++;
+        continue;
+      }
+
+      const lastIndex = lastLog
+        ? this.reassuranceCampaigns.indexOf(lastLog.campaignName)
+        : -1;
+      const campaignName = this.reassuranceCampaigns[(lastIndex + 1) % this.reassuranceCampaigns.length];
+      const agentName = order.salesAgent?.fullName ?? 'Rareprint Team';
+
+      const success = await this.whatsapp.sendOrderReassurance({
+        campaignName,
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone ?? '',
+        orderNo: order.orderNumber,
+        agentName,
+      });
+
+      await this.prisma.orderReassuranceLog.create({
+        data: {
+          orderId: order.id,
+          orderNo: order.orderNumber,
+          campaignName,
+          success,
+          error: success ? null : 'AiSensy send failed',
+        },
+      });
+
+      if (success) sent++;
+    }
+
+    return { checked: orders.length, sent, skipped };
+  }
+
+  async getOrderReassuranceHistory(orderId: string) {
+    return this.prisma.orderReassuranceLog.findMany({
+      where: { orderId },
+      orderBy: { sentAt: 'desc' },
+      take: 30,
+    });
   }
 
   // ── Rule 1: Production Unassigned 24h after approval ─────────────────────

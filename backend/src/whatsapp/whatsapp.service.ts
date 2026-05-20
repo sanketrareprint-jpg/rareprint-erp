@@ -18,6 +18,56 @@ export interface WhatsAppOrderParams {
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
+  private async sendCampaign(params: {
+    campaignName: string;
+    customerName: string;
+    customerPhone: string;
+    templateParams: string[];
+    orderNo?: string;
+  }): Promise<boolean> {
+    if (!params.customerPhone) {
+      this.logger.warn(`No phone for order ${params.orderNo ?? 'unknown'}, skipping WhatsApp`);
+      return false;
+    }
+
+    const phone = this.normalizePhone(params.customerPhone);
+    if (!phone) {
+      this.logger.warn(`Invalid phone ${params.customerPhone} for order ${params.orderNo ?? 'unknown'}`);
+      return false;
+    }
+
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName: params.campaignName,
+      destination: phone,
+      userName: params.customerName,
+      templateParams: params.templateParams,
+      source: 'rareprint-erp',
+      media: {},
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+
+    try {
+      const res = await fetch(AISENSY_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        this.logger.log(`✅ WhatsApp ${params.campaignName} sent to ${phone} for order ${params.orderNo ?? 'unknown'}`);
+        return true;
+      }
+      this.logger.error(`❌ WhatsApp ${params.campaignName} failed for ${params.orderNo ?? 'unknown'}: ${JSON.stringify(data)}`);
+      return false;
+    } catch (err) {
+      this.logger.error(`❌ WhatsApp ${params.campaignName} error for ${params.orderNo ?? 'unknown'}: ${err}`);
+      return false;
+    }
+  }
+
   async sendOrderUpdate(params: WhatsAppOrderParams): Promise<boolean> {
     if (!params.customerPhone) {
       this.logger.warn(`No phone for order ${params.orderNo}, skipping WhatsApp`);
@@ -129,6 +179,26 @@ export class WhatsAppService {
       this.logger.error('Payment WhatsApp error: ' + err);
       return false;
     }
+  }
+
+  async sendOrderReassurance(params: {
+    campaignName: string;
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    agentName: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: params.campaignName,
+      customerName: params.customerName,
+      customerPhone: params.customerPhone,
+      orderNo: params.orderNo,
+      templateParams: [
+        params.customerName,
+        params.orderNo,
+        params.agentName || 'Rareprint Team',
+      ],
+    });
   }
 
   static statusLabel(status: string): string {
