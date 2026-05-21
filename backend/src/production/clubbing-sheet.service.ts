@@ -368,6 +368,7 @@ export class ClubbingSheetService {
         status: true,
         usedAreaSqInches: true,
         createdBySource: true,
+        createdAt: true,
         items: {
           orderBy: { createdAt: 'asc' },
           select: {

@@ -44,7 +44,7 @@ type ClubbingItem = { id: string; productName: string; quantity: number; product
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
 type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
-type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
+type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
 
 function parseNotes(notes?: string) {
@@ -88,6 +88,19 @@ function sheetPrintingLabel(value?: string | null) {
 }
 function sheetPrintingClass(value?: string | null) {
   return value === "DOUBLE_SIDE" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700";
+}
+function formatSheetCreatedAt(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
 }
 
 function orderAge(dateStr: string): string {
@@ -1422,6 +1435,7 @@ export default function ProductionPage() {
                       const isExp = expandedSheet === sheet.id;
                       const usedPct = sheet.areaSqInches > 0 ? Math.round((sheet.usedAreaSqInches / sheet.areaSqInches) * 100) : 0;
                       const svf = stageVendorForm[sheet.id] || { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" };
+                      const createdLabel = sheet.createdBySource === "AUTO" ? formatSheetCreatedAt(sheet.createdAt) : null;
                       return (
                         <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                           <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
@@ -1430,6 +1444,7 @@ export default function ProductionPage() {
                               {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
                               <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
+                              {createdLabel && <span className="text-xs font-semibold text-slate-500">Created {createdLabel}</span>}
                               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
@@ -1532,6 +1547,7 @@ export default function ProductionPage() {
                       <div className="space-y-2">
                         {printSheets.map(sheet => {
                           const isExp = expandedSheet === sheet.id;
+                          const createdLabel = sheet.createdBySource === "AUTO" ? formatSheetCreatedAt(sheet.createdAt) : null;
                           return (
                             <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                               <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100 cursor-pointer"
@@ -1540,6 +1556,7 @@ export default function ProductionPage() {
                                   <span className="font-bold text-blue-700 text-sm">{sheet.sheetNo}</span>
                                   <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                                   <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
+                                  {createdLabel && <span className="text-xs font-semibold text-slate-500">Created {createdLabel}</span>}
                                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status] || "bg-gray-100 text-gray-600"}`}>{sheet.status}</span>
                                   <span className="text-xs text-slate-500">{sheet.items.length} items</span>
                                 </div>
