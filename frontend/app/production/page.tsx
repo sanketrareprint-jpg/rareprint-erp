@@ -755,7 +755,7 @@ export default function ProductionPage() {
   return (
     <>
       <DashboardShell>
-        <div className="p-4 lg:p-5 space-y-3">
+        <div className="flex h-[calc(100vh-1rem)] min-h-0 flex-col gap-3 overflow-hidden p-4 lg:p-5">
 
           {/* Header */}
           <div className="flex items-center justify-between">
@@ -799,6 +799,7 @@ export default function ProductionPage() {
             </div>
           )}
 
+          <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
           {loading && <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>}
           {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
@@ -1792,6 +1793,7 @@ export default function ProductionPage() {
               )}
             </div>
           )}
+          </div>
 
         </div>
       </DashboardShell>
