@@ -1,6 +1,6 @@
 // backend/src/production/clubbing-sheet.service.ts
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { JobWorkStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides } from '@prisma/client';
+import { JobWorkStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 function summarizeDesignFiles(value: unknown) {
@@ -41,6 +41,142 @@ function resolveItemDetails(item: {
   return { size, gsm, sides };
 }
 
+type AutoSlot = 'SMALL_5_5X8_5' | 'MEDIUM_7_3X8_5' | 'LARGE_8_5X11' | 'FILE_12X18' | 'BIG_ENV_9X12';
+type AutoFamily = 'STANDARD_18X23' | 'FILE_19X25' | 'BIG_ENV_15X20';
+type AutoItem = {
+  id: string;
+  productId: string;
+  productName: string;
+  productSku: string;
+  categoryName: string;
+  quantity: number;
+  effectiveQuantity: number;
+  assignedQuantity: number;
+  balanceQuantity: number;
+  gsm: number;
+  sides: ProductSides;
+  printingType: PrintingType;
+  slot: AutoSlot;
+  family: AutoFamily;
+  slotArea: number;
+};
+type AutoPattern = {
+  name: string;
+  family: AutoFamily;
+  sheetSize: string;
+  quality: SheetQuality;
+  slots: Partial<Record<AutoSlot, number>>;
+};
+
+const STANDARD_PATTERNS: AutoPattern[] = [
+  { name: 'A', family: 'STANDARD_18X23', sheetSize: '18x23', quality: SheetQuality.MAPLITHO, slots: { MEDIUM_7_3X8_5: 3, LARGE_8_5X11: 1, SMALL_5_5X8_5: 2 } },
+  { name: 'B', family: 'STANDARD_18X23', sheetSize: '18x23', quality: SheetQuality.MAPLITHO, slots: { LARGE_8_5X11: 4 } },
+  { name: 'C', family: 'STANDARD_18X23', sheetSize: '18x23', quality: SheetQuality.MAPLITHO, slots: { SMALL_5_5X8_5: 8 } },
+  { name: 'D', family: 'STANDARD_18X23', sheetSize: '18x23', quality: SheetQuality.MAPLITHO, slots: { MEDIUM_7_3X8_5: 6 } },
+  { name: 'E', family: 'STANDARD_18X23', sheetSize: '18x23', quality: SheetQuality.MAPLITHO, slots: { MEDIUM_7_3X8_5: 3, SMALL_5_5X8_5: 4 } },
+  { name: 'F', family: 'STANDARD_18X23', sheetSize: '18x23', quality: SheetQuality.MAPLITHO, slots: { MEDIUM_7_3X8_5: 3, LARGE_8_5X11: 2 } },
+];
+const AUTO_PATTERNS: AutoPattern[] = [
+  ...STANDARD_PATTERNS,
+  { name: 'FILE', family: 'FILE_19X25', sheetSize: '19x25', quality: SheetQuality.ART_CARD, slots: { FILE_12X18: 2 } },
+  { name: 'BIG_ENV', family: 'BIG_ENV_15X20', sheetSize: '15x20', quality: SheetQuality.MAPLITHO, slots: { BIG_ENV_9X12: 1 } },
+];
+const SLOT_AREA: Record<AutoSlot, number> = {
+  SMALL_5_5X8_5: 5.5 * 8.5,
+  MEDIUM_7_3X8_5: 7.3 * 8.5,
+  LARGE_8_5X11: 8.5 * 11,
+  FILE_12X18: 12 * 18,
+  BIG_ENV_9X12: 18.5 * 13.5,
+};
+
+function normalizeSize(value?: string | null) {
+  const match = (value ?? '').toLowerCase().replace(/inch|inches|"/g, '').match(/(\d+(?:\.\d+)?)\s*[*x×]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2])].sort((a, b) => a - b) as [number, number];
+}
+
+function nearPair(size: [number, number] | null, a: number, b: number, tolerance = 0.35) {
+  if (!size) return false;
+  const target = [a, b].sort((x, y) => x - y);
+  return Math.abs(size[0] - target[0]) <= tolerance && Math.abs(size[1] - target[1]) <= tolerance;
+}
+
+function classifyAutoItem(raw: {
+  id: string;
+  productId: string;
+  quantity: number;
+  productionNotes?: string | null;
+  product: { name: string; sku: string; gsm: number; sizeInches: string; openSizeInches?: string | null; sides: ProductSides; printingType: PrintingType; category?: { name: string } | null };
+  sheetItems: { quantityOnSheet: number }[];
+}): AutoItem | null {
+  const details = resolveItemDetails(raw);
+  const productName = raw.product.name;
+  const categoryName = raw.product.category?.name ?? '';
+  const haystack = `${productName} ${categoryName} ${raw.product.sku}`.toLowerCase();
+  const productSize = normalizeSize(details.size ?? raw.product.sizeInches);
+  const openSize = normalizeSize(raw.product.openSizeInches);
+  const assignedQuantity = raw.sheetItems.reduce((sum, item) => sum + item.quantityOnSheet, 0);
+
+  let slot: AutoSlot | null = null;
+  let family: AutoFamily | null = null;
+  let effectiveQuantity = raw.quantity;
+
+  if (haystack.includes('file')) {
+    slot = 'FILE_12X18';
+    family = 'FILE_19X25';
+  } else if (haystack.includes('letterpad')) {
+    effectiveQuantity = raw.quantity * 100;
+    if (nearPair(openSize, 5.5, 8.5) || nearPair(productSize, 5.5, 8.5)) slot = 'SMALL_5_5X8_5';
+    else slot = 'LARGE_8_5X11';
+    family = 'STANDARD_18X23';
+  } else if (haystack.includes('letterhead') || haystack.includes('letter head')) {
+    slot = nearPair(openSize, 5.5, 8.5) || nearPair(productSize, 5.5, 8.5) ? 'SMALL_5_5X8_5' : 'LARGE_8_5X11';
+    family = 'STANDARD_18X23';
+  } else if (haystack.includes('envelope')) {
+    if (nearPair(productSize, 4, 5) || nearPair(openSize, 5.5, 8.5)) slot = 'SMALL_5_5X8_5';
+    else if (nearPair(productSize, 4, 7) || nearPair(openSize, 7.3, 8.5)) slot = 'MEDIUM_7_3X8_5';
+    else if (nearPair(productSize, 5.5, 8) || nearPair(productSize, 4, 9) || nearPair(productSize, 4.25, 9.25) || nearPair(openSize, 8.5, 11)) slot = 'LARGE_8_5X11';
+    else if (nearPair(productSize, 9, 12) || nearPair(openSize, 18.5, 13.5)) slot = 'BIG_ENV_9X12';
+    family = slot === 'BIG_ENV_9X12' ? 'BIG_ENV_15X20' : 'STANDARD_18X23';
+  } else if (nearPair(openSize, 12, 18)) {
+    slot = 'FILE_12X18';
+    family = 'FILE_19X25';
+  } else if (nearPair(openSize, 18.5, 13.5)) {
+    slot = 'BIG_ENV_9X12';
+    family = 'BIG_ENV_15X20';
+  } else if (nearPair(openSize, 8.5, 11)) {
+    slot = 'LARGE_8_5X11';
+    family = 'STANDARD_18X23';
+  } else if (nearPair(openSize, 5.5, 8.5)) {
+    slot = 'SMALL_5_5X8_5';
+    family = 'STANDARD_18X23';
+  } else if (nearPair(openSize, 7.3, 8.5)) {
+    slot = 'MEDIUM_7_3X8_5';
+    family = 'STANDARD_18X23';
+  }
+
+  if (!slot || !family) return null;
+  const balanceQuantity = effectiveQuantity - assignedQuantity;
+  if (balanceQuantity <= 0) return null;
+  return {
+    id: raw.id,
+    productId: raw.productId,
+    productName,
+    productSku: raw.product.sku,
+    categoryName,
+    quantity: raw.quantity,
+    effectiveQuantity,
+    assignedQuantity,
+    balanceQuantity,
+    gsm: Number(details.gsm ?? raw.product.gsm),
+    sides: raw.product.sides,
+    printingType: raw.product.printingType,
+    slot,
+    family,
+    slotArea: SLOT_AREA[slot],
+  };
+}
+
 @Injectable()
 export class ClubbingSheetService {
   constructor(private readonly prisma: PrismaService) {}
@@ -56,6 +192,92 @@ export class ClubbingSheetService {
         },
       },
     } as const;
+  }
+
+  private getSheetArea(sizeInches: string) {
+    const [w, h] = sizeInches.split('x').map(Number);
+    return (w || 0) * (h || 0);
+  }
+
+  private buildCandidateQuantities(items: AutoItem[], pattern: AutoPattern) {
+    const candidates = new Set<number>();
+    for (const item of items) {
+      const capacity = pattern.slots[item.slot] ?? 0;
+      for (let slots = 1; slots <= capacity; slots++) {
+        const qty = Math.floor(item.balanceQuantity / slots);
+        if (qty > 0) candidates.add(qty);
+      }
+    }
+    return [...candidates].sort((a, b) => b - a).slice(0, 60);
+  }
+
+  private planPattern(items: AutoItem[], pattern: AutoPattern, sheetQuantity: number) {
+    const remainingSlots: Partial<Record<AutoSlot, number>> = { ...pattern.slots };
+    const remainingQty = new Map(items.map(item => [item.id, item.balanceQuantity]));
+    const placements: { item: AutoItem; multiple: number; quantityOnSheet: number; areaSqInches: number }[] = [];
+    const supportedSlots = Object.keys(pattern.slots) as AutoSlot[];
+
+    for (const slot of supportedSlots) {
+      let capacity = remainingSlots[slot] ?? 0;
+      const slotItems = items
+        .filter(item => item.slot === slot)
+        .sort((a, b) => (remainingQty.get(b.id) ?? 0) - (remainingQty.get(a.id) ?? 0));
+
+      while (capacity > 0) {
+        const item = slotItems.find(candidate => (remainingQty.get(candidate.id) ?? 0) >= sheetQuantity);
+        if (!item) break;
+        const available = remainingQty.get(item.id) ?? 0;
+        const multiple = Math.min(capacity, Math.floor(available / sheetQuantity));
+        if (multiple <= 0) break;
+        placements.push({
+          item,
+          multiple,
+          quantityOnSheet: multiple * sheetQuantity,
+          areaSqInches: item.slotArea * multiple,
+        });
+        remainingQty.set(item.id, available - multiple * sheetQuantity);
+        capacity -= multiple;
+      }
+    }
+
+    const totalSlots = supportedSlots.reduce((sum, slot) => sum + (pattern.slots[slot] ?? 0), 0);
+    const usedSlots = placements.reduce((sum, placement) => sum + placement.multiple, 0);
+    const mediumSlots = placements.filter(p => p.item.slot === 'MEDIUM_7_3X8_5').reduce((sum, p) => sum + p.multiple, 0);
+    if (mediumSlots > 0 && mediumSlots < 3) return null;
+    if (usedSlots === 0) return null;
+    return {
+      pattern,
+      sheetQuantity,
+      placements,
+      totalSlots,
+      usedSlots,
+      assignedQuantity: placements.reduce((sum, placement) => sum + placement.quantityOnSheet, 0),
+      isFull: usedSlots === totalSlots,
+    };
+  }
+
+  private chooseBestPlan(items: AutoItem[]) {
+    const family = items[0]?.family;
+    const patterns = AUTO_PATTERNS.filter(pattern => pattern.family === family);
+    let best: ReturnType<ClubbingSheetService['planPattern']> | null = null;
+    for (const pattern of patterns) {
+      const compatibleItems = items.filter(item => (pattern.slots[item.slot] ?? 0) > 0);
+      if (compatibleItems.length === 0) continue;
+      for (const quantity of this.buildCandidateQuantities(compatibleItems, pattern)) {
+        const plan = this.planPattern(compatibleItems, pattern, quantity);
+        if (!plan) continue;
+        if (
+          !best ||
+          plan.isFull !== best.isFull && plan.isFull ||
+          plan.usedSlots / plan.totalSlots > best.usedSlots / best.totalSlots ||
+          plan.usedSlots / plan.totalSlots === best.usedSlots / best.totalSlots && plan.assignedQuantity > best.assignedQuantity ||
+          plan.assignedQuantity === best.assignedQuantity && plan.sheetQuantity > best.sheetQuantity
+        ) {
+          best = plan;
+        }
+      }
+    }
+    return best;
   }
 
   async getJobWorks(orderItemId: string) {
@@ -129,6 +351,7 @@ export class ClubbingSheetService {
         printing: true,
         status: true,
         usedAreaSqInches: true,
+        createdBySource: true,
         items: {
           orderBy: { createdAt: 'asc' },
           select: {
@@ -167,6 +390,118 @@ export class ClubbingSheetService {
     const [w, h] = data.sizeInches.split('x').map(Number);
     if (!w || !h) throw new BadRequestException('Invalid size format. Use WxH e.g. 18x23');
     return this.prisma.printSheet.create({ data: { sheetNo, ...data, areaSqInches: w * h } });
+  }
+
+  async autoOrganizeSheets() {
+    const rawItems = await this.prisma.orderItem.findMany({
+      where: {
+        productionCategory: 'SHEET_PRODUCTION',
+        itemProductionStage: { not: 'READY_FOR_DISPATCH' },
+        order: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
+      },
+      select: {
+        id: true,
+        productId: true,
+        quantity: true,
+        productionNotes: true,
+        product: {
+          select: {
+            name: true,
+            sku: true,
+            gsm: true,
+            sizeInches: true,
+            openSizeInches: true,
+            sides: true,
+            printingType: true,
+            category: { select: { name: true } },
+          },
+        },
+        sheetItems: { select: { quantityOnSheet: true } },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: 500,
+    });
+
+    const candidates = rawItems.map(classifyAutoItem).filter((item): item is AutoItem => !!item);
+    const groups = new Map<string, AutoItem[]>();
+    for (const item of candidates) {
+      const key = [item.family, item.gsm, item.sides, item.printingType].join('|');
+      const existing = groups.get(key) ?? [];
+      existing.push(item);
+      groups.set(key, existing);
+    }
+
+    const createdSheets: { sheetNo: string; status: SheetStatus; quantity: number; pattern: string; items: number }[] = [];
+    let skippedUnsupported = rawItems.length - candidates.length;
+    let skippedWaiting = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      let sheetCount = await tx.printSheet.count();
+      for (const [, groupItems] of groups) {
+        const working = groupItems.map(item => ({ ...item }));
+        let guard = 0;
+        while (guard++ < 50 && working.some(item => item.balanceQuantity > 0)) {
+          const active = working.filter(item => item.balanceQuantity > 0);
+          const plan = this.chooseBestPlan(active);
+          if (!plan) {
+            skippedWaiting += active.length;
+            break;
+          }
+
+          sheetCount++;
+          const sheetNo = `AUTO-${new Date().getFullYear()}-${String(sheetCount).padStart(3, '0')}-${createdSheets.length + 1}`;
+          const areaSqInches = this.getSheetArea(plan.pattern.sheetSize);
+          const usedAreaSqInches = plan.placements.reduce((sum, placement) => sum + placement.areaSqInches, 0);
+          const sheet = await tx.printSheet.create({
+            data: {
+              sheetNo,
+              gsm: active[0].gsm,
+              quality: plan.pattern.quality,
+              quantity: plan.sheetQuantity,
+              sizeInches: plan.pattern.sheetSize,
+              areaSqInches,
+              printing: active[0].sides,
+              status: plan.isFull ? SheetStatus.COMPLETE : SheetStatus.INCOMPLETE,
+              usedAreaSqInches,
+              createdBySource: 'AUTO',
+            },
+          });
+
+          for (const placement of plan.placements) {
+            await tx.printSheetItem.create({
+              data: {
+                sheetId: sheet.id,
+                orderItemId: placement.item.id,
+                productId: placement.item.productId,
+                multiple: placement.multiple,
+                quantityOnSheet: placement.quantityOnSheet,
+                areaSqInches: placement.areaSqInches,
+              },
+            });
+            const target = working.find(item => item.id === placement.item.id);
+            if (target) target.balanceQuantity -= placement.quantityOnSheet;
+          }
+
+          createdSheets.push({
+            sheetNo,
+            status: sheet.status,
+            quantity: sheet.quantity,
+            pattern: plan.pattern.name,
+            items: plan.placements.length,
+          });
+
+          if (!plan.isFull) break;
+        }
+      }
+    }, { timeout: 30000 });
+
+    return {
+      success: true,
+      created: createdSheets.length,
+      skippedUnsupported,
+      skippedWaiting,
+      sheets: createdSheets,
+    };
   }
 
   async updateSheet(sheetId: string, data: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides }) {

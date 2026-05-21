@@ -82,6 +82,11 @@ export class ProductionController {
     return this.clubbingSheetService.createSheet(body);
   }
 
+  @Post('sheets/auto-organize')
+  autoOrganizeSheets() {
+    return this.clubbingSheetService.autoOrganizeSheets();
+  }
+
   @Patch('sheets/:id')
   updateSheet(
     @Param('id') id: string,

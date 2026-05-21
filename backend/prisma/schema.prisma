@@ -183,6 +183,7 @@ model PrintSheet {
   printing      ProductSides
   status        SheetStatus     @default(INCOMPLETE)
   usedAreaSqInches Float        @default(0)
+  createdBySource String        @default("MANUAL")
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   items         PrintSheetItem[]

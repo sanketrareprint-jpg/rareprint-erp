@@ -44,7 +44,7 @@ type ClubbingItem = { id: string; productName: string; quantity: number; product
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
 type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
-type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; items: SheetItem[]; stageVendors: StageVendor[]; };
+type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
 
 function parseNotes(notes?: string) {
@@ -156,6 +156,7 @@ export default function ProductionPage() {
   const [editSheetModal, setEditSheetModal] = useState<PrintSheet | null>(null);
   const [editSheetForm, setEditSheetForm] = useState({ sheetNo: "", gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
   const [savingSheet, setSavingSheet] = useState(false);
+  const [autoOrganizing, setAutoOrganizing] = useState(false);
   const [savingEditSheet, setSavingEditSheet] = useState(false);
   const [expandedSheet, setExpandedSheet] = useState<string | null>(null);
   const [placeableItems, setPlaceableItems] = useState<PlaceableItem[]>([]);
@@ -399,6 +400,24 @@ export default function ProductionPage() {
       if (created?.id) setSheetsData(prev => [{ ...created, items: [], stageVendors: [] }, ...prev]);
       else await loadSheets();
     } finally { setSavingSheet(false); }
+  }
+
+  async function autoOrganizeSheets() {
+    if (!confirm("Auto create ERP sheets and assign compatible unassigned items now?")) return;
+    setAutoOrganizing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/sheets/auto-organize`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(body.message || "Auto sheet organize failed"); return; }
+      alert(`ERP auto sheets created: ${body.created ?? 0}`);
+      await loadAll(true);
+      setSheetSubTab("created");
+    } finally {
+      setAutoOrganizing(false);
+    }
   }
 
   function openEditSheet(sheet: PrintSheet) {
@@ -1143,26 +1162,33 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
-              <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
-                {[
-                  { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
-                  { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
-                  { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
-                ].map(t => {
-                  const aqm: Record<string,number> = {};
-                  sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
-                  const count = t.key === "unassigned"
-                    ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
-                    : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
-                    : sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length;
-                  return (
-                    <button key={t.key} onClick={() => setSheetSubTab(t.key)}
-                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
-                      {t.label}
-                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? "bg-cyan-100 text-cyan-700" : "bg-slate-200 text-slate-500"}`}>{count}</span>
-                    </button>
-                  );
-                })}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+                  {[
+                    { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
+                    { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
+                    { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
+                  ].map(t => {
+                    const aqm: Record<string,number> = {};
+                    sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
+                    const count = t.key === "unassigned"
+                      ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
+                      : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
+                      : sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length;
+                    return (
+                      <button key={t.key} onClick={() => setSheetSubTab(t.key)}
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
+                        {t.label}
+                        <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? "bg-cyan-100 text-cyan-700" : "bg-slate-200 text-slate-500"}`}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={autoOrganizeSheets} disabled={autoOrganizing}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60">
+                  {autoOrganizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Auto Create ERP Sheets
+                </button>
               </div>
               {sheetSubTab === "unassigned" && (() => {
                 const aqm: Record<string,number> = {};
@@ -1374,6 +1400,7 @@ export default function ProductionPage() {
                           <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
+                              {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
                               <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
