@@ -1484,37 +1484,3 @@ function AddTierRow({ onAdd }: { onAdd: (tier: string, val: string) => void }) {
     </div>
   );
 }
-            {clubbingSaved && <p className="text-center text-purple-700 font-semibold text-sm mt-2">Clubbing rates saved!</p>}
-            {clubbingError && <p className="text-center text-red-600 text-sm mt-2">{clubbingError}</p>}
-          </>
-        )}
-
-        </div>{/* end tab content scroll area */}
-      </div>{/* end flex-col h-full */}
-    </DashboardShell>
-  );
-}
-
-// ─── ADD TIER ROW ─────────────────────────────────────────────────────────────
-function AddTierRow({ onAdd }: { onAdd: (tier: string, val: string) => void }) {
-  const [qty, setQty] = useState("");
-  const [rate, setRate] = useState("");
-  const handle = () => {
-    if (!qty || !rate) return;
-    const tier = String(Math.max(1000, Math.round(Number(qty) / 1000) * 1000));
-    onAdd(tier, rate);
-    setQty(""); setRate("");
-  };
-  return (
-    <div className="flex gap-2 items-center pt-1 border-t border-dashed border-slate-200">
-      <input type="number" step="1000" min="1000" placeholder="qty" value={qty}
-        onChange={e => setQty(e.target.value)}
-        className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
-      <input type="number" step="0.1" placeholder="per pc" value={rate}
-        onChange={e => setRate(e.target.value)}
-        className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
-      <button onClick={handle}
-        className="bg-blue-500 hover:bg-blue-600 text-white rounded px-2 py-1 text-xs font-semibold">+ Add</button>
-    </div>
-  );
-}
