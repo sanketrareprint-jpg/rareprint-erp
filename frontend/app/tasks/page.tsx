@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
-import { CheckCircle2, Clock, Loader2, Plus, UserCheck } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, Pencil, Plus, Save, UserCheck, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type UserOption = { id: string; fullName: string; email: string; role: string };
@@ -41,6 +41,18 @@ const priorityClass: Record<Task["priority"], string> = {
   HIGH: "bg-orange-50 text-orange-700",
   URGENT: "bg-red-50 text-red-700",
 };
+const priorityLabels: Record<Task["priority"], string> = {
+  LOW: "Low",
+  NORMAL: "Normal",
+  HIGH: "High",
+  URGENT: "Urgent",
+};
+const priorityRank: Record<Task["priority"], number> = {
+  URGENT: 0,
+  HIGH: 1,
+  NORMAL: 2,
+  LOW: 3,
+};
 
 export default function TasksPage() {
   const router = useRouter();
@@ -51,6 +63,15 @@ export default function TasksPage() {
   const [status, setStatus] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editForm, setEditForm] = useState<FormState>({
+    title: "",
+    description: "",
+    assignedToId: "",
+    priority: "NORMAL",
+    dueDate: "",
+  });
   const [form, setForm] = useState<FormState>({
     title: "",
     description: "",
@@ -87,6 +108,16 @@ export default function TasksPage() {
     progress: tasks.filter(t => t.status === "IN_PROGRESS").length,
     done: tasks.filter(t => t.status === "DONE").length,
   }), [tasks]);
+  const sortedTasks = useMemo(() => (
+    [...tasks].sort((a, b) => {
+      const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      const dueA = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const dueB = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      if (dueA !== dueB) return dueA - dueB;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    })
+  ), [tasks]);
 
   async function createTask() {
     if (!form.title.trim()) { alert("Task title is required"); return; }
@@ -122,6 +153,34 @@ export default function TasksPage() {
     setTasks(prev => prev.map(task => task.id === id ? updated : task));
   }
 
+  function startEdit(task: Task) {
+    setEditingId(task.id);
+    setEditForm({
+      title: task.title,
+      description: task.description ?? "",
+      assignedToId: task.assignedTo.id,
+      priority: task.priority,
+      dueDate: task.dueDate ? task.dueDate.slice(0, 10) : "",
+    });
+  }
+
+  async function saveEdit(taskId: string) {
+    if (!editForm.title.trim()) { alert("Task title is required"); return; }
+    setEditSaving(true);
+    try {
+      await updateTask(taskId, {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        assignedToId: editForm.assignedToId,
+        priority: editForm.priority,
+        dueDate: editForm.dueDate,
+      } as Partial<Task>);
+      setEditingId(null);
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   return (
     <DashboardShell>
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:p-6 lg:overflow-hidden">
@@ -155,10 +214,7 @@ export default function TasksPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                  <option value="LOW">Low</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">High</option>
-                  <option value="URGENT">Urgent</option>
+                  {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
                 <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
               </div>
@@ -190,30 +246,59 @@ export default function TasksPage() {
               <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">No tasks found.</div>
             ) : (
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 pb-4">
-                {tasks.map(task => (
+                {sortedTasks.map(task => (
                   <div key={task.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div className="min-w-0">
-                        <div className="mb-1 flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-slate-900">{task.title}</h3>
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{task.priority}</span>
+                    {editingId === task.id ? (
+                      <div className="space-y-3">
+                        <div className="grid gap-2 md:grid-cols-[1fr_160px]">
+                          <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Task subject" className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-400" />
+                          <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                            {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
                         </div>
-                        {task.description && <p className="text-sm text-slate-500">{task.description}</p>}
-                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                          <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5" /> Assigned: {task.assignedTo.fullName}</span>
-                          <span>Created: {task.createdBy.fullName}</span>
-                          {task.dueDate && <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Due {new Date(task.dueDate).toLocaleDateString("en-IN")}</span>}
+                        <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+                        <div className="grid gap-2 md:grid-cols-[1fr_160px]">
+                          <select value={editForm.assignedToId} onChange={e => setEditForm(p => ({ ...p, assignedToId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                            {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
+                          </select>
+                          <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingId(null)} disabled={editSaving} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                            <X className="h-3.5 w-3.5" /> Cancel
+                          </button>
+                          <button onClick={() => saveEdit(task.id)} disabled={editSaving} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                            {editSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none">
-                          {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                        </select>
-                        <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Done
-                        </button>
+                    ) : (
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0">
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold text-slate-900">{task.title}</h3>
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
+                          </div>
+                          {task.description && <p className="text-sm text-slate-500">{task.description}</p>}
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                            <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5" /> Assigned: {task.assignedTo.fullName}</span>
+                            <span>Created: {task.createdBy.fullName}</span>
+                            {task.dueDate && <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Due {new Date(task.dueDate).toLocaleDateString("en-IN")}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => startEdit(task)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </button>
+                          <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none">
+                            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
+                          <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
