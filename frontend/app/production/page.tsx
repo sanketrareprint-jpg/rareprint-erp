@@ -83,6 +83,9 @@ const categoryColors: Record<string, string> = { INHOUSE:"bg-violet-100 text-vio
 const categoryLabels: Record<string, string> = { INHOUSE:"Inhouse", CLUBBING:"Clubbing", SHEET_PRODUCTION:"Sheet" };
 const sheetStatusColors: Record<string, string> = { INCOMPLETE:"bg-gray-100 text-gray-600", SETTING:"bg-yellow-100 text-yellow-700", PRINTING:"bg-blue-100 text-blue-700", PROCESSING:"bg-orange-100 text-orange-700", COMPLETE:"bg-green-100 text-green-700", DONE:"bg-emerald-100 text-emerald-800" };
 const jwStatusColors: Record<string, string> = { PENDING:"bg-gray-100 text-gray-600", IN_PROGRESS:"bg-blue-100 text-blue-700", COMPLETED:"bg-green-100 text-green-700" };
+function sheetPrintingLabel(value?: string | null) {
+  return value === "DOUBLE_SIDE" ? "Double Side" : "Single Side";
+}
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -1422,7 +1425,7 @@ export default function ProductionPage() {
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
                               {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
-                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · {sheetPrintingLabel(sheet.printing)} · Qty {sheet.quantity}</span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${sheetStatusColors[sheet.status]}`}>{sheet.status}</span>
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
