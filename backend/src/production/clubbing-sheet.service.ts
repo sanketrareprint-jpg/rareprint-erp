@@ -507,7 +507,8 @@ export class ClubbingSheetService {
   async updateSheet(sheetId: string, data: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides }) {
     const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
     if (!sheet) throw new NotFoundException('Sheet not found');
-    if (sheet.status !== 'INCOMPLETE') throw new BadRequestException('Only incomplete sheets can be edited');
+    const canEdit = sheet.status === 'INCOMPLETE' || (sheet.createdBySource === 'AUTO' && sheet.status === 'COMPLETE');
+    if (!canEdit) throw new BadRequestException('Only incomplete sheets or AUTO complete sheets can be edited');
 
     let areaSqInches: number | undefined;
     if (data.sizeInches) {
@@ -528,6 +529,18 @@ export class ClubbingSheetService {
         ...(data.printing && { printing: data.printing }),
       },
     });
+  }
+
+  async deleteSheet(sheetId: string) {
+    const sheet = await this.prisma.printSheet.findUnique({
+      where: { id: sheetId },
+      select: { id: true, status: true, createdBySource: true },
+    });
+    if (!sheet) throw new NotFoundException('Sheet not found');
+    const canDelete = sheet.status === 'INCOMPLETE' || (sheet.createdBySource === 'AUTO' && sheet.status === 'COMPLETE');
+    if (!canDelete) throw new BadRequestException('Only incomplete sheets or AUTO complete sheets can be deleted');
+    await this.prisma.printSheet.delete({ where: { id: sheetId } });
+    return { success: true, sheetId };
   }
 
   async updateSheetStatus(sheetId: string, status: SheetStatus) {

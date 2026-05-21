@@ -93,6 +93,11 @@ export class ProductionController {
     @Body() body: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides },
   ) { return this.clubbingSheetService.updateSheet(id, body); }
 
+  @Delete('sheets/:id')
+  deleteSheet(@Param('id') id: string) {
+    return this.clubbingSheetService.deleteSheet(id);
+  }
+
   // ── Static routes MUST come before parameterized routes (:id) ──
   @Get('sheets/placeable-items')
   getPlaceableItems(@Query('gsm') gsm: string) { return this.clubbingSheetService.getPlaceableItems(Number(gsm)); }

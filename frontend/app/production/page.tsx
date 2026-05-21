@@ -421,8 +421,9 @@ export default function ProductionPage() {
   }
 
   function openEditSheet(sheet: PrintSheet) {
-    if (sheet.status !== "INCOMPLETE") {
-      alert("Only incomplete sheets can be edited.");
+    const canEdit = sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE");
+    if (!canEdit) {
+      alert("Only incomplete sheets or AUTO complete sheets can be edited.");
       return;
     }
     setEditSheetModal(sheet);
@@ -462,6 +463,26 @@ export default function ProductionPage() {
       if (updated?.id) setSheetsData(prev => prev.map(sheet => sheet.id === updated.id ? { ...sheet, ...updated } : sheet));
       else await loadSheets();
     } finally { setSavingEditSheet(false); }
+  }
+
+  async function deleteSheet(sheet: PrintSheet) {
+    const canDelete = sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE");
+    if (!canDelete) {
+      alert("Only incomplete sheets or AUTO complete sheets can be deleted.");
+      return;
+    }
+    if (!confirm(`Delete sheet ${sheet.sheetNo}? Assigned items will become unassigned again.`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/production/sheets/${sheet.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message || "Delete failed"); return; }
+      setSheetsData(prev => prev.filter(s => s.id !== sheet.id));
+      if (expandedSheet === sheet.id) setExpandedSheet(null);
+    } catch {
+      alert("Delete failed");
+    }
   }
 
   async function loadPlaceableItems(gsm: number) {
@@ -1406,9 +1427,14 @@ export default function ProductionPage() {
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              {sheet.status === "INCOMPLETE" && (
+                              {(sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE")) && (
                                 <button onClick={e => { e.stopPropagation(); openEditSheet(sheet); }} className="rounded-md border border-cyan-200 bg-white px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-50">
                                   Edit
+                                </button>
+                              )}
+                              {(sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE")) && (
+                                <button onClick={e => { e.stopPropagation(); void deleteSheet(sheet); }} className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">
+                                  Delete
                                 </button>
                               )}
                               <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
