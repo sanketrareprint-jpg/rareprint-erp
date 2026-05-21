@@ -82,6 +82,7 @@ const AUTO_PATTERNS: AutoPattern[] = [
   { name: 'FILE', family: 'FILE_19X25', sheetSize: '19x25', quality: SheetQuality.ART_CARD, slots: { FILE_12X18: 2 } },
   { name: 'BIG_ENV', family: 'BIG_ENV_15X20', sheetSize: '15x20', quality: SheetQuality.MAPLITHO, slots: { BIG_ENV_9X12: 1 } },
 ];
+const MIN_AUTO_SHEET_QUANTITY = 1000;
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
   MEDIUM_7_3X8_5: 7.3 * 8.5,
@@ -210,13 +211,15 @@ export class ClubbingSheetService {
       const capacity = pattern.slots[item.slot] ?? 0;
       for (let slots = 1; slots <= capacity; slots++) {
         const qty = Math.floor(item.balanceQuantity / slots);
-        if (qty > 0) candidates.add(qty);
+        if (qty >= MIN_AUTO_SHEET_QUANTITY) candidates.add(qty);
       }
     }
     return [...candidates].sort((a, b) => b - a).slice(0, 60);
   }
 
   private planPattern(items: AutoItem[], pattern: AutoPattern, sheetQuantity: number) {
+    if (sheetQuantity < MIN_AUTO_SHEET_QUANTITY) return null;
+
     const remainingSlots: Partial<Record<AutoSlot, number>> = { ...pattern.slots };
     const remainingQty = new Map(items.map(item => [item.id, item.balanceQuantity]));
     const placements: { item: AutoItem; multiple: number; quantityOnSheet: number; areaSqInches: number }[] = [];
