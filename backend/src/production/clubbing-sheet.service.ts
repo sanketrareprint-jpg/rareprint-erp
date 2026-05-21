@@ -41,7 +41,7 @@ function resolveItemDetails(item: {
   return { size, gsm, sides };
 }
 
-type AutoSlot = 'SMALL_5_5X8_5' | 'MEDIUM_7_3X8_5' | 'LARGE_8_5X11' | 'FILE_12X18' | 'BIG_ENV_9X12';
+type AutoSlot = 'SMALL_5_5X8_5' | 'MEDIUM_7_3X8_5' | 'LARGE_8_5X11' | 'FILE_9X12' | 'FILE_12X18' | 'BIG_ENV_9X12';
 type AutoFamily = 'STANDARD_18X23' | 'FILE_19X25' | 'BIG_ENV_15X20';
 type AutoItem = {
   id: string;
@@ -78,6 +78,7 @@ const STANDARD_PATTERNS: AutoPattern[] = [
 ];
 const AUTO_PATTERNS: AutoPattern[] = [
   ...STANDARD_PATTERNS,
+  { name: 'SMALL_FILE', family: 'FILE_19X25', sheetSize: '19x25', quality: SheetQuality.ART_CARD, slots: { FILE_9X12: 4 } },
   { name: 'FILE', family: 'FILE_19X25', sheetSize: '19x25', quality: SheetQuality.ART_CARD, slots: { FILE_12X18: 2 } },
   { name: 'BIG_ENV', family: 'BIG_ENV_15X20', sheetSize: '15x20', quality: SheetQuality.MAPLITHO, slots: { BIG_ENV_9X12: 1 } },
 ];
@@ -85,6 +86,7 @@ const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
   MEDIUM_7_3X8_5: 7.3 * 8.5,
   LARGE_8_5X11: 8.5 * 11,
+  FILE_9X12: 9 * 12,
   FILE_12X18: 12 * 18,
   BIG_ENV_9X12: 18.5 * 13.5,
 };
@@ -121,7 +123,25 @@ function classifyAutoItem(raw: {
   let family: AutoFamily | null = null;
   let effectiveQuantity = raw.quantity;
 
-  if (haystack.includes('file')) {
+  if (nearPair(openSize, 9, 12)) {
+    slot = 'FILE_9X12';
+    family = 'FILE_19X25';
+  } else if (nearPair(openSize, 12, 18)) {
+    slot = 'FILE_12X18';
+    family = 'FILE_19X25';
+  } else if (nearPair(openSize, 18.5, 13.5)) {
+    slot = 'BIG_ENV_9X12';
+    family = 'BIG_ENV_15X20';
+  } else if (nearPair(openSize, 8.5, 11)) {
+    slot = 'LARGE_8_5X11';
+    family = 'STANDARD_18X23';
+  } else if (nearPair(openSize, 5.5, 8.5)) {
+    slot = 'SMALL_5_5X8_5';
+    family = 'STANDARD_18X23';
+  } else if (nearPair(openSize, 7.3, 8.5)) {
+    slot = 'MEDIUM_7_3X8_5';
+    family = 'STANDARD_18X23';
+  } else if (haystack.includes('file')) {
     slot = 'FILE_12X18';
     family = 'FILE_19X25';
   } else if (haystack.includes('letterpad')) {
@@ -138,21 +158,6 @@ function classifyAutoItem(raw: {
     else if (nearPair(productSize, 5.5, 8) || nearPair(productSize, 4, 9) || nearPair(productSize, 4.25, 9.25) || nearPair(openSize, 8.5, 11)) slot = 'LARGE_8_5X11';
     else if (nearPair(productSize, 9, 12) || nearPair(openSize, 18.5, 13.5)) slot = 'BIG_ENV_9X12';
     family = slot === 'BIG_ENV_9X12' ? 'BIG_ENV_15X20' : 'STANDARD_18X23';
-  } else if (nearPair(openSize, 12, 18)) {
-    slot = 'FILE_12X18';
-    family = 'FILE_19X25';
-  } else if (nearPair(openSize, 18.5, 13.5)) {
-    slot = 'BIG_ENV_9X12';
-    family = 'BIG_ENV_15X20';
-  } else if (nearPair(openSize, 8.5, 11)) {
-    slot = 'LARGE_8_5X11';
-    family = 'STANDARD_18X23';
-  } else if (nearPair(openSize, 5.5, 8.5)) {
-    slot = 'SMALL_5_5X8_5';
-    family = 'STANDARD_18X23';
-  } else if (nearPair(openSize, 7.3, 8.5)) {
-    slot = 'MEDIUM_7_3X8_5';
-    family = 'STANDARD_18X23';
   }
 
   if (!slot || !family) return null;
@@ -618,7 +623,7 @@ export class ClubbingSheetService {
         id: true,
         quantity: true,
         productionNotes: true,
-        product: { select: { name: true, sku: true, gsm: true, sizeInches: true } },
+        product: { select: { name: true, sku: true, gsm: true, sizeInches: true, openSizeInches: true } },
         order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
         sheetItems: { select: { quantityOnSheet: true } },
       },
@@ -627,7 +632,7 @@ export class ClubbingSheetService {
     });
     return items
       .filter(i => i.sheetItems.reduce((sum, si) => sum + si.quantityOnSheet, 0) < i.quantity)
-      .map(i => ({ id: i.id, productName: i.product.name, sku: i.product.sku, gsm: i.product.gsm, openSizeInches: i.product.sizeInches, quantity: i.quantity, productionNotes: i.productionNotes, orderNo: (i.order as any).orderNumber, customerName: (i.order as any).customer.businessName }));
+      .map(i => ({ id: i.id, productName: i.product.name, sku: i.product.sku, gsm: i.product.gsm, openSizeInches: i.product.openSizeInches ?? i.product.sizeInches, quantity: i.quantity, productionNotes: i.productionNotes, orderNo: (i.order as any).orderNumber, customerName: (i.order as any).customer.businessName }));
   }
 
   async placeItemOnSheet(sheetId: string, data: { orderItemId: string; productId: string; multiple: number; quantityOnSheet: number; areaSqInches: number }) {
