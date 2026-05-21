@@ -87,6 +87,12 @@ const MIN_AUTO_SHEET_QUANTITY_BY_GSM: Partial<Record<number, number>> = {
   70: 5000,
 };
 const AUTO_SHEET_SEQUENCE_START = 2001;
+const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus>> = {
+  [SheetStatus.INCOMPLETE]: SheetStatus.COMPLETE,
+  [SheetStatus.COMPLETE]: SheetStatus.SETTING,
+  [SheetStatus.SETTING]: SheetStatus.PRINTING,
+  [SheetStatus.PRINTING]: SheetStatus.PROCESSING,
+};
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
   MEDIUM_7_3X8_5: 7.3 * 8.5,
@@ -573,6 +579,16 @@ export class ClubbingSheetService {
   }
 
   async updateSheetStatus(sheetId: string, status: SheetStatus) {
+    const sheet = await this.prisma.printSheet.findUnique({
+      where: { id: sheetId },
+      select: { id: true, status: true },
+    });
+    if (!sheet) throw new NotFoundException('Sheet not found');
+    const nextStatus = SHEET_NEXT_STATUS[sheet.status];
+    if (status !== sheet.status && status !== nextStatus) {
+      throw new BadRequestException(`Move sheet step by step. Next allowed status is ${nextStatus ?? sheet.status}.`);
+    }
+
     // Map sheet status → order item production stage
     const stageMap: Record<string, string> = {
       INCOMPLETE: 'NOT_PRINTED',
@@ -605,6 +621,10 @@ export class ClubbingSheetService {
   async updateSheetStatusWithVendor(sheetId: string, data: { status: SheetStatus; vendorId: string; activityType: string; cost?: number; vendorInvoiceNo?: string; description?: string }) {
     const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
     if (!sheet) throw new NotFoundException('Sheet not found');
+    const nextStatus = SHEET_NEXT_STATUS[sheet.status];
+    if (data.status !== sheet.status && data.status !== nextStatus) {
+      throw new BadRequestException(`Move sheet step by step. Next allowed status is ${nextStatus ?? sheet.status}.`);
+    }
     const stageMap: Record<string, SheetProductionStage> = { PLATE_MAKING: SheetProductionStage.PLATE_MAKING, PRINTING: SheetProductionStage.PRINTING, BINDING: SheetProductionStage.BINDING, LAMINATION: SheetProductionStage.LAMINATION, EXTRA_PROCESSING: SheetProductionStage.EXTRA_PROCESSING, PAPER_PURCHASE: SheetProductionStage.PAPER_PURCHASE };
     const stage = stageMap[data.activityType] ?? SheetProductionStage.PRINTING;
     return this.prisma.$transaction(async (tx) => {

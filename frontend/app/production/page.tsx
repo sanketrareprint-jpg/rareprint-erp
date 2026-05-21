@@ -16,7 +16,14 @@ type ProductionStage = (typeof PRODUCTION_STAGES)[number]["value"];
 type ProductionCategory = "INHOUSE" | "CLUBBING" | "SHEET_PRODUCTION";
 
 const SHEET_QUALITIES = ["MAPLITHO","STICKER","BOND","ART_CARD","DUPLEX_CARD_WB","DUPLEX_CARD_GB"];
-const SHEET_STATUSES = ["INCOMPLETE","COMPLETE","SETTING","PRINTING","PROCESSING","DONE"];
+const SHEET_STATUSES = ["INCOMPLETE","COMPLETE","SETTING","PRINTING","PROCESSING"];
+const SHEET_NEXT_STATUS: Record<string, string | null> = {
+  INCOMPLETE: "COMPLETE",
+  COMPLETE: "SETTING",
+  SETTING: "PRINTING",
+  PRINTING: "PROCESSING",
+  PROCESSING: null,
+};
 const SHEET_STAGES = ["PAPER_PURCHASE","PLATE_MAKING","PRINTING","BINDING","LAMINATION","EXTRA_PROCESSING"];
 const JW_STATUSES = ["PENDING","IN_PROGRESS","COMPLETED"];
 
@@ -104,6 +111,10 @@ function formatSheetCreatedAt(value?: string | number | Date | null) {
 }
 function getSheetCreatedLabel(sheet: PrintSheet) {
   return formatSheetCreatedAt(sheet.createdAt ?? sheet.created_at ?? sheet.createdOn ?? sheet.createdDate ?? null);
+}
+function getAllowedSheetStatuses(currentStatus: string) {
+  const nextStatus = SHEET_NEXT_STATUS[currentStatus];
+  return nextStatus ? [currentStatus, nextStatus] : [currentStatus];
 }
 
 function orderAge(dateStr: string): string {
@@ -621,6 +632,13 @@ export default function ProductionPage() {
   async function updateSheetStatus(sheetId: string, status: string) {
     // Intercept COMPLETE → SETTING: must fill plate + print vendor info first
     const sheet = sheetsData.find(s => s.id === sheetId);
+    if (sheet) {
+      const allowedStatuses = getAllowedSheetStatuses(sheet.status);
+      if (!allowedStatuses.includes(status)) {
+        alert(`Move sheet step by step. Next allowed status is ${SHEET_NEXT_STATUS[sheet.status] ?? sheet.status}.`);
+        return;
+      }
+    }
     if (sheet && sheet.status === "COMPLETE" && status === "SETTING") {
       setSettingDialog({ sheetId, sheetNo: sheet.sheetNo });
       setSettingForm({ plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "", plateAmount: "", printVendorId: "", printDesc: "", printRate: "", printQty: "", printAmount: "" });
@@ -645,6 +663,8 @@ export default function ProductionPage() {
         : sheet
       ));
     } else {
+      const body = await res.json().catch(() => null);
+      alert(body?.message || "Sheet status update failed");
       await loadSheets();
     }
     setExpandedSheet(prevExpanded);
@@ -1467,7 +1487,7 @@ export default function ProductionPage() {
                                 </button>
                               )}
                               <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
-                                {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
                               {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                             </div>
@@ -1574,7 +1594,7 @@ export default function ProductionPage() {
                                 <div className="flex items-center gap-2">
                                   <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
                                     className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status] || "bg-gray-100"}`}>
-                                    {SHEET_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                                    {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s}</option>)}
                                   </select>
                                   {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                                 </div>
