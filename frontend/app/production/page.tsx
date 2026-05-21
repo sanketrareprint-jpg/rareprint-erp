@@ -1443,7 +1443,7 @@ export default function ProductionPage() {
                         <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                           <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
                             <div className="flex items-center gap-3 flex-wrap">
-                              <span className="font-bold text-cyan-700 text-sm">{sheet.sheetNo}</span>
+                              <span className="font-bold text-cyan-700 text-sm">Sheet No: {sheet.sheetNo}</span>
                               {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
                               <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
@@ -1560,7 +1560,7 @@ export default function ProductionPage() {
                               <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100 cursor-pointer"
                                 onClick={() => setExpandedSheet(isExp ? null : sheet.id)}>
                                 <div className="flex items-center gap-3 flex-wrap">
-                                  <span className="font-bold text-blue-700 text-sm">{sheet.sheetNo}</span>
+                                  <span className="font-bold text-blue-700 text-sm">Sheet No: {sheet.sheetNo}</span>
                                   <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                                   <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
                                   {createdLabel && (

@@ -86,6 +86,7 @@ const MIN_AUTO_SHEET_QUANTITY = 1000;
 const MIN_AUTO_SHEET_QUANTITY_BY_GSM: Partial<Record<number, number>> = {
   70: 5000,
 };
+const AUTO_SHEET_SEQUENCE_START = 2001;
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
   MEDIUM_7_3X8_5: 7.3 * 8.5,
@@ -206,6 +207,10 @@ export class ClubbingSheetService {
   private getSheetArea(sizeInches: string) {
     const [w, h] = sizeInches.split('x').map(Number);
     return (w || 0) * (h || 0);
+  }
+
+  private getAutoSheetSequence(sheetNo: string) {
+    return /^\d+$/.test(sheetNo) ? Number(sheetNo) : 0;
   }
 
   private buildCandidateQuantities(items: AutoItem[], pattern: AutoPattern) {
@@ -453,7 +458,14 @@ export class ClubbingSheetService {
     let skippedWaiting = 0;
 
     await this.prisma.$transaction(async (tx) => {
-      let sheetCount = await tx.printSheet.count();
+      const existingAutoSheets = await tx.printSheet.findMany({
+        where: { createdBySource: 'AUTO' },
+        select: { sheetNo: true },
+      });
+      let autoSheetSequence = Math.max(
+        AUTO_SHEET_SEQUENCE_START - 1,
+        ...existingAutoSheets.map(sheet => this.getAutoSheetSequence(sheet.sheetNo)),
+      );
       for (const [, groupItems] of groups) {
         const working = groupItems.map(item => ({ ...item }));
         let guard = 0;
@@ -465,8 +477,8 @@ export class ClubbingSheetService {
             break;
           }
 
-          sheetCount++;
-          const sheetNo = `AUTO-${new Date().getFullYear()}-${String(sheetCount).padStart(3, '0')}-${createdSheets.length + 1}`;
+          autoSheetSequence++;
+          const sheetNo = String(autoSheetSequence);
           const areaSqInches = this.getSheetArea(plan.pattern.sheetSize);
           const usedAreaSqInches = plan.placements.reduce((sum, placement) => sum + placement.areaSqInches, 0);
           const sheet = await tx.printSheet.create({
