@@ -124,8 +124,8 @@ export default function TasksPage() {
 
   return (
     <DashboardShell>
-      <div className="p-4 md:p-6 space-y-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:p-6 lg:overflow-hidden">
+        <div className="flex flex-none flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Tasks</h1>
             <p className="text-sm text-slate-500">Create work, assign it to a user, and track what is assigned to you.</p>
@@ -137,8 +137,8 @@ export default function TasksPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid min-h-0 gap-4 lg:flex-1 lg:grid-cols-[360px_1fr]">
+          <div className="self-start rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <Plus className="h-4 w-4 text-blue-600" />
               <h2 className="font-semibold text-slate-900">New Task</h2>
@@ -169,8 +169,8 @@ export default function TasksPage() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex min-h-0 flex-col gap-3">
+            <div className="flex flex-none flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               {[
                 ["assigned", "My Assigned"],
                 ["created", "Created By Me"],
@@ -185,11 +185,11 @@ export default function TasksPage() {
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : tasks.length === 0 ? (
-              <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">No tasks found.</div>
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">No tasks found.</div>
             ) : (
-              <div className="space-y-2">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 pb-4">
                 {tasks.map(task => (
                   <div key={task.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
