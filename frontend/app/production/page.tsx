@@ -1377,7 +1377,7 @@ export default function ProductionPage() {
                     </div>
                     <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:block">
                       <table className="w-full text-xs">
-                      <thead><tr className="border-b border-slate-100 bg-slate-50">
+                      <thead className="sticky top-28 z-10 bg-slate-50 shadow-sm"><tr className="border-b border-slate-100 bg-slate-50">
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
@@ -1730,7 +1730,7 @@ export default function ProductionPage() {
                                 <col className="w-[14%]" />
                                 <col className="w-[8%]" />
                               </colgroup>
-                              <thead><tr className="border-b border-slate-100 bg-slate-50">
+                              <thead className="sticky top-28 z-10 bg-slate-50 shadow-sm"><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
