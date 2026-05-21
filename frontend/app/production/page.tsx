@@ -112,6 +112,9 @@ function formatSheetCreatedAt(value?: string | number | Date | null) {
 function getSheetCreatedLabel(sheet: PrintSheet) {
   return formatSheetCreatedAt(sheet.createdAt ?? sheet.created_at ?? sheet.createdOn ?? sheet.createdDate ?? null);
 }
+function displaySheetNo(value?: string | null) {
+  return (value ?? "").replace(/^sheet\s*no\s*:\s*/i, "").trim();
+}
 function getAllowedSheetStatuses(currentStatus: string) {
   const nextStatus = SHEET_NEXT_STATUS[currentStatus];
   return nextStatus ? [currentStatus, nextStatus] : [currentStatus];
@@ -1463,7 +1466,7 @@ export default function ProductionPage() {
                         <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                           <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
                             <div className="flex items-center gap-3 flex-wrap">
-                              <span className="font-bold text-cyan-700 text-sm">Sheet No: {sheet.sheetNo}</span>
+                              <span className="font-bold text-cyan-700 text-sm">Sheet No: {displaySheetNo(sheet.sheetNo)}</span>
                               {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
                               <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
@@ -1580,7 +1583,7 @@ export default function ProductionPage() {
                               <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100 cursor-pointer"
                                 onClick={() => setExpandedSheet(isExp ? null : sheet.id)}>
                                 <div className="flex items-center gap-3 flex-wrap">
-                                  <span className="font-bold text-blue-700 text-sm">Sheet No: {sheet.sheetNo}</span>
+                                  <span className="font-bold text-blue-700 text-sm">Sheet No: {displaySheetNo(sheet.sheetNo)}</span>
                                   <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
                                   <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
                                   {createdLabel && (
@@ -1741,7 +1744,7 @@ export default function ProductionPage() {
                               <tbody>
                                 {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
                                   <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
-                                    <td className="px-3 py-2 font-bold text-cyan-700 whitespace-nowrap">SHEET NO: {si.sheet.sheetNo}</td>
+                                    <td className="px-3 py-2 font-bold text-cyan-700 whitespace-nowrap">{displaySheetNo(si.sheet.sheetNo)}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
                                     <td className="px-3 py-2 whitespace-nowrap">{si.orderItem.order.orderDate ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span> : <span className="text-slate-300">—</span>}</td>
                                     <td className="px-3 py-2 text-slate-700">{si.orderItem.order.customer.businessName}</td>
