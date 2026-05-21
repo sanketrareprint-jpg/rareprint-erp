@@ -1229,7 +1229,7 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 bg-slate-50/95 pb-2 backdrop-blur">
                 <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
                   {[
                     { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
@@ -1280,7 +1280,7 @@ export default function ProductionPage() {
                 if (rawItems.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
                 return (
                   <div className="space-y-2">
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="sticky top-12 z-20 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                       <div className="flex items-center gap-2 flex-wrap">
                         {([
                           ["product", "Product", filterOptions.product],
@@ -1656,7 +1656,7 @@ export default function ProductionPage() {
                     };
                     return (
                       <div className="space-y-3">
-                        <div className="flex items-center gap-2">
+                        <div className="sticky top-12 z-20 flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                           <label className="text-xs font-semibold text-slate-600">Filter by Vendor:</label>
                           <select value={processingVendorFilter} onChange={e => setProcessingVendorFilter(e.target.value)}
                             className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none bg-white">
