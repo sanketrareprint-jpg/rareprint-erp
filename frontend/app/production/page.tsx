@@ -49,7 +49,7 @@ type Vendor = { id: string; name: string; phone?: string; };
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; size?: string | null; gsm?: string | null; sides?: string | null; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
-type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; } } } };
+type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
 type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
@@ -1713,7 +1713,19 @@ export default function ProductionPage() {
                             ))}
                           </div>
                           <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:block">
-                            <table className="w-full text-xs">
+                            <table className="w-full table-fixed text-xs">
+                              <colgroup>
+                                <col className="w-[10%]" />
+                                <col className="w-[5%]" />
+                                <col className="w-[5%]" />
+                                <col className="w-[24%]" />
+                                <col className="w-[11%]" />
+                                <col className="w-[13%]" />
+                                <col className="w-[5%]" />
+                                <col className="w-[5%]" />
+                                <col className="w-[14%]" />
+                                <col className="w-[8%]" />
+                              </colgroup>
                               <thead><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
@@ -1729,10 +1741,11 @@ export default function ProductionPage() {
                               <tbody>
                                 {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
                                   <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
-                                    <td className="px-3 py-2 font-bold text-cyan-700">{si.sheet.sheetNo}</td>
+                                    <td className="px-3 py-2 font-bold text-cyan-700 whitespace-nowrap">SHEET NO: {si.sheet.sheetNo}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
                                     <td className="px-3 py-2 whitespace-nowrap">{si.orderItem.order.orderDate ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span> : <span className="text-slate-300">—</span>}</td>
                                     <td className="px-3 py-2 text-slate-700">{si.orderItem.order.customer.businessName}</td>
+                                    <td className="px-3 py-2 text-slate-600">{si.orderItem.order.salesAgent?.fullName ? <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">{si.orderItem.order.salesAgent.fullName}</span> : <span className="text-slate-300">—</span>}</td>
                                     <td className="px-3 py-2 font-semibold text-slate-800">{si.orderItem.product.name}</td>
                                     <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>
                                     <td className="px-3 py-2 font-semibold">{si.quantityOnSheet}</td>

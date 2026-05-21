@@ -392,7 +392,7 @@ export class ClubbingSheetService {
                 id: true,
                 itemProductionStage: true,
                 product: { select: { name: true, sizeInches: true, gsm: true } },
-                order: { select: { orderNumber: true, orderDate: true, customer: { select: { businessName: true } } } },
+                order: { select: { orderNumber: true, orderDate: true, customer: { select: { businessName: true } }, salesAgent: { select: { fullName: true } } } },
               },
             },
           },
