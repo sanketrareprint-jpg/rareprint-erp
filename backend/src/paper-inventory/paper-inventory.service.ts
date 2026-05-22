@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { PaperPOStatus, PaperTransactionType, PaperUnit, SheetQuality } from '@prisma/client';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// -- Constants -----------------------------------------------------------------
 const SHEETS_PER_REAM = 500;
 
 export function computeTotalSheets(unit: PaperUnit, unitQuantity: number, sheetsPerUnit: number): number {
@@ -15,7 +15,7 @@ export function computeTotalSheets(unit: PaperUnit, unitQuantity: number, sheets
   return Math.round(unitQuantity * sheetsPerUnit);
 }
 
-// ── DTOs ──────────────────────────────────────────────────────────────────────
+// -- DTOs ----------------------------------------------------------------------
 export interface CreatePOItemDto {
   paperName: string;
   gsm: number;
@@ -39,14 +39,14 @@ export interface CreatePODto {
 export class PaperInventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── PO Number Generator ─────────────────────────────────────────────────────
+  // -- PO Number Generator -----------------------------------------------------
   private async generatePoNumber(): Promise<string> {
     const year = new Date().getFullYear();
     const count = await this.prisma.paperPurchaseOrder.count();
     return `PPO-${year}-${String(count + 1).padStart(4, '0')}`;
   }
 
-  // ── AI Invoice Extraction (accepts Buffer — works on Railway, no disk write) ──
+  // -- AI Invoice Extraction (accepts Buffer - works on Railway, no disk write) --
   async extractInvoiceFromBuffer(buffer: Buffer, mimeType: string): Promise<{
     invoiceNumber: string | null;
     items: Array<{
@@ -61,7 +61,7 @@ export class PaperInventoryService {
   }> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      console.warn('ANTHROPIC_API_KEY not set — invoice AI extraction skipped');
+      console.warn('ANTHROPIC_API_KEY not set - invoice AI extraction skipped');
       return { invoiceNumber: null, items: [] };
     }
 
@@ -154,7 +154,7 @@ Return ONLY valid JSON, no explanation:
     }
   }
 
-  // ── Create Purchase Order ──────────────────────────────────────────────────
+  // -- Create Purchase Order --------------------------------------------------
   async createPurchaseOrder(dto: CreatePODto) {
     const poNumber = await this.generatePoNumber();
 
@@ -215,7 +215,7 @@ Return ONLY valid JSON, no explanation:
             balanceAfter: newBalance,
             referenceId: poItem.id,
             referenceType: 'PURCHASE',
-            notes: `PO ${poNumber} — ${item.paperName}`,
+            notes: `PO ${poNumber} - ${item.paperName}`,
             purchaseItemId: poItem.id,
           },
         });
@@ -228,7 +228,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── Deduct paper when sheet goes to PRINTING ───────────────────────────────
+  // -- Deduct paper when sheet goes to PRINTING -------------------------------
   async consumePaperForSheet(sheetId: string): Promise<void> {
     const sheet = await this.prisma.printSheet.findUnique({
       where: { id: sheetId },
@@ -249,7 +249,7 @@ Return ONLY valid JSON, no explanation:
 
     const printingStageVendor = sheet.stageVendors[0];
     if (!printingStageVendor) {
-      // No press assigned — skip paper check silently (press not yet assigned)
+      // No press assigned - skip paper check silently (press not yet assigned)
       return;
     }
 
@@ -297,7 +297,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── Restore paper if sheet is moved BACK from PRINTING ────────────────────
+  // -- Restore paper if sheet is moved BACK from PRINTING --------------------
   async restorePaperForSheet(sheetId: string): Promise<void> {
     // Find the most recent deduction for this sheet
     const lastDeduction = await this.prisma.paperTransaction.findFirst({
@@ -337,13 +337,13 @@ Return ONLY valid JSON, no explanation:
           balanceAfter: newBalance,
           referenceId: sheetId,
           referenceType: 'PRINT_SHEET',
-          notes: `Sheet reverted from PRINTING — paper restored`,
+          notes: `Sheet reverted from PRINTING - paper restored`,
         },
       });
     });
   }
 
-  // ── List Purchase Orders ───────────────────────────────────────────────────
+  // -- List Purchase Orders ---------------------------------------------------
   async listPurchaseOrders() {
     return this.prisma.paperPurchaseOrder.findMany({
       orderBy: { createdAt: 'desc' },
@@ -356,7 +356,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── Press-wise Statement ───────────────────────────────────────────────────
+  // -- Press-wise Statement ---------------------------------------------------
   async getPressStatement(pressId?: string) {
     const where = pressId ? { pressId } : undefined;
 
@@ -399,7 +399,7 @@ Return ONLY valid JSON, no explanation:
     return Object.values(byPress);
   }
 
-  // ── Transaction History ────────────────────────────────────────────────────
+  // -- Transaction History ----------------------------------------------------
   async getTransactions(pressId?: string, limit = 100) {
     return this.prisma.paperTransaction.findMany({
       where: pressId ? { pressId } : undefined,
@@ -409,7 +409,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── List Presses (vendors marked isPress = true) ───────────────────────────
+  // -- List Presses (vendors marked isPress = true) ---------------------------
   async listPresses() {
     return this.prisma.vendor.findMany({
       where: { isActive: true, isPress: true },
@@ -418,7 +418,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── All active vendors (for press dropdown — user can use any vendor) ──────
+  // -- All active vendors (for press dropdown - user can use any vendor) ------
   async listAllVendors() {
     return this.prisma.vendor.findMany({
       where: { isActive: true },
@@ -427,7 +427,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── Mark a vendor as a press ───────────────────────────────────────────────
+  // -- Mark a vendor as a press -----------------------------------------------
   async markVendorAsPress(vendorId: string, isPress: boolean) {
     return this.prisma.vendor.update({
       where: { id: vendorId },
@@ -435,7 +435,7 @@ Return ONLY valid JSON, no explanation:
     });
   }
 
-  // ── Get purchase order detail ──────────────────────────────────────────────
+  // -- Get purchase order detail ----------------------------------------------
   async getPurchaseOrder(id: string) {
     const po = await this.prisma.paperPurchaseOrder.findUnique({
       where: { id },
@@ -448,4 +448,3 @@ Return ONLY valid JSON, no explanation:
     return po;
   }
 }
-                                                                                                                                                                                                                                                                                                                                                
