@@ -22,6 +22,8 @@ import { CallAnalysisModule } from './call-analysis/call-analysis.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { TasksModule } from './tasks/tasks.module';
 import { RewardsModule } from './rewards/rewards.module';
+import { PaperInventoryModule } from './paper-inventory/paper-inventory.module';
+import { MarketingModule } from './marketing/marketing.module';
 
 @Module({
   imports: [
@@ -43,6 +45,8 @@ import { RewardsModule } from './rewards/rewards.module';
     NotificationsModule,
     TasksModule,
     RewardsModule,
+    PaperInventoryModule,
+    MarketingModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

@@ -5,10 +5,8 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { ClubbingSheetService } from './clubbing-sheet.service';
 import { ProductionController } from './production.controller';
 import { ProductionService } from './production.service';
+import { PaperInventoryModule } from '../paper-inventory/paper-inventory.module';
 
 @Module({
-  imports: [PrismaModule, WhatsAppModule],
-  controllers: [ProductionController],
-  providers: [ProductionService, ClubbingSheetService],
-})
-export class ProductionModule {}
+  imports: [PrismaModule, WhatsAppModule, PaperInventoryModule],
+  controllers: [ProductionCo

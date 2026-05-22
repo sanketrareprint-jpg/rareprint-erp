@@ -34,6 +34,8 @@ model User {
   milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
   learningStreaks     DailyLearningStreak[] @relation("UserStreak")
   callAnalyses       CallAnalysis[]         @relation("UserCallAnalyses")
+  marketingContacts  MarketingContact[]     @relation("MarketingContactAgent")
+  marketingCampaigns MarketingCampaign[]    @relation("MarketingCampaignCreator")
 }
 
 model Customer {
@@ -146,10 +148,15 @@ model Vendor {
   address      String?
   gstNumber    String?
   isActive     Boolean       @default(true)
+  isPress      Boolean       @default(false)  // true = this vendor is a printing press
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   jobWorks     JobWork[]
   sheetStages  SheetStageVendor[]
+  paperPurchaseItems PaperPurchaseItem[]  @relation("PaperItemPress")
+  paperInventory     PaperInventory[]    @relation("PressInventory")
+  paperTransactions  PaperTransaction[]  @relation("PressTransactions")
+  paperPurchaseOrders PaperPurchaseOrder[] @relation("POSupplier")
 }
 
 // ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
@@ -566,6 +573,23 @@ enum SheetQuality {
   DUPLEX_CARD_GB
 }
 
+enum PaperUnit {
+  REAM
+  PACKET
+}
+
+enum PaperPOStatus {
+  DRAFT
+  RECEIVED
+  CANCELLED
+}
+
+enum PaperTransactionType {
+  PURCHASE
+  PRINTING_DEDUCTION
+  ADJUSTMENT
+}
+
 enum SheetStatus {
   INCOMPLETE
   SETTING
@@ -962,4 +986,264 @@ model Notification {
   @@index([toUserId, isResolved])
   @@index([type, isResolved])
   @@index([orderId])
+}
+
+// ── Paper Inventory ───────────────────────────────────────────────────────────
+
+/// A paper purchase order — can be created from an uploaded invoice image (AI-extracted)
+model PaperPurchaseOrder {
+  id               String              @id @default(cuid())
+  poNumber         String              @unique   // auto e.g. PPO-2025-001
+  invoiceNumber    String?             // read from invoice image
+  invoiceImagePath String?             // stored file path
+  supplierId       String?             // optional paper supplier (Vendor)
+  status           PaperPOStatus       @default(DRAFT)
+  notes            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  items            PaperPurchaseItem[]
+  supplier         Vendor?             @relation("POSupplier", fields: [supplierId], references: [id])
+}
+
+/// Each line item in a paper PO — one row per paper type, assigned to a specific press
+model PaperPurchaseItem {
+  id            String             @id @default(cuid())
+  poId          String
+  paperName     String             // e.g. "Maplitho 70 GSM 18x23"
+  gsm           Int
+  quality       SheetQuality
+  sizeInches    String?
+  unit          PaperUnit          // REAM or PACKET
+  unitQuantity  Float              // number of reams or packets purchased
+  sheetsPerUnit Int                // 500 for REAM; user-entered for PACKET (100/125/250)
+  totalSheets   Int                // computed: unitQuantity * sheetsPerUnit
+  pressId       String             // which press this paper is allocated to
+  createdAt     DateTime           @default(now())
+  po            PaperPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  press         Vendor             @relation("PaperItemPress", fields: [pressId], references: [id])
+  transactions  PaperTransaction[]
+
+  @@index([poId])
+  @@index([pressId, gsm, quality])
+}
+
+/// Running balance of paper at each press, per GSM + quality combination
+model PaperInventory {
+  id            String       @id @default(cuid())
+  pressId       String
+  gsm           Int
+  quality       SheetQuality
+  balanceSheets Int          @default(0)  // always in individual sheet count
+  updatedAt     DateTime     @updatedAt
+  press         Vendor       @relation("PressInventory", fields: [pressId], references: [id])
+
+  @@unique([pressId, gsm, quality])
+  @@index([pressId])
+}
+
+/// Full ledger of all paper movements (purchases IN, printing deductions OUT)
+model PaperTransaction {
+  id               String               @id @default(cuid())
+  pressId          String
+  gsm              Int
+  quality          SheetQuality
+  transactionType  PaperTransactionType
+  sheets           Int                  // positive = IN (purchase), negative = OUT (consumed)
+  balanceAfter     Int                  // snapshot of balance after this transaction
+  referenceId      String?              // sheetId or poItemId
+  referenceType    String?              // 'PURCHASE' | 'PRINT_SHEET'
+  notes            String?
+  purchaseItemId   String?
+  createdAt        DateTime             @default(now())
+  purchaseItem     PaperPurchaseItem?   @relation(fields: [purchaseItemId], references: [id])
+  press            Vendor               @relation("PressTransactions", fields: [pressId], references: [id])
+
+  @@index([pressId, gsm, quality, createdAt])
+  @@index([referenceId])
+}
+
+// ── WhatsApp Campaign Marketing Automation ─────────────────────────────────
+
+enum MarketingLeadTemperature {
+  COLD
+  WARM
+  HOT
+  BLOCKED
+}
+
+enum MarketingContactStatus {
+  UNKNOWN
+  VALID
+  INVALID
+  BLOCKED
+  UNSUBSCRIBED
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum MarketingTemplateType {
+  TEXT
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum MarketingJobStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum MarketingEventType {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  CLICKED
+  REPLIED
+  FAILED
+  BLOCKED
+  UNSUBSCRIBED
+  ORDER_PLACED
+}
+
+model MarketingContact {
+  id                String                   @id @default(cuid())
+  mobile            String                   @unique
+  shopName          String?
+  ownerName         String?
+  city              String?
+  state             String?
+  productCategory   String?
+  tags              String[]                 @default([])
+  lastOrderDate     DateTime?
+  lastBroadcastDate DateTime?
+  lastReplyDate     DateTime?
+  leadTemperature   MarketingLeadTemperature @default(COLD)
+  engagementScore   Int                      @default(0)
+  assignedAgentId   String?
+  whatsappStatus    MarketingContactStatus   @default(UNKNOWN)
+  isBlacklisted     Boolean                  @default(false)
+  optedOutAt        DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  assignedAgent     User?                    @relation("MarketingContactAgent", fields: [assignedAgentId], references: [id])
+  broadcastJobs     MarketingBroadcastJob[]
+  events            MarketingMessageEvent[]
+
+  @@index([city])
+  @@index([state])
+  @@index([assignedAgentId])
+  @@index([engagementScore])
+  @@index([leadTemperature])
+}
+
+model MarketingTemplate {
+  id                  String                @id @default(cuid())
+  name                String
+  aisensyCampaignName String
+  templateType        MarketingTemplateType @default(TEXT)
+  language            String                @default("en")
+  body                String
+  mediaUrl            String?
+  variables           Json                  @default("[]")
+  ctaButtons          Json                  @default("[]")
+  isActive            Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  campaignSteps       MarketingCampaignStep[]
+
+  @@index([isActive, language])
+}
+
+model MarketingSegment {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  filters     Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MarketingCampaign {
+  id             String                  @id @default(cuid())
+  name           String
+  status         MarketingCampaignStatus @default(DRAFT)
+  segmentId      String?
+  dailyLimit     Int                     @default(10000)
+  cooldownDays   Int                     @default(30)
+  priority       Int                     @default(0)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  lastRotatedAt  DateTime?
+  createdById    String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  createdBy      User?                   @relation("MarketingCampaignCreator", fields: [createdById], references: [id])
+  steps          MarketingCampaignStep[]
+  jobs           MarketingBroadcastJob[]
+  events         MarketingMessageEvent[]
+
+  @@index([status, startsAt, priority])
+}
+
+model MarketingCampaignStep {
+  id          String            @id @default(cuid())
+  campaignId  String
+  templateId  String
+  stepOrder   Int
+  delayHours  Int               @default(0)
+  filters     Json              @default("{}")
+  campaign    MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  template    MarketingTemplate @relation(fields: [templateId], references: [id])
+  jobs        MarketingBroadcastJob[]
+
+  @@unique([campaignId, stepOrder])
+  @@index([campaignId])
+}
+
+model MarketingBroadcastJob {
+  id                String             @id @default(cuid())
+  campaignId        String
+  stepId            String
+  contactId         String
+  status            MarketingJobStatus @default(QUEUED)
+  scheduledAt       DateTime           @default(now())
+  sentAt            DateTime?
+  providerMessageId String?
+  retryCount        Int                @default(0)
+  errorMessage      String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  campaign          MarketingCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  step              MarketingCampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  contact           MarketingContact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, stepId, contactId])
+  @@index([status, scheduledAt])
+  @@index([providerMessageId])
+}
+
+model MarketingMessageEvent {
+  id                String             @id @default(cuid())
+  contactId         String?
+  campaignId        String?
+  providerMessageId String?
+  eventType         MarketingEventType
+  rawPayload        Json?
+  occurredAt        DateTime           @default(now())
+  contact           MarketingContact?  @relation(fields: [contactId], references: [id])
+  campaign          MarketingCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([contactId, occurredAt])
+  @@index([campaignId, occurredAt])
+  @@index([providerMessageId])
 }

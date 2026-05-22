@@ -2,6 +2,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JobWorkStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaperInventoryService } from '../paper-inventory/paper-inventory.service';
 
 function summarizeDesignFiles(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -195,7 +196,10 @@ function classifyAutoItem(raw: {
 
 @Injectable()
 export class ClubbingSheetService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly paperInventoryService: PaperInventoryService,
+  ) {}
 
   private sheetItemInclude() {
     return {
@@ -589,6 +593,13 @@ export class ClubbingSheetService {
       throw new BadRequestException(`Move sheet step by step. Next allowed status is ${nextStatus ?? sheet.status}.`);
     }
 
+    // ── Paper Inventory Check ─────────────────────────────────────────────
+    // When moving TO PRINTING: deduct paper from the press's inventory.
+    // This throws BadRequestException if paper is insufficient.
+    if (status === SheetStatus.PRINTING && sheet.status !== SheetStatus.PRINTING) {
+      await this.paperInventoryService.consumePaperForSheet(sheetId);
+    }
+
     // Map sheet status → order item production stage
     const stageMap: Record<string, string> = {
       INCOMPLETE: 'NOT_PRINTED',
@@ -627,6 +638,27 @@ export class ClubbingSheetService {
     }
     const stageMap: Record<string, SheetProductionStage> = { PLATE_MAKING: SheetProductionStage.PLATE_MAKING, PRINTING: SheetProductionStage.PRINTING, BINDING: SheetProductionStage.BINDING, LAMINATION: SheetProductionStage.LAMINATION, EXTRA_PROCESSING: SheetProductionStage.EXTRA_PROCESSING, PAPER_PURCHASE: SheetProductionStage.PAPER_PURCHASE };
     const stage = stageMap[data.activityType] ?? SheetProductionStage.PRINTING;
+
+    // ── Paper Inventory Check ─────────────────────────────────────────────
+    // When assigning a PRINTING stage vendor AND moving to PRINTING status,
+    // first record the vendor (so consumePaperForSheet can find the press),
+    // then deduct. We create the stage vendor first inside the same operation.
+    if (data.status === SheetStatus.PRINTING && sheet.status !== SheetStatus.PRINTING && data.activityType === 'PRINTING') {
+      // Pre-create the stage vendor record so the paper check can find it
+      await this.prisma.sheetStageVendor.create({
+        data: { sheetId, stage: SheetProductionStage.PRINTING, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo },
+      });
+      // Now check & deduct paper (will find the vendor we just created)
+      await this.paperInventoryService.consumePaperForSheet(sheetId);
+
+      return this.prisma.$transaction(async (tx) => {
+        const updatedSheet = await tx.printSheet.update({ where: { id: sheetId }, data: { status: data.status } });
+        const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId } });
+        for (const si of sheetItems) { await tx.orderItem.update({ where: { id: si.orderItemId }, data: { itemProductionStage: 'PRINTING' } }); }
+        return updatedSheet;
+      });
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const updatedSheet = await tx.printSheet.update({ where: { id: sheetId }, data: { status: data.status } });
       await tx.sheetStageVendor.create({ data: { sheetId, stage, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo } });
@@ -685,39 +717,4 @@ export class ClubbingSheetService {
     let productId = data.productId;
     if (!productId || productId === data.orderItemId) {
       const orderItem = await this.prisma.orderItem.findUnique({ where: { id: data.orderItemId }, select: { productId: true } });
-      if (!orderItem) throw new NotFoundException('Order item not found');
-      productId = orderItem.productId;
-    }
-    const newUsed = data.areaSqInches > 1 ? sheet.usedAreaSqInches + data.areaSqInches : sheet.usedAreaSqInches;
-    if (data.areaSqInches > 1 && newUsed > sheet.areaSqInches) throw new BadRequestException('Not enough space on sheet');
-    const [, updatedSheet] = await this.prisma.$transaction([
-      this.prisma.printSheetItem.create({ data: { sheetId, orderItemId: data.orderItemId, productId, multiple: data.multiple, quantityOnSheet: data.quantityOnSheet, areaSqInches: data.areaSqInches } }),
-      this.prisma.printSheet.update({ where: { id: sheetId }, data: { usedAreaSqInches: newUsed } }),
-    ]);
-    const item = await this.prisma.printSheetItem.findFirstOrThrow({
-      where: { sheetId, orderItemId: data.orderItemId },
-      orderBy: { createdAt: 'desc' },
-      include: this.sheetItemInclude(),
-    });
-    return { item, sheet: updatedSheet };
-  }
-
-  async removeItemFromSheet(sheetItemId: string) {
-    const si = await this.prisma.printSheetItem.findUnique({ where: { id: sheetItemId } });
-    if (!si) throw new NotFoundException('Sheet item not found');
-    const [, updatedSheet] = await this.prisma.$transaction([
-      this.prisma.printSheetItem.delete({ where: { id: sheetItemId } }),
-      this.prisma.printSheet.update({ where: { id: si.sheetId }, data: { usedAreaSqInches: { decrement: si.areaSqInches } } }),
-    ]);
-    return { success: true, sheetId: si.sheetId, sheet: updatedSheet };
-  }
-
-  async addSheetStageVendor(data: { sheetId: string; stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string }) {
-    return this.prisma.sheetStageVendor.create({ data, include: { vendor: true } });
-  }
-
-  async deleteSheetStageVendor(id: string) {
-    await this.prisma.sheetStageVendor.delete({ where: { id } });
-    return { success: true };
-  }
-}
+      if (!orderItem) throw new NotFoundException

@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu, CheckSquare,
+  Menu, CheckSquare, Archive, Megaphone,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
@@ -21,8 +21,10 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",     href: "/orders",           icon: ShoppingCart },
     { label: "Calls",      href: "/call-analysis",    icon: Phone },
     { label: "Tasks",      href: "/tasks",            icon: CheckSquare },
+    { label: "Marketing",  href: "/marketing",        icon: Megaphone },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
     { label: "Production", href: "/production",       icon: Package },
+    { label: "Paper Stock", href: "/paper-inventory", icon: Archive },
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
         { label: "CRM",     href: "/crm",           icon: BarChart2 },
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
@@ -36,6 +38,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
+    { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
   ],
@@ -44,6 +47,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
+    { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
@@ -55,10 +59,11 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
   ],
   PRODUCTION: [
-    { label: "Dashboard",  href: "/dashboard",     icon: LayoutDashboard },
-    { label: "Production", href: "/production",     icon: Package },
-    { label: "Tasks",      href: "/tasks",          icon: CheckSquare },
-    { label: "Sticker",    href: "/sticker-sheet",  icon: Layers },
+    { label: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
+    { label: "Production", href: "/production",        icon: Package },
+    { label: "Paper Stock", href: "/paper-inventory",  icon: Archive },
+    { label: "Tasks",      href: "/tasks",             icon: CheckSquare },
+    { label: "Sticker",    href: "/sticker-sheet",     icon: Layers },
   ],
   DISPATCH: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
