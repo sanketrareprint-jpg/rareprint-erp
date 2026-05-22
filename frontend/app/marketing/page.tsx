@@ -74,6 +74,31 @@ function authHeaders() {
   return { ...getAuthHeaders(), "Content-Type": "application/json" };
 }
 
+function parseCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && next === '"') {
+      current += '"';
+      index++;
+    } else if (char === '"') {
+      insideQuotes = !insideQuotes;
+    } else if (char === "," && !insideQuotes) {
+      values.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
 function Metric({ label, value, icon: Icon }: { label: string; value: number; icon: React.ElementType }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -96,6 +121,8 @@ function MarketingPageContent() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [csvText, setCsvText] = useState("");
+  const [importingContacts, setImportingContacts] = useState(false);
+  const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
   const [campaignForm, setCampaignForm] = useState({
     name: "",
@@ -187,20 +214,47 @@ function MarketingPageContent() {
   };
 
   const importContacts = async () => {
-    const lines = csvText.trim().split(/\r?\n/).filter(Boolean);
-    if (lines.length < 2) return;
-    const headers = lines[0].split(",").map((header) => header.trim());
+    setImportResult(null);
+    const lines = csvText.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines.length < 2) {
+      setImportResult({ type: "error", message: "Paste at least one header row and one contact row." });
+      return;
+    }
+
+    const headers = parseCsvLine(lines[0]).map((header) => header.replace(/^\uFEFF/, "").trim());
     const rows = lines.slice(1).map((line) => {
-      const values = line.split(",").map((value) => value.trim());
+      const values = parseCsvLine(line);
       return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
     });
-    await fetch(`${API_BASE_URL}/marketing/contacts/import`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ rows }),
-    });
-    setCsvText("");
-    load();
+
+    if (!headers.includes("mobile") && !headers.includes("phone")) {
+      setImportResult({ type: "error", message: "CSV must include a mobile or phone column." });
+      return;
+    }
+
+    setImportingContacts(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/marketing/contacts/import`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ rows }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || `Import failed with status ${response.status}`);
+      }
+
+      setCsvText("");
+      setImportResult({
+        type: "success",
+        message: `Imported ${data.success ?? 0}, updated ${data.updated ?? 0}, skipped ${data.skipped ?? 0}.`,
+      });
+      await load();
+    } catch (error) {
+      setImportResult({ type: "error", message: error instanceof Error ? error.message : "Import failed. Please try again." });
+    } finally {
+      setImportingContacts(false);
+    }
   };
 
   const scheduleCampaign = async (id: string) => {
@@ -332,7 +386,19 @@ function MarketingPageContent() {
               <h2 className="font-bold">Import Contacts</h2>
               <p className="mt-1 text-xs text-slate-500">CSV headers: mobile, shopName, ownerName, city, state, productCategory, tags</p>
               <textarea className="mt-3 h-44 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs" value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder={"mobile,shopName,ownerName,city,state,productCategory,tags\n9876543210,Raju Medical,Raju,Nashik,Maharashtra,Paper Bags,chemist"} />
-              <button onClick={importContacts} className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Import Contacts</button>
+              {importResult && (
+                <div className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${importResult.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                  {importResult.message}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={importContacts}
+                disabled={importingContacts || !csvText.trim()}
+                className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {importingContacts ? "Importing..." : "Import Contacts"}
+              </button>
             </section>
             <section className="rounded-lg border border-slate-200 bg-white">
               <div className="border-b border-slate-200 p-4">
