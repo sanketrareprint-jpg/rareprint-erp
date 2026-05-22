@@ -127,6 +127,7 @@ function MarketingPageContent() {
   const [csvText, setCsvText] = useState("");
   const [importingContacts, setImportingContacts] = useState(false);
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [importProgress, setImportProgress] = useState("");
   const [selectedCsvName, setSelectedCsvName] = useState("");
   const csvFileRef = useRef<HTMLInputElement | null>(null);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
@@ -221,6 +222,7 @@ function MarketingPageContent() {
 
   const importContacts = async () => {
     setImportResult(null);
+    setImportProgress("");
     const lines = csvText.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (lines.length < 2) {
       setImportResult({ type: "error", message: "Paste your CSV contacts first, or click Use sample to test the import." });
@@ -240,26 +242,41 @@ function MarketingPageContent() {
 
     setImportingContacts(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/contacts/import`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ rows }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(data?.message || `Import failed with status ${response.status}`);
+      const batchSize = 1000;
+      const totals = { success: 0, updated: 0, skipped: 0 };
+
+      for (let start = 0; start < rows.length; start += batchSize) {
+        const batch = rows.slice(start, start + batchSize);
+        const done = Math.min(start + batch.length, rows.length);
+        setImportProgress(`Importing ${done.toLocaleString("en-IN")} of ${rows.length.toLocaleString("en-IN")} contacts...`);
+
+        const response = await fetch(`${API_BASE_URL}/marketing/contacts/import`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ rows: batch }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(data?.message || `Import failed with status ${response.status}`);
+        }
+
+        totals.success += data?.success ?? 0;
+        totals.updated += data?.updated ?? 0;
+        totals.skipped += data?.skipped ?? 0;
       }
 
       setCsvText("");
+      setSelectedCsvName("");
       setImportResult({
         type: "success",
-        message: `Imported ${data.success ?? 0}, updated ${data.updated ?? 0}, skipped ${data.skipped ?? 0}.`,
+        message: `Imported ${totals.success.toLocaleString("en-IN")}, updated ${totals.updated.toLocaleString("en-IN")}, skipped ${totals.skipped.toLocaleString("en-IN")}.`,
       });
       await load();
     } catch (error) {
       setImportResult({ type: "error", message: error instanceof Error ? error.message : "Import failed. Please try again." });
     } finally {
       setImportingContacts(false);
+      setImportProgress("");
     }
   };
 
@@ -274,6 +291,7 @@ function MarketingPageContent() {
     reader.onload = () => {
       setCsvText(String(reader.result ?? ""));
       setSelectedCsvName(file.name);
+      setImportProgress("");
       setImportResult({ type: "success", message: `${file.name} loaded. Click Import Contacts to save it.` });
     };
     reader.onerror = () => {
@@ -449,6 +467,11 @@ function MarketingPageContent() {
               {importResult && (
                 <div className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${importResult.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
                   {importResult.message}
+                </div>
+              )}
+              {importProgress && (
+                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                  {importProgress}
                 </div>
               )}
               <button

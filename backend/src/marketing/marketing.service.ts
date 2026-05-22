@@ -64,6 +64,8 @@ export class MarketingService {
 
   async importContacts(rows: any[]) {
     const result = { success: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const contactsByMobile = new Map<string, any>();
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const mobile = this.normalizePhone(row.mobile ?? row.phone ?? row.Mobile ?? row.Phone);
@@ -83,14 +85,22 @@ export class MarketingService {
         tags: this.toTags(row.tags),
       };
 
-      const existing = await (this.prisma as any).marketingContact.findUnique({ where: { mobile } });
-      await (this.prisma as any).marketingContact.upsert({
-        where: { mobile },
-        create: data,
-        update: data,
-      });
-      existing ? result.updated++ : result.success++;
+      contactsByMobile.set(mobile, data);
     }
+
+    const contacts = Array.from(contactsByMobile.values());
+    const duplicateRowsInFile = rows.length - result.skipped - contacts.length;
+    if (duplicateRowsInFile > 0) result.skipped += duplicateRowsInFile;
+
+    for (const chunk of this.chunkArray(contacts, 1000)) {
+      const created = await (this.prisma as any).marketingContact.createMany({
+        data: chunk,
+        skipDuplicates: true,
+      });
+      result.success += created.count ?? 0;
+      result.skipped += chunk.length - (created.count ?? 0);
+    }
+
     return result;
   }
 
@@ -498,6 +508,14 @@ export class MarketingService {
   private clean(value: any): string | undefined {
     const text = String(value ?? '').trim();
     return text || undefined;
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
   }
 
   private startOfDay() {
