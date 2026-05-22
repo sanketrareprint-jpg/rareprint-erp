@@ -6,16 +6,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaperPOStatus, PaperTransactionType, PaperUnit, SheetQuality } from '@prisma/client';
-import { join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SHEETS_PER_REAM = 500;
-const INVOICE_UPLOADS_DIR = join(process.cwd(), 'uploads', 'invoices');
-
-function ensureInvoiceDir() {
-  if (!existsSync(INVOICE_UPLOADS_DIR)) mkdirSync(INVOICE_UPLOADS_DIR, { recursive: true });
-}
 
 export function computeTotalSheets(unit: PaperUnit, unitQuantity: number, sheetsPerUnit: number): number {
   if (unit === PaperUnit.REAM) return Math.round(unitQuantity * SHEETS_PER_REAM);
@@ -53,8 +46,8 @@ export class PaperInventoryService {
     return `PPO-${year}-${String(count + 1).padStart(4, '0')}`;
   }
 
-  // ── AI Invoice Extraction ──────────────────────────────────────────────────
-  async extractInvoiceFromImage(imagePath: string, mimeType: string): Promise<{
+  // ── AI Invoice Extraction (accepts Buffer — works on Railway, no disk write) ──
+  async extractInvoiceFromBuffer(buffer: Buffer, mimeType: string): Promise<{
     invoiceNumber: string | null;
     items: Array<{
       paperName: string;
@@ -68,11 +61,11 @@ export class PaperInventoryService {
   }> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
+      console.warn('ANTHROPIC_API_KEY not set — invoice AI extraction skipped');
       return { invoiceNumber: null, items: [] };
     }
 
-    const fs = await import('fs');
-    const imageData = fs.readFileSync(imagePath).toString('base64');
+    const imageData = buffer.toString('base64');
 
     const prompt = `You are reading a paper invoice from an Indian printing/stationery supplier.
 
@@ -455,3 +448,4 @@ Return ONLY valid JSON, no explanation:
     return po;
   }
 }
+                                                                                                                                                                                                                                                                                                                                                
