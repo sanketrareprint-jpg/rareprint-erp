@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   BarChart3,
+  FileUp,
   Copy,
   Megaphone,
   Pause,
@@ -126,6 +127,8 @@ function MarketingPageContent() {
   const [csvText, setCsvText] = useState("");
   const [importingContacts, setImportingContacts] = useState(false);
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [selectedCsvName, setSelectedCsvName] = useState("");
+  const csvFileRef = useRef<HTMLInputElement | null>(null);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
   const [campaignForm, setCampaignForm] = useState({
     name: "",
@@ -258,6 +261,25 @@ function MarketingPageContent() {
     } finally {
       setImportingContacts(false);
     }
+  };
+
+  const uploadCsvFile = (file?: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setImportResult({ type: "error", message: "Please choose a .csv file." });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCsvText(String(reader.result ?? ""));
+      setSelectedCsvName(file.name);
+      setImportResult({ type: "success", message: `${file.name} loaded. Click Import Contacts to save it.` });
+    };
+    reader.onerror = () => {
+      setImportResult({ type: "error", message: "Could not read this CSV file. Please try again." });
+    };
+    reader.readAsText(file);
   };
 
   const scheduleCampaign = async (id: string) => {
@@ -395,6 +417,7 @@ function MarketingPageContent() {
                   type="button"
                   onClick={() => {
                     setCsvText(contactCsvSample);
+                    setSelectedCsvName("");
                     setImportResult(null);
                   }}
                   className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
@@ -402,6 +425,26 @@ function MarketingPageContent() {
                   Use sample
                 </button>
               </div>
+              <input
+                ref={csvFileRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => uploadCsvFile(event.target.files?.[0])}
+              />
+              <button
+                type="button"
+                onClick={() => csvFileRef.current?.click()}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                <FileUp size={16} />
+                Upload CSV File
+              </button>
+              {selectedCsvName && (
+                <p className="mt-2 truncate text-xs font-semibold text-slate-500">
+                  Selected: {selectedCsvName}
+                </p>
+              )}
               <textarea className="mt-3 h-44 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs" value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder={`Paste contacts here...\n\n${contactCsvSample}`} />
               {importResult && (
                 <div className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${importResult.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
