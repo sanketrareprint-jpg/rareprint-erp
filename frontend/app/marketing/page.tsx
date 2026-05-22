@@ -70,6 +70,9 @@ const emptyTemplate = {
   variables: "ownerName,shopName",
 };
 
+const contactCsvSample = `mobile,shopName,ownerName,city,state,productCategory,tags
+9876543210,Raju Medical,Raju,Nashik,Maharashtra,Paper Bags,chemist`;
+
 function authHeaders() {
   return { ...getAuthHeaders(), "Content-Type": "application/json" };
 }
@@ -217,7 +220,7 @@ function MarketingPageContent() {
     setImportResult(null);
     const lines = csvText.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (lines.length < 2) {
-      setImportResult({ type: "error", message: "Paste at least one header row and one contact row." });
+      setImportResult({ type: "error", message: "Paste your CSV contacts first, or click Use sample to test the import." });
       return;
     }
 
@@ -383,9 +386,23 @@ function MarketingPageContent() {
         ) : activeTab === "contacts" ? (
           <div className="mt-5 grid gap-4 lg:grid-cols-[360px_1fr]">
             <section className="rounded-lg border border-slate-200 bg-white p-4">
-              <h2 className="font-bold">Import Contacts</h2>
-              <p className="mt-1 text-xs text-slate-500">CSV headers: mobile, shopName, ownerName, city, state, productCategory, tags</p>
-              <textarea className="mt-3 h-44 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs" value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder={"mobile,shopName,ownerName,city,state,productCategory,tags\n9876543210,Raju Medical,Raju,Nashik,Maharashtra,Paper Bags,chemist"} />
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-bold">Import Contacts</h2>
+                  <p className="mt-1 text-xs text-slate-500">Paste CSV with headers: mobile, shopName, ownerName, city, state, productCategory, tags</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCsvText(contactCsvSample);
+                    setImportResult(null);
+                  }}
+                  className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Use sample
+                </button>
+              </div>
+              <textarea className="mt-3 h-44 w-full rounded-lg border border-slate-300 p-3 font-mono text-xs" value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder={`Paste contacts here...\n\n${contactCsvSample}`} />
               {importResult && (
                 <div className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${importResult.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
                   {importResult.message}
@@ -394,8 +411,8 @@ function MarketingPageContent() {
               <button
                 type="button"
                 onClick={importContacts}
-                disabled={importingContacts || !csvText.trim()}
-                className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={importingContacts}
+                className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
               >
                 {importingContacts ? "Importing..." : "Import Contacts"}
               </button>
