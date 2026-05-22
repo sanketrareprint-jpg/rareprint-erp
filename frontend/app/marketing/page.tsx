@@ -134,6 +134,8 @@ function MarketingPageContent() {
   const [busyCampaignId, setBusyCampaignId] = useState<string | null>(null);
   const [processingQueue, setProcessingQueue] = useState(false);
   const [queueMessage, setQueueMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [templateMessage, setTemplateMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [busyTemplateId, setBusyTemplateId] = useState<string | null>(null);
   const [selectedCsvName, setSelectedCsvName] = useState("");
   const csvFileRef = useRef<HTMLInputElement | null>(null);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
@@ -183,6 +185,7 @@ function MarketingPageContent() {
 
   const createTemplate = async () => {
     if (!templateForm.name || !templateForm.aisensyCampaignName || !templateForm.body) return;
+    setTemplateMessage(null);
     await fetch(`${API_BASE_URL}/marketing/templates`, {
       method: "POST",
       headers: authHeaders(),
@@ -193,6 +196,27 @@ function MarketingPageContent() {
     });
     setTemplateForm(emptyTemplate);
     load();
+  };
+
+  const deleteTemplate = async (template: Template) => {
+    const confirmed = window.confirm(`Delete template "${template.name}"?`);
+    if (!confirmed) return;
+    setTemplateMessage(null);
+    setBusyTemplateId(template.id);
+    try {
+      const response = await fetch(`${API_BASE_URL}/marketing/templates/${template.id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.message || `Delete failed with status ${response.status}`);
+      setTemplateMessage({ type: "success", message: `Deleted template "${template.name}".` });
+      await load();
+    } catch (error) {
+      setTemplateMessage({ type: "error", message: error instanceof Error ? error.message : "Template delete failed. Please try again." });
+    } finally {
+      setBusyTemplateId(null);
+    }
   };
 
   const createCampaign = async () => {
@@ -627,13 +651,31 @@ function MarketingPageContent() {
               </div>
             </section>
             <section className="grid gap-3 md:grid-cols-2">
+              {templateMessage && (
+                <div className={`md:col-span-2 rounded-lg border px-4 py-3 text-sm font-semibold ${templateMessage.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                  {templateMessage.message}
+                </div>
+              )}
               {templates.map((template) => (
                 <div key={template.id} className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-bold">{template.name}</h3>
-                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{template.templateType}</span>
+                    <div>
+                      <h3 className="font-bold">{template.name}</h3>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">{template.aisensyCampaignName}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{template.templateType}</span>
+                      <button
+                        type="button"
+                        disabled={busyTemplateId === template.id}
+                        onClick={() => deleteTemplate(template)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">{template.aisensyCampaignName}</p>
                   <p className="mt-3 text-sm text-slate-700">{template.body}</p>
                 </div>
               ))}

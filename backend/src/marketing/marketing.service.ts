@@ -174,6 +174,18 @@ export class MarketingService {
     });
   }
 
+  async deleteTemplate(id: string) {
+    const usedByCampaigns = await (this.prisma as any).marketingCampaignStep.count({
+      where: { templateId: id },
+    });
+    if (usedByCampaigns > 0) {
+      throw new BadRequestException('Template is used by a campaign. Delete that campaign first, then delete the template.');
+    }
+
+    await (this.prisma as any).marketingTemplate.delete({ where: { id } });
+    return { success: true };
+  }
+
   getCampaigns() {
     return (this.prisma as any).marketingCampaign.findMany({
       include: {

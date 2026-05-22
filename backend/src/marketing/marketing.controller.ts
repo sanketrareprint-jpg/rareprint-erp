@@ -63,6 +63,11 @@ export class MarketingController {
     return this.marketing.createTemplate(body);
   }
 
+  @Delete('templates/:id')
+  deleteTemplate(@Param('id') id: string) {
+    return this.marketing.deleteTemplate(id);
+  }
+
   @Get('campaigns')
   campaigns() {
     return this.marketing.getCampaigns();
