@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { MarketingService } from './marketing.service';
@@ -76,6 +76,11 @@ export class MarketingController {
   @Post('campaigns/:id/clone')
   cloneCampaign(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
     return this.marketing.cloneCampaign(id, req.user.id);
+  }
+
+  @Delete('campaigns/:id')
+  deleteCampaign(@Param('id') id: string) {
+    return this.marketing.deleteCampaign(id);
   }
 
   @Patch('campaigns/:id/status')

@@ -8,6 +8,7 @@ import {
   BarChart3,
   FileUp,
   Copy,
+  Trash2,
   Megaphone,
   Pause,
   Play,
@@ -128,6 +129,8 @@ function MarketingPageContent() {
   const [importingContacts, setImportingContacts] = useState(false);
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [importProgress, setImportProgress] = useState("");
+  const [campaignMessage, setCampaignMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [busyCampaignId, setBusyCampaignId] = useState<string | null>(null);
   const [selectedCsvName, setSelectedCsvName] = useState("");
   const csvFileRef = useRef<HTMLInputElement | null>(null);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
@@ -301,8 +304,22 @@ function MarketingPageContent() {
   };
 
   const scheduleCampaign = async (id: string) => {
-    await fetch(`${API_BASE_URL}/marketing/campaigns/${id}/schedule`, { method: "POST", headers: authHeaders() });
-    load();
+    setCampaignMessage(null);
+    setBusyCampaignId(id);
+    try {
+      const response = await fetch(`${API_BASE_URL}/marketing/campaigns/${id}/schedule`, { method: "POST", headers: authHeaders() });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.message || `Schedule failed with status ${response.status}`);
+      setCampaignMessage({
+        type: "success",
+        message: `Scheduled ${Number(data?.queued ?? 0).toLocaleString("en-IN")} messages for ${Number(data?.contacts ?? 0).toLocaleString("en-IN")} contacts.`,
+      });
+      await load();
+    } catch (error) {
+      setCampaignMessage({ type: "error", message: error instanceof Error ? error.message : "Schedule failed. Please try again." });
+    } finally {
+      setBusyCampaignId(null);
+    }
   };
 
   const setCampaignStatus = async (id: string, status: string) => {
@@ -317,6 +334,24 @@ function MarketingPageContent() {
   const cloneCampaign = async (id: string) => {
     await fetch(`${API_BASE_URL}/marketing/campaigns/${id}/clone`, { method: "POST", headers: authHeaders() });
     load();
+  };
+
+  const deleteCampaign = async (campaign: Campaign) => {
+    const confirmed = window.confirm(`Delete campaign "${campaign.name}"? Queued jobs for this campaign will also be removed.`);
+    if (!confirmed) return;
+    setCampaignMessage(null);
+    setBusyCampaignId(campaign.id);
+    try {
+      const response = await fetch(`${API_BASE_URL}/marketing/campaigns/${campaign.id}`, { method: "DELETE", headers: authHeaders() });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.message || `Delete failed with status ${response.status}`);
+      setCampaignMessage({ type: "success", message: `Deleted "${campaign.name}".` });
+      await load();
+    } catch (error) {
+      setCampaignMessage({ type: "error", message: error instanceof Error ? error.message : "Delete failed. Please try again." });
+    } finally {
+      setBusyCampaignId(null);
+    }
   };
 
   const processNow = async () => {
@@ -395,6 +430,11 @@ function MarketingPageContent() {
             </section>
 
             <section className="space-y-3">
+              {campaignMessage && (
+                <div className={`rounded-lg border px-4 py-3 text-sm font-semibold ${campaignMessage.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                  {campaignMessage.message}
+                </div>
+              )}
               {campaigns.map((campaign) => (
                 <div key={campaign.id} className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -408,9 +448,10 @@ function MarketingPageContent() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => scheduleCampaign(campaign.id)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white"><Play size={14} /> Schedule</button>
-                      <button onClick={() => setCampaignStatus(campaign.id, campaign.status === "ACTIVE" ? "PAUSED" : "ACTIVE")} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"><Pause size={14} /> {campaign.status === "ACTIVE" ? "Pause" : "Activate"}</button>
-                      <button onClick={() => cloneCampaign(campaign.id)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"><Copy size={14} /> Clone</button>
+                      <button disabled={busyCampaignId === campaign.id} onClick={() => scheduleCampaign(campaign.id)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60"><Play size={14} /> {busyCampaignId === campaign.id ? "Working" : "Schedule"}</button>
+                      <button disabled={busyCampaignId === campaign.id} onClick={() => setCampaignStatus(campaign.id, campaign.status === "ACTIVE" ? "PAUSED" : "ACTIVE")} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"><Pause size={14} /> {campaign.status === "ACTIVE" ? "Pause" : "Activate"}</button>
+                      <button disabled={busyCampaignId === campaign.id} onClick={() => cloneCampaign(campaign.id)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"><Copy size={14} /> Clone</button>
+                      <button disabled={busyCampaignId === campaign.id} onClick={() => deleteCampaign(campaign)} className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"><Trash2 size={14} /> Delete</button>
                     </div>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-sm">

@@ -222,6 +222,18 @@ export class MarketingService {
     }, userId);
   }
 
+  async deleteCampaign(id: string) {
+    const campaign = await (this.prisma as any).marketingCampaign.findUnique({ where: { id } });
+    if (!campaign) throw new BadRequestException('Campaign not found');
+
+    await (this.prisma as any).marketingMessageEvent.updateMany({
+      where: { campaignId: id },
+      data: { campaignId: null },
+    });
+    await (this.prisma as any).marketingCampaign.delete({ where: { id } });
+    return { success: true };
+  }
+
   updateCampaignStatus(id: string, status: string) {
     return (this.prisma as any).marketingCampaign.update({
       where: { id },
@@ -255,22 +267,21 @@ export class MarketingService {
     });
 
     let queued = 0;
-    for (const contact of contacts) {
-      for (const step of campaign.steps) {
-        try {
-          await (this.prisma as any).marketingBroadcastJob.create({
-            data: {
-              campaignId: campaign.id,
-              stepId: step.id,
-              contactId: contact.id,
-              scheduledAt: new Date(Date.now() + step.delayHours * 60 * 60 * 1000),
-            },
-          });
-          queued++;
-        } catch {
-          // Unique constraint means the contact is already queued for this step.
-        }
-      }
+    const jobs = contacts.flatMap((contact) =>
+      campaign.steps.map((step) => ({
+        campaignId: campaign.id,
+        stepId: step.id,
+        contactId: contact.id,
+        scheduledAt: new Date(Date.now() + step.delayHours * 60 * 60 * 1000),
+      })),
+    );
+
+    for (const chunk of this.chunkArray(jobs, 1000)) {
+      const created = await (this.prisma as any).marketingBroadcastJob.createMany({
+        data: chunk,
+        skipDuplicates: true,
+      });
+      queued += created.count ?? 0;
     }
 
     await (this.prisma as any).marketingCampaign.update({
@@ -278,7 +289,7 @@ export class MarketingService {
       data: { status: 'ACTIVE', lastRotatedAt: new Date() },
     });
 
-    return { queued, contacts: contacts.length };
+    return { queued, contacts: contacts.length, skipped: jobs.length - queued };
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
