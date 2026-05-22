@@ -481,6 +481,8 @@ export class MarketingService {
   private async sendViaAisensy(job: any) {
     const apiKey = process.env.AISENSY_API_KEY;
     if (!apiKey) return { success: false, error: 'AISENSY_API_KEY is not configured' };
+    const media = this.buildAisensyMedia(job.step.template);
+    if (media.error) return { success: false, error: media.error };
 
     const body = {
       apiKey,
@@ -489,7 +491,7 @@ export class MarketingService {
       userName: job.contact.ownerName || job.contact.shopName || 'Customer',
       templateParams: this.resolveTemplateParams(job.step.template.variables, job.contact),
       source: 'rareprint-marketing-automation',
-      media: job.step.template.mediaUrl ? { url: job.step.template.mediaUrl } : {},
+      media: media.value,
       buttons: job.step.template.ctaButtons ?? [],
       carouselCards: [],
       location: {},
@@ -512,6 +514,42 @@ export class MarketingService {
 
   private async finishJob(id: string, status: string, errorMessage?: string) {
     return (this.prisma as any).marketingBroadcastJob.update({ where: { id }, data: { status, errorMessage } });
+  }
+
+  private buildAisensyMedia(template: any): { value: Record<string, string>; error?: string } {
+    const type = String(template.templateType ?? 'TEXT').toUpperCase();
+    const mediaUrl = String(template.mediaUrl ?? '').trim();
+    if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(type) && !mediaUrl) {
+      return {
+        value: {},
+        error: `${type} template "${template.name}" needs a public Media URL. Add the file URL in Templates, then create/schedule the campaign again.`,
+      };
+    }
+    if (!mediaUrl) return { value: {} };
+
+    return {
+      value: {
+        url: mediaUrl,
+        filename: this.filenameFromUrl(mediaUrl, type),
+      },
+    };
+  }
+
+  private filenameFromUrl(mediaUrl: string, type: string): string {
+    try {
+      const pathname = new URL(mediaUrl).pathname;
+      const rawName = decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '');
+      if (rawName && rawName.includes('.')) return rawName;
+    } catch {
+      // Fall through to a safe generated filename.
+    }
+
+    const extensionMap: Record<string, string> = {
+      IMAGE: 'jpg',
+      VIDEO: 'mp4',
+      DOCUMENT: 'pdf',
+    };
+    return `rareprint-marketing.${extensionMap[type] ?? 'jpg'}`;
   }
 
   private async applyEngagement(contactId: string, eventType: string) {

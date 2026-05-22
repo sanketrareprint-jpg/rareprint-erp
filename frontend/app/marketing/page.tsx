@@ -616,8 +616,13 @@ function MarketingPageContent() {
                   <option>DOCUMENT</option>
                 </select>
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Variables, comma separated" value={templateForm.variables} onChange={(e) => setTemplateForm({ ...templateForm, variables: e.target.value })} />
-                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Media URL optional" value={templateForm.mediaUrl} onChange={(e) => setTemplateForm({ ...templateForm, mediaUrl: e.target.value })} />
-                <textarea className="h-28 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Template body reference" value={templateForm.body} onChange={(e) => setTemplateForm({ ...templateForm, body: e.target.value })} />
+                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder={templateForm.templateType === "TEXT" ? "Media URL optional" : "Public media URL required"} value={templateForm.mediaUrl} onChange={(e) => setTemplateForm({ ...templateForm, mediaUrl: e.target.value })} />
+                {templateForm.templateType !== "TEXT" && (
+                  <p className="text-xs font-semibold text-amber-700">
+                    Image/video/document templates need a public file URL. Google Drive private links will not work.
+                  </p>
+                )}
+                <textarea className="h-28 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Internal note / message preview" value={templateForm.body} onChange={(e) => setTemplateForm({ ...templateForm, body: e.target.value })} />
                 <button onClick={createTemplate} className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save Template</button>
               </div>
             </section>
