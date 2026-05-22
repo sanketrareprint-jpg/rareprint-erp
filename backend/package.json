@@ -85,4 +85,6 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "te
+    "testEnvironment": "node"
+  }
+}
