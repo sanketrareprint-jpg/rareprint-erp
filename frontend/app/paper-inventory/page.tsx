@@ -590,9 +590,15 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
         headers: uploadHeaders,
         body: form,
       });
+
+      // Show real HTTP error so we can diagnose
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `HTTP ${res.status}`);
+        throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
+      }
+
       const data = await res.json();
 
-      if (data.invoiceImagePath) setInvoiceImagePath(data.invoiceImagePath);
       if (data.invoiceNumber) setInvoiceNumber(data.invoiceNumber);
 
       if (Array.isArray(data.items) && data.items.length > 0) {
@@ -616,9 +622,12 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
         }));
         setItems(extracted);
         setExtractSuccess(true);
+      } else if (!data.items || data.items.length === 0) {
+        // API worked but returned no items — likely ANTHROPIC_API_KEY not set in Railway
+        setError("Invoice uploaded but AI could not read items. Check that ANTHROPIC_API_KEY is set in Railway environment variables.");
       }
     } catch (e) {
-      setError("Could not extract invoice data. Please fill in manually.");
+      setError(`Extraction failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setUploading(false);
       setExtracting(false);
@@ -941,4 +950,12 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
               disabled={saving}
               className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 font-medium"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+              {saving ? "Saving..." : "Save Purchase Order"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
