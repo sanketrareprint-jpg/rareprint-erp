@@ -261,20 +261,100 @@ export class MarketingService {
     if (!campaign) throw new BadRequestException('Campaign not found');
     if (!campaign.steps.length) throw new BadRequestException('Campaign has no steps');
 
+    const result = await this.queueCampaignBatch(campaign, campaign.dailyLimit ?? DAILY_DEFAULT_LIMIT);
+    await (this.prisma as any).marketingCampaign.update({
+      where: { id },
+      data: { status: 'ACTIVE', lastRotatedAt: new Date() },
+    });
+
+    return result;
+  }
+
+  async processDueBroadcastJobs() {
+    return this.processBroadcastBatches(1);
+  }
+
+  async processOneBroadcastJob() {
+    return this.processBroadcastBatches(1, 1);
+  }
+
+  @Cron('0 11 * * *', { timeZone: 'Asia/Kolkata' })
+  async processDailyBroadcastQueue() {
+    const prepared = await this.prepareDailyCampaignQueue();
+    const maxBatches = Number(process.env.MARKETING_DAILY_QUEUE_BATCHES ?? 250);
+    const result = await this.processBroadcastBatches(maxBatches);
+    const combined = { prepared, ...result };
+    this.logger.log(`Daily 11:00 AM marketing queue run: ${JSON.stringify(combined)}`);
+    return combined;
+  }
+
+  private async prepareDailyCampaignQueue() {
+    const globalDailyLimit = Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT);
+    const alreadyQueued = await (this.prisma as any).marketingBroadcastJob.count({
+      where: {
+        status: { in: ['QUEUED', 'FAILED'] },
+        retryCount: { lt: 3 },
+        scheduledAt: { lte: new Date() },
+      },
+    });
+    let remainingSlots = Math.max(globalDailyLimit - alreadyQueued, 0);
+    const prepared = [] as Array<{ campaignId: string; campaignName: string; queued: number; contacts: number; skipped: number }>;
+
+    if (remainingSlots <= 0) {
+      return { queued: 0, remainingSlots: 0, campaigns: prepared };
+    }
+
+    const campaigns = await (this.prisma as any).marketingCampaign.findMany({
+      where: { status: 'ACTIVE' },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+    });
+
+    for (const campaign of campaigns) {
+      if (remainingSlots <= 0) break;
+      if (!campaign.steps.length) continue;
+
+      const campaignLimit = Math.min(campaign.dailyLimit ?? DAILY_DEFAULT_LIMIT, remainingSlots);
+      const result = await this.queueCampaignBatch(campaign, campaignLimit);
+      prepared.push({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        queued: result.queued,
+        contacts: result.contacts,
+        skipped: result.skipped,
+      });
+      remainingSlots -= result.queued;
+
+      if (result.contacts === 0) {
+        await (this.prisma as any).marketingCampaign.update({
+          where: { id: campaign.id },
+          data: { status: 'COMPLETED' },
+        });
+      }
+    }
+
+    return {
+      queued: prepared.reduce((sum, item) => sum + item.queued, 0),
+      remainingSlots,
+      campaigns: prepared,
+    };
+  }
+
+  private async queueCampaignBatch(campaign: any, limit: number) {
+    if (!campaign.steps?.length || limit <= 0) return { queued: 0, contacts: 0, skipped: 0 };
+
     const segment = campaign.segmentId
       ? await (this.prisma as any).marketingSegment.findUnique({ where: { id: campaign.segmentId } })
       : null;
     const where = this.segmentWhere(segment?.filters ?? {});
     where.isBlacklisted = false;
     where.optedOutAt = null;
-
-    const cooldownFrom = new Date(Date.now() - campaign.cooldownDays * 24 * 60 * 60 * 1000);
-    where.OR = [{ lastBroadcastDate: null }, { lastBroadcastDate: { lt: cooldownFrom } }];
+    where.broadcastJobs = { none: { campaignId: campaign.id } };
 
     const contacts = await (this.prisma as any).marketingContact.findMany({
       where,
       select: { id: true },
-      take: campaign.dailyLimit ?? DAILY_DEFAULT_LIMIT,
+      take: limit,
       orderBy: [{ engagementScore: 'desc' }, { updatedAt: 'asc' }],
     });
 
@@ -296,28 +376,7 @@ export class MarketingService {
       queued += created.count ?? 0;
     }
 
-    await (this.prisma as any).marketingCampaign.update({
-      where: { id },
-      data: { status: 'ACTIVE', lastRotatedAt: new Date() },
-    });
-
     return { queued, contacts: contacts.length, skipped: jobs.length - queued };
-  }
-
-  async processDueBroadcastJobs() {
-    return this.processBroadcastBatches(1);
-  }
-
-  async processOneBroadcastJob() {
-    return this.processBroadcastBatches(1, 1);
-  }
-
-  @Cron('0 11 * * *', { timeZone: 'Asia/Kolkata' })
-  async processDailyBroadcastQueue() {
-    const maxBatches = Number(process.env.MARKETING_DAILY_QUEUE_BATCHES ?? 250);
-    const result = await this.processBroadcastBatches(maxBatches);
-    this.logger.log(`Daily 11:00 AM marketing queue run: ${JSON.stringify(result)}`);
-    return result;
   }
 
   async getBroadcastDiagnostics() {
@@ -357,6 +416,7 @@ export class MarketingService {
       aisensyApiKeyConfigured: Boolean(process.env.AISENSY_API_KEY),
       sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40),
       dailyRun: '11:00 AM IST',
+      dailyLimit: Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT),
     };
   }
 

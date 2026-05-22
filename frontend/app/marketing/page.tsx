@@ -421,7 +421,9 @@ function MarketingPageContent() {
             </button>
           </div>
         </div>
-        <p className="mt-2 text-xs font-semibold text-slate-500">Automatic sending runs daily at 11:00 AM IST. Use the button only for testing or urgent manual runs.</p>
+        <p className="mt-2 text-xs font-semibold text-slate-500">
+          Automatic sending runs daily at 11:00 AM IST. It fills the next 10,000 eligible contacts, sends them, then continues with the next 10,000 tomorrow.
+        </p>
       </div>
 
       <div className="p-6">
@@ -436,7 +438,7 @@ function MarketingPageContent() {
               <div>
                 <h2 className="text-sm font-bold">Queue Diagnostics</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Batch: {diagnostics.sendBatchSize}
+                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Daily limit: {Number(diagnostics.dailyLimit ?? 10000).toLocaleString("en-IN")} · Batch: {diagnostics.sendBatchSize}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-bold">
@@ -526,7 +528,7 @@ function MarketingPageContent() {
                         <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${campaign.status === "ACTIVE" ? "bg-green-100 text-green-700" : campaign.status === "PAUSED" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{campaign.status}</span>
                       </div>
                       <p className="mt-1 text-sm text-slate-500">
-                        {campaign.steps?.[0]?.template?.name ?? "No template"} · {campaign.dailyLimit.toLocaleString("en-IN")} daily · {campaign.cooldownDays} day cooldown
+                        {campaign.steps?.[0]?.template?.name ?? "No template"} · {campaign.dailyLimit.toLocaleString("en-IN")} daily · continues daily until audience completes
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
