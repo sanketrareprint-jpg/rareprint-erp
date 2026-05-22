@@ -583,9 +583,11 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
     try {
       const form = new FormData();
       form.append("invoice", file);
+      // Do NOT set Content-Type for FormData — browser must set it with the multipart boundary
+      const { "Content-Type": _drop, ...uploadHeaders } = getHeaders();
       const res = await fetch(`${apiBase}/paper-inventory/extract-invoice`, {
         method: "POST",
-        headers: getHeaders(),
+        headers: uploadHeaders,
         body: form,
       });
       const data = await res.json();
@@ -939,12 +941,4 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
               disabled={saving}
               className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 font-medium"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-              {saving ? "Saving..." : "Save Purchase Order"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle
