@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 
 const AISENSY_API_URL = process.env.AISENSY_API_URL ?? 'https://backend.aisensy.com/campaign/t1/api/v2';
@@ -292,60 +292,87 @@ export class MarketingService {
     return { queued, contacts: contacts.length, skipped: jobs.length - queued };
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
   async processDueBroadcastJobs() {
-    const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({
-      where: {
-        status: { in: ['QUEUED', 'FAILED'] },
-        retryCount: { lt: 3 },
-        scheduledAt: { lte: new Date() },
-      },
-      include: {
-        contact: true,
-        campaign: true,
-        step: { include: { template: true } },
-      },
-      orderBy: { scheduledAt: 'asc' },
-      take: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40),
-    });
+    return this.processBroadcastBatches(1);
+  }
 
+  @Cron('0 11 * * *', { timeZone: 'Asia/Kolkata' })
+  async processDailyBroadcastQueue() {
+    const maxBatches = Number(process.env.MARKETING_DAILY_QUEUE_BATCHES ?? 250);
+    const result = await this.processBroadcastBatches(maxBatches);
+    this.logger.log(`Daily 11:00 AM marketing queue run: ${JSON.stringify(result)}`);
+    return result;
+  }
+
+  private async processBroadcastBatches(maxBatches: number) {
+    let processed = 0;
     let sent = 0;
     let failed = 0;
     let skipped = 0;
+    const batchSize = Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40);
 
-    for (const job of jobs) {
-      if (job.contact.isBlacklisted || job.contact.optedOutAt) {
-        await this.finishJob(job.id, 'SKIPPED', 'Opted out or blacklisted');
-        skipped++;
-        continue;
-      }
+    for (let batch = 0; batch < maxBatches; batch++) {
+      const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({
+        where: {
+          status: { in: ['QUEUED', 'FAILED'] },
+          retryCount: { lt: 3 },
+          scheduledAt: { lte: new Date() },
+        },
+        include: {
+          contact: true,
+          campaign: true,
+          step: { include: { template: true } },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        take: batchSize,
+      });
 
-      await (this.prisma as any).marketingBroadcastJob.update({ where: { id: job.id }, data: { status: 'SENDING' } });
-      const result = await this.sendViaAisensy(job);
-      if (result.success) {
-        await (this.prisma as any).$transaction([
-          (this.prisma as any).marketingBroadcastJob.update({
+      if (!jobs.length) break;
+      processed += jobs.length;
+
+      for (const job of jobs) {
+        if (job.contact.isBlacklisted || job.contact.optedOutAt) {
+          await this.finishJob(job.id, 'SKIPPED', 'Opted out or blacklisted');
+          skipped++;
+          continue;
+        }
+
+        await (this.prisma as any).marketingBroadcastJob.update({ where: { id: job.id }, data: { status: 'SENDING' } });
+        const result = await this.sendViaAisensy(job);
+        if (result.success) {
+          await (this.prisma as any).$transaction([
+            (this.prisma as any).marketingBroadcastJob.update({
+              where: { id: job.id },
+              data: { status: 'SENT', sentAt: new Date(), providerMessageId: result.providerMessageId },
+            }),
+            (this.prisma as any).marketingContact.update({
+              where: { id: job.contactId },
+              data: { lastBroadcastDate: new Date() },
+            }),
+            (this.prisma as any).marketingMessageEvent.create({
+              data: { contactId: job.contactId, campaignId: job.campaignId, providerMessageId: result.providerMessageId, eventType: 'SENT', rawPayload: result.raw ?? {} },
+            }),
+          ]);
+          sent++;
+        } else {
+          await (this.prisma as any).marketingBroadcastJob.update({
             where: { id: job.id },
-            data: { status: 'SENT', sentAt: new Date(), providerMessageId: result.providerMessageId },
-          }),
-          (this.prisma as any).marketingContact.update({
-            where: { id: job.contactId },
-            data: { lastBroadcastDate: new Date() },
-          }),
-          (this.prisma as any).marketingMessageEvent.create({
-            data: { contactId: job.contactId, campaignId: job.campaignId, providerMessageId: result.providerMessageId, eventType: 'SENT', rawPayload: result.raw ?? {} },
-          }),
-        ]);
-        sent++;
-      } else {
-        await (this.prisma as any).marketingBroadcastJob.update({
-          where: { id: job.id },
-          data: { status: 'FAILED', retryCount: { increment: 1 }, errorMessage: result.error },
-        });
-        failed++;
+            data: { status: 'FAILED', retryCount: { increment: 1 }, errorMessage: result.error },
+          });
+          failed++;
+        }
       }
+
+      if (jobs.length < batchSize) break;
     }
-    return { processed: jobs.length, sent, failed, skipped };
+
+    return {
+      processed,
+      sent,
+      failed,
+      skipped,
+      nextRun: 'Daily at 11:00 AM IST',
+    };
   }
 
   async receiveAisensyWebhook(body: any, signature: string | undefined, kind: 'status' | 'reply') {

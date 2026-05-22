@@ -131,6 +131,8 @@ function MarketingPageContent() {
   const [importProgress, setImportProgress] = useState("");
   const [campaignMessage, setCampaignMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [busyCampaignId, setBusyCampaignId] = useState<string | null>(null);
+  const [processingQueue, setProcessingQueue] = useState(false);
+  const [queueMessage, setQueueMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [selectedCsvName, setSelectedCsvName] = useState("");
   const csvFileRef = useRef<HTMLInputElement | null>(null);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
@@ -355,8 +357,22 @@ function MarketingPageContent() {
   };
 
   const processNow = async () => {
-    await fetch(`${API_BASE_URL}/marketing/broadcasts/process`, { method: "POST", headers: authHeaders() });
-    load();
+    setQueueMessage(null);
+    setProcessingQueue(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/marketing/broadcasts/process`, { method: "POST", headers: authHeaders() });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.message || `Queue run failed with status ${response.status}`);
+      setQueueMessage({
+        type: data?.failed ? "error" : "success",
+        message: `Processed ${Number(data?.processed ?? 0).toLocaleString("en-IN")}. Sent ${Number(data?.sent ?? 0).toLocaleString("en-IN")}, failed ${Number(data?.failed ?? 0).toLocaleString("en-IN")}, skipped ${Number(data?.skipped ?? 0).toLocaleString("en-IN")}. Auto-run is daily at 11:00 AM IST.`,
+      });
+      await load();
+    } catch (error) {
+      setQueueMessage({ type: "error", message: error instanceof Error ? error.message : "Queue run failed. Please check AiSensy API key/server logs." });
+    } finally {
+      setProcessingQueue(false);
+    }
   };
 
   return (
@@ -367,14 +383,20 @@ function MarketingPageContent() {
             <h1 className="text-xl font-bold">WhatsApp Marketing</h1>
             <p className="text-sm text-slate-500">Campaign broadcasting, contact segmentation, and AiSensy tracking</p>
           </div>
-          <button onClick={processNow} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+          <button disabled={processingQueue} onClick={processNow} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60">
             <Send size={16} />
-            Process Queue
+            {processingQueue ? "Running..." : "Run Queue Now"}
           </button>
         </div>
+        <p className="mt-2 text-xs font-semibold text-slate-500">Automatic sending runs daily at 11:00 AM IST. Use the button only for testing or urgent manual runs.</p>
       </div>
 
       <div className="p-6">
+        {queueMessage && (
+          <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-semibold ${queueMessage.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+            {queueMessage.message}
+          </div>
+        )}
         {overview && (
           <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
             <Metric label="Contacts" value={overview.contacts} icon={Users} />
