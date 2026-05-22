@@ -98,6 +98,16 @@ export class MarketingController {
     return this.marketing.processDueBroadcastJobs();
   }
 
+  @Post('broadcasts/test-one')
+  testOneBroadcast() {
+    return this.marketing.processOneBroadcastJob();
+  }
+
+  @Get('broadcasts/diagnostics')
+  broadcastDiagnostics() {
+    return this.marketing.getBroadcastDiagnostics();
+  }
+
   @Get('analytics')
   analytics() {
     return this.marketing.getAnalytics();

@@ -296,6 +296,10 @@ export class MarketingService {
     return this.processBroadcastBatches(1);
   }
 
+  async processOneBroadcastJob() {
+    return this.processBroadcastBatches(1, 1);
+  }
+
   @Cron('0 11 * * *', { timeZone: 'Asia/Kolkata' })
   async processDailyBroadcastQueue() {
     const maxBatches = Number(process.env.MARKETING_DAILY_QUEUE_BATCHES ?? 250);
@@ -304,12 +308,52 @@ export class MarketingService {
     return result;
   }
 
-  private async processBroadcastBatches(maxBatches: number) {
+  async getBroadcastDiagnostics() {
+    const [jobs, recentFailures] = await Promise.all([
+      (this.prisma as any).marketingBroadcastJob.groupBy({
+        by: ['status'],
+        _count: { status: true },
+      }),
+      (this.prisma as any).marketingBroadcastJob.findMany({
+        where: {
+          status: 'FAILED',
+          errorMessage: { not: null },
+        },
+        include: {
+          contact: { select: { mobile: true, shopName: true } },
+          campaign: { select: { name: true } },
+          step: { include: { template: { select: { name: true, aisensyCampaignName: true } } } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    return {
+      jobs: Object.fromEntries(jobs.map((job: any) => [job.status, job._count.status])),
+      recentFailures: recentFailures.map((job: any) => ({
+        id: job.id,
+        mobile: job.contact?.mobile,
+        shopName: job.contact?.shopName,
+        campaignName: job.campaign?.name,
+        templateName: job.step?.template?.name,
+        aisensyCampaignName: job.step?.template?.aisensyCampaignName,
+        retryCount: job.retryCount,
+        errorMessage: job.errorMessage,
+        updatedAt: job.updatedAt,
+      })),
+      aisensyApiKeyConfigured: Boolean(process.env.AISENSY_API_KEY),
+      sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40),
+      dailyRun: '11:00 AM IST',
+    };
+  }
+
+  private async processBroadcastBatches(maxBatches: number, batchSizeOverride?: number) {
     let processed = 0;
     let sent = 0;
     let failed = 0;
     let skipped = 0;
-    const batchSize = Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40);
+    const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40);
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({

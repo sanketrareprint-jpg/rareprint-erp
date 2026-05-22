@@ -122,6 +122,7 @@ function MarketingPageContent() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [diagnostics, setDiagnostics] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<"campaigns" | "contacts" | "templates" | "analytics">("campaigns");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -151,18 +152,20 @@ function MarketingPageContent() {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("search", search);
-    const [overviewRes, campaignsRes, templatesRes, contactsRes, analyticsRes] = await Promise.all([
+    const [overviewRes, campaignsRes, templatesRes, contactsRes, analyticsRes, diagnosticsRes] = await Promise.all([
       fetch(`${API_BASE_URL}/marketing/overview`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/campaigns`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/templates`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/contacts?${params}`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/analytics`, { headers: getAuthHeaders() }),
+      fetch(`${API_BASE_URL}/marketing/broadcasts/diagnostics`, { headers: getAuthHeaders() }),
     ]);
     if (overviewRes.ok) setOverview(await overviewRes.json());
     if (campaignsRes.ok) setCampaigns(await campaignsRes.json());
     if (templatesRes.ok) setTemplates(await templatesRes.json());
     if (contactsRes.ok) setContacts((await contactsRes.json()).items ?? []);
     if (analyticsRes.ok) setAnalytics(await analyticsRes.json());
+    if (diagnosticsRes.ok) setDiagnostics(await diagnosticsRes.json());
     setLoading(false);
   }, [search]);
 
@@ -356,11 +359,11 @@ function MarketingPageContent() {
     }
   };
 
-  const processNow = async () => {
+  const runQueue = async (endpoint: "process" | "test-one") => {
     setQueueMessage(null);
     setProcessingQueue(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/broadcasts/process`, { method: "POST", headers: authHeaders() });
+      const response = await fetch(`${API_BASE_URL}/marketing/broadcasts/${endpoint}`, { method: "POST", headers: authHeaders() });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.message || `Queue run failed with status ${response.status}`);
       setQueueMessage({
@@ -383,10 +386,16 @@ function MarketingPageContent() {
             <h1 className="text-xl font-bold">WhatsApp Marketing</h1>
             <p className="text-sm text-slate-500">Campaign broadcasting, contact segmentation, and AiSensy tracking</p>
           </div>
-          <button disabled={processingQueue} onClick={processNow} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60">
-            <Send size={16} />
-            {processingQueue ? "Running..." : "Run Queue Now"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={processingQueue} onClick={() => runQueue("test-one")} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-wait disabled:opacity-60">
+              <Send size={16} />
+              Test 1 Message
+            </button>
+            <button disabled={processingQueue} onClick={() => runQueue("process")} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60">
+              <Send size={16} />
+              {processingQueue ? "Running..." : "Run Queue Now"}
+            </button>
+          </div>
         </div>
         <p className="mt-2 text-xs font-semibold text-slate-500">Automatic sending runs daily at 11:00 AM IST. Use the button only for testing or urgent manual runs.</p>
       </div>
@@ -395,6 +404,33 @@ function MarketingPageContent() {
         {queueMessage && (
           <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-semibold ${queueMessage.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
             {queueMessage.message}
+          </div>
+        )}
+        {diagnostics && (
+          <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold">Queue Diagnostics</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Batch: {diagnostics.sendBatchSize}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs font-bold">
+                {Object.entries(diagnostics.jobs ?? {}).map(([status, count]) => (
+                  <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                    {status}: {Number(count).toLocaleString("en-IN")}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {(diagnostics.recentFailures ?? []).length > 0 && (
+              <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3">
+                <p className="text-xs font-bold text-red-700">Latest send failure</p>
+                <p className="mt-1 break-words text-xs text-red-700">
+                  {diagnostics.recentFailures[0].aisensyCampaignName} · {diagnostics.recentFailures[0].mobile} · {diagnostics.recentFailures[0].errorMessage}
+                </p>
+              </div>
+            )}
           </div>
         )}
         {overview && (
