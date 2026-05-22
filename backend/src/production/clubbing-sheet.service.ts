@@ -717,4 +717,39 @@ export class ClubbingSheetService {
     let productId = data.productId;
     if (!productId || productId === data.orderItemId) {
       const orderItem = await this.prisma.orderItem.findUnique({ where: { id: data.orderItemId }, select: { productId: true } });
-      if (!orderItem) throw new NotFoundException
+      if (!orderItem) throw new NotFoundException('Order item not found');
+      productId = orderItem.productId;
+    }
+    const newUsed = data.areaSqInches > 1 ? sheet.usedAreaSqInches + data.areaSqInches : sheet.usedAreaSqInches;
+    if (data.areaSqInches > 1 && newUsed > sheet.areaSqInches) throw new BadRequestException('Not enough space on sheet');
+    const [, updatedSheet] = await this.prisma.$transaction([
+      this.prisma.printSheetItem.create({ data: { sheetId, orderItemId: data.orderItemId, productId, multiple: data.multiple, quantityOnSheet: data.quantityOnSheet, areaSqInches: data.areaSqInches } }),
+      this.prisma.printSheet.update({ where: { id: sheetId }, data: { usedAreaSqInches: newUsed } }),
+    ]);
+    const item = await this.prisma.printSheetItem.findFirstOrThrow({
+      where: { sheetId, orderItemId: data.orderItemId },
+      orderBy: { createdAt: 'desc' },
+      include: this.sheetItemInclude(),
+    });
+    return { item, sheet: updatedSheet };
+  }
+
+  async removeItemFromSheet(sheetItemId: string) {
+    const si = await this.prisma.printSheetItem.findUnique({ where: { id: sheetItemId } });
+    if (!si) throw new NotFoundException('Sheet item not found');
+    const [, updatedSheet] = await this.prisma.$transaction([
+      this.prisma.printSheetItem.delete({ where: { id: sheetItemId } }),
+      this.prisma.printSheet.update({ where: { id: si.sheetId }, data: { usedAreaSqInches: { decrement: si.areaSqInches } } }),
+    ]);
+    return { success: true, sheetId: si.sheetId, sheet: updatedSheet };
+  }
+
+  async addSheetStageVendor(data: { sheetId: string; stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string }) {
+    return this.prisma.sheetStageVendor.create({ data, include: { vendor: true } });
+  }
+
+  async deleteSheetStageVendor(id: string) {
+    await this.prisma.sheetStageVendor.delete({ where: { id } });
+    return { success: true };
+  }
+}

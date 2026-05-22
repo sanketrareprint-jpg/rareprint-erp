@@ -9,4 +9,7 @@ import { PaperInventoryModule } from '../paper-inventory/paper-inventory.module'
 
 @Module({
   imports: [PrismaModule, WhatsAppModule, PaperInventoryModule],
-  controllers: [ProductionCo
+  controllers: [ProductionController],
+  providers: [ProductionService, ClubbingSheetService],
+})
+export class ProductionModule {}
