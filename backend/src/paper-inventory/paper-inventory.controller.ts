@@ -80,6 +80,29 @@ export class PaperInventoryController {
     return this.service.getPurchaseOrder(id);
   }
 
+  @Patch('purchase-orders/:id')
+  updatePO(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      invoiceNumber?: string;
+      supplierId?: string;
+      notes?: string;
+      items: Array<{
+        paperName: string;
+        gsm: number;
+        quality: SheetQuality;
+        sizeInches?: string;
+        unit: PaperUnit;
+        unitQuantity: number;
+        sheetsPerUnit?: number;
+        pressId: string;
+      }>;
+    },
+  ) {
+    return this.service.updatePurchaseOrder(id, body);
+  }
+
   @Get('statement')
   getStatement(@Query('pressId') pressId?: string) {
     return this.service.getPressStatement(pressId);

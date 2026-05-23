@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   Upload, Plus, Trash2, Loader2, FileText, RefreshCw,
   Package, BarChart3, History, CheckCircle, AlertCircle,
-  ChevronDown, ChevronUp, X, Image as ImageIcon
+  ChevronDown, ChevronUp, X, Image as ImageIcon, Pencil,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -33,13 +33,15 @@ interface PurchaseOrder {
   invoiceNumber?: string;
   invoiceImagePath?: string;
   status: string;
+  notes?: string;
   createdAt: string;
-  supplier?: { name: string };
+  supplier?: { id: string; name: string };
   items: Array<{
     id: string;
     paperName: string;
     gsm: number;
     quality: SheetQuality;
+    sizeInches?: string;
     unit: PaperUnit;
     unitQuantity: number;
     sheetsPerUnit: number;
@@ -124,6 +126,7 @@ export default function PaperInventoryPage() {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loadingPOs, setLoadingPOs] = useState(false);
   const [showCreatePO, setShowCreatePO] = useState(false);
+  const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
 
   // Statement
   const [statements, setStatements] = useState<PressStatement[]>([]);
@@ -145,7 +148,6 @@ export default function PaperInventoryPage() {
     return res;
   }, [router]);
 
-  // ── Load vendors ─────────────────────────────────────────────────────────
   const loadVendors = useCallback(async () => {
     const res = await apiFetch("/paper-inventory/vendors");
     if (!res) return;
@@ -153,7 +155,6 @@ export default function PaperInventoryPage() {
     setVendors(Array.isArray(data) ? data : []);
   }, [apiFetch]);
 
-  // ── Load purchase orders ──────────────────────────────────────────────────
   const loadPOs = useCallback(async () => {
     setLoadingPOs(true);
     try {
@@ -164,7 +165,6 @@ export default function PaperInventoryPage() {
     } finally { setLoadingPOs(false); }
   }, [apiFetch]);
 
-  // ── Load statement ────────────────────────────────────────────────────────
   const loadStatement = useCallback(async (pressId?: string) => {
     setLoadingStatement(true);
     try {
@@ -176,7 +176,6 @@ export default function PaperInventoryPage() {
     } finally { setLoadingStatement(false); }
   }, [apiFetch]);
 
-  // ── Load transactions ─────────────────────────────────────────────────────
   const loadTransactions = useCallback(async (pressId?: string) => {
     setLoadingTx(true);
     try {
@@ -191,6 +190,13 @@ export default function PaperInventoryPage() {
   useEffect(() => { loadVendors(); loadPOs(); }, [loadVendors, loadPOs]);
   useEffect(() => { if (tab === "statement") loadStatement(filterPressId || undefined); }, [tab, filterPressId, loadStatement]);
   useEffect(() => { if (tab === "history") loadTransactions(filterTxPress || undefined); }, [tab, filterTxPress, loadTransactions]);
+
+  const handleSaved = () => {
+    setShowCreatePO(false);
+    setEditingPO(null);
+    loadPOs();
+    loadStatement();
+  };
 
   return (
     <DashboardShell>
@@ -240,6 +246,7 @@ export default function PaperInventoryPage() {
             loading={loadingPOs}
             onRefresh={loadPOs}
             apiBase={API_BASE_URL}
+            onEdit={(po) => setEditingPO(po)}
           />
         )}
         {tab === "statement" && (
@@ -264,12 +271,26 @@ export default function PaperInventoryPage() {
 
       {/* Create PO Modal */}
       {showCreatePO && (
-        <CreatePOModal
+        <POModal
+          mode="create"
           vendors={vendors}
           apiBase={API_BASE_URL}
           getHeaders={getAuthHeaders}
           onClose={() => setShowCreatePO(false)}
-          onCreated={() => { setShowCreatePO(false); loadPOs(); loadStatement(); }}
+          onSaved={handleSaved}
+        />
+      )}
+
+      {/* Edit PO Modal */}
+      {editingPO && (
+        <POModal
+          mode="edit"
+          initialPO={editingPO}
+          vendors={vendors}
+          apiBase={API_BASE_URL}
+          getHeaders={getAuthHeaders}
+          onClose={() => setEditingPO(null)}
+          onSaved={handleSaved}
         />
       )}
     </DashboardShell>
@@ -279,11 +300,12 @@ export default function PaperInventoryPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 // PO List Tab
 // ═══════════════════════════════════════════════════════════════════════════
-function POTab({ purchaseOrders, loading, onRefresh, apiBase }: {
+function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit }: {
   purchaseOrders: PurchaseOrder[];
   loading: boolean;
   onRefresh: () => void;
   apiBase: string;
+  onEdit: (po: PurchaseOrder) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -303,11 +325,12 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase }: {
     <div className="space-y-3">
       {purchaseOrders.map((po) => (
         <div key={po.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-          <div
-            className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-gray-50"
-            onClick={() => setExpanded(expanded === po.id ? null : po.id)}
-          >
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between px-5 py-4">
+            {/* Clickable left area — toggles expand */}
+            <div
+              className="flex items-center gap-4 flex-1 cursor-pointer"
+              onClick={() => setExpanded(expanded === po.id ? null : po.id)}
+            >
               <div>
                 <div className="font-semibold text-gray-900">{po.poNumber}</div>
                 {po.invoiceNumber && <div className="text-xs text-gray-500">Invoice: {po.invoiceNumber}</div>}
@@ -317,10 +340,23 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase }: {
                 {po.status}
               </span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{po.items.length} item{po.items.length !== 1 ? "s" : ""}</span>
               <span className="text-sm text-gray-400">{new Date(po.createdAt).toLocaleDateString("en-IN")}</span>
-              {expanded === po.id ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+              {/* Edit button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(po); }}
+                title="Edit Purchase Order"
+                className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 font-medium transition-colors"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </button>
+              <div
+                className="cursor-pointer"
+                onClick={() => setExpanded(expanded === po.id ? null : po.id)}
+              >
+                {expanded === po.id ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+              </div>
             </div>
           </div>
 
@@ -333,6 +369,9 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase }: {
                     <ImageIcon className="h-4 w-4" /> View Invoice Image
                   </a>
                 </div>
+              )}
+              {po.notes && (
+                <p className="text-xs text-gray-500 mb-3 italic">{po.notes}</p>
               )}
               <table className="w-full text-sm">
                 <thead>
@@ -408,7 +447,6 @@ function StatementTab({ statements, loading, vendors, filterPressId, onFilterCha
         <div className="space-y-6">
           {statements.map((press) => (
             <div key={press.pressId} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-              {/* Press header */}
               <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>
@@ -421,8 +459,6 @@ function StatementTab({ statements, loading, vendors, filterPressId, onFilterCha
                   </div>
                 </div>
               </div>
-
-              {/* Items table */}
               <div className="px-6 py-4">
                 <table className="w-full text-sm">
                   <thead>
@@ -548,20 +584,38 @@ function HistoryTab({ transactions, loading, vendors, filterPressId, onFilterCha
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Create PO Modal  — with AI invoice extraction
+// PO Modal — handles both Create and Edit
 // ═══════════════════════════════════════════════════════════════════════════
-function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
+function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSaved }: {
+  mode: "create" | "edit";
+  initialPO?: PurchaseOrder;
   vendors: Vendor[];
   apiBase: string;
   getHeaders: () => Record<string, string>;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [supplierId, setSupplierId] = useState("");
-  const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<POItem[]>([emptyItem()]);
-  const [invoiceImagePath, setInvoiceImagePath] = useState("");
+  // Pre-fill from existing PO when editing
+  const [invoiceNumber, setInvoiceNumber] = useState(initialPO?.invoiceNumber ?? "");
+  const [supplierId, setSupplierId] = useState(initialPO?.supplier?.id ?? "");
+  const [notes, setNotes] = useState(initialPO?.notes ?? "");
+  const [invoiceImagePath, setInvoiceImagePath] = useState(initialPO?.invoiceImagePath ?? "");
+
+  const [items, setItems] = useState<POItem[]>(() => {
+    if (initialPO?.items?.length) {
+      return initialPO.items.map((it) => ({
+        paperName: it.paperName,
+        gsm: it.gsm,
+        quality: it.quality,
+        sizeInches: it.sizeInches ?? "",
+        unit: it.unit,
+        unitQuantity: it.unitQuantity,
+        sheetsPerUnit: it.sheetsPerUnit,
+        pressId: it.press?.id ?? "",
+      }));
+    }
+    return [emptyItem()];
+  });
 
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -583,7 +637,6 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
     try {
       const form = new FormData();
       form.append("invoice", file);
-      // Do NOT set Content-Type for FormData — browser must set it with the multipart boundary
       const { "Content-Type": _drop, ...uploadHeaders } = getHeaders();
       const res = await fetch(`${apiBase}/paper-inventory/extract-invoice`, {
         method: "POST",
@@ -591,25 +644,18 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
         body: form,
       });
 
-      // Show real HTTP error so we can diagnose
       if (!res.ok) {
         const errText = await res.text().catch(() => `HTTP ${res.status}`);
         throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
       }
 
       const data = await res.json();
-
       if (data.invoiceNumber) setInvoiceNumber(data.invoiceNumber);
 
       if (Array.isArray(data.items) && data.items.length > 0) {
         const extracted: POItem[] = data.items.map((it: {
-          paperName?: string;
-          gsm?: number | null;
-          quality?: string | null;
-          sizeInches?: string | null;
-          unit?: string;
-          unitQuantity?: number | null;
-          sheetsPerUnit?: number | null;
+          paperName?: string; gsm?: number | null; quality?: string | null;
+          sizeInches?: string | null; unit?: string; unitQuantity?: number | null; sheetsPerUnit?: number | null;
         }) => ({
           paperName: it.paperName ?? "",
           gsm: it.gsm ?? "",
@@ -622,9 +668,6 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
         }));
         setItems(extracted);
         setExtractSuccess(true);
-      } else if (!data.items || data.items.length === 0) {
-        // API worked but returned no items — likely ANTHROPIC_API_KEY not set in Railway
-        setError("Invoice uploaded but AI could not read items. Check that ANTHROPIC_API_KEY is set in Railway environment variables.");
       }
     } catch (e) {
       setError(`Extraction failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -639,10 +682,7 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
     setItems((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
-      // Auto-fill sheetsPerUnit for REAM
-      if (field === "unit" && value === "REAM") {
-        next[index].sheetsPerUnit = 500;
-      }
+      if (field === "unit" && value === "REAM") next[index].sheetsPerUnit = 500;
       return next;
     });
   };
@@ -654,7 +694,6 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
   const handleSave = async () => {
     setError(null);
 
-    // Validate
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (!it.paperName) { setError(`Row ${i + 1}: Paper name is required`); return; }
@@ -686,19 +725,24 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
         })),
       };
 
-      const res = await fetch(`${apiBase}/paper-inventory/purchase-orders`, {
-        method: "POST",
+      const url = mode === "edit"
+        ? `${apiBase}/paper-inventory/purchase-orders/${initialPO!.id}`
+        : `${apiBase}/paper-inventory/purchase-orders`;
+      const method = mode === "edit" ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { ...getHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        setError(err.message ?? "Failed to create purchase order");
+        const err = await res.json().catch(() => ({}));
+        setError(err.message ?? `Failed to ${mode === "edit" ? "update" : "create"} purchase order`);
         return;
       }
 
-      onCreated();
+      onSaved();
     } catch (e) {
       setError("Network error. Please try again.");
     } finally {
@@ -706,15 +750,22 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const isEdit = mode === "edit";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
         {/* Modal header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">New Paper Purchase Order</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Upload invoice image for AI auto-fill, or enter manually</p>
+            <h2 className="text-xl font-bold text-gray-900">
+              {isEdit ? `Edit ${initialPO!.poNumber}` : "New Paper Purchase Order"}
+            </h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {isEdit
+                ? "Changes will recalculate press inventory automatically"
+                : "Upload invoice image for AI auto-fill, or enter manually"}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="h-5 w-5 text-gray-500" /></button>
         </div>
@@ -755,7 +806,9 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
                 ) : (
                   <div className="space-y-2">
                     <Upload className="h-8 w-8 mx-auto text-gray-400" />
-                    <p className="text-sm text-gray-600 font-medium">Drop or click to upload invoice</p>
+                    <p className="text-sm text-gray-600 font-medium">
+                      {isEdit ? "Upload new invoice to re-extract items" : "Drop or click to upload invoice"}
+                    </p>
                     <p className="text-xs text-gray-400">JPG, PNG, WebP up to 20MB</p>
                   </div>
                 )}
@@ -823,7 +876,7 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
                 </thead>
                 <tbody>
                   {items.map((item, i) => {
-                    const sheets = (item.unitQuantity !== "" && item.gsm !== "") && !isNaN(Number(item.unitQuantity))
+                    const sheets = (item.unitQuantity !== "" && !isNaN(Number(item.unitQuantity)))
                       ? computeSheets(item.unit, Number(item.unitQuantity), Number(item.sheetsPerUnit) || 500)
                       : null;
                     return (
@@ -950,8 +1003,8 @@ function CreatePOModal({ vendors, apiBase, getHeaders, onClose, onCreated }: {
               disabled={saving}
               className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 font-medium"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-              {saving ? "Saving..." : "Save Purchase Order"}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : isEdit ? <Pencil className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+              {saving ? "Saving..." : isEdit ? "Update Purchase Order" : "Save Purchase Order"}
             </button>
           </div>
         </div>

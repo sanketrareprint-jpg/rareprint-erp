@@ -447,4 +447,109 @@ Return ONLY valid JSON, no explanation:
     if (!po) throw new NotFoundException('Purchase order not found');
     return po;
   }
+
+  // -- Update Purchase Order (reverse old inventory, apply new) ---------------
+  async updatePurchaseOrder(id: string, dto: CreatePODto) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.paperPurchaseOrder.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      if (!existing) throw new NotFoundException('Purchase order not found');
+
+      // 1. Reverse inventory for each old item
+      for (const oldItem of existing.items) {
+        const inv = await tx.paperInventory.findUnique({
+          where: { pressId_gsm_quality: { pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
+        });
+        const newBalance = Math.max(0, (inv?.balanceSheets ?? 0) - oldItem.totalSheets);
+        if (inv) {
+          await tx.paperInventory.update({
+            where: { pressId_gsm_quality: { pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
+            data: { balanceSheets: newBalance },
+          });
+        }
+        await tx.paperTransaction.create({
+          data: {
+            pressId: oldItem.pressId,
+            gsm: oldItem.gsm,
+            quality: oldItem.quality,
+            transactionType: PaperTransactionType.ADJUSTMENT,
+            sheets: -oldItem.totalSheets,
+            balanceAfter: newBalance,
+            referenceId: id,
+            referenceType: 'PO_EDIT_REVERSAL',
+            notes: `PO ${existing.poNumber} edited — reversed old entry`,
+          },
+        });
+      }
+
+      // 2. Delete old items
+      await tx.paperPurchaseItem.deleteMany({ where: { poId: id } });
+
+      // 3. Update PO header
+      await tx.paperPurchaseOrder.update({
+        where: { id },
+        data: {
+          invoiceNumber: dto.invoiceNumber ?? null,
+          supplierId: dto.supplierId ?? null,
+          notes: dto.notes ?? null,
+        },
+      });
+
+      // 4. Create new items and update inventory
+      for (const item of dto.items) {
+        const sheetsPerUnit = item.unit === PaperUnit.REAM
+          ? SHEETS_PER_REAM
+          : (item.sheetsPerUnit ?? 100);
+        const totalSheets = computeTotalSheets(item.unit, item.unitQuantity, sheetsPerUnit);
+
+        const poItem = await tx.paperPurchaseItem.create({
+          data: {
+            poId: id,
+            paperName: item.paperName,
+            gsm: item.gsm,
+            quality: item.quality,
+            sizeInches: item.sizeInches ?? null,
+            unit: item.unit,
+            unitQuantity: item.unitQuantity,
+            sheetsPerUnit,
+            totalSheets,
+            pressId: item.pressId,
+          },
+        });
+
+        const existingInv = await tx.paperInventory.findUnique({
+          where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
+        });
+        const newBalance = (existingInv?.balanceSheets ?? 0) + totalSheets;
+
+        await tx.paperInventory.upsert({
+          where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
+          update: { balanceSheets: newBalance },
+          create: { pressId: item.pressId, gsm: item.gsm, quality: item.quality, balanceSheets: totalSheets },
+        });
+
+        await tx.paperTransaction.create({
+          data: {
+            pressId: item.pressId,
+            gsm: item.gsm,
+            quality: item.quality,
+            transactionType: PaperTransactionType.PURCHASE,
+            sheets: totalSheets,
+            balanceAfter: newBalance,
+            referenceId: poItem.id,
+            referenceType: 'PURCHASE',
+            notes: `PO ${existing.poNumber} (edited) - ${item.paperName}`,
+            purchaseItemId: poItem.id,
+          },
+        });
+      }
+
+      return tx.paperPurchaseOrder.findUnique({
+        where: { id },
+        include: { items: { include: { press: true } }, supplier: true },
+      });
+    });
+  }
 }
