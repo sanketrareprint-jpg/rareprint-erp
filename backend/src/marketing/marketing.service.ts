@@ -414,7 +414,8 @@ export class MarketingService {
         updatedAt: job.updatedAt,
       })),
       aisensyApiKeyConfigured: Boolean(process.env.AISENSY_API_KEY),
-      sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40),
+      sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200),
+      batchIntervalMs: Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 0),
       dailyRun: '11:00 AM IST',
       dailyLimit: Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT),
     };
@@ -425,7 +426,8 @@ export class MarketingService {
     let sent = 0;
     let failed = 0;
     let skipped = 0;
-    const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 40);
+    const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200);
+    const batchIntervalMs = Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 0);
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({
@@ -480,6 +482,9 @@ export class MarketingService {
       }
 
       if (jobs.length < batchSize) break;
+      if (batchIntervalMs > 0 && batch < maxBatches - 1) {
+        await new Promise((resolve) => setTimeout(resolve, batchIntervalMs));
+      }
     }
 
     return {
