@@ -422,7 +422,7 @@ function MarketingPageContent() {
           </div>
         </div>
         <p className="mt-2 text-xs font-semibold text-slate-500">
-          Automatic sending runs daily at 10:00 AM IST. It fills the next 10,000 eligible contacts, sends them in batches of 200 with a 2-minute gap, then continues with the next 10,000 tomorrow.
+          Automatic sending runs daily at 10:00 AM IST. It fills the next 10,000 eligible contacts, then the server sends one 200-contact batch every 2 minutes.
         </p>
       </div>
 
@@ -438,7 +438,7 @@ function MarketingPageContent() {
               <div>
                 <h2 className="text-sm font-bold">Queue Diagnostics</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Daily limit: {Number(diagnostics.dailyLimit ?? 10000).toLocaleString("en-IN")} · Batch: {diagnostics.sendBatchSize} · Interval: {Number(diagnostics.batchIntervalMs ?? 0) / 1000}s
+                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Daily limit: {Number(diagnostics.dailyLimit ?? 10000).toLocaleString("en-IN")} · Batch: {diagnostics.sendBatchSize} · Interval: {Number(diagnostics.batchIntervalMs ?? 0) / 1000}s · Runner: {diagnostics.batchRunner ?? "Manual"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-bold">

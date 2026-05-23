@@ -281,11 +281,20 @@ export class MarketingService {
   @Cron('0 10 * * *', { timeZone: 'Asia/Kolkata' })
   async processDailyBroadcastQueue() {
     const prepared = await this.prepareDailyCampaignQueue();
-    const maxBatches = Number(process.env.MARKETING_DAILY_QUEUE_BATCHES ?? 250);
-    const result = await this.processBroadcastBatches(maxBatches);
+    const result = await this.processBroadcastBatches(1);
     const combined = { prepared, ...result };
     this.logger.log(`Daily 10:00 AM marketing queue run: ${JSON.stringify(combined)}`);
     return combined;
+  }
+
+  @Cron('*/2 * * * *', { timeZone: 'Asia/Kolkata' })
+  async processBroadcastQueueTick() {
+    if (!this.isMarketingSendWindow()) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
+    const result = await this.processBroadcastBatches(1);
+    if (result.processed > 0) {
+      this.logger.log(`Marketing 2-minute batch tick: ${JSON.stringify(result)}`);
+    }
+    return result;
   }
 
   private async prepareDailyCampaignQueue() {
@@ -417,6 +426,7 @@ export class MarketingService {
       sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200),
       batchIntervalMs: Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 120000),
       dailyRun: '10:00 AM IST',
+      batchRunner: 'Every 2 minutes during sending window',
       dailyLimit: Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT),
     };
   }
@@ -427,7 +437,6 @@ export class MarketingService {
     let failed = 0;
     let skipped = 0;
     const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200);
-    const batchIntervalMs = Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 120000);
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({
@@ -482,9 +491,6 @@ export class MarketingService {
       }
 
       if (jobs.length < batchSize) break;
-      if (batchIntervalMs > 0 && batch < maxBatches - 1) {
-        await new Promise((resolve) => setTimeout(resolve, batchIntervalMs));
-      }
     }
 
     return {
@@ -494,6 +500,18 @@ export class MarketingService {
       skipped,
       nextRun: 'Daily at 10:00 AM IST',
     };
+  }
+
+  private isMarketingSendWindow() {
+    const startHour = Number(process.env.MARKETING_SEND_START_HOUR ?? 10);
+    const endHour = Number(process.env.MARKETING_SEND_END_HOUR ?? 18);
+    const parts = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(new Date());
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
+    return hour >= startHour && hour < endHour;
   }
 
   async receiveAisensyWebhook(body: any, signature: string | undefined, kind: 'status' | 'reply') {
