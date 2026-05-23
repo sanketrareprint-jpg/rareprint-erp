@@ -24,7 +24,7 @@ export class MarketingService {
       (this.prisma as any).marketingContact.count({ where: contactWhere }),
       (this.prisma as any).marketingCampaign.count({ where: { status: 'ACTIVE' } }),
       (this.prisma as any).marketingBroadcastJob.count({ where: { status: 'QUEUED' } }),
-      (this.prisma as any).marketingMessageEvent.count({ where: { eventType: 'SENT', occurredAt: { gte: this.startOfDay() } } }),
+      (this.prisma as any).marketingBroadcastJob.count({ where: { status: 'SENT', sentAt: { gte: this.startOfDay() } } }),
       (this.prisma as any).marketingMessageEvent.count({ where: { eventType: 'REPLIED', occurredAt: { gte: this.startOfDay() } } }),
       (this.prisma as any).marketingContact.count({ where: { ...contactWhere, leadTemperature: 'HOT' } }),
     ]);
@@ -389,7 +389,7 @@ export class MarketingService {
   }
 
   async getBroadcastDiagnostics() {
-    const [jobs, recentFailures] = await Promise.all([
+    const [jobs, recentFailures, todayAttempts] = await Promise.all([
       (this.prisma as any).marketingBroadcastJob.groupBy({
         by: ['status'],
         _count: { status: true },
@@ -407,6 +407,7 @@ export class MarketingService {
         orderBy: { updatedAt: 'desc' },
         take: 5,
       }),
+      this.countTodayBroadcastAttempts(),
     ]);
 
     return {
@@ -428,6 +429,7 @@ export class MarketingService {
       dailyRun: '10:00 AM IST',
       batchRunner: 'Every 2 minutes during sending window',
       dailyLimit: Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT),
+      todayAttempts,
     };
   }
 
@@ -437,8 +439,12 @@ export class MarketingService {
     let failed = 0;
     let skipped = 0;
     const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200);
+    const dailyLimit = Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT);
 
     for (let batch = 0; batch < maxBatches; batch++) {
+      const remainingToday = dailyLimit - (await this.countTodayBroadcastAttempts());
+      if (remainingToday <= 0) break;
+
       const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({
         where: {
           status: { in: ['QUEUED', 'FAILED'] },
@@ -451,7 +457,7 @@ export class MarketingService {
           step: { include: { template: true } },
         },
         orderBy: { scheduledAt: 'asc' },
-        take: batchSize,
+        take: Math.min(batchSize, remainingToday),
       });
 
       if (!jobs.length) break;
@@ -464,7 +470,16 @@ export class MarketingService {
           continue;
         }
 
-        await (this.prisma as any).marketingBroadcastJob.update({ where: { id: job.id }, data: { status: 'SENDING' } });
+        const claimed = await (this.prisma as any).marketingBroadcastJob.updateMany({
+          where: {
+            id: job.id,
+            status: { in: ['QUEUED', 'FAILED'] },
+            retryCount: { lt: 3 },
+          },
+          data: { status: 'SENDING' },
+        });
+        if ((claimed.count ?? 0) !== 1) continue;
+
         const result = await this.sendViaAisensy(job);
         if (result.success) {
           await (this.prisma as any).$transaction([
@@ -500,6 +515,15 @@ export class MarketingService {
       skipped,
       nextRun: 'Daily at 10:00 AM IST',
     };
+  }
+
+  private countTodayBroadcastAttempts() {
+    return (this.prisma as any).marketingBroadcastJob.count({
+      where: {
+        status: { in: ['SENDING', 'SENT', 'FAILED'] },
+        updatedAt: { gte: this.startOfDay() },
+      },
+    });
   }
 
   private isMarketingSendWindow() {
@@ -734,8 +758,15 @@ export class MarketingService {
   }
 
   private startOfDay() {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    return date;
+    const parts = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = Number(parts.find((part) => part.type === 'year')?.value);
+    const month = Number(parts.find((part) => part.type === 'month')?.value);
+    const day = Number(parts.find((part) => part.type === 'day')?.value);
+    return new Date(Date.UTC(year, month - 1, day, -5, -30, 0, 0));
   }
 }

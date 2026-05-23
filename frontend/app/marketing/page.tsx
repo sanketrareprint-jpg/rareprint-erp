@@ -438,7 +438,7 @@ function MarketingPageContent() {
               <div>
                 <h2 className="text-sm font-bold">Queue Diagnostics</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Daily limit: {Number(diagnostics.dailyLimit ?? 10000).toLocaleString("en-IN")} · Batch: {diagnostics.sendBatchSize} · Interval: {Number(diagnostics.batchIntervalMs ?? 0) / 1000}s · Runner: {diagnostics.batchRunner ?? "Manual"}
+                  AiSensy key: {diagnostics.aisensyApiKeyConfigured ? "Configured" : "Missing"} · Daily run: {diagnostics.dailyRun} · Daily limit: {Number(diagnostics.dailyLimit ?? 10000).toLocaleString("en-IN")} · Today used: {Number(diagnostics.todayAttempts ?? 0).toLocaleString("en-IN")} · Batch: {diagnostics.sendBatchSize} · Interval: {Number(diagnostics.batchIntervalMs ?? 0) / 1000}s · Runner: {diagnostics.batchRunner ?? "Manual"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-bold">
