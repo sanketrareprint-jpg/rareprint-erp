@@ -540,7 +540,12 @@ Return ONLY valid JSON, no explanation:
           create: { pressId: item.pressId, gsm: item.gsm, quality: item.quality, balanceSheets: totalSheets },
         });
 
-        await tx.paperTransaction.create({
+          data: {
+            pressId: item.pressId,
+            gsm: item.gsm,
+            quality: item.quality,
+            transactionType: PaperTransactionType.PURCHASE,
+            sheets: totalSheets,
             balanceAfter: newBalance,
             referenceId: poItem.id,
             referenceType: 'PURCHASE',
