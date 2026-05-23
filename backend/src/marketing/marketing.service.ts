@@ -278,13 +278,13 @@ export class MarketingService {
     return this.processBroadcastBatches(1, 1);
   }
 
-  @Cron('0 11 * * *', { timeZone: 'Asia/Kolkata' })
+  @Cron('0 10 * * *', { timeZone: 'Asia/Kolkata' })
   async processDailyBroadcastQueue() {
     const prepared = await this.prepareDailyCampaignQueue();
     const maxBatches = Number(process.env.MARKETING_DAILY_QUEUE_BATCHES ?? 250);
     const result = await this.processBroadcastBatches(maxBatches);
     const combined = { prepared, ...result };
-    this.logger.log(`Daily 11:00 AM marketing queue run: ${JSON.stringify(combined)}`);
+    this.logger.log(`Daily 10:00 AM marketing queue run: ${JSON.stringify(combined)}`);
     return combined;
   }
 
@@ -415,8 +415,8 @@ export class MarketingService {
       })),
       aisensyApiKeyConfigured: Boolean(process.env.AISENSY_API_KEY),
       sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200),
-      batchIntervalMs: Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 0),
-      dailyRun: '11:00 AM IST',
+      batchIntervalMs: Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 120000),
+      dailyRun: '10:00 AM IST',
       dailyLimit: Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT),
     };
   }
@@ -427,7 +427,7 @@ export class MarketingService {
     let failed = 0;
     let skipped = 0;
     const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200);
-    const batchIntervalMs = Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 0);
+    const batchIntervalMs = Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 120000);
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const jobs = await (this.prisma as any).marketingBroadcastJob.findMany({
@@ -492,7 +492,7 @@ export class MarketingService {
       sent,
       failed,
       skipped,
-      nextRun: 'Daily at 11:00 AM IST',
+      nextRun: 'Daily at 10:00 AM IST',
     };
   }
 

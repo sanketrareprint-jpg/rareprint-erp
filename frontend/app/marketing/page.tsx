@@ -392,7 +392,7 @@ function MarketingPageContent() {
       if (!response.ok) throw new Error(data?.message || `Queue run failed with status ${response.status}`);
       setQueueMessage({
         type: data?.failed ? "error" : "success",
-        message: `Processed ${Number(data?.processed ?? 0).toLocaleString("en-IN")}. Sent ${Number(data?.sent ?? 0).toLocaleString("en-IN")}, failed ${Number(data?.failed ?? 0).toLocaleString("en-IN")}, skipped ${Number(data?.skipped ?? 0).toLocaleString("en-IN")}. Auto-run is daily at 11:00 AM IST.`,
+        message: `Processed ${Number(data?.processed ?? 0).toLocaleString("en-IN")}. Sent ${Number(data?.sent ?? 0).toLocaleString("en-IN")}, failed ${Number(data?.failed ?? 0).toLocaleString("en-IN")}, skipped ${Number(data?.skipped ?? 0).toLocaleString("en-IN")}. Auto-run is daily at 10:00 AM IST.`,
       });
       await load();
     } catch (error) {
@@ -422,7 +422,7 @@ function MarketingPageContent() {
           </div>
         </div>
         <p className="mt-2 text-xs font-semibold text-slate-500">
-          Automatic sending runs daily at 11:00 AM IST. It fills the next 10,000 eligible contacts, sends them, then continues with the next 10,000 tomorrow.
+          Automatic sending runs daily at 10:00 AM IST. It fills the next 10,000 eligible contacts, sends them in batches of 200 with a 2-minute gap, then continues with the next 10,000 tomorrow.
         </p>
       </div>
 
