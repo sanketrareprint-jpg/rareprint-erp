@@ -182,10 +182,11 @@ model JobWork {
 model PrintSheet {
   id            String          @id @default(cuid())
   sheetNo       String          @unique  // auto-generated e.g. SHT-2024-001
-  gsm           Int
-  quality       SheetQuality
-  quantity      Int
-  sizeInches    String          // e.g. "18x23"
+  gsm                   Int
+  quality               SheetQuality
+  quantity              Int
+  actualPrintedQuantity Int?
+  sizeInches            String          // e.g. "18x23"
   areaSqInches  Float           // computed: width * height
   printing      ProductSides
   status        SheetStatus     @default(INCOMPLETE)

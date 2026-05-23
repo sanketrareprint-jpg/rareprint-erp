@@ -78,7 +78,7 @@ export class ProductionController {
   listSheets() { return this.clubbingSheetService.listSheets(); }
 
   @Post('sheets')
-  createSheet(@Body() body: { gsm: number; quality: SheetQuality; quantity: number; sizeInches: string; printing: ProductSides }) {
+  createSheet(@Body() body: { gsm: number; quality: SheetQuality; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; printing: ProductSides }) {
     return this.clubbingSheetService.createSheet(body);
   }
 
@@ -90,7 +90,7 @@ export class ProductionController {
   @Patch('sheets/:id')
   updateSheet(
     @Param('id') id: string,
-    @Body() body: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides },
+    @Body() body: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; actualPrintedQuantity?: number | null; sizeInches?: string; printing?: ProductSides },
   ) { return this.clubbingSheetService.updateSheet(id, body); }
 
   @Delete('sheets/:id')

@@ -416,12 +416,12 @@ export class ClubbingSheetService {
     });
   }
 
-  async createSheet(data: { gsm: number; quality: SheetQuality; quantity: number; sizeInches: string; printing: ProductSides }) {
+  async createSheet(data: { gsm: number; quality: SheetQuality; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; printing: ProductSides }) {
     const count = await this.prisma.printSheet.count();
     const sheetNo = `SHT-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
     const [w, h] = data.sizeInches.split('x').map(Number);
     if (!w || !h) throw new BadRequestException('Invalid size format. Use WxH e.g. 18x23');
-    return this.prisma.printSheet.create({ data: { sheetNo, ...data, areaSqInches: w * h } });
+    return this.prisma.printSheet.create({ data: { sheetNo, ...data, actualPrintedQuantity: data.actualPrintedQuantity ?? null, areaSqInches: w * h } });
   }
 
   async autoOrganizeSheets() {
@@ -543,11 +543,24 @@ export class ClubbingSheetService {
     };
   }
 
-  async updateSheet(sheetId: string, data: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; sizeInches?: string; printing?: ProductSides }) {
+  async updateSheet(sheetId: string, data: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; actualPrintedQuantity?: number | null; sizeInches?: string; printing?: ProductSides }) {
     const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
     if (!sheet) throw new NotFoundException('Sheet not found');
     const canEdit = sheet.status === 'INCOMPLETE' || (sheet.createdBySource === 'AUTO' && sheet.status === 'COMPLETE');
-    if (!canEdit) throw new BadRequestException('Only incomplete sheets or AUTO complete sheets can be edited');
+    const hasCoreChanges =
+      (data.sheetNo !== undefined && data.sheetNo.trim() !== sheet.sheetNo) ||
+      (data.gsm !== undefined && data.gsm !== sheet.gsm) ||
+      (data.quality !== undefined && data.quality !== sheet.quality) ||
+      (data.quantity !== undefined && data.quantity !== sheet.quantity) ||
+      (data.sizeInches !== undefined && data.sizeInches !== sheet.sizeInches) ||
+      (data.printing !== undefined && data.printing !== sheet.printing);
+    if (!canEdit && hasCoreChanges) throw new BadRequestException('Only incomplete sheets or AUTO complete sheets can be fully edited');
+    if (!canEdit && !['SETTING', 'COMPLETE'].includes(sheet.status)) {
+      throw new BadRequestException('Actual printed quantity can be changed only before printing starts');
+    }
+    if (data.actualPrintedQuantity !== undefined && data.actualPrintedQuantity !== null && data.actualPrintedQuantity <= 0) {
+      throw new BadRequestException('Actual printed quantity must be greater than zero');
+    }
 
     let areaSqInches: number | undefined;
     if (data.sizeInches) {
@@ -564,6 +577,7 @@ export class ClubbingSheetService {
         ...(data.gsm !== undefined && { gsm: data.gsm }),
         ...(data.quality && { quality: data.quality }),
         ...(data.quantity !== undefined && { quantity: data.quantity }),
+        ...(data.actualPrintedQuantity !== undefined && { actualPrintedQuantity: data.actualPrintedQuantity }),
         ...(data.sizeInches && { sizeInches: data.sizeInches, areaSqInches }),
         ...(data.printing && { printing: data.printing }),
       },

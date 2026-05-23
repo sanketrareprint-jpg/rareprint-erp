@@ -51,7 +51,7 @@ type ClubbingItem = { id: string; productName: string; quantity: number; product
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
 type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
-type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
+type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
 
 function parseNotes(notes?: string) {
@@ -188,9 +188,9 @@ export default function ProductionPage() {
 
   // Sheet state
   const [createSheetModal, setCreateSheetModal] = useState(false);
-  const [sheetForm, setSheetForm] = useState({ gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
+  const [sheetForm, setSheetForm] = useState({ gsm: "", quality: "MAPLITHO", quantity: "", actualPrintedQuantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
   const [editSheetModal, setEditSheetModal] = useState<PrintSheet | null>(null);
-  const [editSheetForm, setEditSheetForm] = useState({ sheetNo: "", gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
+  const [editSheetForm, setEditSheetForm] = useState({ sheetNo: "", gsm: "", quality: "MAPLITHO", quantity: "", actualPrintedQuantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
   const [savingSheet, setSavingSheet] = useState(false);
   const [autoOrganizing, setAutoOrganizing] = useState(false);
   const [savingEditSheet, setSavingEditSheet] = useState(false);
@@ -428,10 +428,17 @@ export default function ProductionPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/production/sheets`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ gsm: Number(sheetForm.gsm), quality: sheetForm.quality, quantity: Number(sheetForm.quantity), sizeInches: sheetForm.sizeInches, printing: sheetForm.printing }),
+        body: JSON.stringify({
+          gsm: Number(sheetForm.gsm),
+          quality: sheetForm.quality,
+          quantity: Number(sheetForm.quantity),
+          actualPrintedQuantity: sheetForm.actualPrintedQuantity ? Number(sheetForm.actualPrintedQuantity) : null,
+          sizeInches: sheetForm.sizeInches,
+          printing: sheetForm.printing,
+        }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      setCreateSheetModal(false); setSheetForm({ gsm: "", quality: "MAPLITHO", quantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
+      setCreateSheetModal(false); setSheetForm({ gsm: "", quality: "MAPLITHO", quantity: "", actualPrintedQuantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
       const created = await res.json().catch(() => null);
       if (created?.id) setSheetsData(prev => [{ ...created, items: [], stageVendors: [] }, ...prev]);
       else await loadSheets();
@@ -457,7 +464,7 @@ export default function ProductionPage() {
   }
 
   function openEditSheet(sheet: PrintSheet) {
-    const canEdit = sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE");
+    const canEdit = sheet.status === "INCOMPLETE" || sheet.status === "SETTING" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE");
     if (!canEdit) {
       alert("Only incomplete sheets or AUTO complete sheets can be edited.");
       return;
@@ -468,6 +475,7 @@ export default function ProductionPage() {
       gsm: String(sheet.gsm),
       quality: sheet.quality,
       quantity: String(sheet.quantity),
+      actualPrintedQuantity: sheet.actualPrintedQuantity ? String(sheet.actualPrintedQuantity) : "",
       sizeInches: sheet.sizeInches,
       printing: sheet.printing,
     });
@@ -489,6 +497,7 @@ export default function ProductionPage() {
           gsm: Number(editSheetForm.gsm),
           quality: editSheetForm.quality,
           quantity: Number(editSheetForm.quantity),
+          actualPrintedQuantity: editSheetForm.actualPrintedQuantity ? Number(editSheetForm.actualPrintedQuantity) : null,
           sizeInches: editSheetForm.sizeInches,
           printing: editSheetForm.printing,
         }),
@@ -1469,7 +1478,10 @@ export default function ProductionPage() {
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-cyan-700 text-sm">Sheet No: {displaySheetNo(sheet.sheetNo)}</span>
                               {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
-                              <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                              <span className="text-slate-600 text-xs">
+                                {sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}
+                                {sheet.actualPrintedQuantity ? ` · Actual ${sheet.actualPrintedQuantity}` : ""}
+                              </span>
                               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
                               {createdLabel && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
@@ -1480,9 +1492,9 @@ export default function ProductionPage() {
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              {(sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE")) && (
+                              {(sheet.status === "INCOMPLETE" || sheet.status === "SETTING" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE")) && (
                                 <button onClick={e => { e.stopPropagation(); openEditSheet(sheet); }} className="rounded-md border border-cyan-200 bg-white px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-50">
-                                  Edit
+                                  {sheet.status === "SETTING" ? "Actual Qty" : "Edit"}
                                 </button>
                               )}
                               {(sheet.status === "INCOMPLETE" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE")) && (
@@ -1585,7 +1597,10 @@ export default function ProductionPage() {
                                 onClick={() => setExpandedSheet(isExp ? null : sheet.id)}>
                                 <div className="flex items-center gap-3 flex-wrap">
                                   <span className="font-bold text-blue-700 text-sm">Sheet No: {displaySheetNo(sheet.sheetNo)}</span>
-                                  <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                                  <span className="text-slate-600 text-xs">
+                                    {sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}
+                                    {sheet.actualPrintedQuantity ? ` · Actual ${sheet.actualPrintedQuantity}` : ""}
+                                  </span>
                                   <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${sheetPrintingClass(sheet.printing)}`}>{sheetPrintingLabel(sheet.printing)}</span>
                                   {createdLabel && (
                                     <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
@@ -2074,6 +2089,10 @@ export default function ProductionPage() {
                 <input type="number" value={sheetForm.quantity} onChange={e => setSheetForm(p => ({ ...p, quantity: e.target.value }))} placeholder="e.g. 500" style={IS.input} />
               </div>
               <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Printed Qty</label>
+                <input type="number" value={sheetForm.actualPrintedQuantity} onChange={e => setSheetForm(p => ({ ...p, actualPrintedQuantity: e.target.value }))} placeholder="Optional" style={IS.input} />
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
                 <input value={sheetForm.sizeInches} onChange={e => setSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
               </div>
@@ -2110,29 +2129,33 @@ export default function ProductionPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">Sheet Number *</label>
-                <input value={editSheetForm.sheetNo} onChange={e => setEditSheetForm(p => ({ ...p, sheetNo: e.target.value }))} placeholder="SHT-2026-001" style={IS.input} />
+                <input disabled={editSheetModal.status === "SETTING"} value={editSheetForm.sheetNo} onChange={e => setEditSheetForm(p => ({ ...p, sheetNo: e.target.value }))} placeholder="SHT-2026-001" style={IS.input} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">GSM *</label>
-                <input type="number" value={editSheetForm.gsm} onChange={e => setEditSheetForm(p => ({ ...p, gsm: e.target.value }))} style={IS.input} />
+                <input disabled={editSheetModal.status === "SETTING"} type="number" value={editSheetForm.gsm} onChange={e => setEditSheetForm(p => ({ ...p, gsm: e.target.value }))} style={IS.input} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
-                <select value={editSheetForm.quality} onChange={e => setEditSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
+                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.quality} onChange={e => setEditSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
                   {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
-                <input type="number" value={editSheetForm.quantity} onChange={e => setEditSheetForm(p => ({ ...p, quantity: e.target.value }))} style={IS.input} />
+                <input disabled={editSheetModal.status === "SETTING"} type="number" value={editSheetForm.quantity} onChange={e => setEditSheetForm(p => ({ ...p, quantity: e.target.value }))} style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Printed Qty</label>
+                <input type="number" value={editSheetForm.actualPrintedQuantity} onChange={e => setEditSheetForm(p => ({ ...p, actualPrintedQuantity: e.target.value }))} placeholder="Blank = planned qty" style={IS.input} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
-                <input value={editSheetForm.sizeInches} onChange={e => setEditSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
+                <input disabled={editSheetModal.status === "SETTING"} value={editSheetForm.sizeInches} onChange={e => setEditSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
               </div>
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
-                <select value={editSheetForm.printing} onChange={e => setEditSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
+                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.printing} onChange={e => setEditSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
                   <option value="SINGLE_SIDE">Single Side</option>
                   <option value="DOUBLE_SIDE">Double Side</option>
                 </select>
