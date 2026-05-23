@@ -484,10 +484,20 @@ Return ONLY valid JSON, no explanation:
         });
       }
 
-      // 2. Delete old items
+      // 2. Null out purchaseItemId on any transactions referencing these items
+      //    (no onDelete:SetNull on the relation, so we must do this manually)
+      const oldItemIds = existing.items.map((i) => i.id);
+      if (oldItemIds.length > 0) {
+        await tx.paperTransaction.updateMany({
+          where: { purchaseItemId: { in: oldItemIds } },
+          data: { purchaseItemId: null },
+        });
+      }
+
+      // 3. Delete old items
       await tx.paperPurchaseItem.deleteMany({ where: { poId: id } });
 
-      // 3. Update PO header
+      // 4. Update PO header
       await tx.paperPurchaseOrder.update({
         where: { id },
         data: {
@@ -497,7 +507,7 @@ Return ONLY valid JSON, no explanation:
         },
       });
 
-      // 4. Create new items and update inventory
+      // 5. Create new items and update inventory
       for (const item of dto.items) {
         const sheetsPerUnit = item.unit === PaperUnit.REAM
           ? SHEETS_PER_REAM
@@ -537,19 +547,4 @@ Return ONLY valid JSON, no explanation:
             quality: item.quality,
             transactionType: PaperTransactionType.PURCHASE,
             sheets: totalSheets,
-            balanceAfter: newBalance,
-            referenceId: poItem.id,
-            referenceType: 'PURCHASE',
-            notes: `PO ${existing.poNumber} (edited) - ${item.paperName}`,
-            purchaseItemId: poItem.id,
-          },
-        });
-      }
-
-      return tx.paperPurchaseOrder.findUnique({
-        where: { id },
-        include: { items: { include: { press: true } }, supplier: true },
-      });
-    });
-  }
-}
+           
