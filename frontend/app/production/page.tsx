@@ -1375,9 +1375,9 @@ export default function ProductionPage() {
                         );
                       })}
                     </div>
-                    <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:block">
-                      <table className="w-full text-xs">
-                      <thead className="sticky top-28 z-10 bg-slate-50 shadow-sm"><tr className="border-b border-slate-100 bg-slate-50">
+                    <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto md:block">
+                      <table className="w-full min-w-[1180px] text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                      <thead><tr className="border-b border-slate-100 bg-slate-50">
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
@@ -1716,8 +1716,8 @@ export default function ProductionPage() {
                               </div>
                             ))}
                           </div>
-                          <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:block">
-                            <table className="w-full table-fixed text-xs">
+                          <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto md:block">
+                            <table className="w-full min-w-[1180px] table-fixed text-xs">
                               <colgroup>
                                 <col className="w-[10%]" />
                                 <col className="w-[5%]" />
@@ -1730,7 +1730,7 @@ export default function ProductionPage() {
                                 <col className="w-[14%]" />
                                 <col className="w-[8%]" />
                               </colgroup>
-                              <thead className="sticky top-28 z-10 bg-slate-50 shadow-sm"><tr className="border-b border-slate-100 bg-slate-50">
+                              <thead><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
