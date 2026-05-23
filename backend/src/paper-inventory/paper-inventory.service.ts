@@ -541,10 +541,19 @@ Return ONLY valid JSON, no explanation:
         });
 
         await tx.paperTransaction.create({
-          data: {
-            pressId: item.pressId,
-            gsm: item.gsm,
-            quality: item.quality,
-            transactionType: PaperTransactionType.PURCHASE,
-            sheets: totalSheets,
-           
+            balanceAfter: newBalance,
+            referenceId: poItem.id,
+            referenceType: 'PURCHASE',
+            notes: `PO ${existing.poNumber} (edited) - ${item.paperName}`,
+            purchaseItemId: poItem.id,
+          },
+        });
+      }
+
+      return tx.paperPurchaseOrder.findUnique({
+        where: { id },
+        include: { items: { include: { press: true } }, supplier: true },
+      });
+    });
+  }
+}
