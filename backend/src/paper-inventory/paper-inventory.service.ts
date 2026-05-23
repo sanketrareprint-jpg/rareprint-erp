@@ -238,6 +238,7 @@ Return ONLY valid JSON, no explanation:
         gsm: true,
         quality: true,
         quantity: true,
+        actualPrintedQuantity: true,
         stageVendors: {
           where: { stage: 'PRINTING' },
           select: { vendorId: true },
@@ -254,7 +255,8 @@ Return ONLY valid JSON, no explanation:
     }
 
     const pressId = printingStageVendor.vendorId;
-    const { gsm, quality, quantity: sheetsNeeded } = sheet;
+    const sheetsNeeded = sheet.actualPrintedQuantity ?? sheet.quantity;
+    const { gsm, quality } = sheet;
 
     // Check balance
     const inventory = await this.prisma.paperInventory.findUnique({
@@ -291,7 +293,7 @@ Return ONLY valid JSON, no explanation:
           balanceAfter: newBalance,
           referenceId: sheetId,
           referenceType: 'PRINT_SHEET',
-          notes: `Sheet ${sheet.sheetNo} sent to printing`,
+          notes: `Sheet ${sheet.sheetNo} sent to printing${sheet.actualPrintedQuantity ? ` (actual printed ${sheet.actualPrintedQuantity}, planned ${sheet.quantity})` : ''}`,
         },
       });
     });
