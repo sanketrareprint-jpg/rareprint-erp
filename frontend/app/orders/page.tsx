@@ -1149,4 +1149,23 @@ export default function OrdersPage() {
                 <button onClick={submitBooking} disabled={bookingSubmitting}
                   style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", borderRadius: "0.5rem", border: "none", background: "#4f46e5", padding: "0.375rem 1.25rem", fontSize: "0.75rem", fontWeight: 600, color: "white", cursor: "pointer", opacity: bookingSubmitting ? 0.6 : 1 }}>
                   {bookingSubmitting ? <Loader2 style={{ width: 14, height: 14 }} /> : <Truck style={{ width: 14, height: 14 }} />}
-    
+                  Send to Accounts for Approval
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+
+
+
+
+
+
+
+

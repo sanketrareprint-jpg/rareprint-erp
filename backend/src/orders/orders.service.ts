@@ -761,4 +761,13 @@ export class OrdersService {
           id: i.id,
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
-          designFiles: Array.from({ length: designFileCo
+          designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
+        })),
+      };
+    });
+    return { data, page, limit, total, hasMore: page * limit < total };
+  }
+}
+
+
+
