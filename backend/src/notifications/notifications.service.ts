@@ -113,6 +113,8 @@ export class NotificationsService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async runAllChecks() {
+    // Auto-resolve first so stale notifications are cleared before new ones fire
+    await this.autoResolveStaleNotifications();
     await Promise.allSettled([
       this.sendDueOrderReassuranceMessages(),
       this.checkRule1_ProductionUnassigned(),
@@ -131,6 +133,266 @@ export class NotificationsService {
       this.checkRule11c_SheetProcessingFollowUp(),
       this.checkRule11d_SheetProcessingDueDatePassed(),
     ]);
+  }
+
+  // ── Auto-resolve stale notifications ─────────────────────────────────────
+  // Runs at the top of every hourly check. For each unresolved notification,
+  // checks if the underlying condition is still true. If not → auto-resolves.
+
+  async autoResolveStaleNotifications() {
+    let totalResolved = 0;
+
+    const bulkResolve = async (ids: string[]) => {
+      if (!ids.length) return;
+      await this.prisma.notification.updateMany({
+        where: { id: { in: ids } },
+        data: { isResolved: true, resolvedAt: new Date(), actionTaken: 'AUTO_RESOLVED' },
+      });
+      totalResolved += ids.length;
+    };
+
+    // ── 1. All notifications for dispatched / delivered / cancelled orders ──
+    const doneOrderIds = (await this.prisma.order.findMany({
+      where: { status: { in: ['DISPATCHED', 'PARTIALLY_DISPATCHED', 'DELIVERED', 'CANCELLED'] } },
+      select: { id: true },
+    })).map(o => o.id);
+    if (doneOrderIds.length) {
+      const stale = await this.prisma.notification.findMany({
+        where: { orderId: { in: doneOrderIds }, isResolved: false },
+        select: { id: true },
+      });
+      await bulkResolve(stale.map(n => n.id));
+    }
+
+    // ── 2. PRODUCTION_UNASSIGNED — all items now have productionCategory ─────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'PRODUCTION_UNASSIGNED', isResolved: false, orderId: { not: null } },
+        select: { id: true, orderId: true },
+      });
+      const toResolve: string[] = [];
+      for (const n of notifs) {
+        const count = await this.prisma.orderItem.count({ where: { orderId: n.orderId!, productionCategory: null } });
+        if (count === 0) toResolve.push(n.id);
+      }
+      await bulkResolve(toResolve);
+    }
+
+    // ── 3. INHOUSE_DESIGN_NOT_STARTED — item stage is no longer NOT_PRINTED ─
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'INHOUSE_DESIGN_NOT_STARTED', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      if (notifs.length) {
+        const items = await this.prisma.orderItem.findMany({
+          where: { id: { in: notifs.map(n => n.itemId!) } },
+          select: { id: true, itemProductionStage: true },
+        });
+        const stageMap = new Map(items.map(i => [i.id, i.itemProductionStage]));
+        await bulkResolve(notifs.filter(n => stageMap.get(n.itemId!) !== 'NOT_PRINTED').map(n => n.id));
+      }
+    }
+
+    // ── 4. INHOUSE_DESIGN_MISSING — design files now uploaded OR stage moved ─
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'INHOUSE_DESIGN_MISSING', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      if (notifs.length) {
+        const itemIds = notifs.map(n => n.itemId!);
+        const rows = await this.prisma.$queryRawUnsafe<{ id: string; stage: string; fileCount: number }[]>(
+          `SELECT id, "itemProductionStage" AS stage,
+            jsonb_array_length(CASE WHEN jsonb_typeof("designFiles"::jsonb) = 'array' THEN "designFiles"::jsonb ELSE '[]'::jsonb END) AS "fileCount"
+           FROM "OrderItem" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(',')})`,
+          ...itemIds,
+        );
+        const itemMap = new Map(rows.map(r => [r.id, r]));
+        await bulkResolve(notifs.filter(n => {
+          const r = itemMap.get(n.itemId!);
+          return !r || r.fileCount > 0 || r.stage !== 'NOT_PRINTED';
+        }).map(n => n.id));
+      }
+    }
+
+    // ── 5. INHOUSE_PRINTING_STUCK — item left PRINTING ───────────────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'INHOUSE_PRINTING_STUCK', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      if (notifs.length) {
+        const items = await this.prisma.orderItem.findMany({
+          where: { id: { in: notifs.map(n => n.itemId!) } },
+          select: { id: true, itemProductionStage: true },
+        });
+        const stageMap = new Map(items.map(i => [i.id, i.itemProductionStage]));
+        await bulkResolve(notifs.filter(n => stageMap.get(n.itemId!) !== 'PRINTING').map(n => n.id));
+      }
+    }
+
+    // ── 6. INHOUSE_PROCESSING_STUCK — item left PROCESSING ───────────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'INHOUSE_PROCESSING_STUCK', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      if (notifs.length) {
+        const items = await this.prisma.orderItem.findMany({
+          where: { id: { in: notifs.map(n => n.itemId!) } },
+          select: { id: true, itemProductionStage: true },
+        });
+        const stageMap = new Map(items.map(i => [i.id, i.itemProductionStage]));
+        await bulkResolve(notifs.filter(n => stageMap.get(n.itemId!) !== 'PROCESSING').map(n => n.id));
+      }
+    }
+
+    // ── 7. CLUBBING_VENDOR_NOT_ASSIGNED — JobWork now exists ─────────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'CLUBBING_VENDOR_NOT_ASSIGNED', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      const toResolve: string[] = [];
+      for (const n of notifs) {
+        const jw = await this.prisma.jobWork.findFirst({ where: { orderItemId: n.itemId! }, select: { id: true } });
+        if (jw) toResolve.push(n.id);
+      }
+      await bulkResolve(toResolve);
+    }
+
+    // ── 8. CLUBBING_DUE_DATE_MISSING — due date now set or job completed ─────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'CLUBBING_DUE_DATE_MISSING', isResolved: false, jobWorkId: { not: null } },
+        select: { id: true, jobWorkId: true },
+      });
+      if (notifs.length) {
+        const jws = await this.prisma.jobWork.findMany({
+          where: { id: { in: notifs.map(n => n.jobWorkId!) } },
+          select: { id: true, dueDate: true, status: true },
+        });
+        const jwMap = new Map(jws.map(j => [j.id, j]));
+        await bulkResolve(notifs.filter(n => {
+          const jw = jwMap.get(n.jobWorkId!);
+          return !jw || jw.dueDate !== null || jw.status === 'COMPLETED';
+        }).map(n => n.id));
+      }
+    }
+
+    // ── 9. CLUBBING_FOLLOW_UP + CLUBBING_OVERDUE — job completed ─────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: { in: ['CLUBBING_FOLLOW_UP', 'CLUBBING_OVERDUE'] }, isResolved: false, jobWorkId: { not: null } },
+        select: { id: true, jobWorkId: true },
+      });
+      if (notifs.length) {
+        const jws = await this.prisma.jobWork.findMany({
+          where: { id: { in: notifs.map(n => n.jobWorkId!) } },
+          select: { id: true, status: true },
+        });
+        const jwMap = new Map(jws.map(j => [j.id, j.status]));
+        await bulkResolve(notifs.filter(n => !jwMap.has(n.jobWorkId!) || jwMap.get(n.jobWorkId!) === 'COMPLETED').map(n => n.id));
+      }
+    }
+
+    // ── 10. SHEET_NOT_ASSIGNED — item now placed on a sheet ──────────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'SHEET_NOT_ASSIGNED', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      const toResolve: string[] = [];
+      for (const n of notifs) {
+        const count = await this.prisma.printSheetItem.count({ where: { orderItemId: n.itemId! } });
+        if (count > 0) toResolve.push(n.id);
+      }
+      await bulkResolve(toResolve);
+    }
+
+    // ── 11. SHEET_COMPLETE_STUCK — sheet moved out of COMPLETE ───────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'SHEET_COMPLETE_STUCK', isResolved: false, sheetId: { not: null } },
+        select: { id: true, sheetId: true },
+      });
+      if (notifs.length) {
+        const sheets = await this.prisma.printSheet.findMany({
+          where: { id: { in: notifs.map(n => n.sheetId!) } },
+          select: { id: true, status: true },
+        });
+        const sheetMap = new Map(sheets.map(s => [s.id, s.status]));
+        await bulkResolve(notifs.filter(n => sheetMap.get(n.sheetId!) !== 'COMPLETE').map(n => n.id));
+      }
+    }
+
+    // ── 12. SHEET_PRINTING_STUCK — sheet left PRINTING / SETTING ─────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'SHEET_PRINTING_STUCK', isResolved: false, sheetId: { not: null } },
+        select: { id: true, sheetId: true },
+      });
+      if (notifs.length) {
+        const sheets = await this.prisma.printSheet.findMany({
+          where: { id: { in: notifs.map(n => n.sheetId!) } },
+          select: { id: true, status: true },
+        });
+        const sheetMap = new Map(sheets.map(s => [s.id, s.status]));
+        await bulkResolve(notifs.filter(n => !['PRINTING', 'SETTING'].includes(sheetMap.get(n.sheetId!) ?? '')).map(n => n.id));
+      }
+    }
+
+    // ── 13. SHEET_PROCESSING_DUE_DATE_MISSING — due date now set ─────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'SHEET_PROCESSING_DUE_DATE_MISSING', isResolved: false, sheetId: { not: null }, itemId: { not: null } },
+        select: { id: true, sheetId: true, itemId: true },
+      });
+      const toResolve: string[] = [];
+      for (const n of notifs) {
+        const si = await this.prisma.printSheetItem.findFirst({
+          where: { sheetId: n.sheetId!, orderItemId: n.itemId! },
+          select: { dueDate: true },
+        });
+        if (!si || si.dueDate !== null) toResolve.push(n.id);
+      }
+      await bulkResolve(toResolve);
+    }
+
+    // ── 14. SHEET_PROCESSING_FOLLOW_UP — sheet left PROCESSING ───────────────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'SHEET_PROCESSING_FOLLOW_UP', isResolved: false, sheetId: { not: null } },
+        select: { id: true, sheetId: true },
+      });
+      if (notifs.length) {
+        const sheets = await this.prisma.printSheet.findMany({
+          where: { id: { in: notifs.map(n => n.sheetId!) } },
+          select: { id: true, status: true },
+        });
+        const sheetMap = new Map(sheets.map(s => [s.id, s.status]));
+        await bulkResolve(notifs.filter(n => sheetMap.get(n.sheetId!) !== 'PROCESSING').map(n => n.id));
+      }
+    }
+
+    // ── 15. SHEET_PROCESSING_OVERDUE — item reached READY_FOR_DISPATCH ───────
+    {
+      const notifs = await this.prisma.notification.findMany({
+        where: { type: 'SHEET_PROCESSING_OVERDUE', isResolved: false, itemId: { not: null } },
+        select: { id: true, itemId: true },
+      });
+      if (notifs.length) {
+        const items = await this.prisma.orderItem.findMany({
+          where: { id: { in: notifs.map(n => n.itemId!) } },
+          select: { id: true, itemProductionStage: true },
+        });
+        const stageMap = new Map(items.map(i => [i.id, i.itemProductionStage]));
+        await bulkResolve(notifs.filter(n => stageMap.get(n.itemId!) === 'READY_FOR_DISPATCH').map(n => n.id));
+      }
+    }
+
+    return { totalResolved };
   }
 
   async sendDueOrderReassuranceMessages() {

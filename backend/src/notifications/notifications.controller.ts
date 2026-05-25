@@ -43,6 +43,11 @@ export class NotificationsController {
     return this.svc.triggerManualCheck();
   }
 
+  @Post('auto-resolve')
+  autoResolve() {
+    return this.svc.autoResolveStaleNotifications();
+  }
+
   @Post('order-reassurance/run')
   runOrderReassurance() {
     return this.svc.sendDueOrderReassuranceMessages();

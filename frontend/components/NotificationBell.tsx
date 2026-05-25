@@ -308,7 +308,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
       {/* Dropdown */}
       {open && (
         <div style={{
-          position: "fixed", top: "10px", right: "10px", width: "520px", maxWidth: "calc(100vw - 24px)", maxHeight: "85vh",
+          position: "fixed", top: "56px", right: "10px", width: "480px", maxWidth: "calc(100vw - 24px)", maxHeight: "calc(100vh - 66px)",
           background: "white", borderRadius: "14px", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
           display: "flex", flexDirection: "column", zIndex: 9999, overflow: "hidden",
         }}>
@@ -354,15 +354,27 @@ export function NotificationBell({ userRole }: { userRole: string }) {
           )}
 
           {/* Prajakta summary bar */}
-          {tab === "prajakta" && prajaktaNotifs.length > 0 && (
+          {tab === "prajakta" && (
             <div style={{
-              display: "flex", gap: "12px", padding: "8px 14px",
-              background: "#f8fafc", borderBottom: "1px solid #e2e8f0",
-              fontSize: "11px", fontWeight: 600,
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "7px 14px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0",
+              fontSize: "11px", fontWeight: 600, gap: "8px",
             }}>
-              <span style={{ color: "#ef4444" }}>🔴 Pending: {prajaktaPending}</span>
-              <span style={{ color: "#059669" }}>✅ Resolved: {prajaktaResolved}</span>
-              <span style={{ color: "#64748b" }}>Total: {prajaktaNotifs.length}</span>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <span style={{ color: "#ef4444" }}>🔴 Pending: {prajaktaPending}</span>
+                <span style={{ color: "#059669" }}>✅ Resolved: {prajaktaResolved}</span>
+                <span style={{ color: "#64748b" }}>Total: {prajaktaNotifs.length}</span>
+              </div>
+              <button onClick={async () => {
+                const token = getToken();
+                if (!token) return;
+                await fetch(`${API}/notifications/auto-resolve`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+                await fetchPrajaktaNotifs();
+              }} style={{
+                padding: "3px 10px", borderRadius: "6px", border: "1px solid #a5b4fc",
+                background: "#eef2ff", color: "#4338ca", fontSize: "10px", fontWeight: 700,
+                cursor: "pointer", whiteSpace: "nowrap",
+              }}>⚡ Clear Resolved</button>
             </div>
           )}
 

@@ -577,7 +577,15 @@ export class DispatchService {
         status: ShipmentStatus.IN_TRANSIT,
       },
       orderBy: { createdAt: 'desc' },
-      include: { order: true },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            salesAgent: { select: { fullName: true } },
+            items: { include: { product: true } },
+          },
+        },
+      },
     });
     if (!shipment) throw new NotFoundException('No direct delivery pending OTP verification');
     const storedOtp = shipment.notes?.match(/OTP:\s*(\d{6})/i)?.[1];
@@ -608,6 +616,17 @@ export class DispatchService {
       });
       return order;
     });
+
+    if (shipment.order.customer.phone) {
+      void this.whatsapp.sendOrderUpdate({
+        customerName: shipment.order.customer.businessName,
+        customerPhone: shipment.order.customer.phone,
+        orderNo: shipment.order.orderNumber,
+        product: shipment.order.items.map((i) => i.product.name).join(', '),
+        status: 'Delivered',
+        agentName: shipment.order.salesAgent?.fullName ?? 'Rareprint Team',
+      });
+    }
 
     return updated;
   }
