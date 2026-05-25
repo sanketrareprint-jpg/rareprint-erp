@@ -28,6 +28,9 @@ type DispatchOrder = {
 };
 
 type RateQuote = { rateId: string; carrierName: string; amount: number; currency: string; estimatedDays: number; };
+type DispatchMethod = "COURIER" | "TRANSPORT" | "BY_HAND" | "SELF_COLLECTED";
+type TransportForm = { transportName: string; lrNumber: string; transportChargesType: "TOPAY" | "PREPAID"; transportBy: string; totalTransportCharges: string; notes: string };
+type DirectForm = { deliveryBoyName: string; collectedByName: string; collectedByPhone: string; otp: string };
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -77,6 +80,9 @@ export default function DispatchPage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<Record<string, string>>({});
   const [customPickup, setCustomPickup] = useState<Record<string, { name: string; pincode: string }>>({});
   const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
+  const [dispatchMethod, setDispatchMethod] = useState<Record<string, DispatchMethod>>({});
+  const [transportForm, setTransportForm] = useState<Record<string, TransportForm>>({});
+  const [directForm, setDirectForm] = useState<Record<string, DirectForm>>({});
   const [history, setHistory] = useState<ShipmentHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
@@ -192,6 +198,79 @@ export default function DispatchPage() {
       if (!res.ok) { const b = await res.json(); alert(b.message || "Booking failed"); return; }
       const result = await res.json();
       alert(`✅ Dispatched! Shipment: ${result.shipmentNumber} via ${result.carrierName}`);
+      await load();
+    } finally { setBookingId(null); }
+  }
+
+  async function bookTransport(orderId: string) {
+    const itemIds = Array.from(selectedItems[orderId] ?? []);
+    if (itemIds.length === 0) { alert("Select at least one item"); return; }
+    const form = transportForm[orderId] || { transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "", totalTransportCharges: "", notes: "" };
+    if (!form.transportName.trim()) { alert("Enter transport name"); return; }
+    if (form.transportChargesType === "PREPAID" && !form.totalTransportCharges) { alert("Enter total transport charges"); return; }
+    setBookingId(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/book-transport`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          itemIds,
+          transportName: form.transportName,
+          lrNumber: form.lrNumber || undefined,
+          transportChargesType: form.transportChargesType,
+          transportBy: form.transportBy || undefined,
+          totalTransportCharges: Number(form.totalTransportCharges || 0),
+          notes: form.notes || undefined,
+        }),
+      });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Transport dispatch failed"); return; }
+      const result = await res.json();
+      alert(`Dispatched by transport. Shipment: ${result.shipmentNumber}`);
+      await load();
+    } finally { setBookingId(null); }
+  }
+
+  async function sendDirectOtp(orderId: string, method: "BY_HAND" | "SELF_COLLECTED") {
+    const itemIds = Array.from(selectedItems[orderId] ?? []);
+    if (itemIds.length === 0) { alert("Select at least one item"); return; }
+    const form = directForm[orderId] || { deliveryBoyName: "", collectedByName: "", collectedByPhone: "", otp: "" };
+    if (method === "BY_HAND" && !form.deliveryBoyName.trim()) { alert("Enter delivery boy name"); return; }
+    if (method === "SELF_COLLECTED" && !form.collectedByName.trim()) { alert("Enter collected by name"); return; }
+    setBookingId(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/direct/send-otp`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          itemIds,
+          dispatchType: method,
+          deliveryBoyName: form.deliveryBoyName || undefined,
+          collectedByName: form.collectedByName || undefined,
+          collectedByPhone: form.collectedByPhone || undefined,
+        }),
+      });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Could not send OTP"); return; }
+      alert("OTP sent to customer. Enter OTP here after parcel is received.");
+    } finally { setBookingId(null); }
+  }
+
+  async function verifyDirectOtp(orderId: string) {
+    const form = directForm[orderId] || { deliveryBoyName: "", collectedByName: "", collectedByPhone: "", otp: "" };
+    if (!form.otp.trim()) { alert("Enter OTP"); return; }
+    setBookingId(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/direct/verify-otp`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, otp: form.otp }),
+      });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+      if (!res.ok) { const b = await res.json(); alert(b.message || "OTP verification failed"); return; }
+      alert("OTP verified. Order marked delivered.");
       await load();
     } finally { setBookingId(null); }
   }
@@ -386,6 +465,9 @@ export default function DispatchPage() {
                   ? { id: "CUSTOM", name: pickupDraft.name || "Custom Pickup", pincode: pickupDraft.pincode || "—", location: pickupDraft.name || "Custom Pickup" }
                   : warehouses.find(w => w.id === selectedPickupId) ?? warehouses[0];
                 const activePickupAddress = pickupAddressText(activeWarehouse);
+                const method = dispatchMethod[o.id] || "COURIER";
+                const transport = transportForm[o.id] || { transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "", totalTransportCharges: "", notes: "" };
+                const direct = directForm[o.id] || { deliveryBoyName: "", collectedByName: "", collectedByPhone: "", otp: "" };
 
                 return (
                   <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -484,8 +566,34 @@ export default function DispatchPage() {
                       </div>
                     </div>
 
-                    {/* Rates */}
+                    {/* Dispatch method */}
                     <div className="px-6 py-4">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dispatch Method</p>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {[
+                          { key: "COURIER", label: "Courier" },
+                          { key: "TRANSPORT", label: "Transport" },
+                          { key: "BY_HAND", label: "By Hand" },
+                          { key: "SELF_COLLECTED", label: "Self Collected" },
+                        ].map(option => (
+                          <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => {
+                              setDispatchMethod(prev => ({ ...prev, [o.id]: option.key as DispatchMethod }));
+                              setRates(prev => ({ ...prev, [o.id]: [] }));
+                              setSelectedRate(prev => ({ ...prev, [o.id]: "" }));
+                            }}
+                            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${method === option.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Courier */}
+                    {method === "COURIER" && (
+                    <div className="px-6 py-4 border-t border-slate-100">
                       <div className="flex flex-wrap items-end gap-3 mb-3">
                         <div className="flex-1 min-w-[160px]">
                           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Shipping</p>
@@ -571,6 +679,59 @@ export default function DispatchPage() {
                         </>
                       )}
                     </div>
+                    )}
+
+                    {/* Transport */}
+                    {method === "TRANSPORT" && (
+                      <div className="px-6 py-4 border-t border-slate-100">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Transport Details</p>
+                        <div className="grid gap-2 sm:grid-cols-4">
+                          <input value={transport.transportName} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportName: e.target.value } }))} placeholder="Transport name" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          <input value={transport.lrNumber} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, lrNumber: e.target.value } }))} placeholder="LR number" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          <select value={transport.transportChargesType} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportChargesType: e.target.value as "TOPAY" | "PREPAID" } }))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400 bg-white">
+                            <option value="TOPAY">To Pay</option>
+                            <option value="PREPAID">Prepaid</option>
+                          </select>
+                          <input value={transport.transportBy} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportBy: e.target.value } }))} placeholder="Booked by" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                        </div>
+                        {transport.transportChargesType === "PREPAID" && (
+                          <div className="mt-2 grid gap-2 sm:grid-cols-[180px_1fr]">
+                            <input type="number" min="0" value={transport.totalTransportCharges} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, totalTransportCharges: e.target.value } }))} placeholder="Total transport charges" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                            <input value={transport.notes} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, notes: e.target.value } }))} placeholder="Transport notes" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          </div>
+                        )}
+                        {transport.transportChargesType === "TOPAY" && (
+                          <p className="mt-2 text-[10px] text-slate-500">To Pay transport charges will be collected by the transport company from the customer, so no ERP charge is required.</p>
+                        )}
+                        <div className="mt-3 flex justify-end">
+                          <button onClick={() => bookTransport(o.id)} disabled={bookingId === o.id || !someSelected}
+                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                            {bookingId === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                            Dispatch by Transport
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* By hand / self collected */}
+                    {(method === "BY_HAND" || method === "SELF_COLLECTED") && (
+                      <div className="px-6 py-4 border-t border-slate-100">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{method === "BY_HAND" ? "By Hand Delivery OTP" : "Self Collected OTP"}</p>
+                        <div className="grid gap-2 sm:grid-cols-4">
+                          {method === "BY_HAND" ? (
+                            <input value={direct.deliveryBoyName} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, deliveryBoyName: e.target.value } }))} placeholder="Delivery boy name" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          ) : (
+                            <>
+                              <input value={direct.collectedByName} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, collectedByName: e.target.value } }))} placeholder="Collected by name" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                              <input value={direct.collectedByPhone} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, collectedByPhone: e.target.value } }))} placeholder="Collector phone" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                            </>
+                          )}
+                          <input value={direct.otp} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, otp: e.target.value.replace(/\D/g, "").slice(0, 6) } }))} placeholder="Enter customer OTP" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          <button onClick={() => sendDirectOtp(o.id, method as "BY_HAND" | "SELF_COLLECTED")} disabled={bookingId === o.id || !someSelected} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">Send OTP</button>
+                          <button onClick={() => verifyDirectOtp(o.id)} disabled={bookingId === o.id || !someSelected} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Verify & Deliver</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

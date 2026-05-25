@@ -17,9 +17,32 @@ type LocalRateQuote = {
   currency: string;
   estimatedDays: number;
 };
+type TransportDispatchInput = {
+  orderId: string;
+  itemIds: string[];
+  transportName?: string;
+  lrNumber?: string;
+  transportChargesType?: string;
+  transportBy?: string;
+  totalTransportCharges?: number;
+  notes?: string;
+};
+type DirectDispatchInput = {
+  orderId: string;
+  itemIds: string[];
+  dispatchType: 'BY_HAND' | 'SELF_COLLECTED';
+  deliveryBoyName?: string;
+  collectedByName?: string;
+  collectedByPhone?: string;
+  otp?: string;
+};
 
 function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+function randomOtp(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function extractPincode(address?: string | null): string | null {
@@ -133,6 +156,21 @@ export class DispatchService {
     let grams = 0;
     for (const i of items) grams += Number(i.product.weightPerUnitGrams) * i.quantity;
     return Math.max(0.5, grams / 1000);
+  }
+
+  private nextOrderStatusAfterDispatch(order: { items: Array<{ id: string; itemProductionStage: OrderProductionStage }> }, itemIds: string[]): OrderStatus {
+    const selected = new Set(itemIds);
+    const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
+    const allReadyItemsSelected = readyItems.length > 0 && readyItems.every((i) => selected.has(i.id));
+    const everyOrderItemWasReady = order.items.every((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
+    return allReadyItemsSelected && everyOrderItemWasReady
+      ? OrderStatus.DISPATCHED
+      : OrderStatus.PARTIALLY_DISPATCHED;
+  }
+
+  private paymentCredit(order: { grandTotal: Prisma.Decimal; payments?: Array<{ amount: Prisma.Decimal }> }): number {
+    const paid = (order.payments ?? []).reduce((sum, payment) => sum + Number(payment.amount), 0);
+    return Math.max(0, paid - Number(order.grandTotal));
   }
 
   async listReadyForDispatch() {
@@ -326,11 +364,7 @@ export class DispatchService {
       }
 
       const remainingItems = await tx.orderItem.findMany({ where: { orderId } });
-      const allDispatched  = remainingItems.every(
-        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
-      );
-
-      const newStatus = allDispatched ? OrderStatus.DISPATCHED : OrderStatus.PARTIALLY_DISPATCHED;
+      const newStatus = this.nextOrderStatusAfterDispatch({ items: remainingItems }, itemIds);
 
       await tx.order.update({
         where: { id: orderId },
@@ -366,6 +400,205 @@ export class DispatchService {
     }
 
     return result;
+  }
+
+  async bookTransport(input: TransportDispatchInput, userId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: input.orderId },
+      include: {
+        customer: true,
+        salesAgent: { select: { fullName: true } },
+        payments: true,
+        items: { include: { product: true } },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const itemsToDispatch = order.items.filter(
+      (i) => input.itemIds.includes(i.id) &&
+        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+    );
+    if (itemsToDispatch.length === 0) throw new BadRequestException('No ready items selected for dispatch');
+    if (!input.transportName?.trim()) throw new BadRequestException('Transport name is required');
+
+    const chargeType = input.transportChargesType === 'PREPAID' ? 'PREPAID' : 'TOPAY';
+    const totalCharge = chargeType === 'PREPAID' ? Math.max(0, Number(input.totalTransportCharges || 0)) : 0;
+    const creditAdjusted = Math.min(this.paymentCredit(order), totalCharge);
+    const netCharge = Math.max(0, totalCharge - creditAdjusted);
+    const shipmentNumber = `TRN-${Date.now()}-${randomSuffix()}`;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.shipment.create({
+        data: {
+          orderId: input.orderId,
+          handledById: userId,
+          shipmentNumber,
+          carrierName: input.transportName.trim(),
+          status: ShipmentStatus.IN_TRANSIT,
+          dispatchDate: new Date(),
+          dispatchType: 'TRANSPORT',
+          transportName: input.transportName.trim(),
+          lrNumber: input.lrNumber?.trim() || null,
+          transportChargesType: chargeType,
+          transportBy: input.transportBy?.trim() || null,
+          notes: [
+            `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
+            `Transport: ${input.transportName.trim()}`,
+            input.lrNumber?.trim() ? `LR: ${input.lrNumber.trim()}` : '',
+            `Charges: ${chargeType}`,
+            chargeType === 'PREPAID' ? `Total transport charges: ₹${totalCharge}` : '',
+            creditAdjusted > 0 ? `Credit adjusted: ₹${creditAdjusted}` : '',
+            chargeType === 'PREPAID' ? `Net transport charges: ₹${netCharge}` : 'To Pay collected by transport',
+            input.notes?.trim() || '',
+          ].filter(Boolean).join(' | '),
+        },
+      });
+
+      const newStatus = this.nextOrderStatusAfterDispatch(order, input.itemIds);
+      await tx.order.update({
+        where: { id: input.orderId },
+        data: { status: newStatus, shippingCharge: new Prisma.Decimal(netCharge) },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId: input.orderId,
+          fromStatus: order.status,
+          toStatus: newStatus,
+          changedById: userId,
+          reason: `Dispatched by transport: ${input.transportName.trim()}${input.lrNumber ? ` LR ${input.lrNumber}` : ''}`,
+          metadata: { shipmentNumber, dispatchType: 'TRANSPORT', chargeType, totalCharge, creditAdjusted, netCharge },
+        },
+      });
+      return { shipmentNumber, carrierName: input.transportName?.trim(), amount: netCharge, newStatus };
+    });
+
+    if (order.customer.phone) {
+      const productNames = itemsToDispatch.map(i => i.product.name).join(', ');
+      void this.whatsapp.sendOrderUpdate({
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone,
+        orderNo: order.orderNumber,
+        product: productNames,
+        status: `Dispatched by transport${input.lrNumber ? ` | LR: ${input.lrNumber}` : ''}`,
+        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+      });
+    }
+
+    return result;
+  }
+
+  async sendDirectOtp(input: DirectDispatchInput, userId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: input.orderId },
+      include: {
+        customer: true,
+        salesAgent: { select: { fullName: true } },
+        items: { include: { product: true } },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const itemsToDispatch = order.items.filter(
+      (i) => input.itemIds.includes(i.id) &&
+        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+    );
+    if (itemsToDispatch.length === 0) throw new BadRequestException('No ready items selected for dispatch');
+
+    const otp = randomOtp();
+    const shipmentNumber = `${input.dispatchType === 'BY_HAND' ? 'HAND' : 'SELF'}-${Date.now()}-${randomSuffix()}`;
+    const label = input.dispatchType === 'BY_HAND' ? 'By Hand' : 'Self Collected';
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.shipment.create({
+        data: {
+          orderId: input.orderId,
+          handledById: userId,
+          shipmentNumber,
+          status: ShipmentStatus.IN_TRANSIT,
+          dispatchDate: new Date(),
+          dispatchType: input.dispatchType,
+          deliveryBoyName: input.deliveryBoyName?.trim() || null,
+          collectedByName: input.collectedByName?.trim() || null,
+          collectedByPhone: input.collectedByPhone?.trim() || null,
+          notes: [
+            `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
+            `${label} delivery OTP: ${otp}`,
+            input.deliveryBoyName?.trim() ? `Delivery Boy: ${input.deliveryBoyName.trim()}` : '',
+            input.collectedByName?.trim() ? `Collected By: ${input.collectedByName.trim()}` : '',
+            input.collectedByPhone?.trim() ? `Collector Phone: ${input.collectedByPhone.trim()}` : '',
+          ].filter(Boolean).join(' | '),
+        },
+      });
+      const newStatus = this.nextOrderStatusAfterDispatch(order, input.itemIds);
+      await tx.order.update({ where: { id: input.orderId }, data: { status: newStatus, shippingCharge: new Prisma.Decimal(0) } });
+      await tx.statusLog.create({
+        data: {
+          orderId: input.orderId,
+          fromStatus: order.status,
+          toStatus: newStatus,
+          changedById: userId,
+          reason: `${label} OTP sent`,
+          metadata: { shipmentNumber, dispatchType: input.dispatchType },
+        },
+      });
+      return { shipmentNumber, dispatchType: input.dispatchType };
+    });
+
+    if (order.customer.phone) {
+      const productNames = itemsToDispatch.map(i => i.product.name).join(', ');
+      void this.whatsapp.sendOrderUpdate({
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone,
+        orderNo: order.orderNumber,
+        product: productNames,
+        status: `${label} delivery OTP: ${otp}. Share this only after receiving the parcel.`,
+        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+      });
+    }
+
+    return result;
+  }
+
+  async verifyDirectOtp(orderId: string, otp: string, userId: string) {
+    const shipment = await this.prisma.shipment.findFirst({
+      where: {
+        orderId,
+        dispatchType: { in: ['BY_HAND', 'SELF_COLLECTED'] },
+        status: ShipmentStatus.IN_TRANSIT,
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { order: true },
+    });
+    if (!shipment) throw new NotFoundException('No direct delivery pending OTP verification');
+    const storedOtp = shipment.notes?.match(/OTP:\s*(\d{6})/i)?.[1];
+    if (!storedOtp || storedOtp !== otp.trim()) throw new BadRequestException('Invalid OTP');
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.shipment.update({
+        where: { id: shipment.id },
+        data: {
+          status: ShipmentStatus.DELIVERED,
+          deliveredAt: new Date(),
+          notes: `${shipment.notes ?? ''} | OTP verified`,
+        },
+      });
+      const order = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.DELIVERED },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: shipment.order.status,
+          toStatus: OrderStatus.DELIVERED,
+          changedById: userId,
+          reason: `${shipment.dispatchType === 'BY_HAND' ? 'By Hand' : 'Self Collected'} OTP verified`,
+          metadata: { shipmentNumber: shipment.shipmentNumber, dispatchType: shipment.dispatchType },
+        },
+      });
+      return order;
+    });
+
+    return updated;
   }
 
   async getShipmentHistory(limit = 50) {

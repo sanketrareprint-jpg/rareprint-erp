@@ -75,4 +75,44 @@ export class DispatchController {
       },
     );
   }
+
+  @Post('book-transport')
+  bookTransport(
+    @Body() body: {
+      orderId: string;
+      itemIds: string[];
+      transportName?: string;
+      lrNumber?: string;
+      transportChargesType?: string;
+      transportBy?: string;
+      totalTransportCharges?: number;
+      notes?: string;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.dispatchService.bookTransport(body, req.user.id);
+  }
+
+  @Post('direct/send-otp')
+  sendDirectOtp(
+    @Body() body: {
+      orderId: string;
+      itemIds: string[];
+      dispatchType: 'BY_HAND' | 'SELF_COLLECTED';
+      deliveryBoyName?: string;
+      collectedByName?: string;
+      collectedByPhone?: string;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.dispatchService.sendDirectOtp(body, req.user.id);
+  }
+
+  @Post('direct/verify-otp')
+  verifyDirectOtp(
+    @Body() body: { orderId: string; otp: string },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.dispatchService.verifyDirectOtp(body.orderId, body.otp, req.user.id);
+  }
 }
