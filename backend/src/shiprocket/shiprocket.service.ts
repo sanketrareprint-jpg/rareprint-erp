@@ -10,6 +10,16 @@ export type ShiprocketRateRow = {
   courierCompanyId: number;
 };
 
+export type ShiprocketPickupLocation = {
+  id: string;
+  name: string;
+  pincode: string;
+  location: string;
+  address?: string;
+  city?: string;
+  state?: string;
+};
+
 @Injectable()
 export class ShiprocketService {
   private readonly logger = new Logger(ShiprocketService.name);
@@ -127,6 +137,43 @@ export class ShiprocketService {
         };
       })
       .filter((r) => r.courierCompanyId > 0 && r.amount >= 0);
+  }
+
+  async fetchPickupLocations(): Promise<ShiprocketPickupLocation[]> {
+    if (!this.isConfigured()) return [];
+    const token = await this.getAuthToken();
+    const { data } = await this.api().get('/v1/external/settings/company/pickup', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const list = data?.data?.shipping_address ?? data?.shipping_address ?? [];
+    if (!Array.isArray(list)) {
+      this.logger.warn(
+        `Shiprocket: unexpected pickup payload: ${JSON.stringify(data)?.slice(0, 400)}`,
+      );
+      return [];
+    }
+
+    return list
+      .map((row: Record<string, unknown>) => {
+        const pickupName = String(row.pickup_location ?? row.name ?? '').trim();
+        const pincode = String(row.pin_code ?? row.pincode ?? '').trim();
+        const address = [row.address, row.address_2]
+          .map((part) => String(part ?? '').trim())
+          .filter(Boolean)
+          .join(', ');
+        const city = String(row.city ?? '').trim();
+        const state = String(row.state ?? '').trim();
+        return {
+          id: `sr-${String(row.id ?? (pickupName || pincode))}`,
+          name: pickupName || String(row.name ?? 'Shiprocket Pickup').trim(),
+          pincode,
+          location: pickupName || String(row.name ?? 'Shiprocket Pickup').trim(),
+          address,
+          city,
+          state,
+        };
+      })
+      .filter((pickup) => pickup.name && pickup.pincode);
   }
 
   /**

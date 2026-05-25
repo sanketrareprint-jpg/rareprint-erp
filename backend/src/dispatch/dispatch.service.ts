@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { OrderProductionStage, OrderStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ShiprocketService } from '../shiprocket/shiprocket.service';
+import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 type LocalRateQuote = {
@@ -51,7 +51,7 @@ function parseProductionNotes(notes?: string | null) {
 }
 
 // ── Warehouse helpers ─────────────────────────────────────────────────────
-export type Warehouse = { id: string; name: string; pincode: string; location: string };
+export type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 type PickupOverride = { name?: string; pincode?: string; location?: string };
 
 function loadWarehouses(): Warehouse[] {
@@ -81,8 +81,28 @@ export class DispatchService {
     private readonly whatsapp: WhatsAppService,
   ) {}
 
-  getWarehouses(): Warehouse[] {
-    return loadWarehouses();
+  async getWarehouses(): Promise<Warehouse[]> {
+    const localWarehouses = loadWarehouses().map((warehouse) => ({ ...warehouse, source: 'local' }));
+    let shiprocketPickups: ShiprocketPickupLocation[] = [];
+    try {
+      shiprocketPickups = await this.shiprocket.fetchPickupLocations();
+    } catch (e) {
+      this.logger.warn(`Shiprocket pickup locations failed: ${e instanceof Error ? e.message : e}`);
+    }
+
+    const byNameAndPin = new Map<string, Warehouse>();
+    for (const pickup of shiprocketPickups) {
+      byNameAndPin.set(`${pickup.location.toLowerCase()}|${pickup.pincode}`, {
+        ...pickup,
+        source: 'shiprocket',
+      });
+    }
+    for (const warehouse of localWarehouses) {
+      const key = `${warehouse.location.toLowerCase()}|${warehouse.pincode}`;
+      if (!byNameAndPin.has(key)) byNameAndPin.set(key, warehouse);
+    }
+
+    return Array.from(byNameAndPin.values());
   }
 
   private resolveWarehouse(warehouseId?: string, pickupOverride?: PickupOverride): Warehouse {

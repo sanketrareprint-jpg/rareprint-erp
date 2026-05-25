@@ -7,7 +7,7 @@ import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPi
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
-type Warehouse = { id: string; name: string; pincode: string; location: string };
+type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 
 type ShipmentHistory = {
   id: string; shipmentNumber: string; carrierName: string | null;
@@ -130,6 +130,7 @@ export default function DispatchPage() {
     try {
       const wid = selectedWarehouse[orderId] || warehouses[0]?.id || "";
       const pickup = customPickup[orderId];
+      const warehouse = warehouses.find(w => w.id === wid);
       const wkg = parseFloat(weightOverride[orderId] || "0");
       const params = new URLSearchParams();
       if (wid === "CUSTOM") {
@@ -137,6 +138,11 @@ export default function DispatchPage() {
         params.set("pickupName", pickup.name.trim() || "Custom Pickup");
         params.set("pickupLocation", pickup.name.trim() || "Custom Pickup");
         params.set("pickupPincode", pickup.pincode.trim());
+      } else if (warehouse) {
+        params.set("warehouseId", wid);
+        params.set("pickupName", warehouse.name);
+        params.set("pickupLocation", warehouse.location);
+        params.set("pickupPincode", warehouse.pincode);
       } else if (wid) {
         params.set("warehouseId", wid);
       }
@@ -157,6 +163,7 @@ export default function DispatchPage() {
     const orderData = orders.find(o => o.id === orderId);
     const wid = selectedWarehouse[orderId] || warehouses[0]?.id;
     const pickup = customPickup[orderId];
+    const warehouse = warehouses.find(w => w.id === wid);
     if (wid === "CUSTOM" && !pickup?.pincode?.trim()) { alert("Enter pickup pincode"); return; }
     setBookingId(orderId);
     try {
@@ -168,9 +175,9 @@ export default function DispatchPage() {
           isCod: orderData?.isCod ?? false,
           codAmount: orderData?.codAmount ?? undefined,
           warehouseId: wid,
-          pickupName: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : undefined,
-          pickupLocation: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : undefined,
-          pickupPincode: wid === "CUSTOM" ? pickup?.pincode.trim() : undefined,
+          pickupName: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : warehouse?.name,
+          pickupLocation: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : warehouse?.location,
+          pickupPincode: wid === "CUSTOM" ? pickup?.pincode.trim() : warehouse?.pincode,
           weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
         }),
       });
@@ -480,7 +487,7 @@ export default function DispatchPage() {
                             }}
                             className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
                             {warehouses.map(w => (
-                              <option key={w.id} value={w.id}>{w.name} ({w.pincode})</option>
+                              <option key={w.id} value={w.id}>{w.name} ({w.pincode}){w.source === "shiprocket" ? " - Shiprocket" : ""}</option>
                             ))}
                             <option value="CUSTOM">Edit pickup location...</option>
                           </select>
