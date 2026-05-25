@@ -52,6 +52,7 @@ function parseProductionNotes(notes?: string | null) {
 
 // ── Warehouse helpers ─────────────────────────────────────────────────────
 export type Warehouse = { id: string; name: string; pincode: string; location: string };
+type PickupOverride = { name?: string; pincode?: string; location?: string };
 
 function loadWarehouses(): Warehouse[] {
   const raw = process.env.SHIPROCKET_WAREHOUSES?.trim();
@@ -82,6 +83,21 @@ export class DispatchService {
 
   getWarehouses(): Warehouse[] {
     return loadWarehouses();
+  }
+
+  private resolveWarehouse(warehouseId?: string, pickupOverride?: PickupOverride): Warehouse {
+    if (pickupOverride?.pincode?.trim()) {
+      const name = pickupOverride.name?.trim() || pickupOverride.location?.trim() || 'Custom Pickup';
+      return {
+        id: 'custom',
+        name,
+        pincode: pickupOverride.pincode.trim(),
+        location: pickupOverride.location?.trim() || name,
+      };
+    }
+
+    const warehouses = loadWarehouses();
+    return warehouses.find(w => w.id === warehouseId) ?? warehouses[0]!;
   }
 
   private computeLocalRates(weightKg: number): LocalRateQuote[] {
@@ -163,7 +179,7 @@ export class DispatchService {
     return result;
   }
 
-  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number) {
+  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true, items: { include: { product: true } } },
@@ -177,8 +193,7 @@ export class DispatchService {
       ? weightKgOverride
       : this.weightKgFromItems(readyItems.length > 0 ? readyItems : order.items);
 
-    const warehouses = loadWarehouses();
-    const warehouse  = warehouses.find(w => w.id === warehouseId) ?? warehouses[0]!;
+    const warehouse  = this.resolveWarehouse(warehouseId, pickupOverride);
     const pickup     = warehouse.pincode;
     const delivery   = extractPincode(order.customer.shippingAddress) ||
                        extractPincode(order.customer.billingAddress)  ||
@@ -214,7 +229,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -233,7 +248,7 @@ export class DispatchService {
       throw new BadRequestException('No ready items selected for dispatch');
     }
 
-    const ratesPayload = await this.getRates(orderId, warehouseId, weightKgOverride);
+    const ratesPayload = await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride);
     const picked = ratesPayload.rates.find((r) => r.rateId === rateId);
     if (!picked) throw new BadRequestException('Invalid shipping rate selection');
 
@@ -242,8 +257,7 @@ export class DispatchService {
       : this.weightKgFromItems(itemsToDispatch);
 
     // Resolve warehouse for this booking
-    const warehouses  = loadWarehouses();
-    const warehouse   = warehouses.find(w => w.id === warehouseId) ?? warehouses[0]!;
+    const warehouse   = this.resolveWarehouse(warehouseId, pickupOverride);
     const shipmentNumber = `SHP-${Date.now()}-${randomSuffix()}`;
     let trackingRef    = '';
     let shiprocketNote = '';

@@ -68,6 +68,7 @@ export default function DispatchPage() {
   const [courierFilter, setCourierFilter] = useState("ALL");
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<Record<string, string>>({});
+  const [customPickup, setCustomPickup] = useState<Record<string, { name: string; pincode: string }>>({});
   const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<ShipmentHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -128,9 +129,17 @@ export default function DispatchPage() {
     setRatesLoading(orderId);
     try {
       const wid = selectedWarehouse[orderId] || warehouses[0]?.id || "";
+      const pickup = customPickup[orderId];
       const wkg = parseFloat(weightOverride[orderId] || "0");
       const params = new URLSearchParams();
-      if (wid) params.set("warehouseId", wid);
+      if (wid === "CUSTOM") {
+        if (!pickup?.pincode?.trim()) { alert("Enter pickup pincode"); return; }
+        params.set("pickupName", pickup.name.trim() || "Custom Pickup");
+        params.set("pickupLocation", pickup.name.trim() || "Custom Pickup");
+        params.set("pickupPincode", pickup.pincode.trim());
+      } else if (wid) {
+        params.set("warehouseId", wid);
+      }
       if (wkg > 0) params.set("weightKg", String(wkg));
       const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) { alert("Could not fetch rates"); return; }
@@ -146,6 +155,9 @@ export default function DispatchPage() {
     const rateId = selectedRate[orderId];
     if (!rateId) { alert("Fetch and select a shipping rate first"); return; }
     const orderData = orders.find(o => o.id === orderId);
+    const wid = selectedWarehouse[orderId] || warehouses[0]?.id;
+    const pickup = customPickup[orderId];
+    if (wid === "CUSTOM" && !pickup?.pincode?.trim()) { alert("Enter pickup pincode"); return; }
     setBookingId(orderId);
     try {
       const res = await fetch(`${API_BASE_URL}/dispatch/book`, {
@@ -155,7 +167,10 @@ export default function DispatchPage() {
           orderId, itemIds, rateId,
           isCod: orderData?.isCod ?? false,
           codAmount: orderData?.codAmount ?? undefined,
-          warehouseId: selectedWarehouse[orderId] || warehouses[0]?.id,
+          warehouseId: wid,
+          pickupName: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : undefined,
+          pickupLocation: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : undefined,
+          pickupPincode: wid === "CUSTOM" ? pickup?.pincode.trim() : undefined,
           weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
         }),
       });
@@ -351,7 +366,11 @@ export default function DispatchPage() {
                 const someSelected = o.readyItems.some(i => orderSelected.has(i.id));
                 const orderRates = rates[o.id] ?? [];
                 const selectedWeight = o.readyItems.filter(i => orderSelected.has(i.id)).reduce((s, i) => s + i.weightKg, 0);
-                const activeWarehouse = warehouses.find(w => w.id === (selectedWarehouse[o.id] || warehouses[0]?.id)) ?? warehouses[0];
+                const selectedPickupId = selectedWarehouse[o.id] || warehouses[0]?.id || "CUSTOM";
+                const pickupDraft = customPickup[o.id] || { name: "", pincode: "" };
+                const activeWarehouse = selectedPickupId === "CUSTOM"
+                  ? { id: "CUSTOM", name: pickupDraft.name || "Custom Pickup", pincode: pickupDraft.pincode || "—", location: pickupDraft.name || "Custom Pickup" }
+                  : warehouses.find(w => w.id === selectedPickupId) ?? warehouses[0];
 
                 return (
                   <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -452,18 +471,38 @@ export default function DispatchPage() {
                       <div className="flex flex-wrap items-end gap-3 mb-3">
                         <div className="flex-1 min-w-[160px]">
                           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Shipping</p>
-                          {warehouses.length > 1 && (
-                            <select
-                              value={selectedWarehouse[o.id] || warehouses[0]?.id || ""}
-                              onChange={e => setSelectedWarehouse(prev => ({ ...prev, [o.id]: e.target.value }))}
-                              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
-                              {warehouses.map(w => (
-                                <option key={w.id} value={w.id}>{w.name} ({w.pincode})</option>
-                              ))}
-                            </select>
-                          )}
-                          {warehouses.length === 1 && (
-                            <p className="text-xs text-slate-600">📦 {warehouses[0]?.name} ({warehouses[0]?.pincode})</p>
+                          <select
+                            value={selectedPickupId}
+                            onChange={e => {
+                              setSelectedWarehouse(prev => ({ ...prev, [o.id]: e.target.value }));
+                              setRates(prev => ({ ...prev, [o.id]: [] }));
+                              setSelectedRate(prev => ({ ...prev, [o.id]: "" }));
+                            }}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
+                            {warehouses.map(w => (
+                              <option key={w.id} value={w.id}>{w.name} ({w.pincode})</option>
+                            ))}
+                            <option value="CUSTOM">Edit pickup location...</option>
+                          </select>
+                          {selectedPickupId === "CUSTOM" && (
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <input
+                                type="text"
+                                placeholder="Pickup name"
+                                value={pickupDraft.name}
+                                onChange={e => setCustomPickup(prev => ({ ...prev, [o.id]: { ...(prev[o.id] || { name: "", pincode: "" }), name: e.target.value } }))}
+                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
+                              />
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={6}
+                                placeholder="Pickup pincode"
+                                value={pickupDraft.pincode}
+                                onChange={e => setCustomPickup(prev => ({ ...prev, [o.id]: { ...(prev[o.id] || { name: "", pincode: "" }), pincode: e.target.value.replace(/\D/g, "").slice(0, 6) } }))}
+                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
+                              />
+                            </div>
                           )}
                         </div>
                         <div className="min-w-[110px]">

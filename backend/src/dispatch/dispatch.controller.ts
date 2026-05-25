@@ -31,9 +31,16 @@ export class DispatchController {
     @Param('orderId') orderId: string,
     @Query('warehouseId') warehouseId?: string,
     @Query('weightKg') weightKgStr?: string,
+    @Query('pickupName') pickupName?: string,
+    @Query('pickupPincode') pickupPincode?: string,
+    @Query('pickupLocation') pickupLocation?: string,
   ) {
     const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
-    return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride);
+    return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride, {
+      name: pickupName,
+      pincode: pickupPincode,
+      location: pickupLocation,
+    });
   }
 
   @Post('book')
@@ -46,6 +53,9 @@ export class DispatchController {
       codAmount?: number;
       warehouseId?: string;
       weightKgOverride?: number;
+      pickupName?: string;
+      pickupPincode?: string;
+      pickupLocation?: string;
     },
     @Req() req: Request & { user: JwtUser },
   ) {
@@ -58,6 +68,11 @@ export class DispatchController {
       body.codAmount,
       body.warehouseId,
       body.weightKgOverride,
+      {
+        name: body.pickupName,
+        pincode: body.pickupPincode,
+        location: body.pickupLocation,
+      },
     );
   }
 }
