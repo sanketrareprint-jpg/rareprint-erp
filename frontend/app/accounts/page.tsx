@@ -55,6 +55,7 @@ type CustomerOutstanding = {
   orderCount: number;
   lastOrderDate: string;
   orderNumbers: string;
+  productStatuses?: string;
 };
 
 type VendorEntry = {
@@ -114,6 +115,19 @@ function ageColor(dateStr: string): string {
   return 'bg-red-50 text-red-700';
 }
 
+const productStatusLabels: Record<string, string> = {
+  NOT_PRINTED: "Not Printed",
+  PRINTING: "Printing",
+  PROCESSING: "Processing",
+  READY_FOR_DISPATCH: "Ready for Dispatch",
+};
+const productStatusClass: Record<string, string> = {
+  NOT_PRINTED: "bg-slate-100 text-slate-700",
+  PRINTING: "bg-blue-100 text-blue-700",
+  PROCESSING: "bg-amber-100 text-amber-700",
+  READY_FOR_DISPATCH: "bg-green-100 text-green-700",
+};
+
 export default function AccountsPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pending");
@@ -148,6 +162,7 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const [outstanding, setOutstanding] = useState<CustomerOutstanding[]>([]);
   const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [outstandingSearch, setOutstandingSearch] = useState("");
+  const [outstandingStatus, setOutstandingStatus] = useState("");
 
   // Vendor statements
   const [vendorEntries, setVendorEntries] = useState<VendorEntry[]>([]);
@@ -310,14 +325,18 @@ await loadHistory();
   const totalUnpaid = useMemo(() => filteredEntries.filter(e => !e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
   const filteredOutstanding = useMemo(() => {
     const q = outstandingSearch.trim().toLowerCase();
-    if (!q) return outstanding;
     return outstanding.filter(row =>
-      row.customerName.toLowerCase().includes(q) ||
-      row.customerPhone?.toLowerCase().includes(q) ||
-      row.customerEmail?.toLowerCase().includes(q) ||
-      row.orderNumbers.toLowerCase().includes(q)
+      (!outstandingStatus || (row.productStatuses ?? "").split(", ").includes(outstandingStatus)) &&
+      (!q ||
+        row.customerName.toLowerCase().includes(q) ||
+        row.customerPhone?.toLowerCase().includes(q) ||
+        row.customerEmail?.toLowerCase().includes(q) ||
+        row.orderNumbers.toLowerCase().includes(q))
     );
-  }, [outstanding, outstandingSearch]);
+  }, [outstanding, outstandingSearch, outstandingStatus]);
+  const outstandingStatuses = useMemo(() => (
+    Array.from(new Set(outstanding.flatMap(row => (row.productStatuses ?? "").split(", ").filter(Boolean)))).sort()
+  ), [outstanding]);
   const outstandingTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.outstandingAmount, 0), [filteredOutstanding]);
   const outstandingPaidTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.paidAmount, 0), [filteredOutstanding]);
 
@@ -456,14 +475,26 @@ await loadHistory();
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="relative max-w-sm">
-                  <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={outstandingSearch}
-                    onChange={e => setOutstandingSearch(e.target.value)}
-                    placeholder="Search customer, phone, order..."
-                    className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-sm outline-none focus:border-blue-400"
-                  />
+                <div className="flex flex-wrap gap-3">
+                  <div className="relative min-w-64 max-w-sm flex-1">
+                    <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={outstandingSearch}
+                      onChange={e => setOutstandingSearch(e.target.value)}
+                      placeholder="Search customer, phone, order..."
+                      className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-sm outline-none focus:border-blue-400"
+                    />
+                  </div>
+                  <select
+                    value={outstandingStatus}
+                    onChange={e => setOutstandingStatus(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400"
+                  >
+                    <option value="">All Product Status</option>
+                    {outstandingStatuses.map(status => (
+                      <option key={status} value={status}>{productStatusLabels[status] ?? status.replace(/_/g, " ")}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -484,6 +515,7 @@ await loadHistory();
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Total Billing</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Paid</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Outstanding</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Product Status</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Last Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Nos</th>
                       </tr>
@@ -499,6 +531,15 @@ await loadHistory();
                           <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(row.totalAmount)}</td>
                           <td className="px-3 py-2 text-right font-semibold text-green-700">{fmt(row.paidAmount)}</td>
                           <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(row.outstandingAmount)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-1">
+                              {(row.productStatuses ?? "").split(", ").filter(Boolean).map(status => (
+                                <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${productStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
+                                  {productStatusLabels[status] ?? status.replace(/_/g, " ")}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(row.lastOrderDate).toLocaleDateString("en-IN")}</td>
                           <td className="max-w-xs truncate px-3 py-2 font-mono text-slate-500" title={row.orderNumbers}>{row.orderNumbers}</td>
                         </tr>
@@ -508,7 +549,7 @@ await loadHistory();
                       <tr>
                         <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Outstanding ({filteredOutstanding.length} customers)</td>
                         <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(outstandingTotal)}</td>
-                        <td colSpan={2} />
+                        <td colSpan={3} />
                       </tr>
                     </tfoot>
                   </table>

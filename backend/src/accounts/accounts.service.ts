@@ -358,6 +358,13 @@ export class AccountsService {
         FROM "Order" o
         LEFT JOIN order_paid op ON op."orderId" = o.id
         WHERE o.status NOT IN ('DRAFT', 'CANCELLED')
+      ),
+      order_item_statuses AS (
+        SELECT
+          oi."orderId",
+          STRING_AGG(DISTINCT oi."itemProductionStage"::text, ', ' ORDER BY oi."itemProductionStage"::text) AS "productStatuses"
+        FROM "OrderItem" oi
+        GROUP BY oi."orderId"
       )
       SELECT
         c.id AS "customerId",
@@ -369,9 +376,11 @@ export class AccountsService {
         SUM(ob."balanceAmount") AS "outstandingAmount",
         COUNT(*)::int AS "orderCount",
         MAX(ob."orderDate") AS "lastOrderDate",
-        STRING_AGG(ob."orderNumber", ', ' ORDER BY ob."orderDate" DESC) AS "orderNumbers"
+        STRING_AGG(ob."orderNumber", ', ' ORDER BY ob."orderDate" DESC) AS "orderNumbers",
+        STRING_AGG(DISTINCT ois."productStatuses", ', ') AS "productStatuses"
       FROM order_balances ob
       JOIN "Customer" c ON c.id = ob."customerId"
+      LEFT JOIN order_item_statuses ois ON ois."orderId" = ob.id
       GROUP BY c.id, c."businessName", c.phone, c.email
       HAVING SUM(ob."balanceAmount") > 0
       ORDER BY SUM(ob."balanceAmount") DESC, c."businessName" ASC
@@ -382,6 +391,7 @@ export class AccountsService {
       totalAmount: Number(row.totalAmount),
       paidAmount: Number(row.paidAmount),
       outstandingAmount: Number(row.outstandingAmount),
+      productStatuses: Array.from(new Set(String(row.productStatuses ?? '').split(', ').filter(Boolean))).join(', '),
     }));
   }
 
