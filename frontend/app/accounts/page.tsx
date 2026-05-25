@@ -24,7 +24,8 @@ type DispatchPendingOrder = {
   items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
   orderDate: string; notes?: string; payments: Payment[];
-  courierCharge?: number; paymentType?: string; codAmount?: number;
+  courierCharge?: number; courierCreditApplied?: number; netCourierCharge?: number;
+  paymentType?: string; codAmount?: number;
 };
 
 type PendingPayment = {
@@ -104,6 +105,11 @@ type VendorEntry = {
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
+}
+function moneyColor(n: number) {
+  if (n < 0) return "text-blue-700";
+  if (n > 0) return "text-red-500";
+  return "text-emerald-600";
 }
 function parseNotes(notes?: string) {
   if (!notes) return {};
@@ -592,7 +598,7 @@ await loadHistory();
                       {order.paymentType && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.paymentType === "COD" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>{order.paymentType}</span>}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-red-500 font-bold">Balance: {fmt(order.balanceDue)}</span>
+                      <span className={`text-xs font-bold ${moneyColor(order.balanceDue)}`}>Balance: {fmt(order.balanceDue)}</span>
                       <button onClick={() => setDispatchExpanded(dispatchExpanded === order.id ? null : order.id)}
                         className="p-1 rounded hover:bg-slate-200">
                         {dispatchExpanded === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -616,9 +622,14 @@ await loadHistory();
                           <p className="font-semibold text-slate-600 text-[10px] uppercase tracking-wide mb-1">Financials</p>
                           <div className="flex justify-between"><span className="text-slate-500">Order Total</span><span className="font-semibold">{fmt(order.totalAmount)}</span></div>
                           <div className="flex justify-between"><span className="text-slate-500">Paid</span><span className="font-semibold text-emerald-600">{fmt(order.totalPaid)}</span></div>
-                          <div className="flex justify-between border-t border-slate-200 pt-1 mt-1"><span className="text-slate-700 font-semibold">Balance Due</span><span className="font-bold text-red-500">{fmt(order.balanceDue)}</span></div>
+                          <div className="flex justify-between border-t border-slate-200 pt-1 mt-1"><span className="text-slate-700 font-semibold">Balance Due</span><span className={`font-bold ${moneyColor(order.balanceDue)}`}>{fmt(order.balanceDue)}</span></div>
                           {order.courierCharge != null && (
-                            <div className="flex justify-between"><span className="text-slate-500">Courier Charges</span><span className="font-semibold text-blue-700">{fmt(order.courierCharge)}</span></div>
+                            <>
+                              {Number(order.courierCreditApplied || 0) > 0 && (
+                                <div className="flex justify-between"><span className="text-slate-500">Credit Adjusted</span><span className="font-semibold text-emerald-600">-{fmt(order.courierCreditApplied || 0)}</span></div>
+                              )}
+                              <div className="flex justify-between"><span className="text-slate-500">Courier Charges</span><span className="font-semibold text-blue-700">{fmt(order.netCourierCharge ?? order.courierCharge)}</span></div>
+                            </>
                           )}
                           {order.codAmount != null && (
                             <div className="flex justify-between"><span className="text-orange-600 font-semibold">COD Amount</span><span className="font-bold text-orange-700">{fmt(order.codAmount)}</span></div>

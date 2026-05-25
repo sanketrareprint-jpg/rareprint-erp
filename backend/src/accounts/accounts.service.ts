@@ -89,11 +89,15 @@ export class AccountsService {
     return orders.map((order) => {
       const totalPaid  = order.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const grandTotal = Number(order.grandTotal);
-      const balanceDue = Math.max(0, grandTotal - totalPaid);
+      const balanceDue = grandTotal - totalPaid;
+      const customerCredit = Math.max(0, totalPaid - grandTotal);
 
       const courierMatch      = order.notes?.match(/Courier(?:\s+charges)?:\s*₹?([\d.]+)/i);
       const paymentTypeMatch  = order.notes?.match(/\b(COD|Prepaid)\b/i);
       const codAmountMatch     = order.notes?.match(/COD(?:\s+amount)?:\s*₹?([\d.]+)/i);
+      const courierCharge = courierMatch ? parseFloat(courierMatch[1]) : null;
+      const courierCreditApplied = courierCharge == null ? 0 : Math.min(customerCredit, courierCharge);
+      const netCourierCharge = courierCharge == null ? null : courierCharge - courierCreditApplied;
 
       return {
         id: order.id,
@@ -117,7 +121,9 @@ export class AccountsService {
         balanceDue,
         orderDate: order.orderDate.toISOString(),
         notes: order.notes,
-        courierCharge: courierMatch ? parseFloat(courierMatch[1]) : null,
+        courierCharge,
+        courierCreditApplied,
+        netCourierCharge,
         paymentType:   paymentTypeMatch ? paymentTypeMatch[1].toUpperCase() : null,
         codAmount:     codAmountMatch ? parseFloat(codAmountMatch[1]) : null,
         payments: order.payments.map((p) => ({
