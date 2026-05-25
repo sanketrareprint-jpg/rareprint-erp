@@ -20,6 +20,14 @@ export class NotificationsController {
     return this.svc.getAdminNotifications();
   }
 
+  @Get('user-view')
+  getUserNotifications(@Req() req: Request & { user: JwtUser }, @Body() body?: { email?: string }) {
+    // Admin can view any user's notifications by passing ?email=...
+    const email = (req as any).query?.email as string;
+    if (!email) return [];
+    return this.svc.getUserNotificationsByEmail(email);
+  }
+
   @Get('unread-count')
   getUnreadCount(@Req() req: Request & { user: JwtUser }) {
     return this.svc.getUnreadCount(req.user.id);

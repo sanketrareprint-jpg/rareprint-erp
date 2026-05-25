@@ -75,9 +75,10 @@ function priorityLabel(priority: string) {
 export function NotificationBell({ userRole }: { userRole: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"mine" | "admin">("mine");
+  const [tab, setTab] = useState<"mine" | "admin" | "prajakta">("mine");
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [adminNotifs, setAdminNotifs] = useState<Notification[]>([]);
+  const [prajaktaNotifs, setPrajaktaNotifs] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState<Record<string, string>>({});
@@ -106,6 +107,15 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     } catch {}
   };
 
+  const fetchPrajaktaNotifs = async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${API}/notifications/user-view?email=prajakta.rareprint@gmail.com`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setPrajaktaNotifs(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 60000);
@@ -116,6 +126,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     if (!open) return;
     fetchNotifications();
     if (userRole === "ADMIN" && tab === "admin") fetchAdminNotifs();
+    if (userRole === "ADMIN" && tab === "prajakta") fetchPrajaktaNotifs();
   }, [open, tab]);
 
   useEffect(() => {
@@ -222,7 +233,9 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     return btn("✅ Resolve", "RESOLVED");
   };
 
-  const displayList = tab === "admin" ? adminNotifs : notifications;
+  const displayList = tab === "admin" ? adminNotifs : tab === "prajakta" ? prajaktaNotifs : notifications;
+  const prajaktaPending = prajaktaNotifs.filter(n => !n.isResolved).length;
+  const prajaktaResolved = prajaktaNotifs.filter(n => n.isResolved).length;
 
   const productionTabFor = (type: string) => {
     if (type.includes("CLUBBING")) return "clubbing";
@@ -315,16 +328,41 @@ export function NotificationBell({ userRole }: { userRole: string }) {
           {/* Tabs (admin only) */}
           {userRole === "ADMIN" && (
             <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0" }}>
-              {(["mine", "admin"] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  flex: 1, padding: "8px", fontSize: "12px", fontWeight: 600, border: "none", cursor: "pointer",
-                  background: tab === t ? "#eff6ff" : "transparent",
-                  color: tab === t ? "#2563eb" : "#64748b",
-                  borderBottom: tab === t ? "2px solid #2563eb" : "2px solid transparent",
-                }}>
-                  {t === "mine" ? "My Notifications" : "Escalated to Admin"}
-                </button>
-              ))}
+              {(["mine", "admin", "prajakta"] as const).map(t => {
+                const label = t === "mine" ? "My Notifications" : t === "admin" ? "Escalated" : "Prajakta";
+                const isActive = tab === t;
+                return (
+                  <button key={t} onClick={() => setTab(t)} style={{
+                    flex: 1, padding: "8px 4px", fontSize: "11px", fontWeight: 600, border: "none", cursor: "pointer",
+                    background: isActive ? "#eff6ff" : "transparent",
+                    color: isActive ? "#2563eb" : "#64748b",
+                    borderBottom: isActive ? "2px solid #2563eb" : "2px solid transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
+                  }}>
+                    {label}
+                    {t === "prajakta" && prajaktaNotifs.length > 0 && (
+                      <span style={{
+                        background: prajaktaPending > 0 ? "#ef4444" : "#22c55e",
+                        color: "white", borderRadius: "999px", padding: "0 5px",
+                        fontSize: "9px", fontWeight: 700, lineHeight: "16px",
+                      }}>{prajaktaPending > 0 ? prajaktaPending : "✓"}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Prajakta summary bar */}
+          {tab === "prajakta" && prajaktaNotifs.length > 0 && (
+            <div style={{
+              display: "flex", gap: "12px", padding: "8px 14px",
+              background: "#f8fafc", borderBottom: "1px solid #e2e8f0",
+              fontSize: "11px", fontWeight: 600,
+            }}>
+              <span style={{ color: "#ef4444" }}>🔴 Pending: {prajaktaPending}</span>
+              <span style={{ color: "#059669" }}>✅ Resolved: {prajaktaResolved}</span>
+              <span style={{ color: "#64748b" }}>Total: {prajaktaNotifs.length}</span>
             </div>
           )}
 
@@ -343,10 +381,22 @@ export function NotificationBell({ userRole }: { userRole: string }) {
               }}>
                 {/* Priority + Title */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "4px" }}>
-                  <div>
-                    <span style={{ fontSize: "10px", fontWeight: 700, color: priorityColor(n.priority) }}>
-                      {priorityLabel(n.priority)}
-                    </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "10px", fontWeight: 700, color: priorityColor(n.priority) }}>
+                        {priorityLabel(n.priority)}
+                      </span>
+                      {tab === "prajakta" && (
+                        <span style={{
+                          fontSize: "10px", fontWeight: 700, padding: "1px 7px", borderRadius: "999px",
+                          background: n.isResolved ? "#dcfce7" : "#fee2e2",
+                          color: n.isResolved ? "#15803d" : "#dc2626",
+                          border: `1px solid ${n.isResolved ? "#86efac" : "#fca5a5"}`,
+                        }}>
+                          {n.isResolved ? "✅ Resolved" : "🔴 Pending"}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e293b", marginTop: "2px" }}>
                       {n.title}
                     </div>
@@ -384,8 +434,17 @@ export function NotificationBell({ userRole }: { userRole: string }) {
 
                 {/* Resolved badge */}
                 {n.isResolved && (
-                  <div style={{ fontSize: "11px", color: "#059669", fontWeight: 600, marginBottom: "6px" }}>
-                    ✅ Resolved: {n.actionTaken}
+                  <div style={{
+                    fontSize: "11px", color: "#059669", fontWeight: 600, marginBottom: "6px",
+                    padding: "5px 8px", background: "#f0fdf4", borderRadius: "6px",
+                    border: "1px solid #bbf7d0",
+                  }}>
+                    ✅ Resolved — Action: <strong>{n.actionTaken ?? "—"}</strong>
+                    {(n as any).resolvedAt && (
+                      <span style={{ color: "#64748b", fontWeight: 400, marginLeft: "6px" }}>
+                        ({new Date((n as any).resolvedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })})
+                      </span>
+                    )}
                   </div>
                 )}
 

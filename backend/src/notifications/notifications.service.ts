@@ -644,6 +644,17 @@ export class NotificationsService {
     return this.withProductDetails(notifications);
   }
 
+  async getUserNotificationsByEmail(email: string) {
+    const user = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    if (!user) return [];
+    const notifications = await this.prisma.notification.findMany({
+      where: { toUserId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return this.withProductDetails(notifications);
+  }
+
   async getUnreadCount(userId: string) {
     const count = await this.prisma.notification.count({ where: { toUserId: userId, isRead: false } });
     return { count };
