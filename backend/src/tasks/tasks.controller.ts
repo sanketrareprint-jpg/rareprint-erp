@@ -15,7 +15,7 @@ export class TasksController {
   list(
     @Req() req: Request & { user: JwtUser },
     @Query('view') view = 'assigned',
-    @Query('status') status?: TaskStatus | 'ALL',
+    @Query('status') status?: TaskStatus | 'ALL' | 'ACTIVE',
   ) {
     return this.tasksService.list(req.user, view, status);
   }

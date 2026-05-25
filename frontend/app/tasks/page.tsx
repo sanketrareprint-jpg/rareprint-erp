@@ -16,10 +16,12 @@ type Task = {
   priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   dueDate?: string | null;
   createdAt: string;
+  completedAt?: string | null;
   createdBy: { id: string; fullName: string; role: string };
   assignedTo: { id: string; fullName: string; role: string };
 };
 type TaskView = "assigned" | "created" | "all";
+type TaskFilter = "ACTIVE" | "ALL" | Task["status"];
 type FormState = {
   title: string;
   description: string;
@@ -44,7 +46,7 @@ const priorityClass: Record<Task["priority"], string> = {
 const priorityLabels: Record<Task["priority"], string> = {
   LOW: "Low",
   NORMAL: "Normal",
-  HIGH: "High",
+  HIGH: "Medium Important",
   URGENT: "Urgent",
 };
 const priorityRank: Record<Task["priority"], number> = {
@@ -60,7 +62,7 @@ export default function TasksPage() {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<TaskView>("assigned");
-  const [status, setStatus] = useState("ALL");
+  const [status, setStatus] = useState<TaskFilter>("ACTIVE");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -108,6 +110,11 @@ export default function TasksPage() {
     progress: tasks.filter(t => t.status === "IN_PROGRESS").length,
     done: tasks.filter(t => t.status === "DONE").length,
   }), [tasks]);
+  const taskMatchesFilter = useCallback((task: Task) => {
+    if (status === "ACTIVE") return task.status !== "DONE";
+    if (status === "ALL") return true;
+    return task.status === status;
+  }, [status]);
   const sortedTasks = useMemo(() => (
     [...tasks].sort((a, b) => {
       const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
@@ -150,7 +157,10 @@ export default function TasksPage() {
     });
     if (!res.ok) { alert("Could not update task"); return; }
     const updated = await res.json();
-    setTasks(prev => prev.map(task => task.id === id ? updated : task));
+    setTasks(prev => {
+      const next = prev.map(task => task.id === id ? updated : task);
+      return taskMatchesFilter(updated) ? next : next.filter(task => task.id !== id);
+    });
   }
 
   function startEdit(task: Task) {
@@ -234,16 +244,20 @@ export default function TasksPage() {
               ].map(([key, label]) => (
                 <button key={key} onClick={() => setView(key as TaskView)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === key ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>{label}</button>
               ))}
-              <select value={status} onChange={e => setStatus(e.target.value)} className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold outline-none">
+              <select value={status} onChange={e => setStatus(e.target.value as TaskFilter)} className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold outline-none">
+                <option value="ACTIVE">Active Tasks</option>
+                <option value="DONE">History</option>
                 <option value="ALL">All Status</option>
-                {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {Object.entries(statusLabels)
+                  .filter(([value]) => value !== "DONE")
+                  .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
 
             {loading ? (
               <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : tasks.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">No tasks found.</div>
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">{status === "DONE" ? "No completed tasks in history." : "No tasks found."}</div>
             ) : (
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 pb-4">
                 {sortedTasks.map(task => (
@@ -284,6 +298,7 @@ export default function TasksPage() {
                             <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5" /> Assigned: {task.assignedTo.fullName}</span>
                             <span>Created: {task.createdBy.fullName}</span>
                             {task.dueDate && <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Due {new Date(task.dueDate).toLocaleDateString("en-IN")}</span>}
+                            {task.completedAt && <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Completed {new Date(task.completedAt).toLocaleDateString("en-IN")}</span>}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">

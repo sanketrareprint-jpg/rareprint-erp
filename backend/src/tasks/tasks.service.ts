@@ -26,9 +26,13 @@ export class TasksService {
     } satisfies Prisma.TaskSelect;
   }
 
-  async list(user: JwtUser, view: string, status?: TaskStatus | 'ALL') {
+  async list(user: JwtUser, view: string, status?: TaskStatus | 'ALL' | 'ACTIVE') {
     const where: Prisma.TaskWhereInput = {};
-    if (status && status !== 'ALL') where.status = status;
+    if (!status || status === 'ACTIVE') {
+      where.status = { not: TaskStatus.DONE };
+    } else if (status !== 'ALL') {
+      where.status = status;
+    }
 
     if (view === 'created') {
       where.createdById = user.id;
@@ -40,7 +44,7 @@ export class TasksService {
 
     return this.prisma.task.findMany({
       where,
-      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
       select: this.taskSelect(),
       take: 300,
     });
