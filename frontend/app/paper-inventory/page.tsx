@@ -737,8 +737,15 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setError(err.message ?? `Failed to ${mode === "edit" ? "update" : "create"} purchase order`);
+        const errText = await res.text().catch(() => "");
+        let message = `Failed to ${mode === "edit" ? "update" : "create"} purchase order`;
+        try {
+          const parsed = JSON.parse(errText);
+          message = Array.isArray(parsed.message) ? parsed.message.join(", ") : parsed.message || message;
+        } catch {
+          if (errText) message = errText.slice(0, 300);
+        }
+        setError(message);
         return;
       }
 

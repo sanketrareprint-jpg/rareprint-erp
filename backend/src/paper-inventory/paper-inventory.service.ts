@@ -562,6 +562,6 @@ Return ONLY valid JSON, no explanation:
         where: { id },
         include: { items: { include: { press: true } }, supplier: true },
       });
-    });
+    }, { timeout: 20000, maxWait: 10000 });
   }
 }
