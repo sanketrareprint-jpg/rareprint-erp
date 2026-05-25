@@ -44,6 +44,19 @@ type PendingPayment = {
   createdAt: string;
 };
 
+type CustomerOutstanding = {
+  customerId: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  totalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  orderCount: number;
+  lastOrderDate: string;
+  orderNumbers: string;
+};
+
 type VendorEntry = {
   id: string;
   type: "JOBWORK" | "SHEET_STAGE";
@@ -86,7 +99,7 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
-type Tab = "pending" | "dispatch" | "receipts" | "receipt_history" | "vendors";
+type Tab = "pending" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors";
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -131,6 +144,11 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const [rejectPaymentId, setRejectPaymentId] = useState<string | null>(null);
   const [rejectPaymentReason, setRejectPaymentReason] = useState("");
 
+  // Customer outstanding
+  const [outstanding, setOutstanding] = useState<CustomerOutstanding[]>([]);
+  const [outstandingLoading, setOutstandingLoading] = useState(false);
+  const [outstandingSearch, setOutstandingSearch] = useState("");
+
   // Vendor statements
   const [vendorEntries, setVendorEntries] = useState<VendorEntry[]>([]);
   const [vendorLoading, setVendorLoading] = useState(false);
@@ -174,9 +192,18 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
     } finally { setReceiptsLoading(false); }
   }, []);
 
+  const loadOutstanding = useCallback(async () => {
+    setOutstandingLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/customer-outstanding`, { headers: getAuthHeaders() });
+      if (res.ok) setOutstanding(await res.json());
+    } finally { setOutstandingLoading(false); }
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
   useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
+  useEffect(() => { if (tab === "outstanding") void loadOutstanding(); }, [tab, loadOutstanding]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -281,6 +308,18 @@ await loadHistory();
   const totalAmount = useMemo(() => filteredEntries.reduce((s, e) => s + e.cost, 0), [filteredEntries]);
   const totalPaid = useMemo(() => filteredEntries.filter(e => e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
   const totalUnpaid = useMemo(() => filteredEntries.filter(e => !e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
+  const filteredOutstanding = useMemo(() => {
+    const q = outstandingSearch.trim().toLowerCase();
+    if (!q) return outstanding;
+    return outstanding.filter(row =>
+      row.customerName.toLowerCase().includes(q) ||
+      row.customerPhone?.toLowerCase().includes(q) ||
+      row.customerEmail?.toLowerCase().includes(q) ||
+      row.orderNumbers.toLowerCase().includes(q)
+    );
+  }, [outstanding, outstandingSearch]);
+  const outstandingTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.outstandingAmount, 0), [filteredOutstanding]);
+  const outstandingPaidTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.paidAmount, 0), [filteredOutstanding]);
 
   return (
     <>
@@ -296,6 +335,7 @@ await loadHistory();
             <div className="flex gap-0">
               {([
                 { key: "pending", label: "Order Approval", count: orders.length },
+                { key: "outstanding", label: "Customer Outstanding", count: outstanding.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
                 { key: "receipts", label: "Receipts Pending", count: pendingPayments.length },
                 { key: "receipt_history", label: "Receipt History", count: receiptHistory.length },
@@ -395,6 +435,85 @@ await loadHistory();
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {tab === "outstanding" && (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-xs font-semibold text-red-600">Total Outstanding</p>
+                  <p className="mt-1 text-xl font-bold text-red-700">{fmt(outstandingTotal)}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold text-slate-500">Customers</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{filteredOutstanding.length}</p>
+                </div>
+                <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+                  <p className="text-xs font-semibold text-green-600">Verified Paid</p>
+                  <p className="mt-1 text-xl font-bold text-green-700">{fmt(outstandingPaidTotal)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="relative max-w-sm">
+                  <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={outstandingSearch}
+                    onChange={e => setOutstandingSearch(e.target.value)}
+                    placeholder="Search customer, phone, order..."
+                    className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-sm outline-none focus:border-blue-400"
+                  />
+                </div>
+              </div>
+
+              {outstandingLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              ) : filteredOutstanding.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <Check className="mx-auto mb-2 h-8 w-8 opacity-30" />
+                  <p className="text-sm">No customer outstanding found</p>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <table className="w-full text-xs">
+                    <thead className="border-b border-slate-200 bg-slate-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Orders</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Total Billing</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Paid</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Outstanding</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Last Order</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Nos</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredOutstanding.map(row => (
+                        <tr key={row.customerId} className="hover:bg-slate-50">
+                          <td className="px-3 py-2">
+                            <div className="font-bold text-slate-900">{row.customerName}</div>
+                            <div className="text-slate-400">{row.customerPhone || row.customerEmail || "No contact"}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold text-slate-700">{row.orderCount}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(row.totalAmount)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-green-700">{fmt(row.paidAmount)}</td>
+                          <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(row.outstandingAmount)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(row.lastOrderDate).toLocaleDateString("en-IN")}</td>
+                          <td className="max-w-xs truncate px-3 py-2 font-mono text-slate-500" title={row.orderNumbers}>{row.orderNumbers}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                      <tr>
+                        <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Outstanding ({filteredOutstanding.length} customers)</td>
+                        <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(outstandingTotal)}</td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

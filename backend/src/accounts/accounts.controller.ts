@@ -24,6 +24,11 @@ export class AccountsController {
     return this.accountsService.getPendingPayments();
   }
 
+  @Get('customer-outstanding')
+  getCustomerOutstanding() {
+    return this.accountsService.getCustomerOutstanding();
+  }
+
 @Get('payment-history')
   getPaymentHistory() {
   return this.accountsService.getPaymentHistory();

@@ -336,6 +336,55 @@ export class AccountsService {
     }));
   }
 
+  async getCustomerOutstanding() {
+    const rows = await this.prisma.$queryRaw<any[]>`
+      WITH order_paid AS (
+        SELECT
+          p."orderId",
+          COALESCE(SUM(p.amount), 0) AS "paidAmount"
+        FROM "Payment" p
+        WHERE p."verificationStatus" = 'VERIFIED'
+        GROUP BY p."orderId"
+      ),
+      order_balances AS (
+        SELECT
+          o.id,
+          o."orderNumber",
+          o."customerId",
+          o."orderDate",
+          o."grandTotal",
+          COALESCE(op."paidAmount", 0) AS "paidAmount",
+          GREATEST(o."grandTotal" - COALESCE(op."paidAmount", 0), 0) AS "balanceAmount"
+        FROM "Order" o
+        LEFT JOIN order_paid op ON op."orderId" = o.id
+        WHERE o.status NOT IN ('DRAFT', 'CANCELLED')
+      )
+      SELECT
+        c.id AS "customerId",
+        c."businessName" AS "customerName",
+        c.phone AS "customerPhone",
+        c.email AS "customerEmail",
+        SUM(ob."grandTotal") AS "totalAmount",
+        SUM(ob."paidAmount") AS "paidAmount",
+        SUM(ob."balanceAmount") AS "outstandingAmount",
+        COUNT(*)::int AS "orderCount",
+        MAX(ob."orderDate") AS "lastOrderDate",
+        STRING_AGG(ob."orderNumber", ', ' ORDER BY ob."orderDate" DESC) AS "orderNumbers"
+      FROM order_balances ob
+      JOIN "Customer" c ON c.id = ob."customerId"
+      GROUP BY c.id, c."businessName", c.phone, c.email
+      HAVING SUM(ob."balanceAmount") > 0
+      ORDER BY SUM(ob."balanceAmount") DESC, c."businessName" ASC
+    `;
+
+    return rows.map(row => ({
+      ...row,
+      totalAmount: Number(row.totalAmount),
+      paidAmount: Number(row.paidAmount),
+      outstandingAmount: Number(row.outstandingAmount),
+    }));
+  }
+
   async verifyPayment(id: string, verifiedById: string) {
     const payment = await this.prisma.payment.findUnique({
       where: { id },
