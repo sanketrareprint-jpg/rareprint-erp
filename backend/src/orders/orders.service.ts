@@ -590,9 +590,19 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
     const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
+    const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
+      ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
+      : data.dispatchType === 'COURIER'
+      ? `Courier: ${data.transportName ?? ''}, AWB: ${data.awbNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
+      : data.dispatchType === 'BY_HAND'
+      ? `By Hand: ${data.deliveryBoyName ?? ''}`
+      : data.dispatchType === 'SELF_COLLECTED'
+      ? `Self Collected by: ${data.collectedByName ?? ''} ${data.collectedByPhone ?? ''}`
+      : '';
 
     const dispatchNotes = [
       data.notes,
+      dispatchTypeLine,
       dispatchCharge > 0 ? `Courier charges: ₹${dispatchCharge}` : '',
       data.isCod ? `COD amount: ₹${data.codAmount ?? 0}` : 'Prepaid',
     ].filter(Boolean).join(' | ');

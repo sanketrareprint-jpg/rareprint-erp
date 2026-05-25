@@ -24,6 +24,7 @@ type DispatchOrder = {
   customerPhone?: string; salesAgentName?: string;
   shipTo: string; weightKg: number; orderDate: string;
   totalItems: number; readyItems: ReadyItem[];
+  dispatchType?: DispatchMethod;
   isCod: boolean; codAmount: number | null;
 };
 
@@ -95,9 +96,14 @@ export default function DispatchPage() {
       if (!res.ok) { setError("Could not load dispatch queue"); return; }
       const data = await res.json();
       setOrders(Array.isArray(data) ? data : []);
+      const initMethods: Record<string, DispatchMethod> = {};
       const initSelected: Record<string, Set<string>> = {};
-      for (const o of data) initSelected[o.id] = new Set(o.readyItems.map((i: ReadyItem) => i.id));
+      for (const o of data) {
+        initSelected[o.id] = new Set(o.readyItems.map((i: ReadyItem) => i.id));
+        initMethods[o.id] = o.dispatchType || "COURIER";
+      }
       setSelectedItems(initSelected);
+      setDispatchMethod(prev => ({ ...initMethods, ...prev }));
     } catch { setError("Network error."); }
     finally { setLoading(false); }
   }, [router]);
@@ -465,7 +471,7 @@ export default function DispatchPage() {
                   ? { id: "CUSTOM", name: pickupDraft.name || "Custom Pickup", pincode: pickupDraft.pincode || "—", location: pickupDraft.name || "Custom Pickup" }
                   : warehouses.find(w => w.id === selectedPickupId) ?? warehouses[0];
                 const activePickupAddress = pickupAddressText(activeWarehouse);
-                const method = dispatchMethod[o.id] || "COURIER";
+                const method = dispatchMethod[o.id] || o.dispatchType || "COURIER";
                 const transport = transportForm[o.id] || { transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "", totalTransportCharges: "", notes: "" };
                 const direct = directForm[o.id] || { deliveryBoyName: "", collectedByName: "", collectedByPhone: "", otp: "" };
 

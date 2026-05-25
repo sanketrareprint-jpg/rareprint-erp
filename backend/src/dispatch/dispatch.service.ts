@@ -73,6 +73,15 @@ function parseProductionNotes(notes?: string | null) {
   return { size, gsm, sides };
 }
 
+function parseDispatchType(notes?: string | null): 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED' {
+  const text = notes ?? '';
+  if (/Self\s+Collected/i.test(text)) return 'SELF_COLLECTED';
+  if (/By\s+Hand/i.test(text)) return 'BY_HAND';
+  if (/Transport:/i.test(text)) return 'TRANSPORT';
+  if (/Courier:/i.test(text) || /Courier\s+charges/i.test(text)) return 'COURIER';
+  return 'COURIER';
+}
+
 // ── Warehouse helpers ─────────────────────────────────────────────────────
 export type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 type PickupOverride = { name?: string; pincode?: string; location?: string };
@@ -191,6 +200,7 @@ export class DispatchService {
       customerPhone: string | null; salesAgentName: string | null;
       shipTo: string; weightKg: number; orderDate: string;
       totalItems: number; readyItemsCount: number;
+      dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
       isCod: boolean; codAmount: number | null;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
@@ -221,6 +231,7 @@ export class DispatchService {
         orderDate: o.orderDate.toISOString(),
         totalItems: o.items.length,
         readyItemsCount: readyItems.length,
+        dispatchType: parseDispatchType(o.notes),
         isCod: notesIsCod,
         codAmount: notescodAmount,
         readyItems: readyItems.map((i) => {
