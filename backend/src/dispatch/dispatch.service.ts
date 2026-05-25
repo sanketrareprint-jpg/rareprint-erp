@@ -357,44 +357,48 @@ export class DispatchService {
       }
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      await tx.shipment.create({
-        data: {
-          orderId, handledById: userId, shipmentNumber,
-          carrierName: picked.carrierName,
-          status: ShipmentStatus.PACKED,
-          dispatchDate: new Date(),
-          trackingNumber: trackingRef || null,
-          notes: `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}. ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`,
-        },
-      });
-
-      for (const itemId of itemIds) {
-        await tx.orderItem.update({
-          where: { id: itemId },
-          data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
+    let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus };
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
+        await tx.shipment.create({
+          data: {
+            orderId,
+            handledById: userId,
+            shipmentNumber,
+            carrierName: picked.carrierName,
+            status: ShipmentStatus.PACKED,
+            dispatchDate: new Date(),
+            trackingNumber: trackingRef || null,
+            dispatchType: 'COURIER',
+            transportChargesType: isCod ? 'COD' : 'PREPAID',
+            notes: `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}. Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`,
+          },
         });
-      }
 
-      const remainingItems = await tx.orderItem.findMany({ where: { orderId } });
-      const newStatus = this.nextOrderStatusAfterDispatch({ items: remainingItems }, itemIds);
+        const remainingItems = await tx.orderItem.findMany({ where: { orderId } });
+        const newStatus = this.nextOrderStatusAfterDispatch({ items: remainingItems }, itemIds);
 
-      await tx.order.update({
-        where: { id: orderId },
-        data: { status: newStatus, shippingCharge: new Prisma.Decimal(picked.amount) },
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: newStatus, shippingCharge: new Prisma.Decimal(picked.amount) },
+        });
+
+        await tx.statusLog.create({
+          data: {
+            orderId, fromStatus: order.status, toStatus: newStatus,
+            changedById: userId,
+            reason: `${itemsToDispatch.length} item(s) dispatched via ${picked.carrierName}`,
+            metadata: { shipmentNumber, rateId, amount: picked.amount, dispatchType: 'COURIER' },
+          },
+        });
+
+        return { shipmentNumber, carrierName: picked.carrierName, amount: picked.amount, newStatus };
       });
-
-      await tx.statusLog.create({
-        data: {
-          orderId, fromStatus: order.status, toStatus: newStatus,
-          changedById: userId,
-          reason: `${itemsToDispatch.length} item(s) dispatched via ${picked.carrierName}`,
-          metadata: { shipmentNumber, rateId, amount: picked.amount },
-        },
-      });
-
-      return { shipmentNumber, carrierName: picked.carrierName, amount: picked.amount, newStatus };
-    });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not save courier dispatch';
+      this.logger.error(`Courier booking failed for ${order.orderNumber}: ${message}`);
+      throw new BadRequestException(message);
+    }
 
     // ── WhatsApp: Dispatched 🚚 ────────────────────────────────────────────
     if (order.customer.phone) {

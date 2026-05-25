@@ -202,7 +202,11 @@ export default function DispatchPage() {
         }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Booking failed"); return; }
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        alert(Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Booking failed"));
+        return;
+      }
       const result = await res.json();
       alert(`✅ Dispatched! Shipment: ${result.shipmentNumber} via ${result.carrierName}`);
       await load();
