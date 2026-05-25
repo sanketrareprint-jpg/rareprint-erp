@@ -71,6 +71,12 @@ export class OrdersController {
     return this.ordersService.create(dto, req.user.id);
   }
 
+  @Post('test')
+  @UseGuards(AuthGuard('jwt'))
+  createTestOrder(@Req() req: Request & { user: JwtUser }) {
+    return this.ordersService.createTestOrder(req.user.id);
+  }
+
   @Post('submit-dispatch-batch')
   @UseGuards(AuthGuard('jwt'))
   submitDispatchBatch(

@@ -24,7 +24,7 @@ type Order = {
   id: string; orderNo: string; customerName: string; customerPhone?: string; shippingAddress?: string;
   salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
-  balanceDue: number; status: string; date: string;
+  balanceDue: number; status: string; date: string; isTest?: boolean;
   readyItemsCount?: number; totalItemsCount?: number;
   itemDetails?: ItemDetail[];
   items?: OrderItemRef[];
@@ -447,10 +447,23 @@ export default function OrdersPage() {
                 <h1 className="text-xl font-bold text-slate-900">Orders</h1>
                 <p className="text-xs text-slate-500 mt-0.5">Create and track sales orders.</p>
               </div>
-              <button onClick={() => router.push("/orders/create")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
-                <Plus className="h-3.5 w-3.5" /> Create New Order
-              </button>
+              <div className="flex items-center gap-2">
+                {currentUser?.role === "ADMIN" && (
+                  <button onClick={async () => {
+                    if (!confirm("Create a dummy TEST order for feature testing?")) return;
+                    const res = await fetch(`${API_BASE_URL}/orders/test`, { method: "POST", headers: getAuthHeaders() });
+                    if (res.ok) { const d = await res.json(); alert(`Test order created: ${d.orderNumber}`); load(); }
+                    else { alert("Failed to create test order"); }
+                  }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                    <Plus className="h-3.5 w-3.5" /> Test Order
+                  </button>
+                )}
+                <button onClick={() => router.push("/orders/create")}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                  <Plus className="h-3.5 w-3.5" /> Create New Order
+                </button>
+              </div>
             </div>
 
             {/* Search + Filter */}
@@ -535,6 +548,7 @@ export default function OrdersPage() {
                               </button>
                             )}
                             <p className="text-base font-bold leading-none">{o.orderNo}</p>
+                            {o.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST</span>}
                             <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-semibold">
                               {orderAge(o.date)}
                             </span>
@@ -659,6 +673,7 @@ export default function OrdersPage() {
                           {/* Short order number */}
                           <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap" style={{ maxWidth: "70px" }}>
                             {o.orderNo}
+                            {o.isTest && <span className="ml-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300 px-1 py-0 text-xs font-bold">TEST</span>}
                           </td>
                           <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
@@ -697,13 +712,13 @@ export default function OrdersPage() {
                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 </button>
                               )}
-                              {/* Delete */}
-                              {o.status === "PENDING_APPROVAL" && (
-                                <button title="Delete Order" onClick={async () => {
+                              {/* Delete — always shown for test orders; PENDING_APPROVAL only for real orders */}
+                              {(o.isTest || o.status === "PENDING_APPROVAL") && (
+                                <button title={o.isTest ? "Delete Test Order" : "Delete Order"} onClick={async () => {
                                   if (!confirm(`Delete order ${o.orderNo}? Cannot be undone.`)) return;
                                   const res = await fetch(`${API_BASE_URL}/orders/${o.id}`, { method: "DELETE", headers: getAuthHeaders() });
                                   if (res.ok) { alert("Order deleted!"); load(); } else { alert("Delete failed"); }
-                                }} className="p-1.5 rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100">
+                                }} className={`p-1.5 rounded-md border ${o.isTest ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"}`}>
                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                                 </button>
                               )}

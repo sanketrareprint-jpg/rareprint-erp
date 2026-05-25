@@ -190,6 +190,7 @@ export class OrdersService {
         advancePaid,
         balanceDue,
         status: o.status,
+        isTest: o.isTest,
         date: o.orderDate.toISOString(),
         itemDetails: buildItemDetails(o.items as any),
         items: o.items.map((i) => ({
@@ -427,7 +428,8 @@ export class OrdersService {
   async deleteOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new Error('Order not found');
-    if (order.status !== OrderStatus.PENDING_APPROVAL) {
+    // Test orders can be deleted at any stage; real orders only when PENDING_APPROVAL
+    if (!order.isTest && order.status !== OrderStatus.PENDING_APPROVAL) {
       throw new Error('Only PENDING_APPROVAL orders can be deleted');
     }
 
@@ -439,6 +441,59 @@ export class OrdersService {
     });
 
     return { success: true };
+  }
+
+  async createTestOrder(userId: string) {
+    // Find first active product to attach to test order
+    const product = await this.prisma.product.findFirst({ where: { isActive: true } });
+    if (!product) throw new Error('No active products found to create test order');
+
+    const ts = Date.now();
+    const testOrderNumber = `TEST-${ts}`;
+    const customerCode = `TEST-CUST-${ts}`;
+
+    await this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.create({
+        data: {
+          customerCode,
+          businessName: 'TEST CUSTOMER (DELETE ME)',
+          contactPerson: 'Test',
+          phone: '0000000000',
+        },
+      });
+
+      await tx.order.create({
+        data: {
+          orderNumber: testOrderNumber,
+          orderDate: new Date(),
+          customerId: customer.id,
+          salesAgentId: userId,
+          status: OrderStatus.PENDING_APPROVAL,
+          paymentStatus: PaymentStatus.PENDING,
+          isTest: true,
+          subtotal: new Prisma.Decimal(500),
+          grandTotal: new Prisma.Decimal(500),
+          discount: new Prisma.Decimal(0),
+          taxAmount: new Prisma.Decimal(0),
+          shippingCharge: new Prisma.Decimal(0),
+          notes: 'TEST ORDER — safe to delete',
+          items: {
+            create: [{
+              productId: product.id,
+              quantity: 100,
+              unitPrice: new Prisma.Decimal(5),
+              lineDiscount: new Prisma.Decimal(0),
+              taxRatePct: new Prisma.Decimal(0),
+              taxAmount: new Prisma.Decimal(0),
+              lineTotal: new Prisma.Decimal(500),
+              itemProductionStage: 'NOT_PRINTED',
+            }],
+          },
+        },
+      });
+    });
+
+    return { success: true, orderNumber: testOrderNumber };
   }
 
   async addPayment(
@@ -753,6 +808,7 @@ export class OrdersService {
         advancePaid,
         balanceDue,
         status: o.status,
+        isTest: o.isTest,
         date: o.orderDate.toISOString(),
         readyItemsCount: readyCount,
         totalItemsCount: o.items.length,

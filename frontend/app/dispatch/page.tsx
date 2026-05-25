@@ -32,6 +32,13 @@ type RateQuote = { rateId: string; carrierName: string; amount: number; currency
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
+function pickupAddressText(warehouse?: Warehouse) {
+  if (!warehouse) return "";
+  return [warehouse.address, warehouse.city, warehouse.state]
+    .map(part => part?.trim())
+    .filter(Boolean)
+    .join(", ");
+}
 function parseNotes(notes?: string) {
   if (!notes) return {};
   const size = notes.match(/Size:\s*([^,]+)/)?.[1]?.trim();
@@ -378,6 +385,7 @@ export default function DispatchPage() {
                 const activeWarehouse = selectedPickupId === "CUSTOM"
                   ? { id: "CUSTOM", name: pickupDraft.name || "Custom Pickup", pincode: pickupDraft.pincode || "—", location: pickupDraft.name || "Custom Pickup" }
                   : warehouses.find(w => w.id === selectedPickupId) ?? warehouses[0];
+                const activePickupAddress = pickupAddressText(activeWarehouse);
 
                 return (
                   <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -426,7 +434,10 @@ export default function DispatchPage() {
                           {activeWarehouse && (
                             <div className="flex items-start gap-1 text-xs text-slate-500 text-right">
                               <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                              <span>Pickup: <span className="font-semibold text-slate-700">{activeWarehouse.name}</span> · Pin {activeWarehouse.pincode}</span>
+                              <span>
+                                Pickup: <span className="font-semibold text-slate-700">{activeWarehouse.name}</span> · Pin {activeWarehouse.pincode}
+                                {activePickupAddress && <span className="block max-w-[280px] truncate text-[10px] text-slate-400">{activePickupAddress}</span>}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -510,6 +521,11 @@ export default function DispatchPage() {
                                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
                               />
                             </div>
+                          )}
+                          {selectedPickupId !== "CUSTOM" && activePickupAddress && (
+                            <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                              {activePickupAddress}
+                            </p>
                           )}
                         </div>
                         <div className="min-w-[110px]">
