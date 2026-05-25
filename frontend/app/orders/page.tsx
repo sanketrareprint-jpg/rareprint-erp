@@ -325,12 +325,13 @@ export default function OrdersPage() {
   const selectedOrders = readyOrders.filter(o => selectedOrderIds.has(o.id));
   const totalBalance = selectedOrders.reduce((s, o) => s + o.balanceDue, 0);
   const totalAmount  = selectedOrders.reduce((s, o) => s + o.totalAmount, 0);
-  const courierNum   = Number(bookingForm.courierCharges || 0);
+  const shouldChargeDispatch = bookingForm.dispatchType === "COURIER";
+  const courierNum   = shouldChargeDispatch ? Number(bookingForm.courierCharges || 0) : 0;
   const suggestedCod = totalBalance + courierNum;
 
   async function submitBooking() {
     if (selectedOrderIds.size === 0) return;
-    if (!bookingForm.courierCharges) { alert("Enter courier charges"); return; }
+    if (shouldChargeDispatch && !bookingForm.courierCharges) { alert("Enter courier charges"); return; }
     if (!bookingForm.isCod && !bookingForm.paymentAccountId) { alert("Select payment account"); return; }
     setBookingSubmitting(true);
     try {
@@ -985,179 +986,167 @@ export default function OrdersPage() {
       {/* ── Booking Modal ──────────────────────────────────────────────────── */}
       {bookingModal && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, overflowY: "auto", background: "rgba(15,23,42,0.6)" }}>
-          <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "2rem" }}>
-            <div style={{ width: "100%", maxWidth: "42rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", marginBottom: "2rem" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", padding: "1rem 1.5rem" }}>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Book Shipment</h2>
-                  <p className="text-sm text-slate-500">{selectedOrders.length} order{selectedOrders.length > 1 ? "s" : ""} — {selectedOrders[0]?.customerName}</p>
+          <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "1rem" }}>
+            <div style={{ width: "100%", maxWidth: "44rem", background: "white", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", marginBottom: "1rem" }}>
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", padding: "0.625rem 1rem" }}>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-base font-semibold text-slate-900">Book Shipment</h2>
+                  <span className="text-xs text-slate-500">{selectedOrders.length} order{selectedOrders.length > 1 ? "s" : ""} · {selectedOrders[0]?.customerName}</span>
                 </div>
-                <button onClick={() => setBookingModal(false)}><X className="h-5 w-5 text-slate-400" /></button>
+                <button onClick={() => setBookingModal(false)}><X className="h-4 w-4 text-slate-400" /></button>
               </div>
-              <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div><p className="text-xs text-slate-500">Total Order Value</p><p className="font-bold text-slate-900 text-lg">{fmt(totalAmount)}</p></div>
-                    <div><p className="text-xs text-slate-500">Total Paid</p><p className="font-bold text-emerald-600 text-lg">{fmt(totalAmount - totalBalance)}</p></div>
-                    <div><p className="text-xs text-slate-500">Total Balance Due</p><p className="font-bold text-red-500 text-lg">{fmt(totalBalance)}</p></div>
+              <div style={{ padding: "0.875rem 1rem", display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+                {/* Summary + Shipment Info — side by side */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                    <div className="grid grid-cols-3 gap-1 text-center">
+                      <div><p className="text-[10px] text-slate-500 leading-tight">Order Value</p><p className="font-bold text-slate-900 text-sm">{fmt(totalAmount)}</p></div>
+                      <div><p className="text-[10px] text-slate-500 leading-tight">Paid</p><p className="font-bold text-emerald-600 text-sm">{fmt(totalAmount - totalBalance)}</p></div>
+                      <div><p className="text-[10px] text-slate-500 leading-tight">Balance</p><p className="font-bold text-red-500 text-sm">{fmt(totalBalance)}</p></div>
+                    </div>
                   </div>
+                  {selectedOrders.length > 0 && (
+                    <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 overflow-hidden">
+                      {selectedOrders.map(o => (
+                        <div key={o.id} className="text-xs text-slate-700">
+                          <span className="font-bold text-blue-700">{o.orderNo}</span>
+                          {o.customerPhone && <span className="ml-1.5 text-slate-500">📞 {o.customerPhone}</span>}
+                          {o.shippingAddress && <div className="text-slate-600 truncate">📍 {o.shippingAddress}</div>}
+                          {bookingItems[o.id]?.map((item, i) => { const n = parseNotes(item.productionNotes); return <div key={i} className="text-[10px] text-slate-500 truncate">• {item.productName}{n.size ? ` ${n.size}"` : ""}{n.gsm ? ` ${n.gsm}G` : ""} ×{item.quantity}</div>; })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {/* Shipping Info */}
-                {selectedOrders.length > 0 && (
-                  <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 space-y-2">
-                    <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Shipment Info</p>
-                    {selectedOrders.map(o => (
-                      <div key={o.id} className="text-xs text-slate-700 border-b border-blue-100 pb-1 last:border-0">
-                        <span className="font-bold text-blue-700">{o.orderNo}</span>
-                        {o.customerPhone && <span className="ml-2 text-slate-500">📞 {o.customerPhone}</span>}
-                        {o.shippingAddress && <div className="text-slate-600 mt-0.5">📍 {o.shippingAddress}</div>}
-                        {bookingItems[o.id]?.map((item, i) => { const n = parseNotes(item.productionNotes); return <div key={i} className="ml-2 mt-0.5 text-slate-500">• {item.productName}{n.size ? ` · ${n.size}"` : ""}{n.gsm ? ` · ${n.gsm} GSM` : ""} × {item.quantity}</div>; })}
-                      </div>
-                    ))}
-                  </div>
-                )}
                 {/* Dispatch Method */}
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <p className="text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wide">Dispatch Method</p>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    {[{key:"COURIER",label:"🚚 Courier"},{key:"TRANSPORT",label:"🚛 Transport"},{key:"BY_HAND",label:"🚶 By Hand"},{key:"SELF_COLLECTED",label:"🏪 Self Collected"}].map(dt => (
+                <div className="rounded-lg border border-slate-200 px-3 py-2">
+                  <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Dispatch Method</p>
+                  <div className="grid grid-cols-4 gap-1.5 mb-2">
+                    {[{key:"COURIER",label:"🚚 Courier"},{key:"TRANSPORT",label:"🚛 Transport"},{key:"BY_HAND",label:"🚶 By Hand"},{key:"SELF_COLLECTED",label:"🏪 Self Collect"}].map(dt => (
                       <button key={dt.key} onClick={() => setBookingForm(p => ({ ...p, dispatchType: dt.key }))}
-                        className={`rounded-lg border px-3 py-2 text-xs font-semibold text-left transition ${bookingForm.dispatchType === dt.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600"}`}>
+                        className={`rounded-md border px-2 py-1.5 text-[10px] font-semibold text-left transition ${bookingForm.dispatchType === dt.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600"}`}>
                         {dt.label}
                       </button>
                     ))}
                   </div>
                   {bookingForm.dispatchType === "COURIER" && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Courier Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Delhivery, DTDC..." className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">AWB Number</label><input value={bookingForm.awbNumber} onChange={e => setBookingForm(p => ({ ...p, awbNumber: e.target.value }))} placeholder="AWB / Tracking No" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
-                      <div className="col-span-2"><label className="block text-xs font-medium text-slate-600 mb-1">Courier By</label><input value={bookingForm.courierBy} onChange={e => setBookingForm(p => ({ ...p, courierBy: e.target.value }))} placeholder="Staff name" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Courier Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Delhivery, DTDC..." className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">AWB Number</label><input value={bookingForm.awbNumber} onChange={e => setBookingForm(p => ({ ...p, awbNumber: e.target.value }))} placeholder="Tracking No" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Booked By</label><input value={bookingForm.courierBy} onChange={e => setBookingForm(p => ({ ...p, courierBy: e.target.value }))} placeholder="Staff name" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                     </div>
                   )}
                   {bookingForm.dispatchType === "TRANSPORT" && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Transport Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Transport company" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">LR Number</label><input value={bookingForm.lrNumber} onChange={e => setBookingForm(p => ({ ...p, lrNumber: e.target.value }))} placeholder="Lorry Receipt No" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Charges Type</label><select value={bookingForm.transportChargesType} onChange={e => setBookingForm(p => ({ ...p, transportChargesType: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs bg-white"><option value="TOPAY">To Pay</option><option value="PREPAID">Prepaid</option></select></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Transport By</label><input value={bookingForm.transportBy} onChange={e => setBookingForm(p => ({ ...p, transportBy: e.target.value }))} placeholder="Staff name" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Transport Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Company" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">LR Number</label><input value={bookingForm.lrNumber} onChange={e => setBookingForm(p => ({ ...p, lrNumber: e.target.value }))} placeholder="LR No" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Charges</label><select value={bookingForm.transportChargesType} onChange={e => setBookingForm(p => ({ ...p, transportChargesType: e.target.value }))} className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white"><option value="TOPAY">To Pay</option><option value="PREPAID">Prepaid</option></select></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">By</label><input value={bookingForm.transportBy} onChange={e => setBookingForm(p => ({ ...p, transportBy: e.target.value }))} placeholder="Staff" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                     </div>
                   )}
                   {bookingForm.dispatchType === "BY_HAND" && (
-                    <div><label className="block text-xs font-medium text-slate-600 mb-1">Delivery Boy Name</label><input value={bookingForm.deliveryBoyName} onChange={e => setBookingForm(p => ({ ...p, deliveryBoyName: e.target.value }))} placeholder="Name of delivery person" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    <div className="max-w-xs"><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Delivery Person Name</label><input value={bookingForm.deliveryBoyName} onChange={e => setBookingForm(p => ({ ...p, deliveryBoyName: e.target.value }))} placeholder="Name" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                   )}
                   {bookingForm.dispatchType === "SELF_COLLECTED" && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Collected By Name</label><input value={bookingForm.collectedByName} onChange={e => setBookingForm(p => ({ ...p, collectedByName: e.target.value }))} placeholder="Customer rep name" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
-                      <div><label className="block text-xs font-medium text-slate-600 mb-1">Phone Number</label><input value={bookingForm.collectedByPhone} onChange={e => setBookingForm(p => ({ ...p, collectedByPhone: e.target.value }))} placeholder="Contact number" className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs" /></div>
+                    <div className="grid grid-cols-2 gap-2 max-w-sm">
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Collected By</label><input value={bookingForm.collectedByName} onChange={e => setBookingForm(p => ({ ...p, collectedByName: e.target.value }))} placeholder="Name" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Phone</label><input value={bookingForm.collectedByPhone} onChange={e => setBookingForm(p => ({ ...p, collectedByPhone: e.target.value }))} placeholder="Number" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                     </div>
                   )}
                 </div>
-                {bookingForm.dispatchType === "COURIER" && <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
-                    <button onClick={fetchRates} disabled={ratesLoading}
-                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-60">
-                      {ratesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
-                      Fetch Shiprocket Rates
-                    </button>
-                  </div>
-                  {rates.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {rates.map((r, i) => (
-                        <button key={i} onClick={() => setBookingForm(p => ({ ...p, courierCharges: r.amount.toString() }))}
-                          className={`rounded-lg border p-2 text-xs text-left transition ${bookingForm.courierCharges === r.amount.toString() ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <p className="font-semibold text-slate-800">{r.carrierName}</p>
-                          <p className="text-blue-700 font-bold">{fmt(r.amount)}</p>
-                          <p className="text-slate-500">~{r.estimatedDays} days</p>
-                        </button>
-                      ))}
+                {/* Courier Rates + COD — side by side when both visible */}
+                {bookingForm.dispatchType === "COURIER" && (
+                  <div className="rounded-lg border border-slate-200 px-3 py-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
+                      <button onClick={fetchRates} disabled={ratesLoading}
+                        className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-60">
+                        {ratesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
+                        Fetch Shiprocket Rates
+                      </button>
                     </div>
-                  )}
-                  <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Courier Charges (₹) *</label>
-                  <input type="number" placeholder="Enter courier charges" value={bookingForm.courierCharges}
-                    onChange={e => setBookingForm(p => ({ ...p, courierCharges: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                  </div>
-                </div>}
-                <div className={`rounded-xl border px-4 py-3 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
-                  <div className="flex items-center gap-3">
-                    <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-4 w-4" />
-                    <label htmlFor="cod" className={`text-sm font-semibold cursor-pointer ${bookingForm.isCod ? "text-orange-800" : "text-slate-700"}`}>Cash on Delivery (COD)</label>
-                  </div>
-                  {bookingForm.isCod && (
-                    <div className="mt-3 space-y-2">
-                      <div className="rounded-lg bg-orange-100 border border-orange-200 px-3 py-2 text-xs text-orange-800">
-                        Suggested COD = Balance ({fmt(totalBalance)}) + Courier ({fmt(courierNum)}) = <strong>{fmt(suggestedCod)}</strong>
+                    {rates.length > 0 && (
+                      <div className="grid grid-cols-4 gap-1.5 mb-2">
+                        {rates.map((r, i) => (
+                          <button key={i} onClick={() => setBookingForm(p => ({ ...p, courierCharges: r.amount.toString() }))}
+                            className={`rounded-md border p-1.5 text-[10px] text-left transition ${bookingForm.courierCharges === r.amount.toString() ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
+                            <p className="font-semibold text-slate-800 truncate">{r.carrierName}</p>
+                            <p className="text-blue-700 font-bold">{fmt(r.amount)}</p>
+                            <p className="text-slate-400">~{r.estimatedDays}d</p>
+                          </button>
+                        ))}
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">COD Amount (₹)</label>
-                        <input type="number" placeholder={suggestedCod.toString()} value={bookingForm.codAmount}
-                          onChange={e => setBookingForm(p => ({ ...p, codAmount: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                    )}
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] font-medium text-slate-700 whitespace-nowrap">Courier Charges (₹) *</label>
+                      <input type="number" placeholder="Enter amount" value={bookingForm.courierCharges}
+                        onChange={e => setBookingForm(p => ({ ...p, courierCharges: e.target.value }))}
+                        className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs" />
+                    </div>
+                  </div>
+                )}
+                {/* COD + Payment — in one row */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={`rounded-lg border px-3 py-2 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-3.5 w-3.5" />
+                      <label htmlFor="cod" className={`text-xs font-semibold cursor-pointer ${bookingForm.isCod ? "text-orange-800" : "text-slate-700"}`}>Cash on Delivery (COD)</label>
+                    </div>
+                    {bookingForm.isCod && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-orange-700">
+                          Suggested: Balance {fmt(totalBalance)}{shouldChargeDispatch ? ` + Courier ${fmt(courierNum)}` : ""} = <strong>{fmt(suggestedCod)}</strong>
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[10px] font-medium text-slate-700 whitespace-nowrap">COD ₹</label>
+                          <input type="number" placeholder={suggestedCod.toString()} value={bookingForm.codAmount}
+                            onChange={e => setBookingForm(p => ({ ...p, codAmount: e.target.value }))}
+                            className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs" />
+                        </div>
                       </div>
+                    )}
+                  </div>
+                  {!bookingForm.isCod ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <p className="text-[10px] font-semibold text-emerald-800 mb-1.5 uppercase tracking-wide">Payment Receipt (Prepaid)</p>
+                      <div className="space-y-1.5">
+                        <select value={bookingForm.paymentMethod} onChange={e => setBookingForm(p => ({ ...p, paymentMethod: e.target.value }))}
+                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white">
+                          {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                        <select value={bookingForm.paymentAccountId} onChange={e => setBookingForm(p => ({ ...p, paymentAccountId: e.target.value }))}
+                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white">
+                          <option value="">Select account...</option>
+                          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                        <input type="text" placeholder="UTR / Reference Number" value={bookingForm.paymentReference}
+                          onChange={e => setBookingForm(p => ({ ...p, paymentReference: e.target.value }))}
+                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <label className="block text-[10px] font-medium text-slate-700 mb-1">Notes for Accounts Team</label>
+                      <textarea rows={3} value={bookingForm.notes} onChange={e => setBookingForm(p => ({ ...p, notes: e.target.value }))}
+                        className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs resize-none" />
                     </div>
                   )}
                 </div>
                 {!bookingForm.isCod && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="text-xs font-semibold text-emerald-800 mb-3 uppercase tracking-wide">Payment Receipt (Prepaid)</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method</label>
-                        <select value={bookingForm.paymentMethod} onChange={e => setBookingForm(p => ({ ...p, paymentMethod: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Received In Account</label>
-                        <select value={bookingForm.paymentAccountId} onChange={e => setBookingForm(p => ({ ...p, paymentAccountId: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          <option value="">Select account...</option>
-                          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR Number</label>
-                        <input type="text" placeholder="UTR / Transaction ID" value={bookingForm.paymentReference}
-                          onChange={e => setBookingForm(p => ({ ...p, paymentReference: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
-                      </div>
-                    </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-700 mb-0.5">Notes for Accounts Team</label>
+                    <textarea rows={1} value={bookingForm.notes} onChange={e => setBookingForm(p => ({ ...p, notes: e.target.value }))}
+                      className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs resize-none" />
                   </div>
                 )}
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Notes for Accounts Team</label>
-                  <textarea rows={2} value={bookingForm.notes} onChange={e => setBookingForm(p => ({ ...p, notes: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", borderTop: "1px solid #e2e8f0", padding: "1rem 1.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", borderTop: "1px solid #e2e8f0", padding: "0.625rem 1rem" }}>
                 <button onClick={() => setBookingModal(false)}
-                  style={{ borderRadius: "0.5rem", border: "1px solid #e2e8f0", padding: "0.5rem 1rem", fontSize: "0.875rem", fontWeight: 500, color: "#334155", background: "white", cursor: "pointer" }}>
+                  style={{ borderRadius: "0.5rem", border: "1px solid #e2e8f0", padding: "0.375rem 0.875rem", fontSize: "0.75rem", fontWeight: 500, color: "#334155", background: "white", cursor: "pointer" }}>
                   Cancel
                 </button>
                 <button onClick={submitBooking} disabled={bookingSubmitting}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", borderRadius: "0.5rem", border: "none", background: "#4f46e5", padding: "0.5rem 1.5rem", fontSize: "0.875rem", fontWeight: 600, color: "white", cursor: "pointer", opacity: bookingSubmitting ? 0.6 : 1 }}>
-                  {bookingSubmitting ? <Loader2 style={{ width: 16, height: 16 }} /> : <Truck style={{ width: 16, height: 16 }} />}
-                  Send to Accounts for Approval
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-
-
-
-
-
-
-
-
-
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", borderRadius: "0.5rem", border: "none", background: "#4f46e5", padding: "0.375rem 1.25rem", fontSize: "0.75rem", fontWeight: 600, color: "white", cursor: "pointer", opacity: bookingSubmitting ? 0.6 : 1 }}>
+                  {bookingSubmitting ? <Loader2 style={{ width: 14, height: 14 }} /> : <Truck style={{ width: 14, height: 14 }} />}
+    

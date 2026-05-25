@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Filter } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -20,10 +20,11 @@ type PendingOrder = {
 type DispatchPendingOrder = {
   id: string; orderNo: string; customerName: string;
   customerPhone?: string; customerAddress?: string; customerEmail?: string; salesAgentName?: string;
+  shippingAddress?: string;
   items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
   orderDate: string; notes?: string; payments: Payment[];
-  courierCharge?: number; paymentType?: string;
+  courierCharge?: number; paymentType?: string; codAmount?: number;
 };
 
 type PendingPayment = {
@@ -58,6 +59,22 @@ type CustomerOutstanding = {
   productStatuses?: string;
 };
 
+type ReceiptHistory = {
+  id: string;
+  orderNo: string;
+  customerName: string;
+  customerPhone?: string;
+  salesAgentName?: string;
+  amount: number;
+  method: string;
+  referenceNumber?: string;
+  paymentDate: string;
+  paymentAccountName: string;
+  verificationStatus: "VERIFIED" | "REJECTED";
+  verifiedByName?: string;
+  verifiedAt?: string;
+};
+
 type VendorEntry = {
   id: string;
   type: "JOBWORK" | "SHEET_STAGE";
@@ -83,10 +100,6 @@ type VendorEntry = {
   sheetGsm?: number;
   sheetSize?: string;
   products?: { productName: string; orderNo: string; customerName: string; quantity: number }[];
-};
-
-const METHOD_LABELS: Record<string, string> = {
-  CASH: "Cash", UPI: "UPI", BANK_TRANSFER: "Bank Transfer", CHEQUE: "Cheque", CARD: "Card",
 };
 
 function fmt(n: number) {
@@ -149,7 +162,7 @@ export default function AccountsPage() {
   // Pending payment receipts
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
-  const [receiptHistory, setReceiptHistory] = useState<any[]>([]);
+  const [receiptHistory, setReceiptHistory] = useState<ReceiptHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
 const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
@@ -588,22 +601,54 @@ await loadHistory();
                   </div>
                   {dispatchExpanded === order.id && (
                     <div className="p-4 space-y-3">
-                      <table className="w-full text-sm">
-                        <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
-                          <th className="pb-1 text-left">Product</th>
-                          <th className="pb-1 text-right">Qty</th>
-                          <th className="pb-1 text-right">Amount</th>
+                      {/* Customer & Shipping Info */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs space-y-1">
+                          <p className="font-semibold text-blue-800 text-[10px] uppercase tracking-wide mb-1">Customer</p>
+                          {order.customerPhone && <p className="text-slate-700">📞 {order.customerPhone}</p>}
+                          {(order.shippingAddress || order.customerAddress) && (
+                            <p className="text-slate-600">📍 {order.shippingAddress || order.customerAddress}</p>
+                          )}
+                          {order.salesAgentName && <p className="text-slate-500">Agent: {order.salesAgentName}</p>}
+                        </div>
+                        {/* Financial summary */}
+                        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs space-y-1">
+                          <p className="font-semibold text-slate-600 text-[10px] uppercase tracking-wide mb-1">Financials</p>
+                          <div className="flex justify-between"><span className="text-slate-500">Order Total</span><span className="font-semibold">{fmt(order.totalAmount)}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-500">Paid</span><span className="font-semibold text-emerald-600">{fmt(order.totalPaid)}</span></div>
+                          <div className="flex justify-between border-t border-slate-200 pt-1 mt-1"><span className="text-slate-700 font-semibold">Balance Due</span><span className="font-bold text-red-500">{fmt(order.balanceDue)}</span></div>
+                          {order.courierCharge != null && (
+                            <div className="flex justify-between"><span className="text-slate-500">Courier Charges</span><span className="font-semibold text-blue-700">{fmt(order.courierCharge)}</span></div>
+                          )}
+                          {order.codAmount != null && (
+                            <div className="flex justify-between"><span className="text-orange-600 font-semibold">COD Amount</span><span className="font-bold text-orange-700">{fmt(order.codAmount)}</span></div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Items table */}
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-slate-100 text-slate-500">
+                          <th className="pb-1 text-left font-medium">Product</th>
+                          <th className="pb-1 text-right font-medium">Qty</th>
+                          <th className="pb-1 text-right font-medium">Amount</th>
                         </tr></thead>
                         <tbody>
                           {order.items.map((item, i) => (
                             <tr key={i} className="border-b border-slate-50">
-                              <td className="py-1.5 font-medium">{item.productName}</td>
-                              <td className="py-1.5 text-right">{item.quantity}</td>
-                              <td className="py-1.5 text-right">{fmt(item.lineTotal)}</td>
+                              <td className="py-1 font-medium text-slate-800">{item.productName}</td>
+                              <td className="py-1 text-right text-slate-600">{item.quantity}</td>
+                              <td className="py-1 text-right text-slate-800">{fmt(item.lineTotal)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                      {/* Agent Notes */}
+                      {order.notes && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs">
+                          <p className="font-semibold text-amber-800 text-[10px] uppercase tracking-wide mb-1">Agent Notes</p>
+                          <p className="text-amber-900 whitespace-pre-wrap">{order.notes}</p>
+                        </div>
+                      )}
                       <div className="flex justify-end">
                         <button onClick={() => approveDispatch(order.id)} disabled={dispatchProcessing === order.id}
                           className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
@@ -662,7 +707,7 @@ await loadHistory();
                           <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
                           <td className="px-3 py-2">
                           <input value={p.id === verifyUtrId ? verifyUtrValue : (utrDraft[p.id] ?? p.referenceNumber ?? "")}
-                            onChange={e => setUtrDraft((d: any) => ({ ...d, [p.id]: e.target.value }))}
+                            onChange={e => setUtrDraft(d => ({ ...d, [p.id]: e.target.value }))}
                             onFocus={() => { setVerifyUtrId(p.id); setVerifyUtrValue(utrDraft[p.id] ?? p.referenceNumber ?? ""); }}
                             placeholder="UTR / Ref No"
                             className="border border-slate-200 rounded px-2 py-1 text-xs w-36 outline-none focus:border-blue-400 bg-white" />
@@ -722,7 +767,7 @@ await loadHistory();
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {receiptHistory.map((p: any) => (
+                        {receiptHistory.map(p => (
                           <tr key={p.id} className="hover:bg-slate-50">
                             <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</td>
                             <td className="px-3 py-2 font-bold text-blue-700">{p.orderNo}</td>
@@ -747,8 +792,8 @@ await loadHistory();
                       </tbody>
                       <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                         <tr>
-                          <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({receiptHistory.filter((p:any) => p.verificationStatus === "VERIFIED").length} receipts)</td>
-                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(receiptHistory.filter((p:any) => p.verificationStatus === "VERIFIED").reduce((s:number, p:any) => s + p.amount, 0))}</td>
+                          <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({receiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(receiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</td>
                           <td colSpan={3} />
                         </tr>
                       </tfoot>
@@ -791,7 +836,7 @@ await loadHistory();
                   <option value="">All Vendors</option>
                   {uniqueVendors.map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
-                <select value={paidFilter} onChange={e => setPaidFilter(e.target.value as any)}
+                <select value={paidFilter} onChange={e => setPaidFilter(e.target.value as "all" | "paid" | "unpaid")}
                   className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white">
                   <option value="all">All Status</option>
                   <option value="unpaid">Unpaid</option>
@@ -862,7 +907,7 @@ await loadHistory();
                             ) : (
                               <div>
                                 <span className="font-medium text-slate-700">Sheet: {entry.sheetNo}</span>
-                                <span className="text-slate-400 ml-1">{entry.sheetGsm} GSM · {entry.sheetSize}"</span>
+                                <span className="text-slate-400 ml-1">{entry.sheetGsm} GSM · {entry.sheetSize}&quot;</span>
                                 {entry.products?.map((p, i) => (
                                   <div key={i} className="text-slate-400">
                                     {p.productName} · {p.orderNo} · {p.customerName}
@@ -936,7 +981,6 @@ await loadHistory();
         </div>
       )}
 
-      {/* Reject Order Modal */}
       {/* Reject Order Modal */}
       {rejectId && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>

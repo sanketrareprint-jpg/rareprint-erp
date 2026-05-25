@@ -177,7 +177,7 @@ export class OrdersService {
     const data = orders.map((o) => {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const balanceDue = Math.max(0, total - advancePaid);
+      const balanceDue = total - advancePaid;
 
       return {
         id: o.id,
@@ -336,7 +336,7 @@ export class OrdersService {
     if (fullOrder) {
       const totalAmount = Number(fullOrder.grandTotal);
       const advancePaid = fullOrder.payments.reduce((s, p) => s + Number(p.amount), 0);
-      const balanceDue = Math.max(0, totalAmount - advancePaid);
+      const balanceDue = totalAmount - advancePaid;
 
       // Format product details: Name Size GSM Sides Qty @Rate = Total
       const productDetails = fullOrder.items.map((i) => {
@@ -487,7 +487,7 @@ export class OrdersService {
         referenceNo: payment.referenceNumber ?? '',
         orderTotal: grandTotal,
         totalPaid,
-        balanceRemaining: Math.max(0, grandTotal - totalPaid),
+        balanceRemaining: grandTotal - totalPaid,
       });
     }
 
@@ -533,10 +533,11 @@ export class OrdersService {
   ) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
+    const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
 
     const dispatchNotes = [
       data.notes,
-      `Courier charges: ₹${data.courierCharges}`,
+      dispatchCharge > 0 ? `Courier charges: ₹${dispatchCharge}` : '',
       data.isCod ? `COD amount: ₹${data.codAmount ?? 0}` : 'Prepaid',
     ].filter(Boolean).join(' | ');
 
@@ -545,7 +546,7 @@ export class OrdersService {
         where: { id: orderId },
         data: {
           status: OrderStatus.PENDING_DISPATCH_APPROVAL,
-          shippingCharge: new Prisma.Decimal(data.courierCharges),
+          shippingCharge: new Prisma.Decimal(dispatchCharge),
           notes: dispatchNotes,
         },
       });
@@ -601,6 +602,7 @@ export class OrdersService {
     data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string },
   ) {
     const results: string[] = [];
+    const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
     for (const orderId of orderIds) {
       const order = await this.prisma.order.findUnique({ where: { id: orderId } });
       if (!order) continue;
@@ -618,7 +620,7 @@ export class OrdersService {
       const dispatchNotes = [
         data.notes,
         dispatchTypeLine,
-        `Courier charges: ₹${data.courierCharges}`,
+        dispatchCharge > 0 ? `Courier charges: ₹${dispatchCharge}` : '',
         data.isCod ? `COD: ₹${data.codAmount ?? 0} to be collected on delivery` : 'Prepaid',
         orderIds.length > 1 ? `Batch with: ${orderIds.filter((id) => id !== orderId).join(', ')}` : '',
       ].filter(Boolean).join(' | ');
@@ -628,7 +630,7 @@ export class OrdersService {
           where: { id: orderId },
           data: {
             status: OrderStatus.PENDING_DISPATCH_APPROVAL,
-            shippingCharge: new Prisma.Decimal(data.courierCharges / orderIds.length),
+            shippingCharge: new Prisma.Decimal(dispatchCharge / orderIds.length),
             notes: dispatchNotes,
           },
         });
@@ -737,7 +739,7 @@ export class OrdersService {
     const data = orders.map((o) => {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const balanceDue = Math.max(0, total - advancePaid);
+      const balanceDue = total - advancePaid;
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
 
       return {
@@ -759,13 +761,4 @@ export class OrdersService {
           id: i.id,
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
-          designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
-        })),
-      };
-    });
-    return { data, page, limit, total, hasMore: page * limit < total };
-  }
-}
-
-
-
+          designFiles: Array.from({ length: designFileCo

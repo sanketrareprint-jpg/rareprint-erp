@@ -3,11 +3,21 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Package, Truck, CheckSquare, Square, Search, X } from "lucide-react";
+import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
 type Warehouse = { id: string; name: string; pincode: string; location: string };
+
+type ShipmentHistory = {
+  id: string; shipmentNumber: string; carrierName: string | null;
+  trackingNumber: string | null; dispatchType: string | null;
+  transportName: string | null; lrNumber: string | null; awbNumber: string | null;
+  status: string; amount: number | null; isCod: boolean; codAmount: number | null;
+  dispatchDate: string; orderId: string; orderNo: string;
+  customerName: string; customerPhone: string | null;
+  shippingAddress: string | null; salesAgentName: string | null; notes: string | null;
+};
 
 type DispatchOrder = {
   id: string; orderNo: string; customerName: string;
@@ -45,6 +55,7 @@ function ageColor(dateStr: string): string {
 
 export default function DispatchPage() {
   const router = useRouter();
+  const [tab, setTab] = useState<"queue" | "history">("queue");
   const [orders, setOrders] = useState<DispatchOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +69,9 @@ export default function DispatchPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<Record<string, string>>({});
   const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
+  const [history, setHistory] = useState<ShipmentHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
 
   const load = useCallback(async () => {
     setError(null); setLoading(true);
@@ -74,7 +88,16 @@ export default function DispatchPage() {
     finally { setLoading(false); }
   }, [router]);
 
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/history?limit=100`, { headers: getAuthHeaders() });
+      if (res.ok) setHistory(await res.json());
+    } finally { setHistoryLoading(false); }
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (tab === "history") void loadHistory(); }, [tab, loadHistory]);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/dispatch/warehouses`, { headers: getAuthHeaders() })
@@ -161,15 +184,132 @@ export default function DispatchPage() {
     );
   }, [orders, search]);
 
+  const filteredHistory = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter(h =>
+      h.orderNo.toLowerCase().includes(q) ||
+      h.customerName.toLowerCase().includes(q) ||
+      (h.customerPhone ?? "").includes(q) ||
+      (h.carrierName ?? "").toLowerCase().includes(q) ||
+      (h.trackingNumber ?? "").toLowerCase().includes(q) ||
+      (h.shipmentNumber ?? "").toLowerCase().includes(q)
+    );
+  }, [history, historySearch]);
+
   return (
     <DashboardShell>
       <div className="p-6 lg:p-8">
         <div className="mx-auto max-w-5xl space-y-5">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">Dispatch</h1>
-            <p className="mt-0.5 text-sm text-slate-600">Select items to dispatch — partial or full.</p>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">Dispatch</h1>
+              <p className="mt-0.5 text-sm text-slate-600">Select items to dispatch — partial or full.</p>
+            </div>
+            {/* Tab switcher */}
+            <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
+              <button onClick={() => setTab("queue")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${tab === "queue" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <Package className="h-3.5 w-3.5" /> Queue ({orders.length})
+              </button>
+              <button onClick={() => setTab("history")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "history" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <History className="h-3.5 w-3.5" /> History
+              </button>
+            </div>
           </div>
 
+          {/* ── HISTORY TAB ── */}
+          {tab === "history" && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2 items-center">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <input type="text" value={historySearch} onChange={e => setHistorySearch(e.target.value)}
+                    placeholder="Search order, customer, courier, tracking…"
+                    className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </div>
+                <button onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                  <Loader2 className={`h-3 w-3 ${historyLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <span className="text-xs text-slate-400">{filteredHistory.length} shipment{filteredHistory.length !== 1 ? "s" : ""}</span>
+              </div>
+              {historyLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+              ) : filteredHistory.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
+                  <History className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                  <p>No shipment history found.</p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Date</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Order</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Ship To</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Courier / Method</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Tracking</th>
+                        <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Amount</th>
+                        <th className="px-4 py-2.5 text-center font-semibold text-slate-600">COD</th>
+                        <th className="px-4 py-2.5 text-center font-semibold text-slate-600">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredHistory.map(h => (
+                        <tr key={h.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{new Date(h.dispatchDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}</td>
+                          <td className="px-4 py-2.5 font-bold text-blue-700">{h.orderNo}</td>
+                          <td className="px-4 py-2.5">
+                            <p className="font-medium text-slate-800">{h.customerName}</p>
+                            {h.customerPhone && <p className="text-slate-400">{h.customerPhone}</p>}
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-600 max-w-[160px]">
+                            {h.shippingAddress ? (
+                              <span title={h.shippingAddress} className="block truncate">{h.shippingAddress}</span>
+                            ) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {h.carrierName && <p className="font-medium text-slate-800">{h.carrierName}</p>}
+                            {h.transportName && <p className="text-slate-500">{h.transportName}{h.lrNumber ? ` · LR: ${h.lrNumber}` : ""}</p>}
+                            {!h.carrierName && !h.transportName && <span className="text-slate-400">{h.dispatchType ?? "—"}</span>}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {h.trackingNumber ? (
+                              <span className="font-mono text-blue-700">{h.trackingNumber}</span>
+                            ) : h.awbNumber ? (
+                              <span className="font-mono text-blue-700">AWB: {h.awbNumber}</span>
+                            ) : <span className="text-slate-400">—</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-slate-800">{h.amount != null ? fmt(h.amount) : "—"}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            {h.isCod ? (
+                              <span className="rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-[10px] font-bold">
+                                💰 {h.codAmount ? fmt(h.codAmount) : "COD"}
+                              </span>
+                            ) : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              h.status === "DELIVERED" ? "bg-green-100 text-green-700" :
+                              h.status === "IN_TRANSIT" ? "bg-blue-100 text-blue-700" :
+                              h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
+                              "bg-slate-100 text-slate-600"
+                            }`}>{h.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── QUEUE TAB ── */}
+          {tab === "queue" && <>
           {/* Search */}
           <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -211,44 +351,58 @@ export default function DispatchPage() {
                 const someSelected = o.readyItems.some(i => orderSelected.has(i.id));
                 const orderRates = rates[o.id] ?? [];
                 const selectedWeight = o.readyItems.filter(i => orderSelected.has(i.id)).reduce((s, i) => s + i.weightKg, 0);
+                const activeWarehouse = warehouses.find(w => w.id === (selectedWarehouse[o.id] || warehouses[0]?.id)) ?? warehouses[0];
 
                 return (
                   <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     {/* Header */}
                     <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
-                      <div className="flex items-center justify-between flex-wrap gap-3">
-                        <div className="flex items-center gap-5">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 shrink-0">
+                      <div className="flex flex-wrap gap-4">
+                        <div className="flex items-start gap-4 flex-1">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 shrink-0 mt-0.5">
                             <Package className="h-5 w-5 text-blue-600" />
                           </div>
-                          <div>
-                            <p className="font-bold text-slate-900">{o.orderNo}</p>
-                            <span className={`mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
-                            <p className="text-sm text-slate-600">{o.customerName}</p>
-                            {o.customerPhone && <p className="text-xs text-slate-500">{o.customerPhone}</p>}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <p className="font-bold text-slate-900">{o.orderNo}</p>
+                              <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
+                              {o.salesAgentName && (
+                                <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-semibold border border-blue-100">👤 {o.salesAgentName}</span>
+                              )}
+                              {o.isCod && (
+                                <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold border border-amber-200">💰 COD{o.codAmount ? ` ₹${o.codAmount}` : ""}</span>
+                              )}
+                            </div>
+                            <p className="font-semibold text-slate-800">{o.customerName}</p>
+                            {o.customerPhone && <p className="text-xs text-slate-500">📞 {o.customerPhone}</p>}
+                            {/* Full Ship-To address */}
+                            {o.shipTo && o.shipTo !== "—" && (
+                              <div className="mt-1.5 flex items-start gap-1 text-xs text-slate-600">
+                                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                <span className="leading-relaxed">{o.shipTo}</span>
+                              </div>
+                            )}
                           </div>
-                          {o.salesAgentName && (
-                            <span className="rounded-full bg-blue-50 text-blue-700 px-2.5 py-1 text-xs font-semibold border border-blue-100">
-                              👤 {o.salesAgentName}
-                            </span>
+                        </div>
+                        {/* Right column: stats + pickup */}
+                        <div className="flex flex-col gap-2 items-end shrink-0">
+                          <div className="flex gap-4 text-xs text-right">
+                            <div>
+                              <p className="text-slate-500">Ready Items</p>
+                              <p className="font-semibold text-emerald-600">{o.readyItems.length} of {o.totalItems}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500">Sel. Weight</p>
+                              <p className="font-semibold text-slate-700">{selectedWeight.toFixed(2)} kg</p>
+                            </div>
+                          </div>
+                          {/* Pickup from */}
+                          {activeWarehouse && (
+                            <div className="flex items-start gap-1 text-xs text-slate-500 text-right">
+                              <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                              <span>Pickup: <span className="font-semibold text-slate-700">{activeWarehouse.name}</span> · Pin {activeWarehouse.pincode}</span>
+                            </div>
                           )}
-                          {o.isCod && (
-                            <span className="rounded-full bg-amber-100 text-amber-800 px-2.5 py-1 text-xs font-bold border border-amber-200">
-                              💰 COD{o.codAmount ? ` ₹${o.codAmount}` : ""}
-                            </span>
-                          )}
-                          <div>
-                            <p className="text-xs text-slate-500">Ship To</p>
-                            <p className="text-sm text-slate-700 max-w-[200px] truncate">{o.shipTo}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Ready Items</p>
-                            <p className="text-sm font-semibold text-emerald-600">{o.readyItems.length} of {o.totalItems}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500">Selected Weight</p>
-                            <p className="text-sm font-semibold text-slate-700">{selectedWeight.toFixed(2)} kg</p>
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -360,6 +514,7 @@ export default function DispatchPage() {
               })}
             </div>
           )}
+          </>}
         </div>
       </div>
     </DashboardShell>

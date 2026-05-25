@@ -37,6 +37,7 @@ export class AccountsService {
         customerName:  order.customer.businessName,
         customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
+        shippingAddress: order.customer.shippingAddress ?? order.customer.billingAddress ?? null,
         salesAgentName: order.salesAgent?.fullName ?? null,
         customerAddress: [
           order.customer.billingAddress,
@@ -90,8 +91,9 @@ export class AccountsService {
       const grandTotal = Number(order.grandTotal);
       const balanceDue = Math.max(0, grandTotal - totalPaid);
 
-      const courierMatch      = order.notes?.match(/Courier:\s*₹?([\d.]+)/);
+      const courierMatch      = order.notes?.match(/Courier(?:\s+charges)?:\s*₹?([\d.]+)/i);
       const paymentTypeMatch  = order.notes?.match(/\b(COD|Prepaid)\b/i);
+      const codAmountMatch     = order.notes?.match(/COD(?:\s+amount)?:\s*₹?([\d.]+)/i);
 
       return {
         id: order.id,
@@ -99,6 +101,7 @@ export class AccountsService {
         customerName:  order.customer.businessName,
         customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
+        shippingAddress: order.customer.shippingAddress ?? order.customer.billingAddress ?? null,
         salesAgentName: order.salesAgent?.fullName ?? null,
         items: order.items.map((i) => ({
           productName:     i.product.name,
@@ -116,6 +119,7 @@ export class AccountsService {
         notes: order.notes,
         courierCharge: courierMatch ? parseFloat(courierMatch[1]) : null,
         paymentType:   paymentTypeMatch ? paymentTypeMatch[1].toUpperCase() : null,
+        codAmount:     codAmountMatch ? parseFloat(codAmountMatch[1]) : null,
         payments: order.payments.map((p) => ({
           id: p.id,
           date: p.paymentDate.toISOString(),

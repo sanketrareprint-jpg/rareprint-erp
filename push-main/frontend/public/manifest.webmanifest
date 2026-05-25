@@ -1,0 +1,57 @@
+{
+  "name": "RarePrint ERP",
+  "short_name": "RarePrint",
+  "description": "RarePrint ERP mobile app for CRM, orders, production, dispatch, accounts, and rate calculation.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#1e3a5f",
+  "icons": [
+    {
+      "src": "/rareprint-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard",
+      "description": "Open ERP dashboard"
+    },
+    {
+      "name": "CRM Leads",
+      "short_name": "CRM",
+      "url": "/crm",
+      "description": "Open lead management"
+    },
+    {
+      "name": "Orders",
+      "short_name": "Orders",
+      "url": "/orders",
+      "description": "Open sales orders"
+    },
+    {
+      "name": "Production",
+      "short_name": "Production",
+      "url": "/production",
+      "description": "Open production tracking"
+    },
+    {
+      "name": "Dispatch",
+      "short_name": "Dispatch",
+      "url": "/dispatch",
+      "description": "Open dispatch"
+    },
+    {
+      "name": "Rate Calculator",
+      "short_name": "Rates",
+      "url": "/rate-calculator",
+      "description": "Open rate calculator"
+    }
+  ]
+}

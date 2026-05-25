@@ -15,6 +15,12 @@ export class DispatchController {
     return this.dispatchService.listReadyForDispatch();
   }
 
+  @Get('history')
+  getShipmentHistory(@Query('limit') limitStr?: string) {
+    const limit = limitStr ? Math.min(parseInt(limitStr, 10) || 50, 200) : 50;
+    return this.dispatchService.getShipmentHistory(limit);
+  }
+
   @Get('warehouses')
   getWarehouses() {
     return this.dispatchService.getWarehouses();

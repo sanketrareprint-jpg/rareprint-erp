@@ -333,4 +333,50 @@ export class DispatchService {
 
     return result;
   }
+
+  async getShipmentHistory(limit = 50) {
+    const shipments = await this.prisma.shipment.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        order: {
+          include: {
+            customer: { select: { businessName: true, phone: true, shippingAddress: true, billingAddress: true } },
+            salesAgent: { select: { fullName: true } },
+          },
+        },
+      },
+    });
+
+    return shipments.map((s) => {
+      const orderNotes = s.order.notes ?? '';
+      const isCod = /\bCOD[:\s]/i.test(orderNotes);
+      const codAmountMatch = orderNotes.match(/COD(?:\s+amount)?:\s*₹?(\d+)/i);
+      const codAmount = codAmountMatch ? Number(codAmountMatch[1]) : null;
+
+      return {
+        id: s.id,
+        shipmentNumber: s.shipmentNumber,
+        carrierName: s.carrierName,
+        trackingNumber: s.trackingNumber,
+        dispatchType: s.dispatchType,
+        transportName: s.transportName,
+        lrNumber: s.lrNumber,
+        awbNumber: s.awbNumber,
+        status: s.status,
+        amount: s.order.shippingCharge ? Number(s.order.shippingCharge) : null,
+        isCod,
+        codAmount,
+        dispatchDate: s.dispatchDate?.toISOString() ?? s.createdAt.toISOString(),
+        createdAt: s.createdAt.toISOString(),
+        orderId: s.orderId,
+        orderNo: s.order.orderNumber,
+        customerName: s.order.customer.businessName,
+        customerPhone: s.order.customer.phone ?? null,
+        shippingAddress: s.order.customer.shippingAddress ?? s.order.customer.billingAddress ?? null,
+        salesAgentName: s.order.salesAgent?.fullName ?? null,
+        notes: s.notes,
+      };
+    });
+  }
 }
