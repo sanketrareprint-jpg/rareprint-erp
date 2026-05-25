@@ -201,6 +201,7 @@ export class DispatchService {
       shipTo: string; weightKg: number; orderDate: string;
       totalItems: number; readyItemsCount: number;
       dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
+      paymentType: 'COD' | 'PREPAID';
       isCod: boolean; codAmount: number | null;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
@@ -232,6 +233,7 @@ export class DispatchService {
         totalItems: o.items.length,
         readyItemsCount: readyItems.length,
         dispatchType: parseDispatchType(o.notes),
+        paymentType: notesIsCod ? 'COD' : 'PREPAID',
         isCod: notesIsCod,
         codAmount: notescodAmount,
         readyItems: readyItems.map((i) => {

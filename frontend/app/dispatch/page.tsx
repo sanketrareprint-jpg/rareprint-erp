@@ -25,6 +25,7 @@ type DispatchOrder = {
   shipTo: string; weightKg: number; orderDate: string;
   totalItems: number; readyItems: ReadyItem[];
   dispatchType?: DispatchMethod;
+  paymentType?: "COD" | "PREPAID";
   isCod: boolean; codAmount: number | null;
 };
 
@@ -491,8 +492,10 @@ export default function DispatchPage() {
                               {o.salesAgentName && (
                                 <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-semibold border border-blue-100">👤 {o.salesAgentName}</span>
                               )}
-                              {o.isCod && (
-                                <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold border border-amber-200">💰 COD{o.codAmount ? ` ₹${o.codAmount}` : ""}</span>
+                              {o.isCod ? (
+                                <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold border border-amber-200">COD{o.codAmount ? ` ${fmt(o.codAmount)}` : ""}</span>
+                              ) : (
+                                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-xs font-bold border border-emerald-200">PREPAID</span>
                               )}
                             </div>
                             <p className="font-semibold text-slate-800">{o.customerName}</p>
