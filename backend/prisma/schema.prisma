@@ -656,6 +656,7 @@ model Lead {
   businessName     String?
   city             String?
   productInterest  String?
+  tags             String[]       @default([])
   estimatedQty     Int?
   estimatedValue   Float?
   notes            String?

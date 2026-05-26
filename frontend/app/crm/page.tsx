@@ -12,7 +12,7 @@ interface Activity { id: string; type: string; description: string; createdAt: s
 interface Lead {
   id: string; name: string; phone: string; email?: string; businessName?: string;
   city?: string; productInterest?: string; estimatedQty?: number; estimatedValue?: number;
-  notes?: string; source: string; status: LeadStatus; score: number; isHot: boolean;
+  notes?: string; tags?: string[]; source: string; status: LeadStatus; score: number; isHot: boolean;
   agentId: string; agent: { fullName: string };
   nextFollowUp?: FollowUp; activityCount: number; isDuplicate?: boolean;
   activities?: Activity[]; followUps?: FollowUp[]; sharedWith?: any[];
@@ -37,10 +37,10 @@ const ACTIVITY_ICONS: Record<string, string> = {
   QUOTE_SENT: "📄", FOLLOW_UP_SCHEDULED: "📅",
 };
 const STATUSES: LeadStatus[] = ["NEW", "CONTACTED", "INTERESTED", "QUOTED", "WON", "LOST"];
-const CSV_SAMPLE = `name,phone,email,businessName,city,productInterest,estimatedQty,estimatedValue,notes
-Raju Medical Store,9876543210,raju@gmail.com,Raju Medical,Nashik,ENVELOPE,5000,2500,needs letterhead too
-Priya Pharma,9123456780,,Priya Pharma,Pune,BOX,10000,8000,
-City Hospital,9988776655,city@hospital.com,City Hospital,Mumbai,FILE,2000,3000,urgent`;
+const CSV_SAMPLE = `name,phone,email,businessName,city,productInterest,tags,estimatedQty,estimatedValue,notes
+Raju Medical Store,9876543210,raju@gmail.com,Raju Medical,Nashik,ENVELOPE,hot;wholesale,5000,2500,needs letterhead too
+Priya Pharma,9123456780,,Priya Pharma,Pune,BOX,repeat,10000,8000,
+City Hospital,9988776655,city@hospital.com,City Hospital,Mumbai,FILE,urgent,2000,3000,urgent`;
 
 // ─── SCORE BADGE ──────────────────────────────────────────────────────────────
 function ScoreBadge({ score }: { score: number }) {
@@ -72,6 +72,11 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       </div>
       {lead.productInterest && (
         <span className="inline-block mt-1.5 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{lead.productInterest}</span>
+      )}
+      {lead.tags && lead.tags.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {lead.tags.slice(0, 3).map((tag) => <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{tag}</span>)}
+        </div>
       )}
       {lead.nextFollowUp && (
         <div className={`mt-2 text-xs flex items-center gap-1 ${overdue ? "text-red-600 font-semibold" : "text-slate-400"}`}>
@@ -109,6 +114,7 @@ function MobileLeadRow({ lead, onOpen, onCall }: { lead: Lead; onOpen: () => voi
             <span className="text-xs font-mono text-slate-500">{lead.phone}</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status]}`}>{STATUS_LABELS[lead.status]}</span>
             {lead.productInterest && <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full">{lead.productInterest}</span>}
+            {lead.tags?.slice(0, 2).map((tag) => <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{tag}</span>)}
           </div>
           {lead.nextFollowUp && (
             <p className={`text-xs mt-1 ${overdue ? "text-red-600 font-semibold" : "text-slate-400"}`}>
@@ -143,7 +149,7 @@ function CrmPageContent() {
   const [showCallModal, setShowCallModal] = useState<Lead | null>(null);
   const [callNote, setCallNote] = useState("");
   const [noteText, setNoteText] = useState("");
-  const [newLeadForm, setNewLeadForm] = useState({ name: "", phone: "", email: "", businessName: "", city: "", productInterest: "", estimatedQty: "", estimatedValue: "", notes: "" });
+  const [newLeadForm, setNewLeadForm] = useState({ name: "", phone: "", email: "", businessName: "", city: "", productInterest: "", tags: "", estimatedQty: "", estimatedValue: "", notes: "" });
   const [duplicateAlert, setDuplicateAlert] = useState<any>(null);
   const [dialerLead, setDialerLead] = useState<Lead | null>(null);
   const [dialerActive, setDialerActive] = useState(false);
@@ -312,7 +318,7 @@ function CrmPageContent() {
       method: "POST", headers: { ...getAuth(), "Content-Type": "application/json" },
       body: JSON.stringify(newLeadForm),
     });
-    if (res.ok) { setShowAddModal(false); setNewLeadForm({ name: "", phone: "", email: "", businessName: "", city: "", productInterest: "", estimatedQty: "", estimatedValue: "", notes: "" }); load(); }
+    if (res.ok) { setShowAddModal(false); setNewLeadForm({ name: "", phone: "", email: "", businessName: "", city: "", productInterest: "", tags: "", estimatedQty: "", estimatedValue: "", notes: "" }); load(); }
     else alert("Failed to create lead");
   };
 
@@ -530,6 +536,11 @@ function CrmPageContent() {
                         <td className="px-4 py-3 font-mono text-slate-600">{lead.phone}</td>
                         <td className="px-4 py-3">
                           {lead.productInterest && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{lead.productInterest}</span>}
+                          {lead.tags && lead.tags.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {lead.tags.slice(0, 3).map((tag) => <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{tag}</span>)}
+                            </div>
+                          )}
                           {lead.estimatedQty && <p className="text-xs text-slate-400 mt-0.5">Qty: {lead.estimatedQty}</p>}
                         </td>
                         <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
@@ -677,6 +688,7 @@ function CrmPageContent() {
                 {[
                   ["Phone", selectedLead.phone], ["Email", selectedLead.email ?? "—"],
                   ["City", selectedLead.city ?? "—"], ["Product", selectedLead.productInterest ?? "—"],
+                  ["Tags", selectedLead.tags?.length ? selectedLead.tags.join(", ") : "—"],
                   ["Est. Qty", selectedLead.estimatedQty ? selectedLead.estimatedQty.toLocaleString() : "—"],
                   ["Est. Value", selectedLead.estimatedValue ? `₹${selectedLead.estimatedValue.toLocaleString()}` : "—"],
                   ["Source", selectedLead.source], ["Agent", selectedLead.agent.fullName],
@@ -779,6 +791,7 @@ function CrmPageContent() {
                 ["Business name", "businessName", "text", "Shop / company"],
                 ["City", "city", "text", "Nashik, Pune…"],
                 ["Product interest", "productInterest", "text", "ENVELOPE, BOX, FILE…"],
+                ["Tags", "tags", "text", "hot, urgent, repeat…"],
                 ["Est. quantity", "estimatedQty", "number", "5000"],
                 ["Est. value (₹)", "estimatedValue", "number", "2500"],
               ].map(([label, key, type, placeholder]) => (

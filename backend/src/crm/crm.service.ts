@@ -95,6 +95,7 @@ export class CrmService {
         businessName: data.businessName,
         city: data.city,
         productInterest: data.productInterest,
+        tags: this.normalizeTags(data.tags),
         estimatedQty: data.estimatedQty ? Number(data.estimatedQty) : null,
         estimatedValue: data.estimatedValue ? Number(data.estimatedValue) : null,
         notes: data.notes,
@@ -297,6 +298,7 @@ export class CrmService {
             businessName: row.businessName ? String(row.businessName).trim() : null,
             city: row.city ? String(row.city).trim() : null,
             productInterest: row.productInterest ? String(row.productInterest).trim() : null,
+            tags: this.normalizeTags(row.tags),
             estimatedQty: row.estimatedQty ? Number(row.estimatedQty) : null,
             estimatedValue: row.estimatedValue ? Number(row.estimatedValue) : null,
             notes: row.notes ? String(row.notes).trim() : null,
@@ -476,6 +478,7 @@ export class CrmService {
     businessName?: string;
     city?: string;
     productInterest?: string;
+    tags?: string[] | string;
     estimatedQty?: number;
     estimatedValue?: number;
     notes?: string;
@@ -495,6 +498,7 @@ export class CrmService {
         businessName: data.businessName,
         city: data.city,
         productInterest: data.productInterest,
+        tags: this.normalizeTags(data.tags),
         estimatedQty: data.estimatedQty,
         estimatedValue: data.estimatedValue,
         notes: data.notes,
@@ -534,6 +538,13 @@ export class CrmService {
     });
 
     if (existing) {
+      const mergedTags = this.mergeTags(existing.tags, incoming.tags);
+      if (mergedTags.length !== existing.tags.length) {
+        await this.prisma.lead.update({
+          where: { id: existing.id },
+          data: { tags: mergedTags },
+        });
+      }
       if (incoming.messageText) {
         await this.prisma.leadActivity.create({
           data: {
@@ -560,6 +571,7 @@ export class CrmService {
         source: LeadSource.WHATSAPP,
         status: LeadStatus.NEW,
         productInterest: incoming.productInterest,
+        tags: incoming.tags,
         notes: incoming.messageText ? `First AiSensy message: ${incoming.messageText}` : 'Created from AiSensy webhook',
         agentId: agent.id,
         score: this._scoreLead({
@@ -680,6 +692,7 @@ export class CrmService {
     sender?: string;
     messageText?: string;
     productInterest?: string;
+    tags: string[];
   } {
     const message =
       rawBody?.data?.message ??
@@ -726,6 +739,14 @@ export class CrmService {
       rawBody?.data?.name ??
       rawBody?.data?.customerName ??
       '';
+    const rawTags =
+      message?.tags ??
+      message?.tag ??
+      rawBody?.tags ??
+      rawBody?.tag ??
+      rawBody?.data?.tags ??
+      rawBody?.data?.tag ??
+      [];
 
     return {
       phone: this.normalizeLeadPhone(rawPhone),
@@ -733,6 +754,7 @@ export class CrmService {
       sender: message?.sender ?? rawBody?.sender,
       messageText: String(messageText || '').trim(),
       productInterest: this.extractProductInterest(String(messageText || '')),
+      tags: this.normalizeTags(rawTags),
     };
   }
 
@@ -756,6 +778,27 @@ export class CrmService {
       'visiting card',
     ];
     return products.find((product) => value.includes(product));
+  }
+
+  private normalizeTags(value: unknown): string[] {
+    if (!value) return [];
+    const items = Array.isArray(value)
+      ? value
+      : String(value).split(/[;,|]/);
+
+    const tags = items
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        return item?.name ?? item?.tag ?? item?.title ?? item?.label ?? '';
+      })
+      .map((tag) => String(tag).trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(tags));
+  }
+
+  private mergeTags(current: string[] = [], incoming: string[] = []): string[] {
+    return Array.from(new Set([...current, ...incoming].map((tag) => String(tag).trim()).filter(Boolean)));
   }
 }
 
