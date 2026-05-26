@@ -161,17 +161,20 @@ export default function OrdersPage() {
       status: statusFilter,
     });
     if (search.trim()) params.set("search", search.trim());
-    const [oRes, rRes, aRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/orders?${params}`, { headers }),
-      fetch(`${API_BASE_URL}/orders/ready-for-dispatch?${params}`, { headers }),
-      fetch(`${API_BASE_URL}/orders/payment-accounts`, { headers }),
-    ]);
+    const oRes = await fetch(`${API_BASE_URL}/orders?${params}`, { headers });
     if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
     const ordersPayload: PagedOrders = await oRes.json();
     setOrders(prev => append ? [...prev, ...(ordersPayload.data ?? [])] : (ordersPayload.data ?? []));
     setOrdersPage(ordersPayload.page ?? nextPage);
     setOrdersTotal(ordersPayload.total ?? 0);
     setOrdersHasMore(Boolean(ordersPayload.hasMore));
+
+    if (!append) setLoading(false);
+
+    const [rRes, aRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/orders/ready-for-dispatch?${params}`, { headers }),
+      fetch(`${API_BASE_URL}/orders/payment-accounts`, { headers }),
+    ]);
     const readyPayload: PagedOrders = rRes.ok ? await rRes.json() : { data: [], page: nextPage, limit: ORDER_PAGE_SIZE, total: 0, hasMore: false };
     const rawReady = readyPayload.data ?? [];
     const cu = (() => { try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; } })();

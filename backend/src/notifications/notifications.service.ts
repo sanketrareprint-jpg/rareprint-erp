@@ -61,9 +61,31 @@ export class NotificationsService {
           ...(orderIds.length ? [{ orderId: { in: orderIds } }] : []),
         ],
       },
-      include: {
-        product: true,
-        order: { include: { customer: true, salesAgent: true } },
+      select: {
+        id: true,
+        orderId: true,
+        quantity: true,
+        productionCategory: true,
+        itemProductionStage: true,
+        artworkNotes: true,
+        productionNotes: true,
+        product: {
+          select: {
+            name: true,
+            sku: true,
+            sizeInches: true,
+            openSizeInches: true,
+            gsm: true,
+            sides: true,
+            printingType: true,
+          },
+        },
+        order: {
+          select: {
+            customer: { select: { businessName: true, phone: true } },
+            salesAgent: { select: { fullName: true } },
+          },
+        },
       },
     });
     const byId = new Map(items.map(item => [item.id, item]));

@@ -302,6 +302,7 @@ model Order {
   reassuranceLogs  OrderReassuranceLog[]
 
   @@index([status, orderDate])
+  @@index([status, updatedAt])
   @@index([salesAgentId, orderDate])
   @@index([customerId, orderDate])
   @@index([productionStage])
@@ -455,6 +456,7 @@ model StatusLog {
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId, createdAt])
+  @@index([toStatus, orderId])
 }
 
 model OrderReassuranceLog {
@@ -986,6 +988,9 @@ model Notification {
   updatedAt   DateTime  @updatedAt
 
   @@index([toUserId, isResolved])
+  @@index([toUserId, isRead])
+  @@index([toUserId, createdAt])
+  @@index([copyToAdmin, createdAt])
   @@index([type, isResolved])
   @@index([orderId])
 }

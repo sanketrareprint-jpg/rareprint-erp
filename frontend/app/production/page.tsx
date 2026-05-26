@@ -231,17 +231,19 @@ export default function ProductionPage() {
     if (!silent) setLoading(true);
     try {
       const h = getAuthHeaders();
-      const [oRes, cRes, sRes, vRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/production/orders`, { headers: h }),
+      const oRes = await fetch(`${API_BASE_URL}/production/orders`, { headers: h });
+      if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+      setOrdersData(oRes.ok ? await oRes.json() : []);
+      if (!silent) setLoading(false);
+
+      const [cRes, sRes, vRes] = await Promise.all([
         fetch(`${API_BASE_URL}/production/clubbing/orders`, { headers: h }),
         fetch(`${API_BASE_URL}/production/sheets`, { headers: h }),
         fetch(`${API_BASE_URL}/vendors`, { headers: h }),
       ]);
-      if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
-      setOrdersData(oRes.ok ? await oRes.json() : []);
-      setClubData(cRes.ok ? await cRes.json() : []);
-      setSheetsData(sRes.ok ? await sRes.json() : []);
-      setVendorsData(vRes.ok ? await vRes.json() : []);
+      if (cRes.ok) setClubData(await cRes.json());
+      if (sRes.ok) setSheetsData(await sRes.json());
+      if (vRes.ok) setVendorsData(await vRes.json());
     } catch { setError("Network error."); }
     finally { if (!silent) setLoading(false); }
   }, [router]);

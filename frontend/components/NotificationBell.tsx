@@ -85,16 +85,22 @@ export function NotificationBell({ userRole }: { userRole: string }) {
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const fetchUnreadCount = async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const cRes = await fetch(`${API}/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } });
+      if (cRes.ok) { const d = await cRes.json(); setUnreadCount(d.count); }
+    } catch {}
+  };
+
   const fetchNotifications = async () => {
     const token = getToken();
     if (!token) return;
     try {
-      const [nRes, cRes] = await Promise.all([
-        fetch(`${API}/notifications`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API}/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
+      const nRes = await fetch(`${API}/notifications`, { headers: { Authorization: `Bearer ${token}` } });
       if (nRes.ok) setNotifications(await nRes.json());
-      if (cRes.ok) { const d = await cRes.json(); setUnreadCount(d.count); }
+      await fetchUnreadCount();
     } catch {}
   };
 
@@ -117,8 +123,8 @@ export function NotificationBell({ userRole }: { userRole: string }) {
   };
 
   useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000);
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 60000);
     return () => clearInterval(interval);
   }, []);
 
