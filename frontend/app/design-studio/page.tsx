@@ -1,491 +1,472 @@
 "use client";
 
-import React, { ChangeEvent, PointerEvent, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { API_BASE_URL } from "@/lib/api";
-import { getAuthHeaders } from "@/lib/auth";
 import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  Download,
-  ImagePlus,
-  Layers,
-  MousePointer2,
-  Palette,
+  Clipboard,
+  Database,
+  Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
-  Type,
 } from "lucide-react";
 
-type DesignSide = "front" | "back";
-type ElementKind = "text" | "image" | "shape";
-type TextAlign = "start" | "middle" | "end";
-type TemplateKey = "clean" | "premium" | "education" | "festival";
-
-type DesignElement = {
+type ProductRecord = {
   id: string;
-  kind: ElementKind;
-  side: DesignSide;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  text?: string;
-  src?: string;
-  fill: string;
-  stroke?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: number;
-  align?: TextAlign;
-  radius?: number;
+  name: string;
+  category: string;
+  description: string;
 };
 
-const DPI = 600;
-const OPEN_W = 8.5;
-const MAIN_H = 5.5;
-const FLAP_H = 0.5;
-const PASTE_H = 0.5;
-const TOTAL_H = MAIN_H + FLAP_H + PASTE_H;
-const CENTER_X = OPEN_W / 2;
-const LEFT_BACK_X = 0;
-const FRONT_X = 2.125;
-const RIGHT_BACK_X = 6.375;
-const PANEL_W = 2.125;
-
-const templates: Record<TemplateKey, { name: string; background: string; accent: string; text: string; muted: string }> = {
-  clean: { name: "Clean White", background: "#ffffff", accent: "#2563eb", text: "#0f172a", muted: "#64748b" },
-  premium: { name: "Premium Gold", background: "#fffdf7", accent: "#b7791f", text: "#171717", muted: "#7c6f57" },
-  education: { name: "Education Blue", background: "#f7fbff", accent: "#0f766e", text: "#12324a", muted: "#527084" },
-  festival: { name: "Indian Festive", background: "#fff7ed", accent: "#dc2626", text: "#3b1d0f", muted: "#9a3412" },
+type SizeRecord = {
+  id: string;
+  productId: string;
+  label: string;
+  width: string;
+  height: string;
+  unit: "in";
+  notes: string;
 };
 
-const fontOptions = [
-  "Noto Sans",
-  "Noto Sans Devanagari",
-  "Tiro Devanagari Hindi",
-  "Arial",
-  "Georgia",
-  "Times New Roman",
+type PromptForm = {
+  productId: string;
+  sizeId: string;
+  businessName: string;
+  businessField: string;
+  customField: string;
+  language: string;
+  requiredText: string;
+  colorCombination: string;
+  customColors: string;
+  templateStyle: string;
+  backgroundType: string;
+  backgroundDescription: string;
+  audience: string;
+  priority: string;
+  visualElements: string;
+  avoid: string;
+  extraFactors: string;
+};
+
+const storageKeys = {
+  products: "rareprint.designPrompt.products",
+  sizes: "rareprint.designPrompt.sizes",
+};
+
+const defaultProducts: ProductRecord[] = [
+  { id: "envelope", name: "Center Pasting Envelope", category: "Packaging", description: "Open layout for product or retail counter envelope." },
+  { id: "leaflet", name: "Leaflet / Flyer", category: "Marketing", description: "Single sheet promotional design." },
+  { id: "sticker", name: "Sticker Label", category: "Label", description: "Product label, bottle label, or seal sticker." },
+  { id: "visiting-card", name: "Visiting Card", category: "Stationery", description: "Business identity card." },
 ];
 
-const seedText = {
-  header: "PRAKASH POLY CLINIC",
-  subheader: "Complete Health Care Centre",
-  mobile1: "+91 80041 76377",
-  mobile2: "",
-  mobile3: "",
-  address1: "Main Road, Near City Centre",
-  address2: "Nagpur, Maharashtra",
-  bulletHeading: "Services",
-  bullets: "General Physician\nPathology Collection\nEmergency Support",
-  body: "Trusted medical care with modern facilities and personal attention.",
-  backsideHeading: "Why Choose Us",
-  backsideBullets: "Experienced doctors\nQuick reports\nFamily care",
-};
+const defaultSizes: SizeRecord[] = [
+  { id: "env-8-5x6-5", productId: "envelope", label: "Open 8.5 x 6.5", width: "8.5", height: "6.5", unit: "in", notes: "Includes flap and pasting area if needed." },
+  { id: "env-4-25x5-5", productId: "envelope", label: "Closed 4.25 x 5.5", width: "4.25", height: "5.5", unit: "in", notes: "Final folded envelope size." },
+  { id: "a5", productId: "leaflet", label: "A5 approx 5.83 x 8.27", width: "5.83", height: "8.27", unit: "in", notes: "Vertical flyer." },
+  { id: "vc-3-5x2", productId: "visiting-card", label: "3.5 x 2", width: "3.5", height: "2", unit: "in", notes: "Standard visiting card." },
+];
 
-function uid() {
+const businessFields = [
+  "Path Lab",
+  "Medical Store",
+  "Doctor / Clinic",
+  "Hospital",
+  "Education / Classes",
+  "Restaurant / Cafe",
+  "Real Estate",
+  "Beauty / Salon",
+  "Retail Shop",
+  "Other",
+];
+
+const colorCombinations = [
+  "Medical teal + deep navy + clean white",
+  "Premium black + gold + warm white",
+  "Fresh green + white + charcoal",
+  "Corporate blue + light grey + white",
+  "Festive red + saffron + cream",
+  "Elegant maroon + beige + dark brown",
+  "Custom",
+];
+
+const templateStyles = [
+  "Modern clean professional",
+  "Premium luxury minimal",
+  "Bold retail counter style",
+  "Medical trust and hygiene style",
+  "Information-heavy but neat",
+  "Elegant traditional Indian",
+  "Children friendly playful",
+];
+
+const backgroundTypes = [
+  "Plain clean background",
+  "Soft gradient background",
+  "Subtle pattern background",
+  "Photo-based background",
+  "Abstract wave background",
+  "Icon watermark background",
+  "Premium texture background",
+];
+
+const designFactors = [
+  "Clear hierarchy: business name first, service promise second, contact details easy to read.",
+  "Use print-safe spacing, bleed, margin, and avoid important text near cut or fold areas.",
+  "Keep contrast high for small text and phone numbers.",
+  "Use field-specific trust symbols only when useful, not as decoration overload.",
+  "Balance empty space with information density so the design looks premium, not crowded.",
+  "For medical designs, prefer clean hygiene, trust, authenticity, and calm colors.",
+  "For retail designs, make offer/service blocks easy to scan from distance.",
+  "Do not change, stylize, replace, or transliterate Hindi, Marathi, or Devanagari font/text.",
+];
+
+function id() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function detectFont(text: string) {
-  return /[\u0900-\u097F]/.test(text) ? "Noto Sans Devanagari" : "Noto Sans";
-}
-
-function escapeXml(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function splitLines(text: string, maxChars: number) {
-  const lines: string[] = [];
-  for (const raw of text.split("\n")) {
-    const words = raw.trim().split(/\s+/).filter(Boolean);
-    let line = "";
-    for (const word of words) {
-      const next = line ? `${line} ${word}` : word;
-      if (next.length > maxChars && line) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = next;
-      }
-    }
-    lines.push(line || raw);
+function readStored<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
   }
-  return lines.slice(0, 12);
 }
 
-function alignedX(el: DesignElement) {
-  if (el.align === "middle") return el.x + el.w / 2;
-  if (el.align === "end") return el.x + el.w;
-  return el.x;
-}
-
-function printGuides(exportMode = false) {
-  if (exportMode) return "";
-  return `
-    <rect x="0.125" y="0.625" width="8.25" height="5.25" fill="none" stroke="#22c55e" stroke-width="0.015" stroke-dasharray="0.08 0.06"/>
-    <rect x="0.25" y="0.75" width="8" height="5" fill="none" stroke="#3b82f6" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
-    <line x1="${FRONT_X}" y1="${FLAP_H}" x2="${FRONT_X}" y2="${FLAP_H + MAIN_H}" stroke="#f97316" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
-    <line x1="${FRONT_X + PANEL_W * 2}" y1="${FLAP_H}" x2="${FRONT_X + PANEL_W * 2}" y2="${FLAP_H + MAIN_H}" stroke="#f97316" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
-    <line x1="${CENTER_X}" y1="0" x2="${CENTER_X}" y2="${TOTAL_H}" stroke="#cbd5e1" stroke-width="0.01" stroke-dasharray="0.05 0.05"/>
-    <line x1="0" y1="${FLAP_H}" x2="${OPEN_W}" y2="${FLAP_H}" stroke="#94a3b8" stroke-width="0.01" stroke-dasharray="0.05 0.05"/>
-    <line x1="0" y1="${FLAP_H + MAIN_H}" x2="${OPEN_W}" y2="${FLAP_H + MAIN_H}" stroke="#94a3b8" stroke-width="0.01" stroke-dasharray="0.05 0.05"/>
-    <text x="0.12" y="0.31" font-size="0.11" fill="#64748b">Top flap 0.5"</text>
-    <text x="0.12" y="6.29" font-size="0.11" fill="#64748b">Bottom pasting 0.5"</text>
-    <text x="0.5" y="0.78" font-size="0.11" fill="#f97316">Back left half</text>
-    <text x="3.7" y="0.78" font-size="0.11" fill="#64748b">Front</text>
-    <text x="6.72" y="0.78" font-size="0.11" fill="#f97316">Back right half</text>
-  `;
-}
-
-function elementToSvg(el: DesignElement, selectedId?: string | null, exportMode = false) {
-  const selected = selectedId === el.id && !exportMode;
-  const frame = selected ? `<rect x="${el.x}" y="${el.y}" width="${el.w}" height="${el.h}" fill="none" stroke="#2563eb" stroke-width="0.025" stroke-dasharray="0.06 0.04"/>` : "";
-  if (el.kind === "image" && el.src) {
-    return `<image href="${el.src}" x="${el.x}" y="${el.y}" width="${el.w}" height="${el.h}" preserveAspectRatio="xMidYMid slice"/>${frame}`;
-  }
-  if (el.kind === "shape") {
-    return `<rect x="${el.x}" y="${el.y}" width="${el.w}" height="${el.h}" rx="${el.radius ?? 0.08}" fill="${el.fill}" stroke="${el.stroke ?? el.fill}" stroke-width="0.015"/>${frame}`;
-  }
-  const size = el.fontSize ?? 0.18;
-  const x = alignedX(el);
-  const family = el.fontFamily ?? detectFont(el.text ?? "");
-  const lines = splitLines(el.text ?? "", Math.max(8, Math.floor(el.w / size * 1.9)));
-  const tspans = lines.map((line, idx) => `<tspan x="${x}" dy="${idx === 0 ? 0 : size * 1.18}">${escapeXml(line)}</tspan>`).join("");
-  return `<text x="${x}" y="${el.y + size}" font-family="${family}, Arial, sans-serif" font-size="${size}" font-weight="${el.fontWeight ?? 700}" fill="${el.fill}" text-anchor="${el.align ?? "start"}">${tspans}</text>${frame}`;
-}
-
-function elementsToSvg(elements: DesignElement[], template: TemplateKey, selectedId?: string | null, exportMode = false) {
-  const t = templates[template];
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${OPEN_W}in" height="${TOTAL_H}in" viewBox="0 0 ${OPEN_W} ${TOTAL_H}">
-  <style>@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&amp;family=Noto+Sans+Devanagari:wght@400;600;700;800&amp;family=Tiro+Devanagari+Hindi:wght@400;700&amp;display=swap');</style>
-  <rect width="${OPEN_W}" height="${TOTAL_H}" fill="${t.background}"/>
-  <rect x="0" y="0" width="${OPEN_W}" height="${FLAP_H}" fill="${t.accent}" opacity="0.08"/>
-  <rect x="0" y="${FLAP_H + MAIN_H}" width="${OPEN_W}" height="${PASTE_H}" fill="${t.accent}" opacity="0.08"/>
-  ${printGuides(exportMode)}
-  ${elements.map((el) => elementToSvg(el, selectedId, exportMode)).join("")}
-</svg>`;
-}
-
-function RenderElement({ el, selected }: { el: DesignElement; selected: boolean }) {
-  if (el.kind === "image" && el.src) {
-    return (
-      <>
-        <image href={el.src} x={el.x} y={el.y} width={el.w} height={el.h} preserveAspectRatio="xMidYMid slice" />
-        {selected && <rect x={el.x} y={el.y} width={el.w} height={el.h} fill="none" stroke="#2563eb" strokeWidth="0.025" strokeDasharray="0.06 0.04" />}
-      </>
-    );
-  }
-  if (el.kind === "shape") {
-    return (
-      <>
-        <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={el.radius ?? 0.08} fill={el.fill} stroke={el.stroke ?? el.fill} strokeWidth="0.015" />
-        {selected && <rect x={el.x} y={el.y} width={el.w} height={el.h} fill="none" stroke="#2563eb" strokeWidth="0.025" strokeDasharray="0.06 0.04" />}
-      </>
-    );
-  }
-  const size = el.fontSize ?? 0.18;
-  const x = alignedX(el);
-  const lines = splitLines(el.text ?? "", Math.max(8, Math.floor(el.w / size * 1.9)));
-  return (
-    <>
-      <text x={x} y={el.y + size} fontFamily={`${el.fontFamily ?? detectFont(el.text ?? "")}, Arial, sans-serif`} fontSize={size} fontWeight={el.fontWeight ?? 700} fill={el.fill} textAnchor={el.align ?? "start"}>
-        {lines.map((line, idx) => <tspan key={`${line}-${idx}`} x={x} dy={idx === 0 ? 0 : size * 1.18}>{line}</tspan>)}
-      </text>
-      {selected && <rect x={el.x} y={el.y} width={el.w} height={el.h} fill="none" stroke="#2563eb" strokeWidth="0.025" strokeDasharray="0.06 0.04" />}
-    </>
-  );
-}
+const initialForm: PromptForm = {
+  productId: "envelope",
+  sizeId: "env-8-5x6-5",
+  businessName: "Prakash Medical Stores",
+  businessField: "Medical Store",
+  customField: "",
+  language: "Hindi / Marathi / English mixed",
+  requiredText: "प्रकाश मेडिकल स्टोर्स\nसंपूर्ण स्वास्थ्य सेवा केंद्र\n+91 80041 76377\nमेन रोड, सिटी सेंटर के पास, नागपुर, महाराष्ट्र\nहमें क्यों चुनें: असली दवायें, उचित कीमतें, परिवार जैसी देखभाल",
+  colorCombination: "Medical teal + deep navy + clean white",
+  customColors: "",
+  templateStyle: "Medical trust and hygiene style",
+  backgroundType: "Plain clean background",
+  backgroundDescription: "White base, subtle teal and navy wave accents, light medical cross watermark, clean spacing.",
+  audience: "Families, patients, local walk-in customers",
+  priority: "Trust, readability, clean medical look, premium retail finish",
+  visualElements: "Medical cross, leaf, shield/check icon, medicine category icons, phone and location icons",
+  avoid: "Avoid changing Devanagari text style, avoid crowded small text, avoid unnecessary fold/dividing guide lines in final artwork.",
+  extraFactors: designFactors.slice(0, 6).join("\n"),
+};
 
 export default function DesignStudioPage() {
-  const [template, setTemplate] = useState<TemplateKey>("clean");
-  const [side, setSide] = useState<DesignSide>("front");
-  const [form, setForm] = useState(seedText);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiSource, setAiSource] = useState<"openai" | "local" | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const t = templates[template];
+  const [products, setProducts] = useState<ProductRecord[]>(() => readStored(storageKeys.products, defaultProducts));
+  const [sizes, setSizes] = useState<SizeRecord[]>(() => readStored(storageKeys.sizes, defaultSizes));
+  const [form, setForm] = useState<PromptForm>(initialForm);
+  const [newProduct, setNewProduct] = useState({ name: "", category: "", description: "" });
+  const [newSize, setNewSize] = useState({ label: "", width: "", height: "", notes: "" });
+  const [copied, setCopied] = useState(false);
 
-  const [elements, setElements] = useState<DesignElement[]>(() => [
-    { id: uid(), kind: "text", side: "front", x: 2.45, y: 1.05, w: 3.6, h: 0.38, text: seedText.header, fill: "#0f172a", fontSize: 0.32, fontWeight: 800, align: "middle" },
-    { id: uid(), kind: "text", side: "front", x: 2.55, y: 4.95, w: 3.4, h: 0.42, text: `${seedText.mobile1}\n${seedText.address1}`, fill: "#0f172a", fontSize: 0.12, fontWeight: 700, align: "middle" },
-    { id: uid(), kind: "text", side: "back", x: 0.28, y: 1.2, w: 1.6, h: 0.35, text: seedText.header, fill: "#0f172a", fontSize: 0.24, fontWeight: 800, align: "middle" },
-    { id: uid(), kind: "text", side: "back", x: 6.72, y: 1.2, w: 1.55, h: 0.3, text: seedText.backsideHeading, fill: "#0f172a", fontSize: 0.17, fontWeight: 800, align: "middle" },
-  ]);
+  useEffect(() => {
+    window.localStorage.setItem(storageKeys.products, JSON.stringify(products));
+  }, [products]);
 
-  const visibleElements = useMemo(() => elements.filter((el) => el.side === side), [elements, side]);
-  const selected = elements.find((el) => el.id === selectedId) ?? null;
+  useEffect(() => {
+    window.localStorage.setItem(storageKeys.sizes, JSON.stringify(sizes));
+  }, [sizes]);
 
-  function patchSelected(patch: Partial<DesignElement>) {
-    if (!selectedId) return;
-    setElements((prev) => prev.map((el) => el.id === selectedId ? { ...el, ...patch } : el));
+  const selectedProduct = products.find((product) => product.id === form.productId) ?? products[0];
+  const productSizes = sizes.filter((size) => size.productId === selectedProduct?.id);
+  const selectedSize = sizes.find((size) => size.id === form.sizeId) ?? productSizes[0];
+  const field = form.businessField === "Other" ? form.customField.trim() : form.businessField;
+  const colors = form.colorCombination === "Custom" ? form.customColors.trim() : form.colorCombination;
+
+  const prompt = useMemo(() => {
+    return [
+      "You are an expert Indian print design prompt engineer.",
+      "",
+      "Create a detailed AI image/design prompt for a print-ready design brief.",
+      "",
+      `Product: ${selectedProduct?.name ?? "Custom product"}`,
+      `Product category: ${selectedProduct?.category ?? "-"}`,
+      `Product description: ${selectedProduct?.description ?? "-"}`,
+      `Final size: ${selectedSize ? `${selectedSize.width} x ${selectedSize.height} inches` : "Not selected"}`,
+      `Size notes: ${selectedSize?.notes || "None"}`,
+      `Business/name: ${form.businessName || "Not provided"}`,
+      `Field/industry: ${field || "Not provided"}`,
+      `Language/text style: ${form.language}`,
+      "",
+      "Text to include exactly:",
+      form.requiredText || "Not provided",
+      "",
+      `Template style: ${form.templateStyle}`,
+      `Color combination: ${colors || "Designer should choose suitable print-safe colors"}`,
+      `Background type: ${form.backgroundType}`,
+      `Background description: ${form.backgroundDescription || "Use a clean professional background."}`,
+      `Target audience: ${form.audience || "General customers"}`,
+      `Design priority: ${form.priority || "Professional, readable, balanced"}`,
+      `Suggested visual elements: ${form.visualElements || "Use only relevant icons/elements"}`,
+      "",
+      "Important design factors:",
+      form.extraFactors || designFactors.join("\n"),
+      "",
+      "Strict font and language rule:",
+      "Do not change, replace, stylize, transliterate, or convert Hindi, Marathi, or any Devanagari text. Keep Devanagari wording exactly as supplied. Do not suggest alternate Devanagari fonts. Preserve the original Devanagari font appearance as much as possible.",
+      "",
+      "Avoid:",
+      form.avoid || "Avoid clutter, low contrast, spelling changes, and decorative elements that reduce readability.",
+      "",
+      "Output requirement:",
+      "Give a complete generation prompt with layout direction, hierarchy, color use, background description, icon/photo guidance, print-safe spacing, and a negative prompt.",
+    ].join("\n");
+  }, [colors, field, form, selectedProduct, selectedSize]);
+
+  function update<K extends keyof PromptForm>(key: K, value: PromptForm[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function autoArrange() {
-    const accent = templates[template].accent;
-    const text = templates[template].text;
-    const muted = templates[template].muted;
-    const front: DesignElement[] = [
-      { id: uid(), kind: "shape", side: "front", x: 2.25, y: 0.82, w: 4.0, h: 4.8, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.04 },
-      { id: uid(), kind: "shape", side: "front", x: 2.35, y: 3.45, w: 3.8, h: 0.7, fill: accent, stroke: accent, radius: 0.02 },
-      { id: uid(), kind: "text", side: "front", x: 4.25, y: 1.18, w: 3.4, h: 0.5, text: form.header, fill: text, fontFamily: detectFont(form.header), fontSize: 0.34, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "text", side: "front", x: 4.25, y: 1.78, w: 3.5, h: 0.55, text: form.subheader, fill: muted, fontFamily: detectFont(form.subheader), fontSize: 0.18, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "text", side: "front", x: 4.25, y: 3.56, w: 3.3, h: 0.34, text: form.body, fill: "#ffffff", fontFamily: detectFont(form.body), fontSize: 0.18, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "text", side: "front", x: 2.55, y: 4.45, w: 1.55, h: 0.42, text: form.bulletHeading, fill: accent, fontFamily: detectFont(form.bulletHeading), fontSize: 0.16, fontWeight: 800 },
-      { id: uid(), kind: "text", side: "front", x: 3.68, y: 4.45, w: 2.1, h: 0.75, text: form.bullets.split("\n").map((b) => `› ${b}`).join("\n"), fill: text, fontFamily: detectFont(form.bullets), fontSize: 0.105, fontWeight: 700 },
-      { id: uid(), kind: "shape", side: "front", x: 2.25, y: 5.62, w: 4.0, h: 0.45, fill: accent, stroke: accent, radius: 0.02 },
-      { id: uid(), kind: "text", side: "front", x: 4.25, y: 5.72, w: 3.5, h: 0.22, text: [form.mobile1, form.mobile2, form.mobile3, form.address1, form.address2].filter(Boolean).join("  |  "), fill: "#ffffff", fontFamily: detectFont(`${form.address1}${form.address2}`), fontSize: 0.12, fontWeight: 800, align: "middle" },
-    ];
-    const back: DesignElement[] = [
-      { id: uid(), kind: "shape", side: "back", x: 0.18, y: 0.82, w: 1.75, h: 4.8, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.04 },
-      { id: uid(), kind: "text", side: "back", x: 1.05, y: 1.35, w: 1.5, h: 0.48, text: form.header, fill: text, fontFamily: detectFont(form.header), fontSize: 0.23, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "text", side: "back", x: 1.05, y: 2.5, w: 1.55, h: 0.8, text: [form.address1, form.address2].filter(Boolean).join("\n"), fill: text, fontFamily: detectFont(`${form.address1}${form.address2}`), fontSize: 0.12, fontWeight: 700, align: "middle" },
-      { id: uid(), kind: "shape", side: "back", x: 0.38, y: 4.1, w: 1.35, h: 0.28, fill: accent, stroke: accent, radius: 0.12 },
-      { id: uid(), kind: "text", side: "back", x: 1.05, y: 4.15, w: 1.2, h: 0.18, text: form.mobile1, fill: "#ffffff", fontFamily: "Noto Sans", fontSize: 0.13, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "text", side: "back", x: 1.05, y: 4.78, w: 1.6, h: 0.55, text: form.backsideBullets, fill: text, fontFamily: detectFont(form.backsideBullets), fontSize: 0.115, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "shape", side: "back", x: 6.58, y: 0.82, w: 1.75, h: 4.8, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.04 },
-      { id: uid(), kind: "shape", side: "back", x: 6.82, y: 1.3, w: 1.28, h: 1.0, fill: `${accent}22`, stroke: `${accent}55`, radius: 0.04 },
-      { id: uid(), kind: "text", side: "back", x: 7.45, y: 2.62, w: 1.35, h: 0.45, text: form.backsideHeading, fill: text, fontFamily: detectFont(form.backsideHeading), fontSize: 0.16, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "shape", side: "back", x: 6.82, y: 3.72, w: 1.28, h: 1.0, fill: `${accent}22`, stroke: `${accent}55`, radius: 0.04 },
-      { id: uid(), kind: "text", side: "back", x: 7.45, y: 4.95, w: 1.35, h: 0.42, text: "SUPPLY", fill: text, fontFamily: "Noto Sans", fontSize: 0.16, fontWeight: 800, align: "middle" },
-    ];
-    setElements([...front, ...back, ...elements.filter((el) => el.kind === "image")]);
-    setPrompt(`Create a premium open envelope design for ${form.header}. Open canvas is 8.5x5.5 inch plus 0.5 inch top flap and 0.5 inch bottom pasting. The middle panel from x=2.125 to x=6.375 is the front. Backside centre-pasting artwork is split half-half on both outside wings: left panel x=0 to 2.125 and right panel x=6.375 to 8.5, like a retail pharmacy envelope layout.`);
-    setAiSource("local");
-  }
-
-  async function aiCreateLayout() {
-    setAiLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/design-studio/envelope/layout`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ template, form }),
-      });
-      if (!res.ok) {
-        autoArrange();
-        alert("AI layout is not available right now. Local auto layout was applied.");
-        return;
-      }
-      const data = await res.json();
-      const next = Array.isArray(data.elements)
-        ? data.elements.map((el: Partial<DesignElement>) => ({
-            id: uid(),
-            kind: el.kind === "shape" ? "shape" : "text",
-            side: el.side === "back" ? "back" : "front",
-            x: Number(el.x ?? 0.8),
-            y: Number(el.y ?? 1),
-            w: Number(el.w ?? 2.5),
-            h: Number(el.h ?? 0.5),
-            text: el.text,
-            fill: el.fill ?? templates[template].text,
-            stroke: el.stroke,
-            fontFamily: el.fontFamily,
-            fontSize: el.fontSize,
-            fontWeight: el.fontWeight,
-            align: el.align,
-            radius: el.radius,
-          }))
-        : [];
-      if (next.length === 0) {
-        autoArrange();
-        return;
-      }
-      setElements([...next, ...elements.filter((el) => el.kind === "image")]);
-      setSelectedId(null);
-      setPrompt(data.prompt ?? "");
-      setAiSource(data.source === "openai" ? "openai" : "local");
-    } catch {
-      autoArrange();
-      alert("AI layout is not available right now. Local auto layout was applied.");
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  function addText() {
-    setElements((prev) => [...prev, { id: uid(), kind: "text", side, x: side === "front" ? 2.6 : 0.45, y: 1.2, w: side === "front" ? 3.2 : 1.35, h: 0.4, text: "New text", fill: t.text, fontSize: 0.18, fontWeight: 700, fontFamily: "Noto Sans" }]);
-  }
-
-  function addShape() {
-    setElements((prev) => [...prev, { id: uid(), kind: "shape", side, x: side === "front" ? 2.7 : 0.45, y: 2.1, w: side === "front" ? 3.0 : 1.25, h: 0.9, fill: `${t.accent}22`, stroke: t.accent, radius: 0.14 }]);
-  }
-
-  function addImage(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setElements((prev) => [...prev, { id: uid(), kind: "image", side, x: side === "front" ? 2.7 : 0.55, y: 1.0, w: 0.85, h: 0.85, src: String(reader.result), fill: "#ffffff" }]);
+  function addProduct() {
+    if (!newProduct.name.trim()) return;
+    const product: ProductRecord = {
+      id: id(),
+      name: newProduct.name.trim(),
+      category: newProduct.category.trim() || "Custom",
+      description: newProduct.description.trim(),
     };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    setProducts((prev) => [...prev, product]);
+    setForm((prev) => ({ ...prev, productId: product.id, sizeId: "" }));
+    setNewProduct({ name: "", category: "", description: "" });
   }
 
-  function svgPoint(event: PointerEvent<SVGSVGElement | SVGRectElement>) {
-    const svg = event.currentTarget instanceof SVGSVGElement
-      ? event.currentTarget
-      : event.currentTarget.ownerSVGElement;
-    const rect = (svg ?? event.currentTarget).getBoundingClientRect();
-    return { x: ((event.clientX - rect.left) / rect.width) * OPEN_W, y: ((event.clientY - rect.top) / rect.height) * TOTAL_H };
-  }
-
-  function startDrag(event: PointerEvent<SVGRectElement>, id: string) {
-    const el = elements.find((item) => item.id === id);
-    if (!el) return;
-    const p = svgPoint(event);
-    setSelectedId(id);
-    setDrag({ id, dx: p.x - el.x, dy: p.y - el.y });
-  }
-
-  function moveDrag(event: PointerEvent<SVGSVGElement>) {
-    if (!drag) return;
-    const p = svgPoint(event);
-    setElements((prev) => prev.map((el) => el.id === drag.id ? { ...el, x: Math.max(0.05, Math.min(OPEN_W - el.w - 0.05, p.x - drag.dx)), y: Math.max(0.05, Math.min(TOTAL_H - el.h - 0.05, p.y - drag.dy)) } : el));
-  }
-
-  function exportJpg() {
-    const svg = elementsToSvg(elements, template, null, true);
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(OPEN_W * DPI);
-      canvas.height = Math.round(TOTAL_H * DPI);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      const a = document.createElement("a");
-      a.href = canvas.toDataURL("image/jpeg", 0.96);
-      a.download = `envelope-${form.header || "design"}-600dpi.jpg`.replace(/[^\w.-]+/g, "-");
-      a.click();
+  function addSize() {
+    if (!selectedProduct || !newSize.label.trim() || !newSize.width.trim() || !newSize.height.trim()) return;
+    const size: SizeRecord = {
+      id: id(),
+      productId: selectedProduct.id,
+      label: newSize.label.trim(),
+      width: newSize.width.trim(),
+      height: newSize.height.trim(),
+      unit: "in",
+      notes: newSize.notes.trim(),
     };
-    img.src = url;
+    setSizes((prev) => [...prev, size]);
+    setForm((prev) => ({ ...prev, sizeId: size.id }));
+    setNewSize({ label: "", width: "", height: "", notes: "" });
+  }
+
+  function resetDatabase() {
+    setProducts(defaultProducts);
+    setSizes(defaultSizes);
+    setForm((prev) => ({ ...prev, productId: "envelope", sizeId: "env-8-5x6-5" }));
+  }
+
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
   }
 
   return (
     <DashboardShell>
       <div className="min-h-screen bg-slate-100 p-4 text-slate-900">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-normal">Envelope Design Studio</h1>
-            <p className="mt-1 text-sm text-slate-500">Open size 8.5 x 5.5 in, close size 4.25 x 5.5 in, 0.5 in flap and bottom pasting.</p>
+        <div className="mx-auto max-w-7xl space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-normal">Design Prompt Generator</h1>
+              <p className="mt-1 text-sm text-slate-500">Create product, size, color, background, and field-based prompts for print designs.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={resetDatabase} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                <RefreshCw className="h-4 w-4" /> Reset
+              </button>
+              <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
+                <Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy Prompt"}
+              </button>
+            </div>
           </div>
-          <button onClick={exportJpg} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700">
-            <Download className="h-4 w-4" /> Export JPG 600 DPI
-          </button>
-        </div>
 
-        <div className="grid gap-4 xl:grid-cols-[330px_minmax(0,1fr)_300px]">
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-4 grid grid-cols-2 gap-2">
-              <button onClick={() => setSide("front")} className={`rounded-lg border px-3 py-2 text-sm font-bold ${side === "front" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200"}`}>Front</button>
-              <button onClick={() => setSide("back")} className={`rounded-lg border px-3 py-2 text-sm font-bold ${side === "back" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200"}`}>Back Split</button>
-            </div>
-
-            <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Approved Template</label>
-            <select value={template} onChange={(e) => setTemplate(e.target.value as TemplateKey)} className="mb-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              {Object.entries(templates).map(([key, value]) => <option key={key} value={key}>{value.name}</option>)}
-            </select>
-
-            <div className="space-y-2">
-              {Object.entries(form).map(([key, value]) => (
-                <label key={key} className="block">
-                  <span className="mb-1 block text-xs font-bold capitalize text-slate-500">{key.replace(/([A-Z])/g, " $1")}</span>
-                  <textarea value={value} rows={key.toLowerCase().includes("bullet") || key === "body" ? 3 : 1} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                </label>
-              ))}
-            </div>
-
-            <button onClick={aiCreateLayout} disabled={aiLoading} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60">
-              <Sparkles className="h-4 w-4" /> {aiLoading ? "AI Designing..." : "AI Create Editable Design"}
-            </button>
-            <button onClick={autoArrange} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-              <Sparkles className="h-4 w-4" /> Auto Design Layout
-            </button>
-          </section>
-
-          <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <button onClick={addText} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold hover:bg-slate-50"><Type className="h-4 w-4" /> Text</button>
-              <button onClick={addShape} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold hover:bg-slate-50"><Layers className="h-4 w-4" /> Shape</button>
-              <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold hover:bg-slate-50"><ImagePlus className="h-4 w-4" /> Image</button>
-              <input ref={fileRef} type="file" accept="image/*" onChange={addImage} className="hidden" />
-              <span className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-slate-500"><MousePointer2 className="h-3.5 w-3.5" /> Drag items to edit position</span>
-            </div>
-            <div className="overflow-auto rounded-lg bg-slate-200 p-4">
-              <svg viewBox={`0 0 ${OPEN_W} ${TOTAL_H}`} className="mx-auto block h-auto w-full max-w-[1040px] rounded bg-white shadow" onPointerMove={moveDrag} onPointerUp={() => setDrag(null)} onPointerLeave={() => setDrag(null)}>
-                <rect width={OPEN_W} height={TOTAL_H} fill={t.background} />
-                <rect x="0" y="0" width={OPEN_W} height={FLAP_H} fill={t.accent} opacity="0.08" />
-                <rect x="0" y={FLAP_H + MAIN_H} width={OPEN_W} height={PASTE_H} fill={t.accent} opacity="0.08" />
-                <rect x="0.125" y="0.625" width="8.25" height="5.25" fill="none" stroke="#22c55e" strokeWidth="0.015" strokeDasharray="0.08 0.06" />
-                <rect x="0.25" y="0.75" width="8" height="5" fill="none" stroke="#3b82f6" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
-                <line x1={FRONT_X} y1={FLAP_H} x2={FRONT_X} y2={FLAP_H + MAIN_H} stroke="#f97316" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
-                <line x1={FRONT_X + PANEL_W * 2} y1={FLAP_H} x2={FRONT_X + PANEL_W * 2} y2={FLAP_H + MAIN_H} stroke="#f97316" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
-                <line x1={CENTER_X} y1="0" x2={CENTER_X} y2={TOTAL_H} stroke="#cbd5e1" strokeWidth="0.01" strokeDasharray="0.05 0.05" />
-                <line x1="0" y1={FLAP_H} x2={OPEN_W} y2={FLAP_H} stroke="#94a3b8" strokeWidth="0.01" strokeDasharray="0.05 0.05" />
-                <line x1="0" y1={FLAP_H + MAIN_H} x2={OPEN_W} y2={FLAP_H + MAIN_H} stroke="#94a3b8" strokeWidth="0.01" strokeDasharray="0.05 0.05" />
-                <text x="0.12" y="0.31" fontSize="0.11" fill="#64748b">Top flap 0.5&quot;</text>
-                <text x="0.12" y="6.29" fontSize="0.11" fill="#64748b">Bottom pasting 0.5&quot;</text>
-                <text x="0.5" y="0.78" fontSize="0.11" fill="#f97316">Back left half</text>
-                <text x="3.7" y="0.78" fontSize="0.11" fill="#64748b">Front</text>
-                <text x="6.72" y="0.78" fontSize="0.11" fill="#f97316">Back right half</text>
-                {visibleElements.map((el) => <RenderElement key={el.id} el={el} selected={selectedId === el.id} />)}
-                {visibleElements.map((el) => <rect key={`hit-${el.id}`} x={el.x} y={el.y} width={el.w} height={el.h} fill="transparent" className="cursor-move" onPointerDown={(event) => startDrag(event, el.id)} />)}
-              </svg>
-            </div>
-            {prompt && <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900"><strong>{aiSource === "openai" ? "AI generated editable layout" : "AI prompt draft"}:</strong> {prompt}</div>}
-          </section>
-
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-bold">Edit Selected</h2>
-            {!selected ? (
-              <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Select any text, image, or shape on the design.</p>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="text-xs font-bold text-slate-500">X<input type="number" step="0.05" value={selected.x} onChange={(e) => patchSelected({ x: Number(e.target.value) })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label>
-                  <label className="text-xs font-bold text-slate-500">Y<input type="number" step="0.05" value={selected.y} onChange={(e) => patchSelected({ y: Number(e.target.value) })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label>
-                  <label className="text-xs font-bold text-slate-500">W<input type="number" step="0.05" value={selected.w} onChange={(e) => patchSelected({ w: Number(e.target.value) })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label>
-                  <label className="text-xs font-bold text-slate-500">H<input type="number" step="0.05" value={selected.h} onChange={(e) => patchSelected({ h: Number(e.target.value) })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label>
+          <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+            <section className="space-y-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <Database className="h-4 w-4 text-blue-600" />
+                  <h2 className="text-sm font-bold">Product And Size Database</h2>
                 </div>
-                {selected.kind === "text" && (
-                  <>
-                    <textarea value={selected.text ?? ""} onChange={(e) => patchSelected({ text: e.target.value, fontFamily: detectFont(e.target.value) })} className="h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                    <select value={selected.fontFamily ?? "Noto Sans"} onChange={(e) => patchSelected({ fontFamily: e.target.value })} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                      {fontOptions.map((font) => <option key={font} value={font}>{font}</option>)}
-                    </select>
-                    <label className="text-xs font-bold text-slate-500">Font Size<input type="range" min="0.07" max="0.55" step="0.01" value={selected.fontSize ?? 0.18} onChange={(e) => patchSelected({ fontSize: Number(e.target.value) })} className="mt-1 w-full" /></label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => patchSelected({ align: "start" })} className="rounded border border-slate-200 p-2"><AlignLeft className="mx-auto h-4 w-4" /></button>
-                      <button onClick={() => patchSelected({ align: "middle" })} className="rounded border border-slate-200 p-2"><AlignCenter className="mx-auto h-4 w-4" /></button>
-                      <button onClick={() => patchSelected({ align: "end" })} className="rounded border border-slate-200 p-2"><AlignRight className="mx-auto h-4 w-4" /></button>
-                    </div>
-                  </>
-                )}
-                <label className="flex items-center gap-2 text-xs font-bold text-slate-500"><Palette className="h-4 w-4" /> Color<input type="color" value={selected.fill} onChange={(e) => patchSelected({ fill: e.target.value })} className="h-9 flex-1" /></label>
-                <button onClick={() => { setElements((prev) => prev.filter((el) => el.id !== selected.id)); setSelectedId(null); }} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">
-                  <Trash2 className="h-4 w-4" /> Delete
-                </button>
+
+                <label className="mb-3 block">
+                  <span className="mb-1 block text-xs font-bold text-slate-500">Product</span>
+                  <select value={form.productId} onChange={(e) => {
+                    const nextProductId = e.target.value;
+                    const nextSize = sizes.find((size) => size.productId === nextProductId);
+                    setForm((prev) => ({ ...prev, productId: nextProductId, sizeId: nextSize?.id ?? "" }));
+                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500">
+                    {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                  </select>
+                </label>
+
+                <label className="mb-3 block">
+                  <span className="mb-1 block text-xs font-bold text-slate-500">Size In Inches</span>
+                  <select value={form.sizeId} onChange={(e) => update("sizeId", e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500">
+                    {productSizes.length === 0 && <option value="">No size added</option>}
+                    {productSizes.map((size) => <option key={size.id} value={size.id}>{size.label} - {size.width} x {size.height} in</option>)}
+                  </select>
+                </label>
+
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="mb-2 text-xs font-bold text-slate-600">Create Product</p>
+                  <div className="space-y-2">
+                    <input value={newProduct.name} onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <input value={newProduct.category} onChange={(e) => setNewProduct((prev) => ({ ...prev, category: e.target.value }))} placeholder="Category" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <textarea value={newProduct.description} onChange={(e) => setNewProduct((prev) => ({ ...prev, description: e.target.value }))} placeholder="Short description" rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <button onClick={addProduct} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800">
+                      <Plus className="h-4 w-4" /> Add Product
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-lg bg-slate-50 p-3">
+                  <p className="mb-2 text-xs font-bold text-slate-600">Add Size For Selected Product</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={newSize.label} onChange={(e) => setNewSize((prev) => ({ ...prev, label: e.target.value }))} placeholder="Size label" className="col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <input value={newSize.width} onChange={(e) => setNewSize((prev) => ({ ...prev, width: e.target.value }))} placeholder="Width" className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <input value={newSize.height} onChange={(e) => setNewSize((prev) => ({ ...prev, height: e.target.value }))} placeholder="Height" className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <input value={newSize.notes} onChange={(e) => setNewSize((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                    <button onClick={addSize} className="col-span-2 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700">
+                      <Plus className="h-4 w-4" /> Add Size
+                    </button>
+                  </div>
+                </div>
               </div>
-            )}
-            <div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-              <p className="font-bold text-slate-700">Print Guides</p>
-              <p>Orange: left/right back halves. Middle is front panel. Green: bleed/cut margin. Blue: safe margin. Guides are hidden in JPG export.</p>
-            </div>
-          </section>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-sm font-bold">Saved Items</h2>
+                <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                  {products.map((product) => (
+                    <div key={product.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">{product.name}</p>
+                          <p className="text-[11px] text-slate-500">{product.category}</p>
+                        </div>
+                        {!defaultProducts.some((item) => item.id === product.id) && (
+                          <button onClick={() => {
+                            setProducts((prev) => prev.filter((item) => item.id !== product.id));
+                            setSizes((prev) => prev.filter((item) => item.productId !== product.id));
+                          }} className="rounded p-1 text-red-500 hover:bg-red-50">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">{sizes.filter((size) => size.productId === product.id).length} sizes</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-blue-600" />
+                  <h2 className="text-sm font-bold">Prompt Details</h2>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Business Name">
+                    <input value={form.businessName} onChange={(e) => update("businessName", e.target.value)} className="input" />
+                  </Field>
+                  <Field label="Business Field">
+                    <select value={form.businessField} onChange={(e) => update("businessField", e.target.value)} className="input">
+                      {businessFields.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </Field>
+                  {form.businessField === "Other" && (
+                    <Field label="Other Field">
+                      <input value={form.customField} onChange={(e) => update("customField", e.target.value)} className="input" />
+                    </Field>
+                  )}
+                  <Field label="Language">
+                    <input value={form.language} onChange={(e) => update("language", e.target.value)} className="input" />
+                  </Field>
+                  <Field label="Color Combination">
+                    <select value={form.colorCombination} onChange={(e) => update("colorCombination", e.target.value)} className="input">
+                      {colorCombinations.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </Field>
+                  {form.colorCombination === "Custom" && (
+                    <Field label="Custom Colors">
+                      <input value={form.customColors} onChange={(e) => update("customColors", e.target.value)} placeholder="Example: teal, navy, white" className="input" />
+                    </Field>
+                  )}
+                  <Field label="Template">
+                    <select value={form.templateStyle} onChange={(e) => update("templateStyle", e.target.value)} className="input">
+                      {templateStyles.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Background Type">
+                    <select value={form.backgroundType} onChange={(e) => update("backgroundType", e.target.value)} className="input">
+                      {backgroundTypes.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Target Audience">
+                    <input value={form.audience} onChange={(e) => update("audience", e.target.value)} className="input" />
+                  </Field>
+                  <Field label="Design Priority">
+                    <input value={form.priority} onChange={(e) => update("priority", e.target.value)} className="input" />
+                  </Field>
+                  <Field label="Background Description" wide>
+                    <textarea value={form.backgroundDescription} onChange={(e) => update("backgroundDescription", e.target.value)} rows={3} className="input resize-none" />
+                  </Field>
+                  <Field label="Exact Text To Include" wide>
+                    <textarea value={form.requiredText} onChange={(e) => update("requiredText", e.target.value)} rows={6} className="input resize-none font-sans" />
+                  </Field>
+                  <Field label="Visual Elements" wide>
+                    <textarea value={form.visualElements} onChange={(e) => update("visualElements", e.target.value)} rows={2} className="input resize-none" />
+                  </Field>
+                  <Field label="AI Design Expert Factors" wide>
+                    <textarea value={form.extraFactors} onChange={(e) => update("extraFactors", e.target.value)} rows={7} className="input resize-none" />
+                  </Field>
+                  <Field label="Avoid / Negative Direction" wide>
+                    <textarea value={form.avoid} onChange={(e) => update("avoid", e.target.value)} rows={3} className="input resize-none" />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-sm font-bold">Generated Prompt</h2>
+                  <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">
+                    <Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <textarea readOnly value={prompt} rows={18} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-xs leading-5 text-slate-800 outline-none" />
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                  Hindi, Marathi, and Devanagari text is protected in every generated prompt. The prompt explicitly tells AI not to change that font/text.
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
+      <style jsx global>{`
+        .input {
+          width: 100%;
+          border-radius: 0.5rem;
+          border: 1px solid #e2e8f0;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.875rem;
+          outline: none;
+          background: white;
+        }
+        .input:focus {
+          border-color: #3b82f6;
+        }
+      `}</style>
     </DashboardShell>
+  );
+}
+
+function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <label className={wide ? "block md:col-span-2" : "block"}>
+      <span className="mb-1 block text-xs font-bold text-slate-500">{label}</span>
+      {children}
+    </label>
   );
 }
