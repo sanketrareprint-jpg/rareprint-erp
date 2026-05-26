@@ -526,6 +526,7 @@ export class CrmService {
 
   async receiveAisensyLead(rawBody: any) {
     const incoming = this.extractAisensyContact(rawBody);
+    const isNewContactEvent = this.isAisensyContactCreatedEvent(rawBody);
     if (!incoming.phone) return { status: 'ignored', reason: 'no_phone' };
     if (incoming.sender && incoming.sender.toUpperCase() !== 'USER') {
       return { status: 'ignored', reason: 'not_customer_message' };
@@ -594,12 +595,14 @@ export class CrmService {
       },
     });
 
-    const assignmentSent = await this.whatsapp.sendLeadAssigned({
-      customerName: lead.name,
-      customerPhone: lead.phone,
-      agentName: agent.fullName,
-      agentPhone: agent.phone ?? '9637318960',
-    });
+    const assignmentSent = isNewContactEvent
+      ? await this.whatsapp.sendLeadAssigned({
+          customerName: lead.name,
+          customerPhone: lead.phone,
+          agentName: agent.fullName,
+          agentPhone: agent.phone ?? '9637318960',
+        })
+      : false;
 
     if (assignmentSent) {
       await this.prisma.leadActivity.create({
@@ -618,6 +621,7 @@ export class CrmService {
       agentName: agent.fullName,
       agentPhone: agent.phone ?? '9637318960',
       assignmentSent,
+      assignmentSkippedReason: isNewContactEvent ? undefined : 'not_contact_created_event',
     };
   }
 
@@ -778,6 +782,26 @@ export class CrmService {
       'visiting card',
     ];
     return products.find((product) => value.includes(product));
+  }
+
+  private isAisensyContactCreatedEvent(rawBody: any): boolean {
+    const candidates = [
+      rawBody?.topic,
+      rawBody?.event,
+      rawBody?.type,
+      rawBody?.eventType,
+      rawBody?.webhookEvent,
+      rawBody?.data?.topic,
+      rawBody?.data?.event,
+      rawBody?.data?.type,
+      rawBody?.data?.eventType,
+      rawBody?.data?.webhookEvent,
+    ];
+
+    return candidates
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase())
+      .some((value) => value === 'contact.created' || value === 'contact_created');
   }
 
   private normalizeTags(value: unknown): string[] {
