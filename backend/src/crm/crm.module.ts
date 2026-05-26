@@ -4,9 +4,10 @@ import { CrmController } from './crm.controller';
 import { CrmWebhookController } from './crm-webhook.controller';
 import { CrmService } from './crm.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, WhatsAppModule],
   controllers: [CrmController, CrmWebhookController],
   providers: [CrmService],
 })

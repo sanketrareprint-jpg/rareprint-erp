@@ -7,6 +7,7 @@ app = Flask(__name__)
 
 GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "")
 AISENSY_API_KEY = os.environ.get("AISENSY_API_KEY", "")
+CRM_WEBHOOK_URL = os.environ.get("CRM_WEBHOOK_URL", "")
 
 # ─────────────────────────────────────────────
 #  TEST MODE
@@ -236,6 +237,15 @@ def send_campaign(phone, campaign_name, params=None, customer_name="Customer"):
         print(f"[SEND ERROR '{campaign_name}'] {e}")
         return False
 
+def forward_to_crm(payload):
+    if not CRM_WEBHOOK_URL:
+        return
+    try:
+        r = requests.post(CRM_WEBHOOK_URL, json=payload, timeout=5)
+        print(f"[CRM FORWARD] {r.status_code} → {r.text[:200]}")
+    except Exception as e:
+        print(f"[CRM FORWARD ERROR] {e}")
+
 # ─────────────────────────────────────────────
 #  WEBHOOK
 # ─────────────────────────────────────────────
@@ -259,6 +269,8 @@ def webhook():
         if sender != "USER":
             print(f"[SKIP] sender={sender}")
             return jsonify({"status": "ok"}), 200
+
+        forward_to_crm(data)
 
         # ── TEST MODE — only reply to whitelisted numbers ──
         if TEST_MODE == "on":

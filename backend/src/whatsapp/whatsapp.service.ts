@@ -201,6 +201,24 @@ export class WhatsAppService {
     });
   }
 
+  async sendLeadAssigned(params: {
+    customerName: string;
+    customerPhone: string;
+    agentName: string;
+    agentPhone: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_LEAD_ASSIGNED_CAMPAIGN ?? 'lead_assigned_agent',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.agentName || 'Rareprint Team',
+        params.agentPhone || '9637318960',
+      ],
+    });
+  }
+
   static statusLabel(status: string): string {
     const map: Record<string, string> = {
       PENDING_APPROVAL:          'Pending Approval',

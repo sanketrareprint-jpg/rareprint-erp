@@ -20,4 +20,9 @@ export class CrmWebhookController {
   receiveMetaLead(@Body() body: any) {
     return this.crmService.receiveMetaLead(body);
   }
+
+  @Post('leads/aisensy-webhook')
+  receiveAisensyLead(@Body() body: any) {
+    return this.crmService.receiveAisensyLead(body);
+  }
 }

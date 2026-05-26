@@ -1,6 +1,6 @@
 ﻿// File: backend/src/crm/crm.controller.ts
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Req, UseGuards, Res,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, UseGuards, Res,
 } from '@nestjs/common';
 import { CrmService } from './crm.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -84,6 +84,14 @@ export class CrmController {
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.crmService.updateStatus(id, status, req.user.id);
+  }
+
+  @Delete('leads/:id')
+  deleteLead(
+    @Param('id') id: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.crmService.deleteLead(id, req.user.id, req.user.role);
   }
 
   @Post('leads/:id/call')

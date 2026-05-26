@@ -152,6 +152,7 @@ function CrmPageContent() {
   const [importResult, setImportResult] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [sendingAisensy, setSendingAisensy] = useState<string | null>(null);
+  const [deletingLead, setDeletingLead] = useState<string | null>(null);
 
   const sendToAisensy = async (lead: Lead, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -173,6 +174,32 @@ function CrmPageContent() {
       alert(" Network error");
     } finally {
       setSendingAisensy(null);
+    }
+  };
+
+  const deleteLead = async (lead: Lead, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (deletingLead === lead.id) return;
+    const ok = window.confirm(`Delete lead "${lead.name}"?\n\nThis will remove its follow-ups and activity history too.`);
+    if (!ok) return;
+    setDeletingLead(lead.id);
+    try {
+      const res = await fetch(`${API}/crm/leads/${lead.id}`, {
+        method: "DELETE",
+        headers: getAuth(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || "Failed to delete lead");
+        return;
+      }
+      setLeads(prev => prev.filter(l => l.id !== lead.id));
+      if (selectedLead?.id === lead.id) setSelectedLead(null);
+      load();
+    } catch {
+      alert("Network error");
+    } finally {
+      setDeletingLead(null);
     }
   };
 
@@ -450,7 +477,8 @@ function CrmPageContent() {
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <a href={`tel:${lead.phone}`} className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold mr-1">📞</a>
                           <button onClick={() => setShowCallModal(lead)} className="text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50 mr-1">Log</button>
-                          <button onClick={(e) => sendToAisensy(lead, e)} disabled={sendingAisensy === lead.id} className="text-xs bg-green-500 text-white px-2 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 font-semibold">{sendingAisensy === lead.id ? "..." : " WA"}</button>
+                          <button onClick={(e) => sendToAisensy(lead, e)} disabled={sendingAisensy === lead.id} className="text-xs bg-green-500 text-white px-2 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 font-semibold mr-1">{sendingAisensy === lead.id ? "..." : " WA"}</button>
+                          <button onClick={(e) => deleteLead(lead, e)} disabled={deletingLead === lead.id} className="text-xs border border-red-200 text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 disabled:opacity-50 font-semibold">{deletingLead === lead.id ? "..." : "Delete"}</button>
                         </td>
                       </tr>
                     );
@@ -611,6 +639,9 @@ function CrmPageContent() {
                 <a href={`https://wa.me/91${selectedLead.phone}`} target="_blank" rel="noreferrer" className="text-center bg-emerald-500 text-white text-sm py-3 rounded-xl font-semibold hover:bg-emerald-600">💬 WA</a>
                 <button onClick={() => setShowCallModal(selectedLead)} className="border border-slate-200 text-slate-700 text-sm py-3 rounded-xl font-semibold hover:bg-slate-50">📋 Log</button>
               </div>
+              <button onClick={(e) => deleteLead(selectedLead, e)} disabled={deletingLead === selectedLead.id} className="w-full border border-red-200 text-red-600 text-sm py-3 rounded-xl font-semibold hover:bg-red-50 disabled:opacity-50">
+                {deletingLead === selectedLead.id ? "Deleting..." : "Delete lead"}
+              </button>
 
               {/* Add note */}
               <div>

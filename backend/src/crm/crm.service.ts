@@ -1,11 +1,15 @@
 ﻿// File: backend/src/crm/crm.service.ts
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeadStatus, LeadSource, ActivityType } from '@prisma/client';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class CrmService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsAppService,
+  ) {}
 
   // ─── LIST LEADS (agent sees own, admin sees all) ───────────────────────────
   async getLeads(userId: string, role: string, status?: string, search?: string, myOnly?: boolean) {
@@ -148,6 +152,20 @@ export class CrmService {
     }
 
     return lead;
+  }
+
+  async deleteLead(id: string, userId: string, role: string) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      select: { id: true, agentId: true },
+    });
+    if (!lead) throw new BadRequestException('Lead not found');
+    if (role !== 'ADMIN' && lead.agentId !== userId) {
+      throw new ForbiddenException('You can delete only your own leads');
+    }
+
+    await this.prisma.lead.delete({ where: { id } });
+    return { success: true, deletedId: id };
   }
 
   // ─── LOG CALL ──────────────────────────────────────────────────────────────
@@ -391,12 +409,12 @@ export class CrmService {
 // ─────────────────────────────────────────────────────────────────────────────
 
   // ─── ROUND ROBIN: get next agent ─────────────────────────────────────────
-  private async getNextAgent(): Promise<string> {
+  private async getNextAgent(): Promise<{ id: string; fullName: string; phone: string | null }> {
     // Get all active sales agents
     const agents = await this.prisma.user.findMany({
       where: { role: 'SALES_AGENT', isActive: true },
       orderBy: { createdAt: 'asc' },
-      select: { id: true },
+      select: { id: true, fullName: true, phone: true },
     });
 
     if (!agents.length) throw new Error('No active sales agents found');
@@ -411,7 +429,8 @@ export class CrmService {
 
     // Assign to agent with fewest leads
     counts.sort((a, b) => a.count - b.count);
-    return counts[0].id;
+    const nextId = counts[0].id;
+    return agents.find((a) => a.id === nextId)!;
   }
 
   // ─── RECEIVE META LEAD WEBHOOK ───────────────────────────────────────────
@@ -450,7 +469,7 @@ export class CrmService {
       where: { phone: data.phone },
     });
 
-    const agentId = await this.getNextAgent();
+    const agent = await this.getNextAgent();
 
     const lead = await this.prisma.lead.create({
       data: {
@@ -465,7 +484,7 @@ export class CrmService {
         notes: data.notes,
         source: 'WHATSAPP' as any,
         status: 'NEW' as any,
-        agentId,
+        agentId: agent.id,
       },
       include: {
         agent: { select: { id: true, fullName: true } },
@@ -478,11 +497,100 @@ export class CrmService {
         leadId: lead.id,
         type: 'NOTE_ADDED' as any,
         description: `Lead received from Meta Ads and assigned to ${lead.agent.fullName}`,
-        createdById: agentId,
+        createdById: agent.id,
       },
     });
 
     return { lead, isDuplicate: !!existing };
+  }
+
+  async receiveAisensyLead(rawBody: any) {
+    const incoming = this.extractAisensyContact(rawBody);
+    if (!incoming.phone) return { status: 'ignored', reason: 'no_phone' };
+    if (incoming.sender && incoming.sender.toUpperCase() !== 'USER') {
+      return { status: 'ignored', reason: 'not_customer_message' };
+    }
+
+    const existing = await this.prisma.lead.findFirst({
+      where: { phone: incoming.phone },
+      include: { agent: { select: { id: true, fullName: true, phone: true } } },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (existing) {
+      if (incoming.messageText) {
+        await this.prisma.leadActivity.create({
+          data: {
+            leadId: existing.id,
+            type: ActivityType.NOTE_ADDED,
+            description: `AiSensy message received: ${incoming.messageText}`,
+            createdById: existing.agentId,
+          },
+        });
+      }
+      return {
+        status: 'existing_lead',
+        leadId: existing.id,
+        agentName: existing.agent.fullName,
+      };
+    }
+
+    const agent = await this.getNextAgent();
+    const leadName = incoming.name || `WhatsApp Lead ${incoming.phone.slice(-4)}`;
+    const lead = await this.prisma.lead.create({
+      data: {
+        name: leadName,
+        phone: incoming.phone,
+        source: LeadSource.WHATSAPP,
+        status: LeadStatus.NEW,
+        productInterest: incoming.productInterest,
+        notes: incoming.messageText ? `First AiSensy message: ${incoming.messageText}` : 'Created from AiSensy webhook',
+        agentId: agent.id,
+        score: this._scoreLead({
+          name: leadName,
+          phone: incoming.phone,
+          productInterest: incoming.productInterest,
+        }),
+      },
+      include: { agent: { select: { id: true, fullName: true, phone: true } } },
+    });
+
+    await this._scheduleFollowUps(lead.id);
+
+    await this.prisma.leadActivity.create({
+      data: {
+        leadId: lead.id,
+        type: ActivityType.NOTE_ADDED,
+        description: `Lead created from AiSensy and assigned to ${agent.fullName}`,
+        createdById: agent.id,
+      },
+    });
+
+    const assignmentSent = await this.whatsapp.sendLeadAssigned({
+      customerName: lead.name,
+      customerPhone: lead.phone,
+      agentName: agent.fullName,
+      agentPhone: agent.phone ?? '9637318960',
+    });
+
+    if (assignmentSent) {
+      await this.prisma.leadActivity.create({
+        data: {
+          leadId: lead.id,
+          type: ActivityType.WHATSAPP_SENT,
+          description: `Assignment WhatsApp sent with agent ${agent.fullName} (${agent.phone ?? '9637318960'})`,
+          createdById: agent.id,
+        },
+      });
+    }
+
+    return {
+      status: 'lead_created',
+      leadId: lead.id,
+      agentName: agent.fullName,
+      agentPhone: agent.phone ?? '9637318960',
+      assignmentSent,
+    };
   }
 
   // ─── SEND LEAD TO AISENSY ────────────────────────────────────────────────
@@ -548,6 +656,90 @@ export class CrmService {
       sentTo: phone,
       agentName: lead.agent.fullName,
     };
+  }
+
+  private extractAisensyContact(rawBody: any): {
+    phone: string;
+    name: string;
+    sender?: string;
+    messageText?: string;
+    productInterest?: string;
+  } {
+    const message =
+      rawBody?.data?.message ??
+      rawBody?.data?.contact ??
+      rawBody?.contact ??
+      rawBody?.message ??
+      rawBody;
+    const content = message?.message_content ?? message?.content ?? {};
+    const interactive = content?.interactive ?? {};
+    const reply = interactive?.button_reply ?? interactive?.list_reply ?? {};
+    const messageText =
+      content?.text ??
+      reply?.title ??
+      message?.text ??
+      rawBody?.text ??
+      rawBody?.messageText ??
+      '';
+
+    const rawPhone =
+      message?.phone_number ??
+      message?.phone ??
+      message?.mobile ??
+      message?.wa_id ??
+      rawBody?.phone ??
+      rawBody?.mobile ??
+      rawBody?.destination ??
+      rawBody?.wa_id ??
+      rawBody?.data?.phone ??
+      rawBody?.data?.mobile ??
+      rawBody?.data?.wa_id ??
+      '';
+
+    const name =
+      message?.userName ??
+      message?.user_name ??
+      message?.profile_name ??
+      message?.customer_name ??
+      message?.name ??
+      message?.full_name ??
+      rawBody?.userName ??
+      rawBody?.name ??
+      rawBody?.customerName ??
+      rawBody?.data?.userName ??
+      rawBody?.data?.name ??
+      rawBody?.data?.customerName ??
+      '';
+
+    return {
+      phone: this.normalizeLeadPhone(rawPhone),
+      name: String(name || '').trim(),
+      sender: message?.sender ?? rawBody?.sender,
+      messageText: String(messageText || '').trim(),
+      productInterest: this.extractProductInterest(String(messageText || '')),
+    };
+  }
+
+  private normalizeLeadPhone(raw: string): string {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (digits.length >= 10) return digits.slice(-10);
+    return digits;
+  }
+
+  private extractProductInterest(text: string): string | undefined {
+    const value = text.toLowerCase();
+    const products = [
+      'sticker',
+      'doctor file',
+      'dr file',
+      'pouch',
+      'letterhead',
+      'pamphlet',
+      'envelope',
+      'non woven bag',
+      'visiting card',
+    ];
+    return products.find((product) => value.includes(product));
   }
 }
 
