@@ -29,7 +29,7 @@ export class SheetLayoutController {
    * Body: multipart/form-data
    *   patternId: string
    *   slot_0 … slot_N: image files (one per slot, positional order matches pattern)
-   * Returns: CMYK TIFF file
+   * Returns: High-quality JPEG @ 600 DPI
    */
   @Post('assemble')
   @UseInterceptors(FilesInterceptor('slots', 20, { limits: { fileSize: 40 * 1024 * 1024 } }))
@@ -58,8 +58,8 @@ export class SheetLayoutController {
     const tiffBuffer = await this.svc.assembleSheet(patternId, slotImages);
 
     res.set({
-      'Content-Type': 'image/tiff',
-      'Content-Disposition': `attachment; filename="sheet-${patternId}-600dpi-cmyk.tiff"`,
+      'Content-Type': 'image/jpeg',
+      'Content-Disposition': `attachment; filename="sheet-${patternId}-600dpi.jpg"`,
       'Content-Length': String(tiffBuffer.length),
     });
     res.end(tiffBuffer);

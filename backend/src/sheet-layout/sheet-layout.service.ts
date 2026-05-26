@@ -155,11 +155,11 @@ export class SheetLayoutService {
     const cutBuf = await sharp(Buffer.from(cutSvg)).png().toBuffer();
     compositeInputs.push({ input: cutBuf, left: 0, top: 0 });
 
-    // Compose all layers on base, then convert to CMYK TIFF @ 600 DPI
+    // Compose all layers on base, then output high-quality JPEG @ 600 DPI
     const result = await sharp(baseBuffer)
       .composite(compositeInputs)
       .toColourspace('cmyk')
-      .tiff({ compression: 'lzw', xres: DPI, yres: DPI, resolutionUnit: 'inch' })
+      .jpeg({ quality: 100, chromaSubsampling: '4:4:4' })
       .toBuffer();
 
     return result;
