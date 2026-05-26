@@ -510,7 +510,7 @@ function CrmPageContent() {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600">
                       <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} className="h-4 w-4 rounded border-slate-300" />
                     </th>
-                    {["Name / Business", "Phone", "Product", "Score", "Status", "Next Follow-up", "Actions"].map((h) => (
+                    {["Name / Business", "Phone", "Created", "Assigned Agent", "Score", "Status", "Next Follow-up", "Actions"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600">{h}</th>
                     ))}
                   </tr>
@@ -534,14 +534,12 @@ function CrmPageContent() {
                           </div>
                         </td>
                         <td className="px-4 py-3 font-mono text-slate-600">{lead.phone}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600">
+                          {new Date(lead.createdAt).toLocaleDateString("en-IN")}
+                          <p className="text-xs text-slate-400 mt-0.5">{new Date(lead.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</p>
+                        </td>
                         <td className="px-4 py-3">
-                          {lead.productInterest && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{lead.productInterest}</span>}
-                          {lead.tags && lead.tags.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {lead.tags.slice(0, 3).map((tag) => <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{tag}</span>)}
-                            </div>
-                          )}
-                          {lead.estimatedQty && <p className="text-xs text-slate-400 mt-0.5">Qty: {lead.estimatedQty}</p>}
+                          <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">{lead.agent?.fullName ?? "—"}</span>
                         </td>
                         <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
                         <td className="px-4 py-3">
@@ -568,7 +566,7 @@ function CrmPageContent() {
                     );
                   })}
                   {leads.length === 0 && (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">No leads found</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">No leads found</td></tr>
                   )}
                 </tbody>
               </table>
