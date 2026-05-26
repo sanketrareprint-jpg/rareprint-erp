@@ -38,18 +38,21 @@ function fallbackElements(input: any): DesignElement[] {
   const form = input?.form ?? {};
   const palette = TEMPLATE[input?.template as keyof typeof TEMPLATE] ?? TEMPLATE.clean;
   return [
-    { kind: 'shape', side: 'front', x: 0.35, y: 0.8, w: 3.55, h: 4.75, fill: '#ffffff', stroke: '#e2e8f0', radius: 0.16 },
-    { kind: 'shape', side: 'front', x: 0.52, y: 1.02, w: 0.72, h: 0.72, fill: palette.accent, stroke: palette.accent, radius: 0.12 },
-    { kind: 'text', side: 'front', x: 1.38, y: 1.03, w: 2.35, h: 0.42, text: form.header ?? '', fill: palette.text, fontFamily: detectFont(form.header), fontSize: 0.25, fontWeight: 800 },
-    { kind: 'text', side: 'front', x: 1.39, y: 1.43, w: 2.3, h: 0.28, text: form.subheader ?? '', fill: palette.muted, fontFamily: detectFont(form.subheader), fontSize: 0.135, fontWeight: 700 },
-    { kind: 'shape', side: 'front', x: 0.58, y: 2.1, w: 3.1, h: 1.25, fill: `${palette.accent}22`, stroke: `${palette.accent}55`, radius: 0.16 },
-    { kind: 'text', side: 'front', x: 0.78, y: 2.32, w: 2.68, h: 0.8, text: form.body ?? '', fill: palette.text, fontFamily: detectFont(form.body), fontSize: 0.155, fontWeight: 700 },
-    { kind: 'text', side: 'front', x: 0.62, y: 3.82, w: 1.1, h: 0.25, text: form.bulletHeading ?? '', fill: palette.accent, fontFamily: detectFont(form.bulletHeading), fontSize: 0.16, fontWeight: 800 },
-    { kind: 'text', side: 'front', x: 0.75, y: 4.1, w: 2.9, h: 0.62, text: String(form.bullets ?? '').split('\n').map((b) => `› ${b}`).join('\n'), fill: palette.text, fontFamily: detectFont(form.bullets), fontSize: 0.12, fontWeight: 700 },
-    { kind: 'text', side: 'front', x: 0.62, y: 5.05, w: 3.1, h: 0.35, text: [form.mobile1, form.mobile2, form.mobile3, form.address1, form.address2].filter(Boolean).join('  |  '), fill: palette.text, fontFamily: detectFont(`${form.address1 ?? ''}${form.address2 ?? ''}`), fontSize: 0.095, fontWeight: 700 },
-    { kind: 'shape', side: 'back', x: 4.62, y: 0.95, w: 3.55, h: 4.55, fill: '#ffffff', stroke: '#e2e8f0', radius: 0.16 },
-    { kind: 'text', side: 'back', x: 6.4, y: 1.28, w: 2.7, h: 0.38, text: form.backsideHeading ?? '', fill: palette.text, fontFamily: detectFont(form.backsideHeading), fontSize: 0.24, fontWeight: 800, align: 'middle' },
-    { kind: 'text', side: 'back', x: 4.98, y: 2.0, w: 2.95, h: 1.05, text: String(form.backsideBullets ?? '').split('\n').map((b, i) => `${i + 1}. ${b}`).join('\n'), fill: palette.text, fontFamily: detectFont(form.backsideBullets), fontSize: 0.16, fontWeight: 700 },
+    { kind: 'shape', side: 'front', x: 2.25, y: 0.82, w: 4.0, h: 4.8, fill: '#ffffff', stroke: '#e2e8f0', radius: 0.04 },
+    { kind: 'shape', side: 'front', x: 2.35, y: 3.45, w: 3.8, h: 0.7, fill: palette.accent, stroke: palette.accent, radius: 0.02 },
+    { kind: 'text', side: 'front', x: 4.25, y: 1.18, w: 3.4, h: 0.5, text: form.header ?? '', fill: palette.text, fontFamily: detectFont(form.header), fontSize: 0.34, fontWeight: 800, align: 'middle' },
+    { kind: 'text', side: 'front', x: 4.25, y: 1.78, w: 3.5, h: 0.55, text: form.subheader ?? '', fill: palette.muted, fontFamily: detectFont(form.subheader), fontSize: 0.18, fontWeight: 800, align: 'middle' },
+    { kind: 'text', side: 'front', x: 4.25, y: 3.56, w: 3.3, h: 0.34, text: form.body ?? '', fill: '#ffffff', fontFamily: detectFont(form.body), fontSize: 0.18, fontWeight: 800, align: 'middle' },
+    { kind: 'shape', side: 'front', x: 2.25, y: 5.62, w: 4.0, h: 0.45, fill: palette.accent, stroke: palette.accent, radius: 0.02 },
+    { kind: 'text', side: 'front', x: 4.25, y: 5.72, w: 3.5, h: 0.22, text: [form.mobile1, form.mobile2, form.mobile3, form.address1, form.address2].filter(Boolean).join('  |  '), fill: '#ffffff', fontFamily: detectFont(`${form.address1 ?? ''}${form.address2 ?? ''}`), fontSize: 0.12, fontWeight: 800, align: 'middle' },
+    { kind: 'shape', side: 'back', x: 0.18, y: 0.82, w: 1.75, h: 4.8, fill: '#ffffff', stroke: '#e2e8f0', radius: 0.04 },
+    { kind: 'text', side: 'back', x: 1.05, y: 1.35, w: 1.5, h: 0.48, text: form.header ?? '', fill: palette.text, fontFamily: detectFont(form.header), fontSize: 0.23, fontWeight: 800, align: 'middle' },
+    { kind: 'text', side: 'back', x: 1.05, y: 2.5, w: 1.55, h: 0.8, text: [form.address1, form.address2].filter(Boolean).join('\n'), fill: palette.text, fontFamily: detectFont(`${form.address1 ?? ''}${form.address2 ?? ''}`), fontSize: 0.12, fontWeight: 700, align: 'middle' },
+    { kind: 'shape', side: 'back', x: 0.38, y: 4.1, w: 1.35, h: 0.28, fill: palette.accent, stroke: palette.accent, radius: 0.12 },
+    { kind: 'text', side: 'back', x: 1.05, y: 4.15, w: 1.2, h: 0.18, text: form.mobile1 ?? '', fill: '#ffffff', fontFamily: 'Noto Sans', fontSize: 0.13, fontWeight: 800, align: 'middle' },
+    { kind: 'shape', side: 'back', x: 6.58, y: 0.82, w: 1.75, h: 4.8, fill: '#ffffff', stroke: '#e2e8f0', radius: 0.04 },
+    { kind: 'text', side: 'back', x: 7.45, y: 2.62, w: 1.35, h: 0.45, text: form.backsideHeading ?? '', fill: palette.text, fontFamily: detectFont(form.backsideHeading), fontSize: 0.16, fontWeight: 800, align: 'middle' },
+    { kind: 'text', side: 'back', x: 7.45, y: 3.35, w: 1.35, h: 1.2, text: String(form.backsideBullets ?? '').split('\n').map((b) => `• ${b}`).join('\n'), fill: palette.text, fontFamily: detectFont(form.backsideBullets), fontSize: 0.12, fontWeight: 800, align: 'middle' },
   ];
 }
 
@@ -58,7 +61,8 @@ function buildPrompt(input: any) {
   return [
     `Create a premium editable envelope design layout for ${form.header ?? 'business envelope'}.`,
     'Product: envelope. Close size 4.25 x 5.5 inch. Open size 8.5 x 5.5 inch.',
-    'Top flap 0.5 inch, bottom pasting 0.5 inch, centre-pasted back split: left half and right half must remain visually balanced.',
+    'Open layout panels: left back half is x=0 to 2.125, front panel is x=2.125 to 6.375, right back half is x=6.375 to 8.5.',
+    'Top flap 0.5 inch, bottom pasting 0.5 inch. For backside centre-pasting, split all back artwork half-half on the two outside panels only, like a retail pharmacy envelope reference: left wing has logo/contact/address, right wing has product/service blocks.',
     `Style/template: ${input?.template ?? 'clean'}.`,
     `Header: ${form.header ?? ''}`,
     `Subheader: ${form.subheader ?? ''}`,
@@ -69,7 +73,7 @@ function buildPrompt(input: any) {
     `Front bullets: ${form.bullets ?? ''}`,
     `Back heading: ${form.backsideHeading ?? ''}`,
     `Back bullets: ${form.backsideBullets ?? ''}`,
-    'Return editable layout objects only. Keep all objects inside safe margins. Use bold Google-font-friendly typography, including Devanagari fonts for Hindi/Marathi text.',
+    'Return editable layout objects only. Keep front objects inside x=2.25 to 6.25. Keep back objects only in x=0.15 to 1.95 or x=6.55 to 8.35. Use bold Google-font-friendly typography, including Devanagari fonts for Hindi/Marathi text.',
   ].join('\n');
 }
 
@@ -77,22 +81,33 @@ function normalizeElements(value: unknown): DesignElement[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-    .map((item) => ({
-      kind: item.kind === 'shape' ? 'shape' : 'text',
-      side: item.side === 'back' ? 'back' : 'front',
-      x: clamp(item.x, 0.05, 8.2, 0.8),
-      y: clamp(item.y, 0.05, 6.2, 1),
-      w: clamp(item.w, 0.2, 4, 2.5),
-      h: clamp(item.h, 0.1, 4.5, 0.5),
-      text: typeof item.text === 'string' ? item.text : undefined,
-      fill: typeof item.fill === 'string' ? item.fill : '#0f172a',
-      stroke: typeof item.stroke === 'string' ? item.stroke : undefined,
-      fontFamily: typeof item.fontFamily === 'string' ? item.fontFamily : undefined,
-      fontSize: clamp(item.fontSize, 0.07, 0.6, 0.16),
-      fontWeight: clamp(item.fontWeight, 400, 900, 700),
-      align: item.align === 'middle' || item.align === 'end' ? item.align : 'start',
-      radius: clamp(item.radius, 0, 0.4, 0.12),
-    }));
+    .map((item) => {
+      const side = item.side === 'back' ? 'back' : 'front';
+      const rawW = clamp(item.w, 0.2, side === 'front' ? 4 : 1.75, side === 'front' ? 2.5 : 1.25);
+      const rawX = Number(item.x);
+      let x = side === 'front'
+        ? clamp(rawX, 2.2, 6.3 - rawW, 2.6)
+        : clamp(rawX, 0.15, 8.3 - rawW, 0.5);
+      if (side === 'back' && x > 2 && x < 6.35) {
+        x = x < 4.25 ? 0.45 : 6.65;
+      }
+      return {
+        kind: item.kind === 'shape' ? 'shape' : 'text',
+        side,
+        x,
+        y: clamp(item.y, 0.65, 6.05, 1),
+        w: rawW,
+        h: clamp(item.h, 0.1, 4.5, 0.5),
+        text: typeof item.text === 'string' ? item.text : undefined,
+        fill: typeof item.fill === 'string' ? item.fill : '#0f172a',
+        stroke: typeof item.stroke === 'string' ? item.stroke : undefined,
+        fontFamily: typeof item.fontFamily === 'string' ? item.fontFamily : undefined,
+        fontSize: clamp(item.fontSize, 0.07, 0.6, 0.16),
+        fontWeight: clamp(item.fontWeight, 400, 900, 700),
+        align: item.align === 'middle' || item.align === 'end' ? item.align : 'start',
+        radius: clamp(item.radius, 0, 0.4, 0.12),
+      };
+    });
 }
 
 @Injectable()

@@ -49,6 +49,10 @@ const FLAP_H = 0.5;
 const PASTE_H = 0.5;
 const TOTAL_H = MAIN_H + FLAP_H + PASTE_H;
 const CENTER_X = OPEN_W / 2;
+const LEFT_BACK_X = 0;
+const FRONT_X = 2.125;
+const RIGHT_BACK_X = 6.375;
+const PANEL_W = 2.125;
 
 const templates: Record<TemplateKey, { name: string; background: string; accent: string; text: string; muted: string }> = {
   clean: { name: "Clean White", background: "#ffffff", accent: "#2563eb", text: "#0f172a", muted: "#64748b" },
@@ -123,12 +127,16 @@ function printGuides(exportMode = false) {
   return `
     <rect x="0.125" y="0.625" width="8.25" height="5.25" fill="none" stroke="#22c55e" stroke-width="0.015" stroke-dasharray="0.08 0.06"/>
     <rect x="0.25" y="0.75" width="8" height="5" fill="none" stroke="#3b82f6" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
-    <line x1="${CENTER_X}" y1="0" x2="${CENTER_X}" y2="${TOTAL_H}" stroke="#f97316" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
+    <line x1="${FRONT_X}" y1="${FLAP_H}" x2="${FRONT_X}" y2="${FLAP_H + MAIN_H}" stroke="#f97316" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
+    <line x1="${FRONT_X + PANEL_W * 2}" y1="${FLAP_H}" x2="${FRONT_X + PANEL_W * 2}" y2="${FLAP_H + MAIN_H}" stroke="#f97316" stroke-width="0.012" stroke-dasharray="0.06 0.05"/>
+    <line x1="${CENTER_X}" y1="0" x2="${CENTER_X}" y2="${TOTAL_H}" stroke="#cbd5e1" stroke-width="0.01" stroke-dasharray="0.05 0.05"/>
     <line x1="0" y1="${FLAP_H}" x2="${OPEN_W}" y2="${FLAP_H}" stroke="#94a3b8" stroke-width="0.01" stroke-dasharray="0.05 0.05"/>
     <line x1="0" y1="${FLAP_H + MAIN_H}" x2="${OPEN_W}" y2="${FLAP_H + MAIN_H}" stroke="#94a3b8" stroke-width="0.01" stroke-dasharray="0.05 0.05"/>
     <text x="0.12" y="0.31" font-size="0.11" fill="#64748b">Top flap 0.5"</text>
     <text x="0.12" y="6.29" font-size="0.11" fill="#64748b">Bottom pasting 0.5"</text>
-    <text x="4.34" y="0.34" font-size="0.11" fill="#f97316">Centre back split</text>
+    <text x="0.5" y="0.78" font-size="0.11" fill="#f97316">Back left half</text>
+    <text x="3.7" y="0.78" font-size="0.11" fill="#64748b">Front</text>
+    <text x="6.72" y="0.78" font-size="0.11" fill="#f97316">Back right half</text>
   `;
 }
 
@@ -205,12 +213,10 @@ export default function DesignStudioPage() {
   const t = templates[template];
 
   const [elements, setElements] = useState<DesignElement[]>(() => [
-    { id: uid(), kind: "text", side: "front", x: 0.55, y: 1.05, w: 3.25, h: 0.38, text: seedText.header, fill: "#0f172a", fontSize: 0.24, fontWeight: 800 },
-    { id: uid(), kind: "text", side: "front", x: 0.55, y: 1.42, w: 3.1, h: 0.28, text: seedText.subheader, fill: "#64748b", fontSize: 0.14, fontWeight: 700 },
-    { id: uid(), kind: "shape", side: "front", x: 0.55, y: 2.15, w: 3.35, h: 1.2, fill: "#e0f2fe", stroke: "#bae6fd", radius: 0.12 },
-    { id: uid(), kind: "text", side: "front", x: 0.75, y: 2.35, w: 2.95, h: 0.75, text: seedText.body, fill: "#0f172a", fontSize: 0.16, fontWeight: 700 },
-    { id: uid(), kind: "text", side: "front", x: 0.55, y: 4.95, w: 3.5, h: 0.42, text: `${seedText.mobile1}\n${seedText.address1}`, fill: "#0f172a", fontSize: 0.12, fontWeight: 700 },
-    { id: uid(), kind: "text", side: "back", x: 4.72, y: 1.2, w: 3.1, h: 0.3, text: seedText.backsideHeading, fill: "#0f172a", fontSize: 0.22, fontWeight: 800, align: "middle" },
+    { id: uid(), kind: "text", side: "front", x: 2.45, y: 1.05, w: 3.6, h: 0.38, text: seedText.header, fill: "#0f172a", fontSize: 0.32, fontWeight: 800, align: "middle" },
+    { id: uid(), kind: "text", side: "front", x: 2.55, y: 4.95, w: 3.4, h: 0.42, text: `${seedText.mobile1}\n${seedText.address1}`, fill: "#0f172a", fontSize: 0.12, fontWeight: 700, align: "middle" },
+    { id: uid(), kind: "text", side: "back", x: 0.28, y: 1.2, w: 1.6, h: 0.35, text: seedText.header, fill: "#0f172a", fontSize: 0.24, fontWeight: 800, align: "middle" },
+    { id: uid(), kind: "text", side: "back", x: 6.72, y: 1.2, w: 1.55, h: 0.3, text: seedText.backsideHeading, fill: "#0f172a", fontSize: 0.17, fontWeight: 800, align: "middle" },
   ]);
 
   const visibleElements = useMemo(() => elements.filter((el) => el.side === side), [elements, side]);
@@ -226,24 +232,31 @@ export default function DesignStudioPage() {
     const text = templates[template].text;
     const muted = templates[template].muted;
     const front: DesignElement[] = [
-      { id: uid(), kind: "shape", side: "front", x: 0.35, y: 0.8, w: 3.55, h: 4.75, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.16 },
-      { id: uid(), kind: "shape", side: "front", x: 0.52, y: 1.02, w: 0.72, h: 0.72, fill: accent, stroke: accent, radius: 0.12 },
-      { id: uid(), kind: "text", side: "front", x: 1.38, y: 1.03, w: 2.35, h: 0.42, text: form.header, fill: text, fontFamily: detectFont(form.header), fontSize: 0.25, fontWeight: 800 },
-      { id: uid(), kind: "text", side: "front", x: 1.39, y: 1.43, w: 2.3, h: 0.28, text: form.subheader, fill: muted, fontFamily: detectFont(form.subheader), fontSize: 0.135, fontWeight: 700 },
-      { id: uid(), kind: "shape", side: "front", x: 0.58, y: 2.1, w: 3.1, h: 1.25, fill: `${accent}22`, stroke: `${accent}55`, radius: 0.16 },
-      { id: uid(), kind: "text", side: "front", x: 0.78, y: 2.32, w: 2.68, h: 0.8, text: form.body, fill: text, fontFamily: detectFont(form.body), fontSize: 0.155, fontWeight: 700 },
-      { id: uid(), kind: "text", side: "front", x: 0.62, y: 3.82, w: 1.1, h: 0.25, text: form.bulletHeading, fill: accent, fontFamily: detectFont(form.bulletHeading), fontSize: 0.16, fontWeight: 800 },
-      { id: uid(), kind: "text", side: "front", x: 0.75, y: 4.1, w: 2.9, h: 0.62, text: form.bullets.split("\n").map((b) => `› ${b}`).join("\n"), fill: text, fontFamily: detectFont(form.bullets), fontSize: 0.12, fontWeight: 700 },
-      { id: uid(), kind: "text", side: "front", x: 0.62, y: 5.05, w: 3.1, h: 0.35, text: [form.mobile1, form.mobile2, form.mobile3, form.address1, form.address2].filter(Boolean).join("  |  "), fill: text, fontFamily: detectFont(`${form.address1}${form.address2}`), fontSize: 0.095, fontWeight: 700 },
+      { id: uid(), kind: "shape", side: "front", x: 2.25, y: 0.82, w: 4.0, h: 4.8, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.04 },
+      { id: uid(), kind: "shape", side: "front", x: 2.35, y: 3.45, w: 3.8, h: 0.7, fill: accent, stroke: accent, radius: 0.02 },
+      { id: uid(), kind: "text", side: "front", x: 4.25, y: 1.18, w: 3.4, h: 0.5, text: form.header, fill: text, fontFamily: detectFont(form.header), fontSize: 0.34, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "text", side: "front", x: 4.25, y: 1.78, w: 3.5, h: 0.55, text: form.subheader, fill: muted, fontFamily: detectFont(form.subheader), fontSize: 0.18, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "text", side: "front", x: 4.25, y: 3.56, w: 3.3, h: 0.34, text: form.body, fill: "#ffffff", fontFamily: detectFont(form.body), fontSize: 0.18, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "text", side: "front", x: 2.55, y: 4.45, w: 1.55, h: 0.42, text: form.bulletHeading, fill: accent, fontFamily: detectFont(form.bulletHeading), fontSize: 0.16, fontWeight: 800 },
+      { id: uid(), kind: "text", side: "front", x: 3.68, y: 4.45, w: 2.1, h: 0.75, text: form.bullets.split("\n").map((b) => `› ${b}`).join("\n"), fill: text, fontFamily: detectFont(form.bullets), fontSize: 0.105, fontWeight: 700 },
+      { id: uid(), kind: "shape", side: "front", x: 2.25, y: 5.62, w: 4.0, h: 0.45, fill: accent, stroke: accent, radius: 0.02 },
+      { id: uid(), kind: "text", side: "front", x: 4.25, y: 5.72, w: 3.5, h: 0.22, text: [form.mobile1, form.mobile2, form.mobile3, form.address1, form.address2].filter(Boolean).join("  |  "), fill: "#ffffff", fontFamily: detectFont(`${form.address1}${form.address2}`), fontSize: 0.12, fontWeight: 800, align: "middle" },
     ];
     const back: DesignElement[] = [
-      { id: uid(), kind: "shape", side: "back", x: 4.62, y: 0.95, w: 3.55, h: 4.55, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.16 },
-      { id: uid(), kind: "text", side: "back", x: 6.4, y: 1.28, w: 2.7, h: 0.38, text: form.backsideHeading, fill: text, fontFamily: detectFont(form.backsideHeading), fontSize: 0.24, fontWeight: 800, align: "middle" },
-      { id: uid(), kind: "text", side: "back", x: 4.98, y: 2.0, w: 2.95, h: 1.05, text: form.backsideBullets.split("\n").map((b, i) => `${i + 1}. ${b}`).join("\n"), fill: text, fontFamily: detectFont(form.backsideBullets), fontSize: 0.16, fontWeight: 700 },
-      { id: uid(), kind: "shape", side: "back", x: 5.1, y: 4.72, w: 2.6, h: 0.14, fill: accent, stroke: accent, radius: 0.08 },
+      { id: uid(), kind: "shape", side: "back", x: 0.18, y: 0.82, w: 1.75, h: 4.8, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.04 },
+      { id: uid(), kind: "text", side: "back", x: 1.05, y: 1.35, w: 1.5, h: 0.48, text: form.header, fill: text, fontFamily: detectFont(form.header), fontSize: 0.23, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "text", side: "back", x: 1.05, y: 2.5, w: 1.55, h: 0.8, text: [form.address1, form.address2].filter(Boolean).join("\n"), fill: text, fontFamily: detectFont(`${form.address1}${form.address2}`), fontSize: 0.12, fontWeight: 700, align: "middle" },
+      { id: uid(), kind: "shape", side: "back", x: 0.38, y: 4.1, w: 1.35, h: 0.28, fill: accent, stroke: accent, radius: 0.12 },
+      { id: uid(), kind: "text", side: "back", x: 1.05, y: 4.15, w: 1.2, h: 0.18, text: form.mobile1, fill: "#ffffff", fontFamily: "Noto Sans", fontSize: 0.13, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "text", side: "back", x: 1.05, y: 4.78, w: 1.6, h: 0.55, text: form.backsideBullets, fill: text, fontFamily: detectFont(form.backsideBullets), fontSize: 0.115, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "shape", side: "back", x: 6.58, y: 0.82, w: 1.75, h: 4.8, fill: "#ffffff", stroke: "#e2e8f0", radius: 0.04 },
+      { id: uid(), kind: "shape", side: "back", x: 6.82, y: 1.3, w: 1.28, h: 1.0, fill: `${accent}22`, stroke: `${accent}55`, radius: 0.04 },
+      { id: uid(), kind: "text", side: "back", x: 7.45, y: 2.62, w: 1.35, h: 0.45, text: form.backsideHeading, fill: text, fontFamily: detectFont(form.backsideHeading), fontSize: 0.16, fontWeight: 800, align: "middle" },
+      { id: uid(), kind: "shape", side: "back", x: 6.82, y: 3.72, w: 1.28, h: 1.0, fill: `${accent}22`, stroke: `${accent}55`, radius: 0.04 },
+      { id: uid(), kind: "text", side: "back", x: 7.45, y: 4.95, w: 1.35, h: 0.42, text: "SUPPLY", fill: text, fontFamily: "Noto Sans", fontSize: 0.16, fontWeight: 800, align: "middle" },
     ];
     setElements([...front, ...back, ...elements.filter((el) => el.kind === "image")]);
-    setPrompt(`Create a premium editable envelope design for ${form.header}. Open size 8.5x5.5 inch with 0.5 inch top flap and 0.5 inch bottom pasting. Use ${templates[template].name} style, clear logo area, bold multilingual typography, safe margins, front contact block, and center-pasted back split with heading and bullet points.`);
+    setPrompt(`Create a premium open envelope design for ${form.header}. Open canvas is 8.5x5.5 inch plus 0.5 inch top flap and 0.5 inch bottom pasting. The middle panel from x=2.125 to x=6.375 is the front. Backside centre-pasting artwork is split half-half on both outside wings: left panel x=0 to 2.125 and right panel x=6.375 to 8.5, like a retail pharmacy envelope layout.`);
     setAiSource("local");
   }
 
@@ -297,11 +310,11 @@ export default function DesignStudioPage() {
   }
 
   function addText() {
-    setElements((prev) => [...prev, { id: uid(), kind: "text", side, x: side === "front" ? 0.7 : 4.75, y: 1.2, w: 2.8, h: 0.4, text: "New text", fill: t.text, fontSize: 0.18, fontWeight: 700, fontFamily: "Noto Sans" }]);
+    setElements((prev) => [...prev, { id: uid(), kind: "text", side, x: side === "front" ? 2.6 : 0.45, y: 1.2, w: side === "front" ? 3.2 : 1.35, h: 0.4, text: "New text", fill: t.text, fontSize: 0.18, fontWeight: 700, fontFamily: "Noto Sans" }]);
   }
 
   function addShape() {
-    setElements((prev) => [...prev, { id: uid(), kind: "shape", side, x: side === "front" ? 0.8 : 4.85, y: 2.1, w: 2.8, h: 0.9, fill: `${t.accent}22`, stroke: t.accent, radius: 0.14 }]);
+    setElements((prev) => [...prev, { id: uid(), kind: "shape", side, x: side === "front" ? 2.7 : 0.45, y: 2.1, w: side === "front" ? 3.0 : 1.25, h: 0.9, fill: `${t.accent}22`, stroke: t.accent, radius: 0.14 }]);
   }
 
   function addImage(e: ChangeEvent<HTMLInputElement>) {
@@ -309,7 +322,7 @@ export default function DesignStudioPage() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setElements((prev) => [...prev, { id: uid(), kind: "image", side, x: side === "front" ? 0.65 : 4.85, y: 1.0, w: 0.85, h: 0.85, src: String(reader.result), fill: "#ffffff" }]);
+      setElements((prev) => [...prev, { id: uid(), kind: "image", side, x: side === "front" ? 2.7 : 0.55, y: 1.0, w: 0.85, h: 0.85, src: String(reader.result), fill: "#ffffff" }]);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -417,12 +430,16 @@ export default function DesignStudioPage() {
                 <rect x="0" y={FLAP_H + MAIN_H} width={OPEN_W} height={PASTE_H} fill={t.accent} opacity="0.08" />
                 <rect x="0.125" y="0.625" width="8.25" height="5.25" fill="none" stroke="#22c55e" strokeWidth="0.015" strokeDasharray="0.08 0.06" />
                 <rect x="0.25" y="0.75" width="8" height="5" fill="none" stroke="#3b82f6" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
-                <line x1={CENTER_X} y1="0" x2={CENTER_X} y2={TOTAL_H} stroke="#f97316" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
+                <line x1={FRONT_X} y1={FLAP_H} x2={FRONT_X} y2={FLAP_H + MAIN_H} stroke="#f97316" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
+                <line x1={FRONT_X + PANEL_W * 2} y1={FLAP_H} x2={FRONT_X + PANEL_W * 2} y2={FLAP_H + MAIN_H} stroke="#f97316" strokeWidth="0.012" strokeDasharray="0.06 0.05" />
+                <line x1={CENTER_X} y1="0" x2={CENTER_X} y2={TOTAL_H} stroke="#cbd5e1" strokeWidth="0.01" strokeDasharray="0.05 0.05" />
                 <line x1="0" y1={FLAP_H} x2={OPEN_W} y2={FLAP_H} stroke="#94a3b8" strokeWidth="0.01" strokeDasharray="0.05 0.05" />
                 <line x1="0" y1={FLAP_H + MAIN_H} x2={OPEN_W} y2={FLAP_H + MAIN_H} stroke="#94a3b8" strokeWidth="0.01" strokeDasharray="0.05 0.05" />
                 <text x="0.12" y="0.31" fontSize="0.11" fill="#64748b">Top flap 0.5&quot;</text>
                 <text x="0.12" y="6.29" fontSize="0.11" fill="#64748b">Bottom pasting 0.5&quot;</text>
-                <text x="4.34" y="0.34" fontSize="0.11" fill="#f97316">Centre back split</text>
+                <text x="0.5" y="0.78" fontSize="0.11" fill="#f97316">Back left half</text>
+                <text x="3.7" y="0.78" fontSize="0.11" fill="#64748b">Front</text>
+                <text x="6.72" y="0.78" fontSize="0.11" fill="#f97316">Back right half</text>
                 {visibleElements.map((el) => <RenderElement key={el.id} el={el} selected={selectedId === el.id} />)}
                 {visibleElements.map((el) => <rect key={`hit-${el.id}`} x={el.x} y={el.y} width={el.w} height={el.h} fill="transparent" className="cursor-move" onPointerDown={(event) => startDrag(event, el.id)} />)}
               </svg>
@@ -464,7 +481,7 @@ export default function DesignStudioPage() {
             )}
             <div className="mt-5 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
               <p className="font-bold text-slate-700">Print Guides</p>
-              <p>Green: bleed/cut margin. Blue: safe margin. Orange: centre back split. Guides are hidden in JPG export.</p>
+              <p>Orange: left/right back halves. Middle is front panel. Green: bleed/cut margin. Blue: safe margin. Guides are hidden in JPG export.</p>
             </div>
           </section>
         </div>
