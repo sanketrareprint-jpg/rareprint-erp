@@ -24,6 +24,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { PaperInventoryModule } from './paper-inventory/paper-inventory.module';
 import { MarketingModule } from './marketing/marketing.module';
+import { SheetLayoutModule } from './sheet-layout/sheet-layout.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { MarketingModule } from './marketing/marketing.module';
     RewardsModule,
     PaperInventoryModule,
     MarketingModule,
+    SheetLayoutModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

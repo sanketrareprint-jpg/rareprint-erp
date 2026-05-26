@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu, CheckSquare, Archive, Megaphone,
+  Menu, CheckSquare, Archive, Megaphone, Grid,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
@@ -28,6 +28,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
         { label: "CRM",     href: "/crm",           icon: BarChart2 },
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
+    { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
     { label: "Database",   href: "/admin/database",   icon: Database },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
     { label: "Manage Academy", href: "/admin/sales-learning", icon: BookOpen },
@@ -64,6 +65,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Paper Stock", href: "/paper-inventory",  icon: Archive },
     { label: "Tasks",      href: "/tasks",             icon: CheckSquare },
     { label: "Sticker",    href: "/sticker-sheet",     icon: Layers },
+    { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
   ],
   DISPATCH: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
