@@ -10,13 +10,11 @@ import { SheetLayoutService, SheetSize } from './sheet-layout.service';
 export class SheetLayoutController {
   constructor(private readonly svc: SheetLayoutService) {}
 
-  /** GET /api/sheet-layout/patterns?sheetSize=18x23 */
   @Get('patterns')
   getPatterns(@Query('sheetSize') sheetSize?: string) {
     return this.svc.getPatterns(sheetSize as SheetSize | undefined);
   }
 
-  /** GET /api/sheet-layout/patterns/:id */
   @Get('patterns/:id')
   getPattern(@Param('id') id: string) {
     const p = this.svc.getPattern(id);
@@ -25,43 +23,40 @@ export class SheetLayoutController {
   }
 
   /**
-   * POST /api/sheet-layout/assemble
-   * Body: multipart/form-data
-   *   patternId: string
-   *   slot_0 … slot_N: image files (one per slot, positional order matches pattern)
-   * Returns: High-quality JPEG @ 600 DPI
+   * POST /api/sheet-layout/assemble?patternId=18x23_4L&gapMm=2
+   * Body: multipart/form-data — field name "slots", one file per slot in order
+   * Returns: JPEG (300 DPI, no cut lines)
    */
   @Post('assemble')
   @UseInterceptors(FilesInterceptor('slots', 20, { limits: { fileSize: 40 * 1024 * 1024 } }))
   async assembleSheet(
     @Query('patternId') patternId: string,
+    @Query('gapMm') gapMmStr: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Res() res: Response,
   ) {
     if (!patternId) throw new BadRequestException('patternId is required');
-
-    // Map slot index → buffer from the uploaded files array
-    // Files are named slot_0, slot_1, … slot_N OR just uploaded in order
     const pattern = this.svc.getPattern(patternId);
     if (!pattern) throw new BadRequestException(`Unknown pattern: ${patternId}`);
 
+    const gapMm = Math.max(0, Math.min(20, parseFloat(gapMmStr ?? '0') || 0));
+
+    // Map upload order → slot index
     const slotImages = new Map<number, Buffer>();
-    if (files && files.length > 0) {
-      for (const file of files) {
-        // Try to extract index from fieldname (slot_0, slot_1, …)
+    if (files?.length) {
+      files.forEach((file, idx) => {
         const match = file.fieldname.match(/slot[_-]?(\d+)/i);
-        const idx = match ? parseInt(match[1], 10) : files.indexOf(file);
-        slotImages.set(idx, file.buffer);
-      }
+        slotImages.set(match ? parseInt(match[1], 10) : idx, file.buffer);
+      });
     }
 
-    const tiffBuffer = await this.svc.assembleSheet(patternId, slotImages);
+    const jpegBuffer = await this.svc.assembleSheet(patternId, slotImages, gapMm);
 
     res.set({
       'Content-Type': 'image/jpeg',
-      'Content-Disposition': `attachment; filename="sheet-${patternId}-600dpi.jpg"`,
-      'Content-Length': String(tiffBuffer.length),
+      'Content-Disposition': `attachment; filename="sheet-${patternId}-300dpi.jpg"`,
+      'Content-Length': String(jpegBuffer.length),
     });
-    res.end(tiffBuffer);
+    res.end(jpegBuffer);
   }
 }
