@@ -9,16 +9,14 @@ type SizeRecord = { id: string; productId: string; label: string; width: string;
 type BusinessData = {
   header: string;
   subheader: string;
-  mobile1: string;
-  mobile2: string;
-  mobile3: string;
-  address1: string;
-  address2: string;
+  mobiles: string[];
+  addresses: string[];
   bulletHeading: string;
-  bullets: string;
+  bullets: string[];
   body: string;
   backsideHeading: string;
-  backsideBullets: string;
+  backsideBullets: string[];
+  extraFields: { id: string; label: string; value: string }[];
 };
 type PromptForm = {
   productId: string;
@@ -145,16 +143,14 @@ const factorText: Record<string, string> = {
 const initialBusinessData: BusinessData = {
   header: "प्रकाश मेडिकल स्टोर्स",
   subheader: "संपूर्ण स्वास्थ्य सेवा केंद्र",
-  mobile1: "+91 80041 76377",
-  mobile2: "",
-  mobile3: "",
-  address1: "मेन रोड, सिटी सेंटर के पास",
-  address2: "नागपुर, महाराष्ट्र",
+  mobiles: ["+91 80041 76377"],
+  addresses: ["मेन रोड, सिटी सेंटर के पास", "नागपुर, महाराष्ट्र"],
   bulletHeading: "हमें क्यों चुनें",
-  bullets: "असली दवायें\nउचित कीमतें\nपरिवार जैसी देखभाल",
+  bullets: ["असली दवायें", "उचित कीमतें", "परिवार जैसी देखभाल"],
   body: "आधुनिक सुविधाओं और व्यक्तिगत देखभाल के साथ भरोसेमंद स्वास्थ्य सेवाएं।",
   backsideHeading: "हमारी प्रमुख श्रेणियां",
-  backsideBullets: "दवायें\nव्यक्तिगत देखभाल\nमेडिकल उपकरण\nसर्जिकल सामग्री",
+  backsideBullets: ["दवायें", "व्यक्तिगत देखभाल", "मेडिकल उपकरण", "सर्जिकल सामग्री"],
+  extraFields: [],
 };
 
 const initialForm: PromptForm = {
@@ -193,11 +189,12 @@ function businessText(data: BusinessData) {
   return [
     data.header,
     data.subheader,
-    [data.mobile1, data.mobile2, data.mobile3].filter(Boolean).join(" / "),
-    [data.address1, data.address2].filter(Boolean).join(", "),
+    data.mobiles.filter(Boolean).join(" / "),
+    data.addresses.filter(Boolean).join(", "),
     data.body,
-    `${data.bulletHeading}: ${data.bullets.split("\n").filter(Boolean).join(", ")}`,
-    `${data.backsideHeading}: ${data.backsideBullets.split("\n").filter(Boolean).join(", ")}`,
+    data.bullets.length ? `${data.bulletHeading}: ${data.bullets.filter(Boolean).join(", ")}` : "",
+    data.backsideBullets.length ? `${data.backsideHeading}: ${data.backsideBullets.filter(Boolean).join(", ")}` : "",
+    ...data.extraFields.filter((field) => field.label || field.value).map((field) => `${field.label || "Extra"}: ${field.value}`),
   ].filter(Boolean).join("\n");
 }
 
@@ -263,6 +260,36 @@ export default function DesignStudioPage() {
 
   function updateBusiness<K extends keyof BusinessData>(key: K, value: BusinessData[K]) {
     setBusiness((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateBusinessList(key: "mobiles" | "addresses" | "bullets" | "backsideBullets", index: number, value: string) {
+    setBusiness((prev) => ({
+      ...prev,
+      [key]: prev[key].map((item, itemIndex) => itemIndex === index ? value : item),
+    }));
+  }
+
+  function addBusinessListItem(key: "mobiles" | "addresses" | "bullets" | "backsideBullets", value = "") {
+    setBusiness((prev) => ({ ...prev, [key]: [...prev[key], value] }));
+  }
+
+  function removeBusinessListItem(key: "mobiles" | "addresses" | "bullets" | "backsideBullets", index: number) {
+    setBusiness((prev) => ({ ...prev, [key]: prev[key].filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  function addExtraField() {
+    setBusiness((prev) => ({ ...prev, extraFields: [...prev.extraFields, { id: id(), label: "Extra Matter", value: "" }] }));
+  }
+
+  function updateExtraField(fieldId: string, patch: Partial<{ label: string; value: string }>) {
+    setBusiness((prev) => ({
+      ...prev,
+      extraFields: prev.extraFields.map((field) => field.id === fieldId ? { ...field, ...patch } : field),
+    }));
+  }
+
+  function removeExtraField(fieldId: string) {
+    setBusiness((prev) => ({ ...prev, extraFields: prev.extraFields.filter((field) => field.id !== fieldId) }));
   }
 
   function addProduct() {
@@ -375,20 +402,32 @@ export default function DesignStudioPage() {
 
             <section className="space-y-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-4 flex items-center gap-2"><Sparkles className="h-4 w-4 text-blue-600" /><h2 className="text-sm font-bold">Business Data</h2></div>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-blue-600" /><h2 className="text-sm font-bold">Business Data</h2></div>
+                  <button onClick={addExtraField} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"><Plus className="h-3.5 w-3.5" /> Add Field</button>
+                </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <TextField label="Header / Shop Name" value={business.header} onChange={(value) => updateBusiness("header", value)} />
                   <TextField label="Subheader / Tagline" value={business.subheader} onChange={(value) => updateBusiness("subheader", value)} />
-                  <TextField label="Mobile 1" value={business.mobile1} onChange={(value) => updateBusiness("mobile1", value)} />
-                  <TextField label="Mobile 2" value={business.mobile2} onChange={(value) => updateBusiness("mobile2", value)} />
-                  <TextField label="Mobile 3" value={business.mobile3} onChange={(value) => updateBusiness("mobile3", value)} />
-                  <TextField label="Address Line 1" value={business.address1} onChange={(value) => updateBusiness("address1", value)} />
-                  <TextField label="Address Line 2" value={business.address2} onChange={(value) => updateBusiness("address2", value)} />
                   <TextField label="Bullet Heading" value={business.bulletHeading} onChange={(value) => updateBusiness("bulletHeading", value)} />
                   <TextField label="Body / Message" value={business.body} onChange={(value) => updateBusiness("body", value)} wide />
-                  <TextAreaField label="Bullets" value={business.bullets} onChange={(value) => updateBusiness("bullets", value)} />
                   <TextField label="Backside Heading" value={business.backsideHeading} onChange={(value) => updateBusiness("backsideHeading", value)} />
-                  <TextAreaField label="Backside Bullets" value={business.backsideBullets} onChange={(value) => updateBusiness("backsideBullets", value)} />
+                  <RepeatableFields title="Mobiles" addLabel="Add Mobile" values={business.mobiles} onAdd={() => addBusinessListItem("mobiles")} onChange={(index, value) => updateBusinessList("mobiles", index, value)} onRemove={(index) => removeBusinessListItem("mobiles", index)} />
+                  <RepeatableFields title="Addresses" addLabel="Add Address" values={business.addresses} onAdd={() => addBusinessListItem("addresses")} onChange={(index, value) => updateBusinessList("addresses", index, value)} onRemove={(index) => removeBusinessListItem("addresses", index)} />
+                  <RepeatableFields title="Bullets" addLabel="Add Bullet" values={business.bullets} onAdd={() => addBusinessListItem("bullets")} onChange={(index, value) => updateBusinessList("bullets", index, value)} onRemove={(index) => removeBusinessListItem("bullets", index)} />
+                  <RepeatableFields title="Backside Bullets" addLabel="Add Backside Bullet" values={business.backsideBullets} onAdd={() => addBusinessListItem("backsideBullets")} onChange={(index, value) => updateBusinessList("backsideBullets", index, value)} onRemove={(index) => removeBusinessListItem("backsideBullets", index)} />
+                  {business.extraFields.map((field) => (
+                    <div key={field.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3 md:col-span-2">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-slate-600">Custom Field</p>
+                        <button onClick={() => removeExtraField(field.id)} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[11px] font-bold text-red-600 hover:bg-red-50"><Trash2 className="h-3 w-3" /> Remove</button>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <input value={field.label} onChange={(e) => updateExtraField(field.id, { label: e.target.value })} placeholder="Field label" className="input" />
+                        <input value={field.value} onChange={(e) => updateExtraField(field.id, { value: e.target.value })} placeholder="Field value" className="input" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -447,6 +486,39 @@ function TextField({ label, value, onChange, wide = false }: { label: string; va
   return <Field label={label} wide={wide}><input value={value} onChange={(e) => onChange(e.target.value)} className="input" /></Field>;
 }
 
-function TextAreaField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <Field label={label}><textarea value={value} onChange={(e) => onChange(e.target.value)} rows={3} className="input resize-none" /></Field>;
+function RepeatableFields({
+  title,
+  addLabel,
+  values,
+  onAdd,
+  onChange,
+  onRemove,
+}: {
+  title: string;
+  addLabel: string;
+  values: string[];
+  onAdd: () => void;
+  onChange: (index: number, value: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 md:col-span-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-bold text-slate-600">{title}</p>
+        <button onClick={onAdd} className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 hover:bg-blue-50"><Plus className="h-3 w-3" /> {addLabel}</button>
+      </div>
+      <div className="space-y-2">
+        {values.length === 0 ? (
+          <p className="rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 text-xs text-slate-400">No {title.toLowerCase()} added.</p>
+        ) : values.map((value, index) => (
+          <div key={`${title}-${index}`} className="flex gap-2">
+            <input value={value} onChange={(e) => onChange(index, e.target.value)} className="input" />
+            <button onClick={() => onRemove(index)} className="shrink-0 rounded-lg border border-red-200 px-2.5 text-red-600 hover:bg-red-50" title={`Remove ${title}`}>
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
