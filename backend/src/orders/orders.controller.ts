@@ -31,6 +31,11 @@ function ensureUploadsDir() {
   if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+function contentDispositionFilename(filename: string) {
+  const fallback = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 @Controller('orders')
 export class OrdersController {
   constructor(
@@ -211,19 +216,24 @@ export class OrdersController {
     if (!item) throw new Error('Order item not found');
     const existing: DesignFile[] = Array.isArray((item as any).designFiles) ? ((item as any).designFiles as DesignFile[]) : [];
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}${extname(file.originalname)}`;
-    ensureUploadsDir();
-    const filePath = join(UPLOADS_DIR, unique);
-    writeFileSync(filePath, file.buffer);
+    try {
+      ensureUploadsDir();
+      const filePath = join(UPLOADS_DIR, unique);
+      writeFileSync(filePath, file.buffer);
+    } catch {
+      // The database copy below is the source of truth on serverless hosts.
+    }
     const newFile: DesignFile = {
       filename: unique,
       originalName: file.originalname,
       uploadedAt: new Date().toISOString(),
       size: file.size,
+      base64: file.buffer.toString('base64'),
       mimeType: file.mimetype,
     };
     await (this.prisma.orderItem as any).update({
       where: { id: itemId },
-      data: { designFiles: [...existing.map(({ base64, ...file }) => file), newFile] },
+      data: { designFiles: [...existing, newFile] },
     });
     return { success: true, file: { filename: newFile.filename, originalName: newFile.originalName, uploadedAt: newFile.uploadedAt, size: newFile.size } };
   }
@@ -273,7 +283,7 @@ export class OrdersController {
     if (file.base64 && file.mimeType) {
       const buffer = Buffer.from(file.base64, 'base64');
       res.setHeader('Content-Type', file.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
+      res.setHeader('Content-Disposition', contentDispositionFilename(file.originalName));
       res.setHeader('Content-Length', buffer.length);
       res.send(buffer);
       return;
@@ -281,7 +291,7 @@ export class OrdersController {
     // Fallback to filesystem
     const filePath = join(UPLOADS_DIR, filename);
     if (!existsSync(filePath)) { res.status(404).json({ message: 'File not found' }); return; }
-    res.download(filePath);
+    res.download(filePath, file.originalName);
   }
 }
 

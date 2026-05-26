@@ -223,9 +223,19 @@ export default function ProductionPage() {
     } finally { setDeletingFile(null); }
   }
 
-  function downloadFile(itemId: string, filename: string, originalName: string) {
-    fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, { headers: getAuthHeaders() })
-      .then(r => r.blob()).then(blob => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = originalName; a.click(); URL.revokeObjectURL(a.href); });
+  async function downloadFile(itemId: string, filename: string, originalName: string) {
+    const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+      alert("File download failed. Please upload the attachment again.");
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = originalName;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function openAssignModal(o: ProductionOrder) {
@@ -1204,7 +1214,6 @@ export default function ProductionPage() {
     </>
   );
 }
-
 
 
 
