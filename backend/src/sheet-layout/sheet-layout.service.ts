@@ -3,7 +3,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp = require('sharp') as typeof import('sharp');
 
-const DPI = 300;   // 300 DPI — standard print quality, ~4× smaller files than 600
+const DPI = 600;   // 600 DPI — high-resolution print quality
 
 export const SHEET_DEFS = {
   '18x23': { label: '18×23 Inch', widthIn: 23, heightIn: 18, marginIn: 0.5, usableW: 22, usableH: 17 },
@@ -128,10 +128,18 @@ export class SheetLayoutService {
       compositeInputs.push({ input: resized, left: geo.xPx, top: geo.yPx });
     }
 
-    // Compose → JPEG quality 82 (great quality, small file)
+    // Compose → JPEG at 600 DPI with maximum compression flags for smallest file
     return sharp(baseBuffer)
       .composite(compositeInputs)
-      .jpeg({ quality: 82, chromaSubsampling: '4:2:0' })
+      .jpeg({
+        quality: 72,                  // sweet spot: sharp detail, low file size
+        chromaSubsampling: '4:2:0',   // halve chroma data (invisible to eye for print)
+        progressive: true,            // progressive scan shaves ~10% off file size
+        optimiseCoding: true,         // optimise Huffman coding table
+        trellisQuantisation: true,    // trellis quant: ~10-15% smaller, same visual quality
+        overshootDeringing: true,     // reduce ringing at sharp edges
+        optimiseScans: true,          // optimise each progressive scan
+      })
       .toBuffer();
   }
 }
