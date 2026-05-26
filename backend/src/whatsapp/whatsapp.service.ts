@@ -4,6 +4,19 @@ import { Injectable, Logger } from '@nestjs/common';
 const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
 const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
 const TEMPLATE_NAME = 'order_updatess';
+const AISENSY_AGENT_TAGS: Record<string, string> = {
+  gulfam: 'gulfam',
+  akansha: 'Akansha',
+  sonali: 'sonali',
+  samita: 'samita',
+  ritu: 'ritu',
+  divya: 'Divya',
+  fiza: 'fiza',
+  priya: 'priya',
+  vaishali: 'Vaishali',
+  nikita: 'nikita',
+  shrawani: 'shrawani',
+};
 
 export interface WhatsAppOrderParams {
   customerName: string;
@@ -24,6 +37,7 @@ export class WhatsAppService {
     customerPhone: string;
     templateParams: string[];
     orderNo?: string;
+    tags?: string[];
   }): Promise<boolean> {
     if (!params.customerPhone) {
       this.logger.warn(`No phone for order ${params.orderNo ?? 'unknown'}, skipping WhatsApp`);
@@ -47,6 +61,7 @@ export class WhatsAppService {
       buttons: [],
       carouselCards: [],
       location: {},
+      tags: params.tags ?? [],
     };
 
     try {
@@ -207,6 +222,7 @@ export class WhatsAppService {
     agentName: string;
     agentPhone: string;
   }): Promise<boolean> {
+    const agentTag = this.getAgentTag(params.agentName);
     return this.sendCampaign({
       campaignName: process.env.AISENSY_LEAD_ASSIGNED_CAMPAIGN ?? 'lead_assigned_agent',
       customerName: params.customerName || 'Customer',
@@ -216,6 +232,7 @@ export class WhatsAppService {
         params.agentName || 'Rareprint Team',
         params.agentPhone || '9637318960',
       ],
+      tags: agentTag ? [agentTag] : [],
     });
   }
 
@@ -241,6 +258,12 @@ export class WhatsAppService {
     if (digits.length === 11 && digits.startsWith('0')) return `91${digits.slice(1)}`;
     if (digits.length > 10) return digits;
     return null;
+  }
+
+  private getAgentTag(agentName: string): string | null {
+    const normalized = String(agentName || '').toLowerCase();
+    const match = Object.entries(AISENSY_AGENT_TAGS).find(([name]) => normalized.includes(name));
+    return match?.[1] ?? null;
   }
 
   // ── Order Created Notification (to owner + customer) ─────────────────────
