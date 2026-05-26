@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -40,10 +40,28 @@ type PendingPayment = {
   referenceNumber?: string;
   notes?: string;
   paymentDate: string;
+  paymentAccountId: string;
   paymentAccountName: string;
   receivedByName?: string;
   verificationStatus: string;
   createdAt: string;
+};
+
+type PaymentAccount = {
+  id: string;
+  name: string;
+  bankName?: string;
+  accountType?: string;
+  upiId?: string;
+};
+
+type EditPaymentForm = {
+  amount: string;
+  method: string;
+  paymentAccountId: string;
+  referenceNumber: string;
+  notes: string;
+  paymentDate: string;
 };
 
 type CustomerOutstanding = {
@@ -147,6 +165,8 @@ const productStatusClass: Record<string, string> = {
   READY_FOR_DISPATCH: "bg-green-100 text-green-700",
 };
 
+const paymentMethods = ["CASH", "BANK_TRANSFER", "UPI", "CHEQUE", "CARD"];
+
 export default function AccountsPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pending");
@@ -176,6 +196,17 @@ const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
 const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const [rejectPaymentId, setRejectPaymentId] = useState<string | null>(null);
   const [rejectPaymentReason, setRejectPaymentReason] = useState("");
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
+  const [editingPayment, setEditingPayment] = useState<PendingPayment | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState<EditPaymentForm>({
+    amount: "",
+    method: "CASH",
+    paymentAccountId: "",
+    referenceNumber: "",
+    notes: "",
+    paymentDate: "",
+  });
+  const [savingPaymentId, setSavingPaymentId] = useState<string | null>(null);
 
   // Customer outstanding
   const [outstanding, setOutstanding] = useState<CustomerOutstanding[]>([]);
@@ -221,8 +252,13 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const loadReceipts = useCallback(async () => {
     setReceiptsLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/pending-payments`, { headers: getAuthHeaders() });
-      setPendingPayments(await res.json());
+      const headers = getAuthHeaders();
+      const [paymentsRes, accountsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/pending-payments`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers }),
+      ]);
+      setPendingPayments(await paymentsRes.json());
+      if (accountsRes.ok) setPaymentAccounts(await accountsRes.json());
     } finally { setReceiptsLoading(false); }
   }, []);
 
@@ -304,6 +340,57 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
       await loadReceipts();
 await loadHistory();
     } finally { setVerifyingId(null); }
+  }
+
+  function startEditPayment(payment: PendingPayment) {
+    setEditingPayment(payment);
+    setEditPaymentForm({
+      amount: String(payment.amount),
+      method: payment.method,
+      paymentAccountId: payment.paymentAccountId,
+      referenceNumber: payment.referenceNumber ?? "",
+      notes: payment.notes ?? "",
+      paymentDate: new Date(payment.paymentDate).toISOString().slice(0, 10),
+    });
+  }
+
+  async function savePaymentEdit() {
+    if (!editingPayment) return;
+    const amount = Number(editPaymentForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Enter a valid payment amount");
+      return;
+    }
+    if (!editPaymentForm.paymentAccountId) {
+      alert("Select a payment account");
+      return;
+    }
+
+    setSavingPaymentId(editingPayment.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payments/${editingPayment.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          method: editPaymentForm.method,
+          paymentAccountId: editPaymentForm.paymentAccountId,
+          referenceNumber: editPaymentForm.referenceNumber,
+          notes: editPaymentForm.notes,
+          paymentDate: editPaymentForm.paymentDate,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not update receipt");
+      }
+      setEditingPayment(null);
+      await loadReceipts();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not update receipt");
+    } finally {
+      setSavingPaymentId(null);
+    }
   }
 
   async function markPaid(entry: VendorEntry) {
@@ -718,7 +805,10 @@ await loadHistory();
                           <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
                           <td className="px-3 py-2">
                           <input value={p.id === verifyUtrId ? verifyUtrValue : (utrDraft[p.id] ?? p.referenceNumber ?? "")}
-                            onChange={e => setUtrDraft(d => ({ ...d, [p.id]: e.target.value }))}
+                            onChange={e => {
+                              setVerifyUtrValue(e.target.value);
+                              setUtrDraft(d => ({ ...d, [p.id]: e.target.value }));
+                            }}
                             onFocus={() => { setVerifyUtrId(p.id); setVerifyUtrValue(utrDraft[p.id] ?? p.referenceNumber ?? ""); }}
                             placeholder="UTR / Ref No"
                             className="border border-slate-200 rounded px-2 py-1 text-xs w-36 outline-none focus:border-blue-400 bg-white" />
@@ -726,6 +816,11 @@ await loadHistory();
                           <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center justify-center gap-1.5">
+                              <button onClick={() => startEditPayment(p)} disabled={verifyingId === p.id || savingPaymentId === p.id}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 font-semibold disabled:opacity-60">
+                                <Pencil className="h-3 w-3" />
+                                Edit
+                              </button>
                               <button onClick={() => verifyPayment(p.id, utrDraft[p.id] ?? p.referenceNumber ?? "")} disabled={verifyingId === p.id}
                                   className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
                                   {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
@@ -970,6 +1065,82 @@ await loadHistory();
           )}
         </div>
       </DashboardShell>
+
+      {/* Edit Payment Modal */}
+      {editingPayment && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "34rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Edit Payment Receipt</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{editingPayment.orderNo} · {editingPayment.customerName}</p>
+              </div>
+              <button onClick={() => setEditingPayment(null)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Amount</span>
+                <input type="number" min="1" step="0.01" value={editPaymentForm.amount}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, amount: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Payment Date</span>
+                <input type="date" value={editPaymentForm.paymentDate}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, paymentDate: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Method</span>
+                <select value={editPaymentForm.method}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, method: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
+                  {paymentMethods.map(method => <option key={method} value={method}>{method.replace("_", " ")}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Received In</span>
+                <select value={editPaymentForm.paymentAccountId}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
+                  <option value="">Select account</option>
+                  {paymentAccounts.map(account => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}{account.bankName ? ` (${account.bankName})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>
+                <input value={editPaymentForm.referenceNumber}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-semibold text-slate-600">Notes</span>
+                <textarea rows={3} value={editPaymentForm.notes}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, notes: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none" />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setEditingPayment(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={savePaymentEdit} disabled={savingPaymentId === editingPayment.id}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                {savingPaymentId === editingPayment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reject Payment Modal */}
       {rejectPaymentId && (

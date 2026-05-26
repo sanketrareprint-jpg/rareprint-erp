@@ -2,6 +2,7 @@ import { Controller, Get, Patch, Param, Body, UseGuards, Req } from '@nestjs/com
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
+import { PaymentMethod } from '@prisma/client';
 
 type JwtUser = { id: string; role: string };
 
@@ -23,6 +24,11 @@ export class AccountsController {
   @Get('pending-payments')
   getPendingPayments() {
     return this.accountsService.getPendingPayments();
+  }
+
+  @Get('payment-accounts')
+  getPaymentAccounts() {
+    return this.accountsService.getPaymentAccounts();
   }
 
   @Get('customer-outstanding')
@@ -61,8 +67,28 @@ export class AccountsController {
   }
 
   @Patch('payments/:id/verify')
-  verifyPayment(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
-    return this.accountsService.verifyPayment(id, req.user.id);
+  verifyPayment(
+    @Param('id') id: string,
+    @Body('referenceNumber') referenceNumber: string | undefined,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.verifyPayment(id, req.user.id, referenceNumber);
+  }
+
+  @Patch('payments/:id')
+  updatePayment(
+    @Param('id') id: string,
+    @Body() body: {
+      amount?: number;
+      method?: PaymentMethod;
+      paymentAccountId?: string;
+      referenceNumber?: string | null;
+      notes?: string | null;
+      paymentDate?: string;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.updatePendingPayment(id, req.user, body);
   }
 
   @Patch('payments/:id/reject')

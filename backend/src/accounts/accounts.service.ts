@@ -6,10 +6,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethod } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 type AccountsUser = { id: string; role: string };
+
+type UpdatePendingPaymentDto = {
+  amount?: number;
+  method?: PaymentMethod;
+  paymentAccountId?: string;
+  referenceNumber?: string | null;
+  notes?: string | null;
+  paymentDate?: string;
+};
 
 function assertAccountsUser(user: AccountsUser) {
   if (!['ADMIN', 'ACCOUNTS'].includes(user.role)) {
@@ -381,11 +390,26 @@ export class AccountsService {
       referenceNumber: p.referenceNumber,
       notes: p.notes,
       paymentDate: p.paymentDate,
+      paymentAccountId: p.paymentAccountId,
       paymentAccountName: p.paymentAccount.name,
       receivedByName: p.receivedBy?.fullName ?? null,
       verificationStatus: p.verificationStatus,
       createdAt: p.createdAt,
     }));
+  }
+
+  async getPaymentAccounts() {
+    return this.prisma.paymentAccount.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        bankName: true,
+        accountType: true,
+        upiId: true,
+      },
+    });
   }
 
   async getCustomerOutstanding() {
@@ -447,7 +471,61 @@ export class AccountsService {
     }));
   }
 
-  async verifyPayment(id: string, verifiedById: string) {
+  async updatePendingPayment(id: string, user: AccountsUser, data: UpdatePendingPaymentDto) {
+    assertAccountsUser(user);
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment) throw new NotFoundException('Payment receipt not found');
+    if (payment.verificationStatus !== 'PENDING_VERIFICATION') {
+      throw new BadRequestException('Only pending receipts can be edited');
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (data.amount !== undefined) {
+      const amount = Number(data.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestException('Payment amount must be greater than zero');
+      }
+      updateData.amount = amount;
+    }
+
+    if (data.method !== undefined) {
+      if (!Object.values(PaymentMethod).includes(data.method)) {
+        throw new BadRequestException('Invalid payment method');
+      }
+      updateData.method = data.method;
+    }
+
+    if (data.paymentAccountId !== undefined) {
+      const account = await this.prisma.paymentAccount.findFirst({
+        where: { id: data.paymentAccountId, isActive: true },
+      });
+      if (!account) throw new BadRequestException('Select an active payment account');
+      updateData.paymentAccountId = data.paymentAccountId;
+    }
+
+    if (data.paymentDate !== undefined) {
+      const paymentDate = new Date(data.paymentDate);
+      if (Number.isNaN(paymentDate.getTime())) {
+        throw new BadRequestException('Invalid payment date');
+      }
+      updateData.paymentDate = paymentDate;
+    }
+
+    if (data.referenceNumber !== undefined) {
+      updateData.referenceNumber = data.referenceNumber?.trim() || null;
+    }
+    if (data.notes !== undefined) {
+      updateData.notes = data.notes?.trim() || null;
+    }
+
+    return this.prisma.payment.update({
+      where: { id },
+      data: updateData,
+      include: { paymentAccount: true },
+    });
+  }
+
+  async verifyPayment(id: string, verifiedById: string, referenceNumber?: string) {
     const payment = await this.prisma.payment.findUnique({
       where: { id },
       include: {
@@ -460,6 +538,10 @@ export class AccountsService {
         paymentAccount: true,
       },
     });
+    if (!payment) throw new NotFoundException('Payment receipt not found');
+    if (payment.verificationStatus !== 'PENDING_VERIFICATION') {
+      throw new BadRequestException('Only pending receipts can be verified');
+    }
 
     const updated = await this.prisma.payment.update({
       where: { id },
@@ -467,6 +549,7 @@ export class AccountsService {
         verificationStatus: 'VERIFIED',
         verifiedById,
         verifiedAt: new Date(),
+        ...(referenceNumber !== undefined ? { referenceNumber: referenceNumber.trim() || null } : {}),
       },
     });
 
