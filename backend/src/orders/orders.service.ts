@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import {
   OrderStatus,
+  OrderProductionStage,
   PaymentMethod,
   PaymentStatus,
   Prisma,
@@ -587,8 +588,17 @@ export class OrdersService {
     agentId: string,
     data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string },
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { select: { itemProductionStage: true } } },
+    });
     if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== OrderStatus.READY_FOR_DISPATCH) {
+      throw new BadRequestException('Order must be ready for dispatch before dispatch approval can be requested');
+    }
+    if (!order.items.some((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH)) {
+      throw new BadRequestException('No ready items found for dispatch');
+    }
     const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
     const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
       ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
@@ -670,8 +680,13 @@ export class OrdersService {
     const results: string[] = [];
     const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
     for (const orderId of orderIds) {
-      const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: { select: { itemProductionStage: true } } },
+      });
       if (!order) continue;
+      if (order.status !== OrderStatus.READY_FOR_DISPATCH) continue;
+      if (!order.items.some((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH)) continue;
 
       const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
         ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`

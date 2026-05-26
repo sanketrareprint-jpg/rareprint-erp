@@ -1,8 +1,21 @@
 // backend/src/accounts/accounts.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderStatus } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+
+type AccountsUser = { id: string; role: string };
+
+function assertAccountsUser(user: AccountsUser) {
+  if (!['ADMIN', 'ACCOUNTS'].includes(user.role)) {
+    throw new ForbiddenException('Accounts approval is restricted to accounts/admin users');
+  }
+}
 
 @Injectable()
 export class AccountsService {
@@ -140,7 +153,8 @@ export class AccountsService {
   }
 
   // ── Approve order → WhatsApp "Approved ✅" ────────────────────────────────
-  async approveOrder(orderId: string) {
+  async approveOrder(orderId: string, user: AccountsUser) {
+    assertAccountsUser(user);
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -150,10 +164,25 @@ export class AccountsService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== OrderStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('Only pending accounts approval orders can be approved');
+    }
 
-    const updated = await this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.APPROVED },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const approved = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.APPROVED },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: OrderStatus.PENDING_APPROVAL,
+          toStatus: OrderStatus.APPROVED,
+          changedById: user.id,
+          reason: 'Accounts approved order',
+        },
+      });
+      return approved;
     });
 
     // Fire-and-forget WhatsApp
@@ -177,7 +206,8 @@ export class AccountsService {
   }
 
   // ── Approve dispatch → WhatsApp "Ready for Dispatch 📦" ──────────────────
-  async approveDispatch(orderId: string) {
+  async approveDispatch(orderId: string, user: AccountsUser) {
+    assertAccountsUser(user);
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -191,9 +221,21 @@ export class AccountsService {
       throw new NotFoundException('Order is not pending dispatch approval');
     }
 
-    const updated = await this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.READY_FOR_DISPATCH },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const approved = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.READY_FOR_DISPATCH },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+          toStatus: OrderStatus.READY_FOR_DISPATCH,
+          changedById: user.id,
+          reason: 'Accounts approved dispatch',
+        },
+      });
+      return approved;
     });
 
     // Fire-and-forget WhatsApp

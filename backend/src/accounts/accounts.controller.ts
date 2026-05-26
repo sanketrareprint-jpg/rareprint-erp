@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Param, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
 
 type JwtUser = { id: string; role: string };
@@ -40,8 +41,8 @@ export class AccountsController {
   }
 
   @Patch(':id/approve')
-  approveOrder(@Param('id') id: string) {
-    return this.accountsService.approveOrder(id);
+  approveOrder(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.approveOrder(id, req.user);
   }
 
   @Patch(':id/reject')
@@ -50,8 +51,8 @@ export class AccountsController {
   }
 
   @Patch(':id/approve-dispatch')
-  approveDispatch(@Param('id') id: string) {
-    return this.accountsService.approveDispatch(id);
+  approveDispatch(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.approveDispatch(id, req.user);
   }
 
   @Patch(':id/reject-dispatch')
