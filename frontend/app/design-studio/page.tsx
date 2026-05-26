@@ -2,6 +2,8 @@
 
 import React, { ChangeEvent, PointerEvent, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { API_BASE_URL } from "@/lib/api";
+import { getAuthHeaders } from "@/lib/auth";
 import {
   AlignCenter,
   AlignLeft,
@@ -197,6 +199,8 @@ export default function DesignStudioPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSource, setAiSource] = useState<"openai" | "local" | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const t = templates[template];
 
@@ -240,6 +244,56 @@ export default function DesignStudioPage() {
     ];
     setElements([...front, ...back, ...elements.filter((el) => el.kind === "image")]);
     setPrompt(`Create a premium editable envelope design for ${form.header}. Open size 8.5x5.5 inch with 0.5 inch top flap and 0.5 inch bottom pasting. Use ${templates[template].name} style, clear logo area, bold multilingual typography, safe margins, front contact block, and center-pasted back split with heading and bullet points.`);
+    setAiSource("local");
+  }
+
+  async function aiCreateLayout() {
+    setAiLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/design-studio/envelope/layout`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ template, form }),
+      });
+      if (!res.ok) {
+        autoArrange();
+        alert("AI layout is not available right now. Local auto layout was applied.");
+        return;
+      }
+      const data = await res.json();
+      const next = Array.isArray(data.elements)
+        ? data.elements.map((el: Partial<DesignElement>) => ({
+            id: uid(),
+            kind: el.kind === "shape" ? "shape" : "text",
+            side: el.side === "back" ? "back" : "front",
+            x: Number(el.x ?? 0.8),
+            y: Number(el.y ?? 1),
+            w: Number(el.w ?? 2.5),
+            h: Number(el.h ?? 0.5),
+            text: el.text,
+            fill: el.fill ?? templates[template].text,
+            stroke: el.stroke,
+            fontFamily: el.fontFamily,
+            fontSize: el.fontSize,
+            fontWeight: el.fontWeight,
+            align: el.align,
+            radius: el.radius,
+          }))
+        : [];
+      if (next.length === 0) {
+        autoArrange();
+        return;
+      }
+      setElements([...next, ...elements.filter((el) => el.kind === "image")]);
+      setSelectedId(null);
+      setPrompt(data.prompt ?? "");
+      setAiSource(data.source === "openai" ? "openai" : "local");
+    } catch {
+      autoArrange();
+      alert("AI layout is not available right now. Local auto layout was applied.");
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   function addText() {
@@ -340,7 +394,10 @@ export default function DesignStudioPage() {
               ))}
             </div>
 
-            <button onClick={autoArrange} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
+            <button onClick={aiCreateLayout} disabled={aiLoading} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60">
+              <Sparkles className="h-4 w-4" /> {aiLoading ? "AI Designing..." : "AI Create Editable Design"}
+            </button>
+            <button onClick={autoArrange} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
               <Sparkles className="h-4 w-4" /> Auto Design Layout
             </button>
           </section>
@@ -370,7 +427,7 @@ export default function DesignStudioPage() {
                 {visibleElements.map((el) => <rect key={`hit-${el.id}`} x={el.x} y={el.y} width={el.w} height={el.h} fill="transparent" className="cursor-move" onPointerDown={(event) => startDrag(event, el.id)} />)}
               </svg>
             </div>
-            {prompt && <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900"><strong>AI prompt draft:</strong> {prompt}</div>}
+            {prompt && <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900"><strong>{aiSource === "openai" ? "AI generated editable layout" : "AI prompt draft"}:</strong> {prompt}</div>}
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">

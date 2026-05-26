@@ -25,6 +25,7 @@ import { RewardsModule } from './rewards/rewards.module';
 import { PaperInventoryModule } from './paper-inventory/paper-inventory.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { SheetLayoutModule } from './sheet-layout/sheet-layout.module';
+import { DesignStudioModule } from './design-studio/design-studio.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { SheetLayoutModule } from './sheet-layout/sheet-layout.module';
     PaperInventoryModule,
     MarketingModule,
     SheetLayoutModule,
+    DesignStudioModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
