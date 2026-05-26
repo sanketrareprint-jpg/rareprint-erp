@@ -86,6 +86,14 @@ export class CrmController {
     return this.crmService.updateStatus(id, status, req.user.id);
   }
 
+  @Post('leads/bulk-delete')
+  bulkDeleteLeads(
+    @Body() body: { ids: string[] },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.crmService.bulkDeleteLeads(body.ids ?? [], req.user.id, req.user.role);
+  }
+
   @Delete('leads/:id')
   deleteLead(
     @Param('id') id: string,

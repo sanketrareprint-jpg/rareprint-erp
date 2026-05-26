@@ -168,6 +168,22 @@ export class CrmService {
     return { success: true, deletedId: id };
   }
 
+  async bulkDeleteLeads(ids: string[], userId: string, role: string) {
+    const uniqueIds = Array.from(new Set((ids ?? []).filter(Boolean)));
+    if (!uniqueIds.length) throw new BadRequestException('No leads selected');
+
+    const where: any = { id: { in: uniqueIds } };
+    if (role !== 'ADMIN') where.agentId = userId;
+
+    const result = await this.prisma.lead.deleteMany({ where });
+    return {
+      success: true,
+      requested: uniqueIds.length,
+      deleted: result.count,
+      skipped: uniqueIds.length - result.count,
+    };
+  }
+
   // ─── LOG CALL ──────────────────────────────────────────────────────────────
   async logCall(leadId: string, outcome: string, note: string, agentId: string) {
     const typeMap: Record<string, ActivityType> = {

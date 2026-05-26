@@ -153,6 +153,11 @@ function CrmPageContent() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [sendingAisensy, setSendingAisensy] = useState<string | null>(null);
   const [deletingLead, setDeletingLead] = useState<string | null>(null);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const visibleLeadIds = leads.map((lead) => lead.id);
+  const allVisibleSelected = visibleLeadIds.length > 0 && visibleLeadIds.every((id) => selectedLeadIds.includes(id));
+  const someVisibleSelected = selectedLeadIds.some((id) => visibleLeadIds.includes(id));
 
   const sendToAisensy = async (lead: Lead, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -200,6 +205,46 @@ function CrmPageContent() {
       alert("Network error");
     } finally {
       setDeletingLead(null);
+    }
+  };
+
+  const toggleLeadSelection = (leadId: string) => {
+    setSelectedLeadIds(prev => prev.includes(leadId) ? prev.filter(id => id !== leadId) : [...prev, leadId]);
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedLeadIds(prev => {
+      const visible = new Set(visibleLeadIds);
+      if (allVisibleSelected) return prev.filter(id => !visible.has(id));
+      return Array.from(new Set([...prev, ...visibleLeadIds]));
+    });
+  };
+
+  const deleteSelectedLeads = async () => {
+    const ids = selectedLeadIds.filter(id => visibleLeadIds.includes(id));
+    if (!ids.length) return;
+    const ok = window.confirm(`Delete ${ids.length} selected lead${ids.length === 1 ? "" : "s"}?\n\nThis will remove their follow-ups and activity history too.`);
+    if (!ok) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch(`${API}/crm/leads/bulk-delete`, {
+        method: "POST",
+        headers: { ...getAuth(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete selected leads");
+        return;
+      }
+      setSelectedLeadIds(prev => prev.filter(id => !ids.includes(id)));
+      if (selectedLead && ids.includes(selectedLead.id)) setSelectedLead(null);
+      alert(`Deleted ${data.deleted ?? ids.length} lead${(data.deleted ?? ids.length) === 1 ? "" : "s"}.`);
+      load();
+    } catch {
+      alert("Network error");
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -384,6 +429,17 @@ function CrmPageContent() {
             </button>
           ))}
         </div>
+        {view === "list" && (
+          <div className="flex items-center justify-between gap-2 mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+              <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} className="h-4 w-4 rounded border-slate-300" />
+              {someVisibleSelected ? `${selectedLeadIds.filter(id => visibleLeadIds.includes(id)).length} selected` : "Select visible leads"}
+            </label>
+            <button onClick={deleteSelectedLeads} disabled={!someVisibleSelected || bulkDeleting} className="text-xs border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50 disabled:opacity-50 font-semibold">
+              {bulkDeleting ? "Deleting..." : "Delete selected"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── MAIN CONTENT ── */}
@@ -421,9 +477,20 @@ function CrmPageContent() {
             {/* Mobile: card list */}
             <div className="sm:hidden bg-white rounded-none border-t border-slate-100 divide-y divide-slate-100">
               {leads.map((lead) => (
-                <MobileLeadRow key={lead.id} lead={lead}
-                  onOpen={() => openLead(lead)}
-                  onCall={() => setShowCallModal(lead)} />
+                <div key={lead.id} className="flex items-start gap-2 px-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedLeadIds.includes(lead.id)}
+                    onChange={() => toggleLeadSelection(lead.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <div className="flex-1">
+                    <MobileLeadRow lead={lead}
+                      onOpen={() => openLead(lead)}
+                      onCall={() => setShowCallModal(lead)} />
+                  </div>
+                </div>
               ))}
               {leads.length === 0 && (
                 <div className="px-4 py-10 text-center text-slate-400">No leads found</div>
@@ -434,6 +501,9 @@ function CrmPageContent() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600">
+                      <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} className="h-4 w-4 rounded border-slate-300" />
+                    </th>
                     {["Name / Business", "Phone", "Product", "Score", "Status", "Next Follow-up", "Actions"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600">{h}</th>
                     ))}
@@ -444,6 +514,9 @@ function CrmPageContent() {
                     const overdue = lead.nextFollowUp && new Date(lead.nextFollowUp.scheduledAt) < new Date();
                     return (
                       <tr key={lead.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => openLead(lead)}>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLeadSelection(lead.id)} className="h-4 w-4 rounded border-slate-300" />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
                             {lead.isHot && <span>🔥</span>}
@@ -484,7 +557,7 @@ function CrmPageContent() {
                     );
                   })}
                   {leads.length === 0 && (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No leads found</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">No leads found</td></tr>
                   )}
                 </tbody>
               </table>
