@@ -2,40 +2,30 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import {
-  Clipboard,
-  Database,
-  Plus,
-  RefreshCw,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { Clipboard, Database, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
-type ProductRecord = {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
+type ProductRecord = { id: string; name: string; category: string; description: string };
+type SizeRecord = { id: string; productId: string; label: string; width: string; height: string; unit: "in"; notes: string };
+type BusinessData = {
+  header: string;
+  subheader: string;
+  mobile1: string;
+  mobile2: string;
+  mobile3: string;
+  address1: string;
+  address2: string;
+  bulletHeading: string;
+  bullets: string;
+  body: string;
+  backsideHeading: string;
+  backsideBullets: string;
 };
-
-type SizeRecord = {
-  id: string;
-  productId: string;
-  label: string;
-  width: string;
-  height: string;
-  unit: "in";
-  notes: string;
-};
-
 type PromptForm = {
   productId: string;
   sizeId: string;
-  businessName: string;
   businessField: string;
   customField: string;
   language: string;
-  requiredText: string;
   colorCombination: string;
   customColors: string;
   templateStyle: string;
@@ -67,59 +57,123 @@ const defaultSizes: SizeRecord[] = [
   { id: "vc-3-5x2", productId: "visiting-card", label: "3.5 x 2", width: "3.5", height: "2", unit: "in", notes: "Standard visiting card." },
 ];
 
-const businessFields = [
-  "Path Lab",
-  "Medical Store",
-  "Doctor / Clinic",
-  "Hospital",
-  "Education / Classes",
-  "Restaurant / Cafe",
-  "Real Estate",
-  "Beauty / Salon",
-  "Retail Shop",
-  "Other",
+const productCategories = ["Packaging", "Marketing", "Label", "Stationery", "Medical Print", "Retail Print", "Other"];
+const productDescriptions = [
+  "Open layout for product or retail counter envelope.",
+  "Single sheet promotional design.",
+  "Product label, bottle label, or seal sticker.",
+  "Business identity card.",
+  "Medical counter, pharmacy, clinic, or diagnostic print design.",
+  "Premium retail packaging with service and contact information.",
+];
+const sizePresets = [
+  { label: "Open 8.5 x 6.5", width: "8.5", height: "6.5", notes: "Includes flap and pasting area if needed." },
+  { label: "Closed 4.25 x 5.5", width: "4.25", height: "5.5", notes: "Final folded envelope size." },
+  { label: "A5 approx 5.83 x 8.27", width: "5.83", height: "8.27", notes: "Vertical flyer." },
+  { label: "A4 approx 8.27 x 11.69", width: "8.27", height: "11.69", notes: "Full page print." },
+  { label: "3.5 x 2 Visiting Card", width: "3.5", height: "2", notes: "Standard visiting card." },
+  { label: "4 x 6 Sticker", width: "4", height: "6", notes: "Product sticker or label." },
 ];
 
-const colorCombinations = [
-  "Medical teal + deep navy + clean white",
-  "Premium black + gold + warm white",
-  "Fresh green + white + charcoal",
-  "Corporate blue + light grey + white",
-  "Festive red + saffron + cream",
-  "Elegant maroon + beige + dark brown",
-  "Custom",
+const businessFields = ["Path Lab", "Medical Store", "Doctor / Clinic", "Hospital", "Education / Classes", "Restaurant / Cafe", "Real Estate", "Beauty / Salon", "Retail Shop", "Other"];
+const languageOptions = ["Hindi / Marathi / English mixed", "Hindi only", "Marathi only", "English only", "Hindi + English", "Marathi + English"];
+const colorCombinations = ["Medical teal + deep navy + clean white", "Premium black + gold + warm white", "Fresh green + white + charcoal", "Corporate blue + light grey + white", "Festive red + saffron + cream", "Elegant maroon + beige + dark brown", "Custom"];
+const templateStyles = ["Modern clean professional", "Premium luxury minimal", "Bold retail counter style", "Medical trust and hygiene style", "Information-heavy but neat", "Elegant traditional Indian", "Children friendly playful"];
+const backgroundTypes = ["Plain clean background", "Soft gradient background", "Subtle pattern background", "Photo-based background", "Abstract wave background", "Icon watermark background", "Premium texture background"];
+const backgroundDescriptions = [
+  "White base, subtle teal and navy wave accents, light medical cross watermark, clean spacing.",
+  "Soft gradient base with faint professional pattern and high readability.",
+  "Premium textured background with minimal decorative borders.",
+  "Clean white space with small icon watermark and balanced accent shapes.",
+  "Photo-inspired background kept light enough so all text remains readable.",
+  "Abstract wave background with clear central content area.",
 ];
+const audiences = ["Families, patients, local walk-in customers", "Premium retail customers", "Students and parents", "Business owners and professionals", "Local shop visitors", "Doctors, clinics, and lab customers"];
+const priorities = ["Trust, readability, clean medical look, premium retail finish", "Premium look with strong brand recall", "Maximum readability from distance", "Offer/service clarity with contact focus", "Elegant traditional feel with modern spacing", "Information-heavy but neat and uncrowded"];
+const visualElementOptions = [
+  "Medical cross, leaf, shield/check icon, medicine category icons, phone and location icons",
+  "Doctor stethoscope, lab test tube, report icon, clean medical symbols",
+  "Product category icons, badge shapes, phone and location icons",
+  "Minimal geometric shapes, premium border, subtle watermark",
+  "Education icons, book, badge, achievement symbols",
+  "No extra icons, only typography and clean background",
+];
+const avoidOptions = [
+  "Avoid changing Devanagari text style, avoid crowded small text, avoid unnecessary fold/dividing guide lines in final artwork.",
+  "Avoid spelling changes, transliteration, low contrast, and text near edges.",
+  "Avoid heavy decoration, dark photo overlays, and unreadable small text.",
+  "Avoid cartoon style, random icons, and font changes for Hindi or Marathi.",
+];
+const factorPresets = [
+  "Medical trust factors",
+  "Premium retail factors",
+  "High readability factors",
+  "Information-heavy design factors",
+];
+const factorText: Record<string, string> = {
+  "Medical trust factors": [
+    "Clear hierarchy: business name first, service promise second, contact details easy to read.",
+    "Use clean hygiene, trust, authenticity, and calm colors.",
+    "Use medical symbols only where useful, not as decoration overload.",
+    "Keep contrast high for small text and phone numbers.",
+    "Use print-safe spacing, bleed, margin, and avoid important text near cut or fold areas.",
+    "Do not change, stylize, replace, or transliterate Hindi, Marathi, or Devanagari font/text.",
+  ].join("\n"),
+  "Premium retail factors": [
+    "Use strong brand recall with restrained premium decoration.",
+    "Make contact details and service categories easy to scan.",
+    "Balance empty space with information density so the design looks premium, not crowded.",
+    "Use consistent icon style and limited color palette.",
+    "Do not change, stylize, replace, or transliterate Hindi, Marathi, or Devanagari font/text.",
+  ].join("\n"),
+  "High readability factors": [
+    "Keep headline large, short, and visible from distance.",
+    "Use high contrast for phone number, address, and service list.",
+    "Avoid placing important text over busy background.",
+    "Use simple layout blocks and clear spacing.",
+    "Do not change, stylize, replace, or transliterate Hindi, Marathi, or Devanagari font/text.",
+  ].join("\n"),
+  "Information-heavy design factors": [
+    "Group information into sections with clear headings.",
+    "Use hierarchy, dividers, and spacing without making the design crowded.",
+    "Use compact but readable service lists.",
+    "Keep all mandatory details inside safe printable margins.",
+    "Do not change, stylize, replace, or transliterate Hindi, Marathi, or Devanagari font/text.",
+  ].join("\n"),
+};
 
-const templateStyles = [
-  "Modern clean professional",
-  "Premium luxury minimal",
-  "Bold retail counter style",
-  "Medical trust and hygiene style",
-  "Information-heavy but neat",
-  "Elegant traditional Indian",
-  "Children friendly playful",
-];
+const initialBusinessData: BusinessData = {
+  header: "प्रकाश मेडिकल स्टोर्स",
+  subheader: "संपूर्ण स्वास्थ्य सेवा केंद्र",
+  mobile1: "+91 80041 76377",
+  mobile2: "",
+  mobile3: "",
+  address1: "मेन रोड, सिटी सेंटर के पास",
+  address2: "नागपुर, महाराष्ट्र",
+  bulletHeading: "हमें क्यों चुनें",
+  bullets: "असली दवायें\nउचित कीमतें\nपरिवार जैसी देखभाल",
+  body: "आधुनिक सुविधाओं और व्यक्तिगत देखभाल के साथ भरोसेमंद स्वास्थ्य सेवाएं।",
+  backsideHeading: "हमारी प्रमुख श्रेणियां",
+  backsideBullets: "दवायें\nव्यक्तिगत देखभाल\nमेडिकल उपकरण\nसर्जिकल सामग्री",
+};
 
-const backgroundTypes = [
-  "Plain clean background",
-  "Soft gradient background",
-  "Subtle pattern background",
-  "Photo-based background",
-  "Abstract wave background",
-  "Icon watermark background",
-  "Premium texture background",
-];
-
-const designFactors = [
-  "Clear hierarchy: business name first, service promise second, contact details easy to read.",
-  "Use print-safe spacing, bleed, margin, and avoid important text near cut or fold areas.",
-  "Keep contrast high for small text and phone numbers.",
-  "Use field-specific trust symbols only when useful, not as decoration overload.",
-  "Balance empty space with information density so the design looks premium, not crowded.",
-  "For medical designs, prefer clean hygiene, trust, authenticity, and calm colors.",
-  "For retail designs, make offer/service blocks easy to scan from distance.",
-  "Do not change, stylize, replace, or transliterate Hindi, Marathi, or Devanagari font/text.",
-];
+const initialForm: PromptForm = {
+  productId: "envelope",
+  sizeId: "env-8-5x6-5",
+  businessField: "Medical Store",
+  customField: "",
+  language: "Hindi / Marathi / English mixed",
+  colorCombination: "Medical teal + deep navy + clean white",
+  customColors: "",
+  templateStyle: "Medical trust and hygiene style",
+  backgroundType: "Soft gradient background",
+  backgroundDescription: backgroundDescriptions[0],
+  audience: audiences[0],
+  priority: priorities[0],
+  visualElements: visualElementOptions[0],
+  avoid: avoidOptions[0],
+  extraFactors: factorText["Medical trust factors"],
+};
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
@@ -135,41 +189,30 @@ function readStored<T>(key: string, fallback: T): T {
   }
 }
 
-const initialForm: PromptForm = {
-  productId: "envelope",
-  sizeId: "env-8-5x6-5",
-  businessName: "Prakash Medical Stores",
-  businessField: "Medical Store",
-  customField: "",
-  language: "Hindi / Marathi / English mixed",
-  requiredText: "प्रकाश मेडिकल स्टोर्स\nसंपूर्ण स्वास्थ्य सेवा केंद्र\n+91 80041 76377\nमेन रोड, सिटी सेंटर के पास, नागपुर, महाराष्ट्र\nहमें क्यों चुनें: असली दवायें, उचित कीमतें, परिवार जैसी देखभाल",
-  colorCombination: "Medical teal + deep navy + clean white",
-  customColors: "",
-  templateStyle: "Medical trust and hygiene style",
-  backgroundType: "Plain clean background",
-  backgroundDescription: "White base, subtle teal and navy wave accents, light medical cross watermark, clean spacing.",
-  audience: "Families, patients, local walk-in customers",
-  priority: "Trust, readability, clean medical look, premium retail finish",
-  visualElements: "Medical cross, leaf, shield/check icon, medicine category icons, phone and location icons",
-  avoid: "Avoid changing Devanagari text style, avoid crowded small text, avoid unnecessary fold/dividing guide lines in final artwork.",
-  extraFactors: designFactors.slice(0, 6).join("\n"),
-};
+function businessText(data: BusinessData) {
+  return [
+    data.header,
+    data.subheader,
+    [data.mobile1, data.mobile2, data.mobile3].filter(Boolean).join(" / "),
+    [data.address1, data.address2].filter(Boolean).join(", "),
+    data.body,
+    `${data.bulletHeading}: ${data.bullets.split("\n").filter(Boolean).join(", ")}`,
+    `${data.backsideHeading}: ${data.backsideBullets.split("\n").filter(Boolean).join(", ")}`,
+  ].filter(Boolean).join("\n");
+}
 
 export default function DesignStudioPage() {
   const [products, setProducts] = useState<ProductRecord[]>(() => readStored(storageKeys.products, defaultProducts));
   const [sizes, setSizes] = useState<SizeRecord[]>(() => readStored(storageKeys.sizes, defaultSizes));
   const [form, setForm] = useState<PromptForm>(initialForm);
-  const [newProduct, setNewProduct] = useState({ name: "", category: "", description: "" });
-  const [newSize, setNewSize] = useState({ label: "", width: "", height: "", notes: "" });
+  const [business, setBusiness] = useState<BusinessData>(initialBusinessData);
+  const [newProduct, setNewProduct] = useState({ name: "", category: productCategories[0], description: productDescriptions[0] });
+  const [newSize, setNewSize] = useState(sizePresets[0]);
+  const [factorPreset, setFactorPreset] = useState(factorPresets[0]);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    window.localStorage.setItem(storageKeys.products, JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    window.localStorage.setItem(storageKeys.sizes, JSON.stringify(sizes));
-  }, [sizes]);
+  useEffect(() => { window.localStorage.setItem(storageKeys.products, JSON.stringify(products)); }, [products]);
+  useEffect(() => { window.localStorage.setItem(storageKeys.sizes, JSON.stringify(sizes)); }, [sizes]);
 
   const selectedProduct = products.find((product) => product.id === form.productId) ?? products[0];
   const productSizes = sizes.filter((size) => size.productId === selectedProduct?.id);
@@ -177,83 +220,72 @@ export default function DesignStudioPage() {
   const field = form.businessField === "Other" ? form.customField.trim() : form.businessField;
   const colors = form.colorCombination === "Custom" ? form.customColors.trim() : form.colorCombination;
 
-  const prompt = useMemo(() => {
-    return [
-      "You are an expert Indian print design prompt engineer.",
-      "",
-      "Create a detailed AI image/design prompt for a print-ready design brief.",
-      "",
-      `Product: ${selectedProduct?.name ?? "Custom product"}`,
-      `Product category: ${selectedProduct?.category ?? "-"}`,
-      `Product description: ${selectedProduct?.description ?? "-"}`,
-      `Final size: ${selectedSize ? `${selectedSize.width} x ${selectedSize.height} inches` : "Not selected"}`,
-      `Size notes: ${selectedSize?.notes || "None"}`,
-      `Business/name: ${form.businessName || "Not provided"}`,
-      `Field/industry: ${field || "Not provided"}`,
-      `Language/text style: ${form.language}`,
-      "",
-      "Text to include exactly:",
-      form.requiredText || "Not provided",
-      "",
-      `Template style: ${form.templateStyle}`,
-      `Color combination: ${colors || "Designer should choose suitable print-safe colors"}`,
-      `Background type: ${form.backgroundType}`,
-      `Background description: ${form.backgroundDescription || "Use a clean professional background."}`,
-      `Target audience: ${form.audience || "General customers"}`,
-      `Design priority: ${form.priority || "Professional, readable, balanced"}`,
-      `Suggested visual elements: ${form.visualElements || "Use only relevant icons/elements"}`,
-      "",
-      "Important design factors:",
-      form.extraFactors || designFactors.join("\n"),
-      "",
-      "Strict font and language rule:",
-      "Do not change, replace, stylize, transliterate, or convert Hindi, Marathi, or any Devanagari text. Keep Devanagari wording exactly as supplied. Do not suggest alternate Devanagari fonts. Preserve the original Devanagari font appearance as much as possible.",
-      "",
-      "Avoid:",
-      form.avoid || "Avoid clutter, low contrast, spelling changes, and decorative elements that reduce readability.",
-      "",
-      "Output requirement:",
-      "Give a complete generation prompt with layout direction, hierarchy, color use, background description, icon/photo guidance, print-safe spacing, and a negative prompt.",
-    ].join("\n");
-  }, [colors, field, form, selectedProduct, selectedSize]);
+  const prompt = useMemo(() => [
+    "You are an expert Indian print design prompt engineer.",
+    "",
+    "Create a detailed AI image/design prompt for a print-ready design brief.",
+    "",
+    `Product: ${selectedProduct?.name ?? "Custom product"}`,
+    `Product category: ${selectedProduct?.category ?? "-"}`,
+    `Product description: ${selectedProduct?.description ?? "-"}`,
+    `Final size: ${selectedSize ? `${selectedSize.width} x ${selectedSize.height} inches` : "Not selected"}`,
+    `Size notes: ${selectedSize?.notes || "None"}`,
+    `Field/industry: ${field || "Not provided"}`,
+    `Language/text style: ${form.language}`,
+    "",
+    "Business data to include exactly:",
+    businessText(business),
+    "",
+    `Template style: ${form.templateStyle}`,
+    `Color combination: ${colors || "Designer should choose suitable print-safe colors"}`,
+    `Background type: ${form.backgroundType}`,
+    `Background description: ${form.backgroundDescription}`,
+    `Target audience: ${form.audience}`,
+    `Design priority: ${form.priority}`,
+    `Suggested visual elements: ${form.visualElements}`,
+    "",
+    "Important design factors:",
+    form.extraFactors,
+    "",
+    "Strict font and language rule:",
+    "Do not change, replace, stylize, transliterate, or convert Hindi, Marathi, or any Devanagari text. Keep Devanagari wording exactly as supplied. Do not suggest alternate Devanagari fonts. Preserve the original Devanagari font appearance as much as possible.",
+    "",
+    "Avoid:",
+    form.avoid,
+    "",
+    "Output requirement:",
+    "Give a complete generation prompt with layout direction, hierarchy, color use, background description, icon/photo guidance, print-safe spacing, and a negative prompt.",
+  ].join("\n"), [business, colors, field, form, selectedProduct, selectedSize]);
 
   function update<K extends keyof PromptForm>(key: K, value: PromptForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function updateBusiness<K extends keyof BusinessData>(key: K, value: BusinessData[K]) {
+    setBusiness((prev) => ({ ...prev, [key]: value }));
+  }
+
   function addProduct() {
     if (!newProduct.name.trim()) return;
-    const product: ProductRecord = {
-      id: id(),
-      name: newProduct.name.trim(),
-      category: newProduct.category.trim() || "Custom",
-      description: newProduct.description.trim(),
-    };
+    const product = { id: id(), name: newProduct.name.trim(), category: newProduct.category, description: newProduct.description };
     setProducts((prev) => [...prev, product]);
     setForm((prev) => ({ ...prev, productId: product.id, sizeId: "" }));
-    setNewProduct({ name: "", category: "", description: "" });
+    setNewProduct({ name: "", category: productCategories[0], description: productDescriptions[0] });
   }
 
   function addSize() {
-    if (!selectedProduct || !newSize.label.trim() || !newSize.width.trim() || !newSize.height.trim()) return;
-    const size: SizeRecord = {
-      id: id(),
-      productId: selectedProduct.id,
-      label: newSize.label.trim(),
-      width: newSize.width.trim(),
-      height: newSize.height.trim(),
-      unit: "in",
-      notes: newSize.notes.trim(),
-    };
+    if (!selectedProduct) return;
+    const size = { id: id(), productId: selectedProduct.id, label: newSize.label, width: newSize.width, height: newSize.height, unit: "in" as const, notes: newSize.notes };
     setSizes((prev) => [...prev, size]);
     setForm((prev) => ({ ...prev, sizeId: size.id }));
-    setNewSize({ label: "", width: "", height: "", notes: "" });
+    setNewSize(sizePresets[0]);
   }
 
   function resetDatabase() {
     setProducts(defaultProducts);
     setSizes(defaultSizes);
-    setForm((prev) => ({ ...prev, productId: "envelope", sizeId: "env-8-5x6-5" }));
+    setForm(initialForm);
+    setBusiness(initialBusinessData);
   }
 
   async function copyPrompt() {
@@ -269,67 +301,56 @@ export default function DesignStudioPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold tracking-normal">Design Prompt Generator</h1>
-              <p className="mt-1 text-sm text-slate-500">Create product, size, color, background, and field-based prompts for print designs.</p>
+              <p className="mt-1 text-sm text-slate-500">Create product, size, business data, color, background, and field-based prompts for print designs.</p>
             </div>
             <div className="flex gap-2">
-              <button onClick={resetDatabase} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-                <RefreshCw className="h-4 w-4" /> Reset
-              </button>
-              <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700">
-                <Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy Prompt"}
-              </button>
+              <button onClick={resetDatabase} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"><RefreshCw className="h-4 w-4" /> Reset</button>
+              <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"><Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy Prompt"}</button>
             </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
             <section className="space-y-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-3 flex items-center gap-2">
-                  <Database className="h-4 w-4 text-blue-600" />
-                  <h2 className="text-sm font-bold">Product And Size Database</h2>
-                </div>
-
-                <label className="mb-3 block">
-                  <span className="mb-1 block text-xs font-bold text-slate-500">Product</span>
+                <div className="mb-3 flex items-center gap-2"><Database className="h-4 w-4 text-blue-600" /><h2 className="text-sm font-bold">Product And Size Database</h2></div>
+                <Field label="Product">
                   <select value={form.productId} onChange={(e) => {
                     const nextProductId = e.target.value;
                     const nextSize = sizes.find((size) => size.productId === nextProductId);
                     setForm((prev) => ({ ...prev, productId: nextProductId, sizeId: nextSize?.id ?? "" }));
-                  }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500">
+                  }} className="input">
                     {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
                   </select>
-                </label>
-
-                <label className="mb-3 block">
-                  <span className="mb-1 block text-xs font-bold text-slate-500">Size In Inches</span>
-                  <select value={form.sizeId} onChange={(e) => update("sizeId", e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500">
+                </Field>
+                <Field label="Size In Inches">
+                  <select value={form.sizeId} onChange={(e) => update("sizeId", e.target.value)} className="input">
                     {productSizes.length === 0 && <option value="">No size added</option>}
                     {productSizes.map((size) => <option key={size.id} value={size.id}>{size.label} - {size.width} x {size.height} in</option>)}
                   </select>
-                </label>
+                </Field>
 
-                <div className="rounded-lg bg-slate-50 p-3">
+                <div className="mt-4 rounded-lg bg-slate-50 p-3">
                   <p className="mb-2 text-xs font-bold text-slate-600">Create Product</p>
                   <div className="space-y-2">
-                    <input value={newProduct.name} onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <input value={newProduct.category} onChange={(e) => setNewProduct((prev) => ({ ...prev, category: e.target.value }))} placeholder="Category" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <textarea value={newProduct.description} onChange={(e) => setNewProduct((prev) => ({ ...prev, description: e.target.value }))} placeholder="Short description" rows={2} className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <button onClick={addProduct} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800">
-                      <Plus className="h-4 w-4" /> Add Product
-                    </button>
+                    <input value={newProduct.name} onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product name" className="input" />
+                    <select value={newProduct.category} onChange={(e) => setNewProduct((prev) => ({ ...prev, category: e.target.value }))} className="input">{productCategories.map((item) => <option key={item}>{item}</option>)}</select>
+                    <select value={newProduct.description} onChange={(e) => setNewProduct((prev) => ({ ...prev, description: e.target.value }))} className="input">{productDescriptions.map((item) => <option key={item}>{item}</option>)}</select>
+                    <button onClick={addProduct} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"><Plus className="h-4 w-4" /> Add Product</button>
                   </div>
                 </div>
 
                 <div className="mt-3 rounded-lg bg-slate-50 p-3">
                   <p className="mb-2 text-xs font-bold text-slate-600">Add Size For Selected Product</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input value={newSize.label} onChange={(e) => setNewSize((prev) => ({ ...prev, label: e.target.value }))} placeholder="Size label" className="col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <input value={newSize.width} onChange={(e) => setNewSize((prev) => ({ ...prev, width: e.target.value }))} placeholder="Width" className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <input value={newSize.height} onChange={(e) => setNewSize((prev) => ({ ...prev, height: e.target.value }))} placeholder="Height" className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <input value={newSize.notes} onChange={(e) => setNewSize((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="col-span-2 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                    <button onClick={addSize} className="col-span-2 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700">
-                      <Plus className="h-4 w-4" /> Add Size
-                    </button>
+                  <div className="space-y-2">
+                    <select value={newSize.label} onChange={(e) => setNewSize(sizePresets.find((size) => size.label === e.target.value) ?? sizePresets[0])} className="input">
+                      {sizePresets.map((size) => <option key={size.label}>{size.label}</option>)}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input readOnly value={newSize.width} className="input bg-slate-100" />
+                      <input readOnly value={newSize.height} className="input bg-slate-100" />
+                    </div>
+                    <input readOnly value={newSize.notes} className="input bg-slate-100" />
+                    <button onClick={addSize} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700"><Plus className="h-4 w-4" /> Add Size</button>
                   </div>
                 </div>
               </div>
@@ -340,17 +361,9 @@ export default function DesignStudioPage() {
                   {products.map((product) => (
                     <div key={product.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2">
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">{product.name}</p>
-                          <p className="text-[11px] text-slate-500">{product.category}</p>
-                        </div>
+                        <div><p className="text-xs font-bold text-slate-800">{product.name}</p><p className="text-[11px] text-slate-500">{product.category}</p></div>
                         {!defaultProducts.some((item) => item.id === product.id) && (
-                          <button onClick={() => {
-                            setProducts((prev) => prev.filter((item) => item.id !== product.id));
-                            setSizes((prev) => prev.filter((item) => item.productId !== product.id));
-                          }} className="rounded p-1 text-red-500 hover:bg-red-50">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <button onClick={() => { setProducts((prev) => prev.filter((item) => item.id !== product.id)); setSizes((prev) => prev.filter((item) => item.productId !== product.id)); }} className="rounded p-1 text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
                         )}
                       </div>
                       <p className="mt-1 text-[11px] text-slate-500">{sizes.filter((size) => size.productId === product.id).length} sizes</p>
@@ -362,83 +375,49 @@ export default function DesignStudioPage() {
 
             <section className="space-y-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-4 flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-blue-600" />
-                  <h2 className="text-sm font-bold">Prompt Details</h2>
-                </div>
-
+                <div className="mb-4 flex items-center gap-2"><Sparkles className="h-4 w-4 text-blue-600" /><h2 className="text-sm font-bold">Business Data</h2></div>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <Field label="Business Name">
-                    <input value={form.businessName} onChange={(e) => update("businessName", e.target.value)} className="input" />
-                  </Field>
-                  <Field label="Business Field">
-                    <select value={form.businessField} onChange={(e) => update("businessField", e.target.value)} className="input">
-                      {businessFields.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </Field>
-                  {form.businessField === "Other" && (
-                    <Field label="Other Field">
-                      <input value={form.customField} onChange={(e) => update("customField", e.target.value)} className="input" />
-                    </Field>
-                  )}
-                  <Field label="Language">
-                    <input value={form.language} onChange={(e) => update("language", e.target.value)} className="input" />
-                  </Field>
-                  <Field label="Color Combination">
-                    <select value={form.colorCombination} onChange={(e) => update("colorCombination", e.target.value)} className="input">
-                      {colorCombinations.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </Field>
-                  {form.colorCombination === "Custom" && (
-                    <Field label="Custom Colors">
-                      <input value={form.customColors} onChange={(e) => update("customColors", e.target.value)} placeholder="Example: teal, navy, white" className="input" />
-                    </Field>
-                  )}
-                  <Field label="Template">
-                    <select value={form.templateStyle} onChange={(e) => update("templateStyle", e.target.value)} className="input">
-                      {templateStyles.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Background Type">
-                    <select value={form.backgroundType} onChange={(e) => update("backgroundType", e.target.value)} className="input">
-                      {backgroundTypes.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Target Audience">
-                    <input value={form.audience} onChange={(e) => update("audience", e.target.value)} className="input" />
-                  </Field>
-                  <Field label="Design Priority">
-                    <input value={form.priority} onChange={(e) => update("priority", e.target.value)} className="input" />
-                  </Field>
-                  <Field label="Background Description" wide>
-                    <textarea value={form.backgroundDescription} onChange={(e) => update("backgroundDescription", e.target.value)} rows={3} className="input resize-none" />
-                  </Field>
-                  <Field label="Exact Text To Include" wide>
-                    <textarea value={form.requiredText} onChange={(e) => update("requiredText", e.target.value)} rows={6} className="input resize-none font-sans" />
-                  </Field>
-                  <Field label="Visual Elements" wide>
-                    <textarea value={form.visualElements} onChange={(e) => update("visualElements", e.target.value)} rows={2} className="input resize-none" />
-                  </Field>
-                  <Field label="AI Design Expert Factors" wide>
-                    <textarea value={form.extraFactors} onChange={(e) => update("extraFactors", e.target.value)} rows={7} className="input resize-none" />
-                  </Field>
-                  <Field label="Avoid / Negative Direction" wide>
-                    <textarea value={form.avoid} onChange={(e) => update("avoid", e.target.value)} rows={3} className="input resize-none" />
-                  </Field>
+                  <TextField label="Header / Shop Name" value={business.header} onChange={(value) => updateBusiness("header", value)} />
+                  <TextField label="Subheader / Tagline" value={business.subheader} onChange={(value) => updateBusiness("subheader", value)} />
+                  <TextField label="Mobile 1" value={business.mobile1} onChange={(value) => updateBusiness("mobile1", value)} />
+                  <TextField label="Mobile 2" value={business.mobile2} onChange={(value) => updateBusiness("mobile2", value)} />
+                  <TextField label="Mobile 3" value={business.mobile3} onChange={(value) => updateBusiness("mobile3", value)} />
+                  <TextField label="Address Line 1" value={business.address1} onChange={(value) => updateBusiness("address1", value)} />
+                  <TextField label="Address Line 2" value={business.address2} onChange={(value) => updateBusiness("address2", value)} />
+                  <TextField label="Bullet Heading" value={business.bulletHeading} onChange={(value) => updateBusiness("bulletHeading", value)} />
+                  <TextField label="Body / Message" value={business.body} onChange={(value) => updateBusiness("body", value)} wide />
+                  <TextAreaField label="Bullets" value={business.bullets} onChange={(value) => updateBusiness("bullets", value)} />
+                  <TextField label="Backside Heading" value={business.backsideHeading} onChange={(value) => updateBusiness("backsideHeading", value)} />
+                  <TextAreaField label="Backside Bullets" value={business.backsideBullets} onChange={(value) => updateBusiness("backsideBullets", value)} />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-4 text-sm font-bold">Prompt Details</h2>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Business Field"><select value={form.businessField} onChange={(e) => update("businessField", e.target.value)} className="input">{businessFields.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  {form.businessField === "Other" && <TextField label="Other Field" value={form.customField} onChange={(value) => update("customField", value)} />}
+                  <Field label="Language"><select value={form.language} onChange={(e) => update("language", e.target.value)} className="input">{languageOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Color Combination"><select value={form.colorCombination} onChange={(e) => update("colorCombination", e.target.value)} className="input">{colorCombinations.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  {form.colorCombination === "Custom" && <TextField label="Custom Colors" value={form.customColors} onChange={(value) => update("customColors", value)} />}
+                  <Field label="Template"><select value={form.templateStyle} onChange={(e) => update("templateStyle", e.target.value)} className="input">{templateStyles.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Background Type"><select value={form.backgroundType} onChange={(e) => update("backgroundType", e.target.value)} className="input">{backgroundTypes.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Background Description" wide><select value={form.backgroundDescription} onChange={(e) => update("backgroundDescription", e.target.value)} className="input">{backgroundDescriptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Target Audience"><select value={form.audience} onChange={(e) => update("audience", e.target.value)} className="input">{audiences.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Design Priority"><select value={form.priority} onChange={(e) => update("priority", e.target.value)} className="input">{priorities.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Visual Elements" wide><select value={form.visualElements} onChange={(e) => update("visualElements", e.target.value)} className="input">{visualElementOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="AI Design Expert Factors"><select value={factorPreset} onChange={(e) => { setFactorPreset(e.target.value); update("extraFactors", factorText[e.target.value]); }} className="input">{factorPresets.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Avoid / Negative Direction"><select value={form.avoid} onChange={(e) => update("avoid", e.target.value)} className="input">{avoidOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
                 </div>
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-sm font-bold">Generated Prompt</h2>
-                  <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">
-                    <Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy"}
-                  </button>
+                  <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy"}</button>
                 </div>
                 <textarea readOnly value={prompt} rows={18} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-xs leading-5 text-slate-800 outline-none" />
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
-                  Hindi, Marathi, and Devanagari text is protected in every generated prompt. The prompt explicitly tells AI not to change that font/text.
-                </div>
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">Hindi, Marathi, and Devanagari text is protected in every generated prompt. The prompt explicitly tells AI not to change that font/text.</div>
               </div>
             </section>
           </div>
@@ -454,19 +433,20 @@ export default function DesignStudioPage() {
           outline: none;
           background: white;
         }
-        .input:focus {
-          border-color: #3b82f6;
-        }
+        .input:focus { border-color: #3b82f6; }
       `}</style>
     </DashboardShell>
   );
 }
 
 function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <label className={wide ? "block md:col-span-2" : "block"}>
-      <span className="mb-1 block text-xs font-bold text-slate-500">{label}</span>
-      {children}
-    </label>
-  );
+  return <label className={wide ? "block md:col-span-2" : "block"}><span className="mb-1 block text-xs font-bold text-slate-500">{label}</span>{children}</label>;
+}
+
+function TextField({ label, value, onChange, wide = false }: { label: string; value: string; onChange: (value: string) => void; wide?: boolean }) {
+  return <Field label={label} wide={wide}><input value={value} onChange={(e) => onChange(e.target.value)} className="input" /></Field>;
+}
+
+function TextAreaField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <Field label={label}><textarea value={value} onChange={(e) => onChange(e.target.value)} rows={3} className="input resize-none" /></Field>;
 }
