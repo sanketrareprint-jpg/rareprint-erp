@@ -27,6 +27,7 @@ type CatStage      = { category: string; printing: number; processing: number; r
 type AvgProd       = { category: string; avgHours: number; avgDays: number; sampleSize: number };
 type LeadSource    = { source: string; count: number; revenue: number };
 type LeadAnalytics = { allTime: LeadSource[]; thisMonth: LeadSource[] };
+type AcademyRow    = { id: string; name: string; completedTopics: number; lastActiveDate: string | null; streak: number };
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -53,16 +54,24 @@ export default function DashboardPage() {
   const [catStages, setCatStages] = useState<CatStage[]>([]);
   const [avgProd,   setAvgProd]   = useState<AvgProd[]>([]);
   const [leadData,  setLeadData]  = useState<LeadAnalytics | null>(null);
+  const [academy,   setAcademy]   = useState<AcademyRow[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() });
+      const [res, academyRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: getAuthHeaders() }),
+      ]);
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
       const data = await res.json();
+      if (academyRes.ok) {
+        const academyData = await academyRes.json();
+        setAcademy(academyData.leaderboard ?? []);
+      }
       setStats(data.stats);
       setAgents(data.agents ?? []);
       setCatStages(data.catStages ?? []);
@@ -195,7 +204,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Row 3: Leaderboard + Production + Recent Orders ── */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
 
           {/* Leaderboard */}
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
@@ -218,6 +227,38 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <p className="font-bold text-emerald-600 flex-shrink-0" style={{ fontSize: "12px" }}>{fmt(agent.monthRevenue)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sales Academy Leaderboard */}
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
+            <div className="flex items-center gap-1 mb-1.5">
+              <Trophy className="h-3 w-3 text-blue-500" />
+              <p className="text-xs font-semibold text-slate-700">Sales Academy Leaderboard</p>
+              <span className="text-xs text-slate-400 ml-auto">{academy.length} users</span>
+            </div>
+            {academy.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">No academy progress yet</p>
+            ) : (
+              <div className="space-y-1">
+                {academy.slice(0, 8).map((user, i) => (
+                  <div key={user.id} className={`flex items-center justify-between rounded px-1.5 py-1 ${i === 0 ? "bg-blue-50" : ""}`}>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-5 flex-shrink-0 text-slate-500" style={{ fontSize: "12px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate" style={{ fontSize: "12px", lineHeight: 1.15 }}>{user.name}</p>
+                        <p className="text-slate-400" style={{ fontSize: "10px", lineHeight: 1.15 }}>
+                          {user.lastActiveDate ? new Date(user.lastActiveDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "No activity"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-bold text-blue-600" style={{ fontSize: "12px" }}>{user.completedTopics} topics</p>
+                      <p className="text-slate-400" style={{ fontSize: "10px" }}>{user.streak} day streak</p>
+                    </div>
                   </div>
                 ))}
               </div>
