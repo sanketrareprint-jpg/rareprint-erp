@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu, CheckSquare, Archive, Megaphone, Grid, Palette,
+  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
@@ -22,6 +22,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Calls",      href: "/call-analysis",    icon: Phone },
     { label: "Tasks",      href: "/tasks",            icon: CheckSquare },
     { label: "Marketing",  href: "/marketing",        icon: Megaphone },
+    { label: "Customers",  href: "/customer-directory", icon: Users },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
     { label: "Production", href: "/production",       icon: Package },
     { label: "Design",     href: "/design-studio",    icon: Palette },
@@ -42,6 +43,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
+    { label: "Customers", href: "/customer-directory", icon: Users },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
   ],
@@ -51,6 +53,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
+    { label: "Customers", href: "/customer-directory", icon: Users },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Design", href: "/design-studio", icon: Palette },
@@ -322,7 +325,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
 
 
 

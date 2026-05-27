@@ -48,6 +48,9 @@ model Customer {
   gstNumber       String?
   billingAddress  String?
   shippingAddress String?
+  city            String?
+  state           String?
+  pincode         String?
   creditLimit     Decimal? @db.Decimal(12, 2)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())

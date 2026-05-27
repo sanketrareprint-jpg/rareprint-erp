@@ -278,6 +278,9 @@ export class OrdersService {
           phone: dto.customer.phone,
           email: dto.customer.email,
           shippingAddress,
+          city: dto.customer.city,
+          state: dto.customer.state,
+          pincode: dto.customer.pincode,
         },
       });
 
@@ -391,6 +394,9 @@ export class OrdersService {
           phone: body.customer?.phone,
           email: body.customer?.email,
           shippingAddress: shippingParts.join(', '),
+          city: body.customer?.city,
+          state: body.customer?.state,
+          pincode: body.customer?.pincode,
         },
       });
 
