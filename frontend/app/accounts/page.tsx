@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -1313,5 +1313,4 @@ await loadHistory();
     </>
   );
 }
-
 

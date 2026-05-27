@@ -13,8 +13,15 @@ export class CustomerDirectoryController {
     @Query('city') city?: string,
     @Query('state') state?: string,
     @Query('product') product?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.service.search({ search, city, state, product });
+    return this.service.search({ search, city, state, product, page, limit });
+  }
+
+  @Get('orders')
+  orders(@Query('customerId') customerId: string) {
+    return this.service.orders(customerId);
   }
 
   @Get('filters')

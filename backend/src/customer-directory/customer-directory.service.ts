@@ -91,12 +91,33 @@ function uniqueSorted(values: Array<string | null>) {
 export class CustomerDirectoryService {
   constructor(private prisma: PrismaService) {}
 
-  async search(query: { search?: string; city?: string; state?: string; product?: string }) {
+  private mapOrder(order: any) {
+    return {
+      id: order.id,
+      orderNo: order.orderNumber,
+      invoiceNumber: order.invoice?.invoiceNumber ?? null,
+      orderDate: order.orderDate.toISOString(),
+      salesAgentName: order.salesAgent?.fullName ?? null,
+      status: order.status,
+      total: Number(order.grandTotal),
+      products: order.items.map((item: any) => ({
+        name: item.product.name,
+        sku: item.product.sku,
+        category: item.product.category?.name ?? null,
+        quantity: item.quantity,
+        amount: Number(item.lineTotal),
+      })),
+    };
+  }
+
+  async search(query: { search?: string; city?: string; state?: string; product?: string; page?: string | number; limit?: string | number }) {
     const where: any = {};
     const search = clean(query.search);
     const city = clean(query.city);
     const state = clean(query.state);
     const product = clean(query.product);
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(20, Number(query.limit) || 50));
 
     if (search) {
       where.OR = [
@@ -121,12 +142,13 @@ export class CustomerDirectoryService {
     const customers = await this.prisma.customer.findMany({
       where,
       orderBy: [{ updatedAt: 'desc' }],
-      take: 300,
+      skip: (page - 1) * limit,
+      take: limit + 1,
       include: {
         _count: { select: { orders: true } },
         orders: {
           orderBy: { orderDate: 'desc' },
-          take: 10,
+          take: 1,
           include: {
             invoice: { select: { invoiceNumber: true, issueDate: true } },
             salesAgent: { select: { fullName: true } },
@@ -137,33 +159,19 @@ export class CustomerDirectoryService {
         },
       },
     });
+    const pageCustomers = customers.slice(0, limit);
 
-    const revenueRows = customers.length
+    const revenueRows = pageCustomers.length
       ? await this.prisma.order.groupBy({
           by: ['customerId'],
-          where: { customerId: { in: customers.map((customer) => customer.id) } },
+          where: { customerId: { in: pageCustomers.map((customer) => customer.id) } },
           _sum: { grandTotal: true },
         })
       : [];
     const revenueByCustomer = new Map(revenueRows.map((row) => [row.customerId, Number(row._sum.grandTotal ?? 0)]));
 
-    const rows = customers.map((customer) => {
-      const orders = customer.orders.map((order) => ({
-        id: order.id,
-        orderNo: order.orderNumber,
-        invoiceNumber: order.invoice?.invoiceNumber ?? null,
-        orderDate: order.orderDate.toISOString(),
-        salesAgentName: order.salesAgent?.fullName ?? null,
-        status: order.status,
-        total: Number(order.grandTotal),
-        products: order.items.map((item) => ({
-          name: item.product.name,
-          sku: item.product.sku,
-          category: item.product.category?.name ?? null,
-          quantity: item.quantity,
-          amount: Number(item.lineTotal),
-        })),
-      }));
+    const rows = pageCustomers.map((customer) => {
+      const orders = customer.orders.map((order) => this.mapOrder(order));
       const totalRevenue = revenueByCustomer.get(customer.id) ?? orders.reduce((sum, order) => sum + order.total, 0);
       const lastOrder = orders[0] ?? null;
       return {
@@ -192,7 +200,27 @@ export class CustomerDirectoryService {
         orders: rows.reduce((sum, row) => sum + row.orderCount, 0),
         revenue: rows.reduce((sum, row) => sum + row.totalRevenue, 0),
       },
+      page,
+      limit,
+      hasMore: customers.length > limit,
     };
+  }
+
+  async orders(customerId: string) {
+    if (!customerId) throw new BadRequestException('customerId is required');
+    const orders = await this.prisma.order.findMany({
+      where: { customerId },
+      orderBy: { orderDate: 'desc' },
+      take: 50,
+      include: {
+        invoice: { select: { invoiceNumber: true, issueDate: true } },
+        salesAgent: { select: { fullName: true } },
+        items: {
+          include: { product: { select: { name: true, sku: true, category: { select: { name: true } } } } },
+        },
+      },
+    });
+    return { orders: orders.map((order) => this.mapOrder(order)) };
   }
 
   async filters() {

@@ -95,6 +95,9 @@ function CustomerDirectoryContent() {
   const [importResult, setImportResult] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [historyLoading, setHistoryLoading] = useState<Record<string, boolean>>({});
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadFilters = useCallback(async () => {
@@ -110,19 +113,23 @@ function CustomerDirectoryContent() {
     }
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (nextPage = 1, append = false) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (city) params.set("city", city);
     if (state) params.set("state", state);
     if (product) params.set("product", product);
+    params.set("page", String(nextPage));
+    params.set("limit", "50");
     try {
       const res = await fetch(`${API_BASE_URL}/customer-directory/search?${params}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setCustomers(data.customers ?? []);
+        setCustomers((prev) => append ? [...prev, ...(data.customers ?? [])] : (data.customers ?? []));
         setSummary(data.summary ?? { customers: 0, orders: 0, revenue: 0 });
+        setHasMore(!!data.hasMore);
+        setPage(data.page ?? nextPage);
       }
     } finally {
       setLoading(false);
@@ -132,9 +139,36 @@ function CustomerDirectoryContent() {
   useEffect(() => { void loadFilters(); }, [loadFilters]);
 
   useEffect(() => {
-    const id = window.setTimeout(() => { void load(); }, 250);
+    const id = window.setTimeout(() => {
+      setExpanded({});
+      void load(1, false);
+    }, 250);
     return () => window.clearTimeout(id);
   }, [load]);
+
+  const loadCustomerHistory = async (customerId: string) => {
+    if (historyLoading[customerId]) return;
+    const existing = customers.find((customer) => customer.id === customerId);
+    if (existing && existing.orders.length > 1) return;
+    setHistoryLoading((prev) => ({ ...prev, [customerId]: true }));
+    try {
+      const res = await fetch(`${API_BASE_URL}/customer-directory/orders?customerId=${encodeURIComponent(customerId)}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setCustomers((prev) => prev.map((customer) => customer.id === customerId ? { ...customer, orders: data.orders ?? customer.orders } : customer));
+      }
+    } finally {
+      setHistoryLoading((prev) => ({ ...prev, [customerId]: false }));
+    }
+  };
+
+  const toggleExpanded = (customerId: string) => {
+    setExpanded((prev) => {
+      const next = !prev[customerId];
+      if (next) void loadCustomerHistory(customerId);
+      return { ...prev, [customerId]: next };
+    });
+  };
 
   const productOptions = useMemo(() => {
     const set = new Set<string>();
@@ -165,7 +199,7 @@ function CustomerDirectoryContent() {
       });
       const data = await res.json();
       setImportResult(data);
-      await load();
+      await load(1, false);
     } finally {
       setImporting(false);
     }
@@ -189,7 +223,7 @@ function CustomerDirectoryContent() {
       const data = await res.json().catch(() => ({}));
       alert(`Address sync complete. Updated ${data.updated ?? 0} customers.`);
       await loadFilters();
-      await load();
+      await load(1, false);
     } finally {
       setSyncing(false);
     }
@@ -274,7 +308,7 @@ function CustomerDirectoryContent() {
 
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">
-          {loading ? "Loading..." : `${customers.length} customers found`}
+          {loading && customers.length === 0 ? "Loading..." : `${customers.length} customers loaded${hasMore ? " - more available" : ""}`}
         </div>
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-500">
@@ -293,7 +327,7 @@ function CustomerDirectoryContent() {
                   <tr className="hover:bg-slate-50 align-top">
                     <td className="px-2 py-2 max-w-[220px]">
                       <div className="flex items-start gap-1">
-                        <button onClick={() => setExpanded((prev) => ({ ...prev, [customer.id]: !isExpanded }))} className="mt-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-100">
+                        <button onClick={() => toggleExpanded(customer.id)} className="mt-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-100">
                           {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                         </button>
                         <div className="min-w-0">
@@ -327,7 +361,9 @@ function CustomerDirectoryContent() {
                           <div className="font-semibold text-slate-400">Agent</div>
                           <div className="font-semibold text-slate-400">Products</div>
                           <div className="font-semibold text-slate-400 text-right">Total</div>
-                          {customer.orders.length === 0 ? (
+                          {historyLoading[customer.id] ? (
+                            <div className="col-span-6 py-2 text-center text-slate-400">Loading purchase history...</div>
+                          ) : customer.orders.length === 0 ? (
                             <div className="col-span-6 py-2 text-center text-slate-400">No purchase history yet</div>
                           ) : customer.orders.map((order) => (
                             <div key={order.id} className="contents">
@@ -351,6 +387,13 @@ function CustomerDirectoryContent() {
             )}
           </tbody>
         </table>
+        {hasMore && (
+          <div className="border-t border-slate-200 p-2 text-center">
+            <button onClick={() => load(page + 1, true)} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              {loading ? "Loading..." : "Load more customers"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
