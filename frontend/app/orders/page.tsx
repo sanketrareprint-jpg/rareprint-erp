@@ -117,6 +117,50 @@ export default function OrdersPage() {
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Edit payment
+  const [editingPayment, setEditingPayment] = useState<{ payment: Payment; orderId: string } | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({ amount: "", method: "CASH", paymentAccountId: "", referenceNumber: "", notes: "", paymentDate: "" });
+  const [savingPaymentEdit, setSavingPaymentEdit] = useState(false);
+
+  function startEditPayment(payment: Payment, orderId: string) {
+    const account = accounts.find(a => a.name === payment.paymentAccount.name);
+    setEditingPayment({ payment, orderId });
+    setEditPaymentForm({
+      amount: String(payment.amount),
+      method: payment.method,
+      paymentAccountId: account?.id ?? "",
+      referenceNumber: payment.referenceNumber ?? "",
+      notes: payment.notes ?? "",
+      paymentDate: new Date(payment.paymentDate).toISOString().slice(0, 10),
+    });
+  }
+
+  async function savePaymentEdit() {
+    if (!editingPayment) return;
+    const amount = Number(editPaymentForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { alert("Enter a valid amount"); return; }
+    if (!editPaymentForm.paymentAccountId) { alert("Select a payment account"); return; }
+    setSavingPaymentEdit(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payments/${editingPayment.payment.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          method: editPaymentForm.method,
+          paymentAccountId: editPaymentForm.paymentAccountId,
+          referenceNumber: editPaymentForm.referenceNumber || undefined,
+          notes: editPaymentForm.notes || undefined,
+          paymentDate: editPaymentForm.paymentDate,
+        }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.message || "Could not update payment"); return; }
+      setEditingPayment(null);
+      await loadPayments(editingPayment.orderId);
+      await load();
+    } finally { setSavingPaymentEdit(false); }
+  }
+
   // Search + filter
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -758,7 +802,7 @@ export default function OrdersPage() {
                                   <table className="w-full text-xs">
                                     <thead>
                                       <tr className="text-slate-400 border-b border-slate-100">
-                                        {["Date","Amount","Method","Account","Reference","Notes"].map(h => (
+                                        {["Date","Amount","Method","Account","Reference","Notes",""].map(h => (
                                           <th key={h} className="pb-1 text-left font-medium">{h}</th>
                                         ))}
                                       </tr>
@@ -772,6 +816,12 @@ export default function OrdersPage() {
                                           <td className="py-1">{p.paymentAccount.name}</td>
                                           <td className="py-1 text-slate-400">{p.referenceNumber ?? "—"}</td>
                                           <td className="py-1 text-slate-400">{p.notes ?? "—"}</td>
+                                          <td className="py-1">
+                                            <button onClick={() => startEditPayment(p, o.id)}
+                                              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                                              ✏️ Edit
+                                            </button>
+                                          </td>
                                         </tr>
                                       ))}
                                     </tbody>
@@ -1170,6 +1220,75 @@ export default function OrdersPage() {
                   Send to Accounts for Approval
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Payment Modal ─────────────────────────────────────────────── */}
+      {editingPayment && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "34rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Edit Payment</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{editingPayment.payment.paymentAccount.name} · {fmt(editingPayment.payment.amount)}</p>
+              </div>
+              <button onClick={() => setEditingPayment(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Amount</span>
+                <input type="number" min="1" step="0.01" value={editPaymentForm.amount}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, amount: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Payment Date</span>
+                <input type="date" value={editPaymentForm.paymentDate}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, paymentDate: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Method</span>
+                <select value={editPaymentForm.method}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, method: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
+                  {Object.entries(METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Account</span>
+                <select value={editPaymentForm.paymentAccountId}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
+                  <option value="">Select account</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}{a.bankName ? ` (${a.bankName})` : ""}</option>)}
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>
+                <input value={editPaymentForm.referenceNumber}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-semibold text-slate-600">Notes</span>
+                <textarea rows={2} value={editPaymentForm.notes}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, notes: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setEditingPayment(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={savePaymentEdit} disabled={savingPaymentEdit}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                {savingPaymentEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                Save Changes
+              </button>
             </div>
           </div>
         </div>
