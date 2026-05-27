@@ -244,7 +244,7 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400 text-center py-3">No academy progress yet</p>
             ) : (
               <div className="space-y-1">
-                {academy.slice(0, 8).map((user, i) => (
+                {academy.map((user, i) => (
                   <div key={user.id} className={`flex items-center justify-between rounded px-1.5 py-1 ${i === 0 ? "bg-blue-50" : ""}`}>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="w-5 flex-shrink-0 text-slate-500" style={{ fontSize: "12px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>

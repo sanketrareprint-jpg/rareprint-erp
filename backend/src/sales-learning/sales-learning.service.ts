@@ -227,12 +227,18 @@ export class SalesLearningService {
       }),
 
       this.prisma.user.findMany({
-        where: { isActive: true },
+        where: {
+          isActive: true,
+          OR: [
+            { role: 'SALES_AGENT' },
+            { fullName: { equals: 'Vaishali Dhakate', mode: 'insensitive' } },
+          ],
+        },
         include: {
           learningProgress: { where: { completedAt: { not: null } } },
           learningStreaks: { orderBy: { date: 'desc' }, take: 7 },
         },
-        take: 20,
+        orderBy: { fullName: 'asc' },
       }),
 
       this.prisma.dailyLearningStreak.groupBy({
