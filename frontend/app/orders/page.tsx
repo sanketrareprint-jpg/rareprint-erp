@@ -6,7 +6,7 @@ import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import {
   Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp,
   Truck, CheckSquare, Square, AlertTriangle, Search,
-  Paperclip, Upload, FileText,
+  Paperclip, Upload, FileText, Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -121,6 +121,7 @@ export default function OrdersPage() {
   const [editingPayment, setEditingPayment] = useState<{ payment: Payment; orderId: string } | null>(null);
   const [editPaymentForm, setEditPaymentForm] = useState({ amount: "", method: "CASH", paymentAccountId: "", referenceNumber: "", notes: "", paymentDate: "" });
   const [savingPaymentEdit, setSavingPaymentEdit] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
 
   function startEditPayment(payment: Payment, orderId: string) {
     const account = accounts.find(a => a.name === payment.paymentAccount.name);
@@ -159,6 +160,27 @@ export default function OrdersPage() {
       await loadPayments(editingPayment.orderId);
       await load();
     } finally { setSavingPaymentEdit(false); }
+  }
+
+  async function deletePayment(payment: Payment, orderId: string) {
+    const label = `${new Date(payment.paymentDate).toLocaleDateString("en-IN")} - ${fmt(Number(payment.amount))}`;
+    if (!confirm(`Delete this payment?\n${label}`)) return;
+    setDeletingPaymentId(payment.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payments/${payment.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || "Could not delete payment");
+        return;
+      }
+      await loadPayments(orderId);
+      await load();
+    } finally {
+      setDeletingPaymentId(null);
+    }
   }
 
   // Search + filter
@@ -817,10 +839,17 @@ export default function OrdersPage() {
                                           <td className="py-1 text-slate-400">{p.referenceNumber ?? "—"}</td>
                                           <td className="py-1 text-slate-400">{p.notes ?? "—"}</td>
                                           <td className="py-1">
-                                            <button onClick={() => startEditPayment(p, o.id)}
-                                              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                                              ✏️ Edit
-                                            </button>
+                                            <div className="flex items-center gap-1">
+                                              <button onClick={() => startEditPayment(p, o.id)}
+                                                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                                                ✏️ Edit
+                                              </button>
+                                              <button onClick={() => deletePayment(p, o.id)} disabled={deletingPaymentId === p.id}
+                                                className="inline-flex items-center gap-1 rounded border border-red-200 bg-white px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
+                                                {deletingPaymentId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                                Delete
+                                              </button>
+                                            </div>
                                           </td>
                                         </tr>
                                       ))}

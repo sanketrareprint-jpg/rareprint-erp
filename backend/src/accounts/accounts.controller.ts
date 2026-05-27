@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Body, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Param, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
@@ -94,6 +94,11 @@ export class AccountsController {
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.accountsService.updatePendingPayment(id, req.user, body);
+  }
+
+  @Delete('payments/:id')
+  deletePayment(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.deletePayment(id, req.user);
   }
 
   @Patch('payments/:id/reject')

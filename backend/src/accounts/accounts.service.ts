@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus, PaymentMethod } from '@prisma/client';
+import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 type AccountsUser = { id: string; role: string };
@@ -32,6 +32,23 @@ export class AccountsService {
     private prisma: PrismaService,
     private whatsapp: WhatsAppService,
   ) {}
+
+  private async refreshOrderPaymentStatus(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { payments: true },
+    });
+    if (!order) return;
+
+    const totalPaid = order.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+    const grandTotal = Number(order.grandTotal);
+    const paymentStatus =
+      totalPaid >= grandTotal ? PaymentStatus.PAID :
+      totalPaid > 0 ? PaymentStatus.PARTIALLY_PAID :
+      PaymentStatus.PENDING;
+
+    await this.prisma.order.update({ where: { id: orderId }, data: { paymentStatus } });
+  }
 
   async getPendingOrders() {
     const orders = await this.prisma.order.findMany({
@@ -625,7 +642,18 @@ export class AccountsService {
       },
     });
   }
-async getPaymentHistory() {
+
+  async deletePayment(id: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment) throw new NotFoundException('Payment receipt not found');
+
+    await this.prisma.payment.delete({ where: { id } });
+    await this.refreshOrderPaymentStatus(payment.orderId);
+    return { success: true, orderId: payment.orderId };
+  }
+
+  async getPaymentHistory() {
   const payments = await this.prisma.$queryRaw<any[]>`
     SELECT 
       p.id, p."orderId", p.amount, p.method, p."referenceNumber",
