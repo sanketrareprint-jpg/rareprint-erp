@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle } from "lucide-react";
+import { Check, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -196,7 +196,6 @@ export default function AccountsPage() {
   // Pending orders
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -251,9 +250,14 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/pending`, { headers: getAuthHeaders() });
+      const headers = getAuthHeaders();
+      const [res, accountsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/pending`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers }),
+      ]);
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       setOrders(await res.json());
+      if (accountsRes.ok) setPaymentAccounts(await accountsRes.json());
     } finally { setLoading(false); }
   }, [router]);
 
@@ -378,6 +382,28 @@ await loadHistory();
     });
   }
 
+  function startEditOrderPayment(payment: Payment, order: PendingOrder) {
+    const account = paymentAccounts.find(a => a.name === payment.accountName);
+    const pseudo: PendingPayment = {
+      id: payment.id,
+      orderId: order.id,
+      orderNo: order.orderNo,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      salesAgentName: order.salesAgentName,
+      amount: payment.amount,
+      method: payment.method,
+      referenceNumber: payment.referenceNumber,
+      notes: payment.notes,
+      paymentDate: payment.date,
+      paymentAccountId: account?.id ?? "",
+      paymentAccountName: payment.accountName,
+      verificationStatus: "PENDING",
+      createdAt: payment.date,
+    };
+    startEditPayment(pseudo);
+  }
+
   async function savePaymentEdit() {
     if (!editingPayment) return;
     const amount = Number(editPaymentForm.amount);
@@ -409,7 +435,7 @@ await loadHistory();
         throw new Error(err.message || "Could not update receipt");
       }
       setEditingPayment(null);
-      await loadReceipts();
+      await Promise.all([load(), loadReceipts()]);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Could not update receipt");
     } finally {
@@ -553,64 +579,80 @@ await loadHistory();
                       {order.customerAddress && <span className="text-slate-500 text-xs">📍 {order.customerAddress}</span>}
                       {order.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-800">{fmt(order.totalAmount)}</span>
-                      <button onClick={() => setExpanded(expanded === order.id ? null : order.id)}
-                        className="p-1 rounded hover:bg-slate-200">
-                        {expanded === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      </button>
-                    </div>
+                    <span className="text-sm font-bold text-slate-800">{fmt(order.totalAmount)}</span>
                   </div>
 
-                  {expanded === order.id && (
-                    <div className="p-4 space-y-3">
-                      <table className="w-full text-sm">
-                        <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
-                          <th className="pb-1 text-left">Product</th>
-                          <th className="pb-1 text-left">Size</th>
-                          <th className="pb-1 text-left">GSM</th>
-                          <th className="pb-1 text-left">Sides</th>
-                          <th className="pb-1 text-right">Qty</th>
-                          <th className="pb-1 text-right">Rate</th>
-                          <th className="pb-1 text-right">Amount</th>
-                        </tr></thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {order.items.map((item, i) => {
-                            const n = parseNotes(item.productionNotes);
-                            return (
-                              <tr key={i}>
-                                <td className="py-1.5 font-medium text-slate-800">{item.productName}</td>
-                                <td className="py-1.5 text-slate-500 text-xs">{n.size || "—"}</td>
-                                <td className="py-1.5 text-slate-500 text-xs">{n.gsm || "—"}</td>
-                                <td className="py-1.5 text-slate-500 text-xs">{n.sides || "—"}</td>
-                                <td className="py-1.5 text-right">{item.quantity}</td>
-                                <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
-                                <td className="py-1.5 text-right font-semibold">{fmt(item.lineTotal)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                        <div className="text-xs text-slate-500 space-x-4">
-                          <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
-                          <span>Paid: <strong className="text-green-600">{fmt(order.totalPaid)}</strong></span>
-                          <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => setRejectId(order.id)}
-                            className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50">
-                            Reject
-                          </button>
-                          <button onClick={() => approveOrder(order.id)} disabled={processing === order.id}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60">
-                            {processing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                            Approve
-                          </button>
-                        </div>
+                  <div className="p-4 space-y-3">
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
+                        <th className="pb-1 text-left">Product</th>
+                        <th className="pb-1 text-left">Size</th>
+                        <th className="pb-1 text-left">GSM</th>
+                        <th className="pb-1 text-left">Sides</th>
+                        <th className="pb-1 text-right">Qty</th>
+                        <th className="pb-1 text-right">Rate</th>
+                        <th className="pb-1 text-right">Amount</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {order.items.map((item, i) => {
+                          const n = parseNotes(item.productionNotes);
+                          return (
+                            <tr key={i}>
+                              <td className="py-1.5 font-medium text-slate-800">{item.productName}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{n.size || "—"}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{n.gsm || "—"}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{n.sides || "—"}</td>
+                              <td className="py-1.5 text-right">{item.quantity}</td>
+                              <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
+                              <td className="py-1.5 text-right font-semibold">{fmt(item.lineTotal)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {/* Payment rows */}
+                    {order.payments.length > 0 && (
+                      <div className="rounded-lg border border-slate-100 bg-slate-50 divide-y divide-slate-100">
+                        <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Payments</div>
+                        {order.payments.map(payment => (
+                          <div key={payment.id} className="flex items-center justify-between px-3 py-1.5">
+                            <div className="flex items-center gap-3 text-xs text-slate-600">
+                              <span className="font-mono text-slate-400">{new Date(payment.date).toLocaleDateString("en-IN")}</span>
+                              <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{payment.method}</span>
+                              <span className="text-slate-500">{payment.accountName}</span>
+                              {payment.referenceNumber && <span className="font-mono text-slate-400">Ref: {payment.referenceNumber}</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-green-700">{fmt(payment.amount)}</span>
+                              <button onClick={() => startEditOrderPayment(payment, order)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100">
+                                <Pencil className="h-3 w-3" /> Edit
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                      <div className="text-xs text-slate-500 space-x-4">
+                        <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
+                        <span>Paid: <strong className="text-green-600">{fmt(order.totalPaid)}</strong></span>
+                        <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setRejectId(order.id)}
+                          className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50">
+                          Reject
+                        </button>
+                        <button onClick={() => approveOrder(order.id)} disabled={processing === order.id}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60">
+                          {processing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          Approve
+                        </button>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1198,3 +1240,78 @@ await loadHistory();
                     <option key={account.id} value={account.id}>
                       {account.name}{account.bankName ? ` (${account.bankName})` : ""}
                     </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>
+                <input value={editPaymentForm.referenceNumber}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] font-semibold text-slate-600">Notes</span>
+                <textarea rows={3} value={editPaymentForm.notes}
+                  onChange={e => setEditPaymentForm(f => ({ ...f, notes: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none" />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setEditingPayment(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={savePaymentEdit} disabled={savingPaymentId === editingPayment.id}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                {savingPaymentId === editingPayment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Payment Modal */}
+      {rejectPaymentId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <h2 className="text-sm font-bold text-slate-800 mb-1">Reject Payment Receipt</h2>
+            <p className="text-xs text-slate-500 mb-3">The sales agent will be notified with this reason.</p>
+            <textarea value={rejectPaymentReason} onChange={e => setRejectPaymentReason(e.target.value)}
+              placeholder="Enter rejection reason (e.g. Amount mismatch, Receipt not received)..." rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { setRejectPaymentId(null); setRejectPaymentReason(""); }}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={rejectPayment} disabled={!!verifyingId}
+                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
+                {verifyingId ? "Rejecting..." : "Reject Receipt"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Order Modal */}
+      {rejectId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <h2 className="text-sm font-bold text-slate-800 mb-3">Reject Order</h2>
+            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+              placeholder="Enter rejection reason..." rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { setRejectId(null); setRejectReason(""); }}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={rejectOrder} disabled={processing === rejectId}
+                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
+                {processing === rejectId ? "Rejecting..." : "Reject Order"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
