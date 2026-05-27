@@ -16,6 +16,31 @@ function customerCode() {
   return `CUST-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
+const STATE_NAMES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Delhi', 'Goa', 'Gujarat',
+  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra',
+  'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim',
+  'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+];
+
+function inferLocation(...parts: Array<string | null | undefined>) {
+  const text = parts.filter(Boolean).join(', ');
+  const tokens = text.split(',').map((part) => part.trim()).filter(Boolean);
+  const pincode = text.match(/\b\d{6}\b/)?.[0] ?? null;
+  const state = STATE_NAMES.find((name) => new RegExp(`\\b${name}\\b`, 'i').test(text)) ?? null;
+  const stateIndex = state ? tokens.findIndex((token) => token.toLowerCase() === state.toLowerCase()) : -1;
+  const pinIndex = pincode ? tokens.findIndex((token) => token.includes(pincode)) : -1;
+  let city: string | null = null;
+
+  if (stateIndex > 0) city = tokens[stateIndex - 1];
+  else if (pinIndex > 0) city = tokens[pinIndex - 1].replace(/\b\d{6}\b/g, '').trim();
+  else if (tokens.length >= 2) city = tokens[tokens.length - 2];
+  else if (tokens.length === 1 && !pincode && !state) city = tokens[0];
+
+  if (city && STATE_NAMES.some((name) => name.toLowerCase() === city!.toLowerCase())) city = null;
+  return { city: clean(city), state: clean(state), pincode };
+}
+
 @Injectable()
 export class CustomerDirectoryService {
   constructor(private prisma: PrismaService) {}
@@ -90,6 +115,7 @@ export class CustomerDirectoryService {
         contactPerson: customer.contactPerson,
         phone: customer.phone,
         email: customer.email,
+        address: customer.shippingAddress ?? customer.billingAddress,
         city: customer.city,
         state: customer.state,
         pincode: customer.pincode,
@@ -184,5 +210,40 @@ export class CustomerDirectoryService {
     }
 
     return result;
+  }
+
+  async syncLocationsFromAddresses() {
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { city: null },
+          { state: null },
+          { pincode: null },
+        ],
+      },
+      select: {
+        id: true,
+        city: true,
+        state: true,
+        pincode: true,
+        shippingAddress: true,
+        billingAddress: true,
+      },
+    });
+
+    let updated = 0;
+    for (const customer of customers) {
+      const inferred = inferLocation(customer.shippingAddress, customer.billingAddress);
+      const data: any = {};
+      if (!customer.city && inferred.city) data.city = inferred.city;
+      if (!customer.state && inferred.state) data.state = inferred.state;
+      if (!customer.pincode && inferred.pincode) data.pincode = inferred.pincode;
+      if (Object.keys(data).length) {
+        await this.prisma.customer.update({ where: { id: customer.id }, data });
+        updated++;
+      }
+    }
+
+    return { scanned: customers.length, updated };
   }
 }

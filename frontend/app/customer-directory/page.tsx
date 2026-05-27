@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
-import { Download, Search, Upload, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, RefreshCw, Search, Upload, Users } from "lucide-react";
 
 type Product = { name: string; sku: string; category: string | null; quantity: number; amount: number };
 type Order = {
@@ -23,6 +23,7 @@ type CustomerRow = {
   contactPerson: string | null;
   phone: string | null;
   email: string | null;
+  address: string | null;
   city: string | null;
   state: string | null;
   pincode: string | null;
@@ -92,6 +93,8 @@ function CustomerDirectoryContent() {
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -171,58 +174,78 @@ function CustomerDirectoryContent() {
     reader.readAsText(file);
   };
 
+  const syncLocations = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/customer-directory/sync-locations`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      alert(`Address sync complete. Updated ${data.updated ?? 0} customers.`);
+      await load();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 p-4 space-y-4">
+    <div className="min-h-screen bg-slate-50 p-3 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Customer Directory</h1>
-          <p className="text-sm text-slate-500">Search customers by city/state and view what they bought, invoice, date, agent, and products.</p>
+          <h1 className="text-lg font-bold text-slate-900">Customer Directory</h1>
+          <p className="text-xs text-slate-500">City/state customer search with purchase, invoice, agent, and product history.</p>
         </div>
-        <button onClick={downloadSample} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          <Download size={16} /> Sample CSV
-        </button>
+        <div className="flex gap-2">
+          <button onClick={syncLocations} disabled={syncing} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+            <RefreshCw size={14} /> {syncing ? "Syncing" : "Sync address"}
+          </button>
+          <button onClick={downloadSample} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            <Download size={14} /> Sample CSV
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-2">
         {[
           ["Customers", summary.customers.toLocaleString("en-IN")],
           ["Orders", summary.orders.toLocaleString("en-IN")],
           ["Revenue", money(summary.revenue)],
           ["Visible Cities", cities.length.toLocaleString("en-IN")],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <p className="text-xs font-medium text-slate-500">{label}</p>
-            <p className="mt-1 text-lg font-bold text-slate-900">{value}</p>
+            <p className="text-base font-bold text-slate-900">{value}</p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
         <div className="grid grid-cols-5 gap-2">
           <div className="col-span-2 relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Ahmedabad, customer, phone..." className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Ahmedabad, customer, phone..." className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-xs outline-none focus:border-blue-500" />
           </div>
-          <select value={state} onChange={(e) => setState(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+          <select value={state} onChange={(e) => setState(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500">
             <option value="">All states</option>
             {states.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <select value={city} onChange={(e) => setCity(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+          <select value={city} onChange={(e) => setCity(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500">
             <option value="">All cities</option>
             {cities.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <input list="product-options" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Product filter" className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+          <input list="product-options" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Product filter" className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500" />
           <datalist id="product-options">
             {productOptions.map((item) => <option key={item} value={item} />)}
           </datalist>
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
+      <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users size={16} className="text-blue-600" />
-            <p className="text-sm font-bold text-slate-800">Import customer contacts from Excel CSV</p>
+            <p className="text-xs font-bold text-slate-800">Import customer contacts from Excel CSV</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
@@ -234,7 +257,7 @@ function CustomerDirectoryContent() {
             </button>
           </div>
         </div>
-        <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={CSV_SAMPLE} rows={4} className="w-full rounded-lg border border-slate-200 p-3 font-mono text-xs outline-none focus:border-blue-500" />
+        <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={CSV_SAMPLE} rows={2} className="w-full rounded-lg border border-slate-200 p-2 font-mono text-xs outline-none focus:border-blue-500" />
         {importResult && (
           <div className="mt-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-700">
             Created: <strong>{importResult.created}</strong> · Updated: <strong>{importResult.updated}</strong> · Skipped: <strong>{importResult.skipped}</strong>
@@ -243,66 +266,81 @@ function CustomerDirectoryContent() {
         )}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">
           {loading ? "Loading..." : `${customers.length} customers found`}
         </div>
-        <div className="divide-y divide-slate-100">
-          {customers.map((customer) => (
-            <div key={customer.id} className="p-3">
-              <div className="grid grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr] gap-3">
-                <div>
-                  <p className="font-bold text-slate-900">{customer.businessName}</p>
-                  <p className="text-xs text-slate-500">{customer.contactPerson || "-"} · {customer.phone || "-"} · {customer.email || "-"}</p>
-                  <p className="mt-1 text-xs text-slate-400">{[customer.city, customer.state, customer.pincode].filter(Boolean).join(", ") || "No location"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Orders</p>
-                  <p className="font-bold text-slate-800">{customer.orderCount}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Total bought</p>
-                  <p className="font-bold text-emerald-600">{money(customer.totalRevenue)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Last agent</p>
-                  <p className="font-semibold text-slate-800">{customer.lastSalesAgentName || "-"}</p>
-                </div>
-              </div>
-
-              <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      {["Date", "Invoice", "Order", "Sales Agent", "Products", "Total"].map((head) => (
-                        <th key={head} className="px-3 py-2 text-left font-semibold">{head}</th>
-                      ))}
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              {["Customer", "Location / Address", "Last Purchase", "Invoice", "Agent", "Products", "Orders", "Total"].map((head) => (
+                <th key={head} className="px-2 py-2 text-left font-semibold">{head}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {customers.map((customer) => {
+              const last = customer.orders[0];
+              const isExpanded = !!expanded[customer.id];
+              return (
+                <Fragment key={customer.id}>
+                  <tr className="hover:bg-slate-50 align-top">
+                    <td className="px-2 py-2 max-w-[220px]">
+                      <div className="flex items-start gap-1">
+                        <button onClick={() => setExpanded((prev) => ({ ...prev, [customer.id]: !isExpanded }))} className="mt-0.5 rounded p-0.5 text-slate-400 hover:bg-slate-100">
+                          {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        </button>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{customer.businessName}</p>
+                          <p className="truncate text-slate-500">{customer.phone || "-"} · {customer.email || "-"}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 max-w-[230px]">
+                      <p className="font-semibold text-slate-700 truncate">{[customer.city, customer.state, customer.pincode].filter(Boolean).join(", ") || "-"}</p>
+                      <p className="truncate text-slate-400">{customer.address || "No address"}</p>
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-slate-600">{last ? new Date(last.orderDate).toLocaleDateString("en-IN") : "-"}</td>
+                    <td className="px-2 py-2 font-semibold text-slate-700">{last?.invoiceNumber || "-"}</td>
+                    <td className="px-2 py-2 text-slate-700">{customer.lastSalesAgentName || "-"}</td>
+                    <td className="px-2 py-2 max-w-[320px] truncate text-slate-700">{last?.products.map((item) => `${item.name} x${item.quantity}`).join(", ") || "-"}</td>
+                    <td className="px-2 py-2 font-bold text-slate-800">{customer.orderCount}</td>
+                    <td className="px-2 py-2 font-bold text-emerald-600">{money(customer.totalRevenue)}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr key={`${customer.id}-history`} className="bg-slate-50/70">
+                      <td colSpan={8} className="px-8 py-2">
+                        <div className="grid grid-cols-[90px_100px_90px_140px_1fr_90px] gap-2 text-xs">
+                          <div className="font-semibold text-slate-400">Date</div>
+                          <div className="font-semibold text-slate-400">Invoice</div>
+                          <div className="font-semibold text-slate-400">Order</div>
+                          <div className="font-semibold text-slate-400">Agent</div>
+                          <div className="font-semibold text-slate-400">Products</div>
+                          <div className="font-semibold text-slate-400 text-right">Total</div>
+                          {customer.orders.length === 0 ? (
+                            <div className="col-span-6 py-2 text-center text-slate-400">No purchase history yet</div>
+                          ) : customer.orders.map((order) => (
+                            <div key={order.id} className="contents">
+                              <div className="py-1 text-slate-600">{new Date(order.orderDate).toLocaleDateString("en-IN")}</div>
+                              <div className="py-1 font-semibold text-slate-700">{order.invoiceNumber || "-"}</div>
+                              <div className="py-1 text-slate-600">{order.orderNo}</div>
+                              <div className="py-1 text-slate-600">{order.salesAgentName || "-"}</div>
+                              <div className="py-1 text-slate-700">{order.products.map((item) => `${item.name} x${item.quantity}`).join(", ")}</div>
+                              <div className="py-1 text-right font-bold text-slate-800">{money(order.total)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {customer.orders.length === 0 ? (
-                      <tr><td colSpan={6} className="px-3 py-3 text-center text-slate-400">No purchase history yet</td></tr>
-                    ) : customer.orders.map((order) => (
-                      <tr key={order.id}>
-                        <td className="px-3 py-2 text-slate-600">{new Date(order.orderDate).toLocaleDateString("en-IN")}</td>
-                        <td className="px-3 py-2 font-semibold text-slate-700">{order.invoiceNumber || "-"}</td>
-                        <td className="px-3 py-2 text-slate-600">{order.orderNo}</td>
-                        <td className="px-3 py-2 text-slate-600">{order.salesAgentName || "-"}</td>
-                        <td className="px-3 py-2 text-slate-700">
-                          {order.products.map((item) => `${item.name} x${item.quantity}`).join(", ")}
-                        </td>
-                        <td className="px-3 py-2 font-bold text-slate-800">{money(order.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-          {!loading && customers.length === 0 && (
-            <div className="py-12 text-center text-sm text-slate-400">No customers found</div>
-          )}
-        </div>
+                  )}
+                </Fragment>
+              );
+            })}
+            {!loading && customers.length === 0 && (
+              <tr><td colSpan={8} className="py-12 text-center text-sm text-slate-400">No customers found</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

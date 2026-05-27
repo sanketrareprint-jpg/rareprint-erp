@@ -26,4 +26,9 @@ export class CustomerDirectoryController {
   importCustomers(@Body() body: { rows: any[] }) {
     return this.service.importCustomers(body.rows ?? []);
   }
+
+  @Post('sync-locations')
+  syncLocations() {
+    return this.service.syncLocationsFromAddresses();
+  }
 }
