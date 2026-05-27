@@ -563,6 +563,14 @@ export class CrmService {
       };
     }
 
+    if (!isNewContactEvent) {
+      return {
+        status: 'ignored',
+        reason: 'not_contact_created_event',
+        phone: incoming.phone,
+      };
+    }
+
     const agent = await this.getNextAgent();
     const leadName = incoming.name || `WhatsApp Lead ${incoming.phone.slice(-4)}`;
     const lead = await this.prisma.lead.create({
