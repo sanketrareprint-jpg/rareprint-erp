@@ -21,8 +21,8 @@ function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: s
   return items.map((i) => {
     // Try to read from productionNotes first
     let size = (i.productionNotes?.match(/Size[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
-    let gsm = (i.productionNotes?.match(/GSM[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
-    let sidesRaw = (i.productionNotes?.match(/Sides[\s:]+(\S+)/i) ?? [])[1]?.trim() ?? null;
+    let gsm = (i.productionNotes?.match(/GSM[\s:]+([^,\n\s]+)/i) ?? [])[1]?.trim() ?? null;
+    let sidesRaw = (i.productionNotes?.match(/Sides[\s:]+([^,\n\s]+)/i) ?? [])[1]?.trim() ?? null;
 
     // Fall back to product's direct fields if not found in productionNotes
     if (!size && i.product.sizeInches) {
