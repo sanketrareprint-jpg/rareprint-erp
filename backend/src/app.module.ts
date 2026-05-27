@@ -27,6 +27,8 @@ import { MarketingModule } from './marketing/marketing.module';
 import { SheetLayoutModule } from './sheet-layout/sheet-layout.module';
 import { DesignStudioModule } from './design-studio/design-studio.module';
 import { CustomerDirectoryModule } from './customer-directory/customer-directory.module';
+import { StorefrontModule } from './storefront/storefront.module';
+import { CostTableModule } from './cost-table/cost-table.module';
 
 @Module({
   imports: [
@@ -53,6 +55,8 @@ import { CustomerDirectoryModule } from './customer-directory/customer-directory
     SheetLayoutModule,
     DesignStudioModule,
     CustomerDirectoryModule,
+    StorefrontModule,
+    CostTableModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

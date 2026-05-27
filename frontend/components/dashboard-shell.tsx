@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users,
+  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
@@ -36,6 +36,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Manage Academy", href: "/admin/sales-learning", icon: BookOpen },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Design", href: "/design-studio", icon: Palette },
+    { label: "Cost Table", href: "/cost-table", icon: Table2 },
   ],
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -64,6 +65,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
+    { label: "Cost Table", href: "/cost-table", icon: Table2 },
   ],
   PRODUCTION: [
     { label: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
@@ -315,4 +317,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 );
               })}
             </div>
-  
+            <button onClick={handleLogout} className="erp-mobile-logout">
+              <LogOut size={16} />
+              Sign out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+
+
+
