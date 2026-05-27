@@ -97,6 +97,19 @@ function CustomerDirectoryContent() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const loadFilters = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/customer-directory/filters`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setCities(data?.cities ?? []);
+        setStates(data?.states ?? []);
+      }
+    } catch {
+      undefined;
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -116,15 +129,7 @@ function CustomerDirectoryContent() {
     }
   }, [search, city, state, product]);
 
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/customer-directory/filters`, { headers: getAuthHeaders() })
-      .then((res) => res.ok ? res.json() : null)
-      .then((data) => {
-        setCities(data?.cities ?? []);
-        setStates(data?.states ?? []);
-      })
-      .catch(() => undefined);
-  }, []);
+  useEffect(() => { void loadFilters(); }, [loadFilters]);
 
   useEffect(() => {
     const id = window.setTimeout(() => { void load(); }, 250);
@@ -183,6 +188,7 @@ function CustomerDirectoryContent() {
       });
       const data = await res.json().catch(() => ({}));
       alert(`Address sync complete. Updated ${data.updated ?? 0} customers.`);
+      await loadFilters();
       await load();
     } finally {
       setSyncing(false);
@@ -296,11 +302,64 @@ function CustomerDirectoryContent() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-2 py-2 max-w-[230px]">
+                    <td className="px-2 py-2 max-w-[360px]">
                       <p className="font-semibold text-slate-700 truncate">{[customer.city, customer.state, customer.pincode].filter(Boolean).join(", ") || "-"}</p>
-                      <p className="truncate text-slate-400">{customer.address || "No address"}</p>
+                      <p title={customer.address || ""} className="text-slate-400 leading-snug break-words">{customer.address || "No address"}</p>
                     </td>
                     <td className="px-2 py-2 whitespace-nowrap text-slate-600">{last ? new Date(last.orderDate).toLocaleDateString("en-IN") : "-"}</td>
                     <td className="px-2 py-2 font-semibold text-slate-700">{last?.invoiceNumber || "-"}</td>
                     <td className="px-2 py-2 text-slate-700">{customer.lastSalesAgentName || "-"}</td>
-                    <td className="px-2 py-2 max-w-[320px] truncate text-slate-700">{last?.products.map((item) => `${item.name} x${item.qua
+                    <td className="px-2 py-2 max-w-[320px] truncate text-slate-700">{last?.products.map((item) => `${item.name} x${item.quantity}`).join(", ") || "-"}</td>
+                    <td className="px-2 py-2 font-bold text-slate-800">{customer.orderCount}</td>
+                    <td className="px-2 py-2 font-bold text-emerald-600">{money(customer.totalRevenue)}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr key={`${customer.id}-history`} className="bg-slate-50/70">
+                      <td colSpan={8} className="px-8 py-2">
+                        <div className="mb-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                          <span className="font-semibold text-slate-500">Full address: </span>
+                          {customer.address || "No address saved"}
+                        </div>
+                        <div className="grid grid-cols-[90px_100px_90px_140px_1fr_90px] gap-2 text-xs">
+                          <div className="font-semibold text-slate-400">Date</div>
+                          <div className="font-semibold text-slate-400">Invoice</div>
+                          <div className="font-semibold text-slate-400">Order</div>
+                          <div className="font-semibold text-slate-400">Agent</div>
+                          <div className="font-semibold text-slate-400">Products</div>
+                          <div className="font-semibold text-slate-400 text-right">Total</div>
+                          {customer.orders.length === 0 ? (
+                            <div className="col-span-6 py-2 text-center text-slate-400">No purchase history yet</div>
+                          ) : customer.orders.map((order) => (
+                            <div key={order.id} className="contents">
+                              <div className="py-1 text-slate-600">{new Date(order.orderDate).toLocaleDateString("en-IN")}</div>
+                              <div className="py-1 font-semibold text-slate-700">{order.invoiceNumber || "-"}</div>
+                              <div className="py-1 text-slate-600">{order.orderNo}</div>
+                              <div className="py-1 text-slate-600">{order.salesAgentName || "-"}</div>
+                              <div className="py-1 text-slate-700">{order.products.map((item) => `${item.name} x${item.quantity}`).join(", ")}</div>
+                              <div className="py-1 text-right font-bold text-slate-800">{money(order.total)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {!loading && customers.length === 0 && (
+              <tr><td colSpan={8} className="py-12 text-center text-sm text-slate-400">No customers found</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default function CustomerDirectoryPage() {
+  return (
+    <DashboardShell>
+      <CustomerDirectoryContent />
+    </DashboardShell>
+  );
+}

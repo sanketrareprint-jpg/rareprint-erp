@@ -23,22 +23,68 @@ const STATE_NAMES = [
   'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
 ];
 
+const STATE_ALIASES = new Map<string, string>([
+  ['tamilnadu', 'Tamil Nadu'],
+  ['tamil nadu', 'Tamil Nadu'],
+  ['up', 'Uttar Pradesh'],
+  ['u p', 'Uttar Pradesh'],
+  ...STATE_NAMES.map((name) => [name.toLowerCase(), name] as [string, string]),
+]);
+
+const KNOWN_CITY_NAMES = [
+  'Ahmedabad', 'Aheri', 'Aligarh', 'Balampur', 'Bangalore', 'Bareilly', 'Bhagalpur', 'Bikaner',
+  'Chandrapur', 'Delhi', 'Dindori', 'Gazipur', 'Gulbarga', 'Hathras', 'Karnal', 'Kheri',
+  'Latur', 'Mathon More', 'Nashik', 'Pune', 'Samastipur', 'Sangli', 'Shimla', 'Sriperumbudur',
+  'Surat', 'Varanasi', 'West Champaran',
+];
+
+function canonicalState(value: string | null | undefined) {
+  const text = clean(value);
+  if (!text) return null;
+  const lowered = text.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ');
+  return STATE_ALIASES.get(lowered) ?? STATE_NAMES.find((name) => new RegExp(`\\b${name}\\b`, 'i').test(text)) ?? null;
+}
+
+function isLikelyCity(value: string | null | undefined) {
+  const text = clean(value);
+  if (!text) return false;
+  if (text.length > 45) return false;
+  if (/[,@]|\d{3,}/.test(text)) return false;
+  if (canonicalState(text)) return false;
+  if (/\b(road|rd|near|opp|opposite|behind|front|post|dist|district|village|block|school|hospital|medical|clinic|address|colony|apartment|complex|bazar|stand|bank|mandi)\b/i.test(text)) {
+    return false;
+  }
+  return text.split(/\s+/).length <= 4;
+}
+
+function knownCityFromText(text: string) {
+  const ordered = [...KNOWN_CITY_NAMES].sort((a, b) => b.length - a.length);
+  return ordered.find((city) => new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text)) ?? null;
+}
+
 function inferLocation(...parts: Array<string | null | undefined>) {
   const text = parts.filter(Boolean).join(', ');
   const tokens = text.split(',').map((part) => part.trim()).filter(Boolean);
   const pincode = text.match(/\b\d{6}\b/)?.[0] ?? null;
-  const state = STATE_NAMES.find((name) => new RegExp(`\\b${name}\\b`, 'i').test(text)) ?? null;
-  const stateIndex = state ? tokens.findIndex((token) => token.toLowerCase() === state.toLowerCase()) : -1;
+  const state = canonicalState(text);
+  const stateIndex = state ? tokens.findIndex((token) => canonicalState(token) === state) : -1;
   const pinIndex = pincode ? tokens.findIndex((token) => token.includes(pincode)) : -1;
   let city: string | null = null;
 
-  if (stateIndex > 0) city = tokens[stateIndex - 1];
-  else if (pinIndex > 0) city = tokens[pinIndex - 1].replace(/\b\d{6}\b/g, '').trim();
-  else if (tokens.length >= 2) city = tokens[tokens.length - 2];
-  else if (tokens.length === 1 && !pincode && !state) city = tokens[0];
+  if (stateIndex > 0 && isLikelyCity(tokens[stateIndex - 1])) {
+    city = tokens[stateIndex - 1];
+  } else if (pinIndex > 0 && isLikelyCity(tokens[pinIndex - 1])) {
+    city = tokens[pinIndex - 1].replace(/\b\d{6}\b/g, '').trim();
+  } else {
+    city = knownCityFromText(text);
+  }
 
-  if (city && STATE_NAMES.some((name) => name.toLowerCase() === city!.toLowerCase())) city = null;
+  if (!isLikelyCity(city)) city = null;
   return { city: clean(city), state: clean(state), pincode };
+}
+
+function uniqueSorted(values: Array<string | null>) {
+  return Array.from(new Set(values.map(clean).filter((value): value is string => !!value))).sort((a, b) => a.localeCompare(b));
 }
 
 @Injectable()
@@ -77,8 +123,10 @@ export class CustomerDirectoryService {
       orderBy: [{ updatedAt: 'desc' }],
       take: 300,
       include: {
+        _count: { select: { orders: true } },
         orders: {
           orderBy: { orderDate: 'desc' },
+          take: 10,
           include: {
             invoice: { select: { invoiceNumber: true, issueDate: true } },
             salesAgent: { select: { fullName: true } },
@@ -89,6 +137,15 @@ export class CustomerDirectoryService {
         },
       },
     });
+
+    const revenueRows = customers.length
+      ? await this.prisma.order.groupBy({
+          by: ['customerId'],
+          where: { customerId: { in: customers.map((customer) => customer.id) } },
+          _sum: { grandTotal: true },
+        })
+      : [];
+    const revenueByCustomer = new Map(revenueRows.map((row) => [row.customerId, Number(row._sum.grandTotal ?? 0)]));
 
     const rows = customers.map((customer) => {
       const orders = customer.orders.map((order) => ({
@@ -107,7 +164,7 @@ export class CustomerDirectoryService {
           amount: Number(item.lineTotal),
         })),
       }));
-      const totalRevenue = orders.reduce((sum, order) => sum + order.total, 0);
+      const totalRevenue = revenueByCustomer.get(customer.id) ?? orders.reduce((sum, order) => sum + order.total, 0);
       const lastOrder = orders[0] ?? null;
       return {
         id: customer.id,
@@ -119,7 +176,7 @@ export class CustomerDirectoryService {
         city: customer.city,
         state: customer.state,
         pincode: customer.pincode,
-        orderCount: orders.length,
+        orderCount: customer._count.orders,
         totalRevenue,
         lastOrderDate: lastOrder?.orderDate ?? null,
         lastSalesAgentName: lastOrder?.salesAgentName ?? null,
@@ -155,8 +212,8 @@ export class CustomerDirectoryService {
     ]);
 
     return {
-      cities: cities.map((row) => row.city).filter(Boolean),
-      states: states.map((row) => row.state).filter(Boolean),
+      cities: uniqueSorted(cities.map((row) => isLikelyCity(row.city) ? clean(row.city) : null)),
+      states: uniqueSorted(states.map((row) => canonicalState(row.state))),
     };
   }
 
@@ -214,13 +271,6 @@ export class CustomerDirectoryService {
 
   async syncLocationsFromAddresses() {
     const customers = await this.prisma.customer.findMany({
-      where: {
-        OR: [
-          { city: null },
-          { state: null },
-          { pincode: null },
-        ],
-      },
       select: {
         id: true,
         city: true,
@@ -233,10 +283,13 @@ export class CustomerDirectoryService {
 
     let updated = 0;
     for (const customer of customers) {
-      const inferred = inferLocation(customer.shippingAddress, customer.billingAddress);
+      const inferred = inferLocation(customer.city, customer.state, customer.shippingAddress, customer.billingAddress);
       const data: any = {};
-      if (!customer.city && inferred.city) data.city = inferred.city;
-      if (!customer.state && inferred.state) data.state = inferred.state;
+      const cityIsValid = isLikelyCity(customer.city);
+      const state = canonicalState(customer.state) ?? inferred.state;
+      if (!cityIsValid && inferred.city) data.city = inferred.city;
+      if (!cityIsValid && !inferred.city && customer.city) data.city = null;
+      if (state && state !== customer.state) data.state = state;
       if (!customer.pincode && inferred.pincode) data.pincode = inferred.pincode;
       if (Object.keys(data).length) {
         await this.prisma.customer.update({ where: { id: customer.id }, data });
