@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -72,9 +72,13 @@ type CustomerOutstanding = {
   totalAmount: number;
   paidAmount: number;
   outstandingAmount: number;
+  reminderAmount: number;
+  canSendReminder: boolean;
   orderCount: number;
   lastOrderDate: string;
   orderNumbers: string;
+  orderStatuses?: string;
+  reminderOrderNumbers?: string;
   productStatuses?: string;
 };
 
@@ -165,6 +169,24 @@ const productStatusClass: Record<string, string> = {
   READY_FOR_DISPATCH: "bg-green-100 text-green-700",
 };
 
+const orderStatusLabels: Record<string, string> = {
+  PENDING_APPROVAL: "Pending Approval",
+  APPROVED: "Approved",
+  IN_PRODUCTION: "In Production",
+  READY_FOR_DISPATCH: "Ready",
+  PENDING_DISPATCH_APPROVAL: "Dispatch Approval",
+  PARTIALLY_DISPATCHED: "Partial Dispatch",
+  DISPATCHED: "Dispatched",
+  DELIVERED: "Delivered",
+};
+const orderStatusClass: Record<string, string> = {
+  READY_FOR_DISPATCH: "bg-green-100 text-green-700",
+  DELIVERED: "bg-emerald-100 text-emerald-700",
+  DISPATCHED: "bg-blue-100 text-blue-700",
+  PARTIALLY_DISPATCHED: "bg-cyan-100 text-cyan-700",
+  IN_PRODUCTION: "bg-amber-100 text-amber-700",
+};
+
 const paymentMethods = ["CASH", "BANK_TRANSFER", "UPI", "CHEQUE", "CARD"];
 
 export default function AccountsPage() {
@@ -213,6 +235,8 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
   const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [outstandingSearch, setOutstandingSearch] = useState("");
   const [outstandingStatus, setOutstandingStatus] = useState("");
+  const [outstandingOrderStatus, setOutstandingOrderStatus] = useState("READY_DELIVERED");
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
   // Vendor statements
   const [vendorEntries, setVendorEntries] = useState<VendorEntry[]>([]);
@@ -405,6 +429,30 @@ await loadHistory();
     } finally { setMarkingPaid(null); }
   }
 
+  async function sendBalanceReminder(row: CustomerOutstanding) {
+    if (!row.canSendReminder) {
+      alert("Reminder can be sent only when the customer has phone number and Ready/Delivered balance.");
+      return;
+    }
+    if (!confirm(`Send balance reminder to ${row.customerName} for ${fmt(row.reminderAmount)}?`)) return;
+    setSendingReminderId(row.customerId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/customers/${row.customerId}/balance-reminder`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not send reminder");
+      }
+      alert("Balance reminder sent on WhatsApp");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not send reminder");
+    } finally {
+      setSendingReminderId(null);
+    }
+  }
+
   // Filtered vendor entries
   const uniqueVendors = useMemo(() => {
     const names = [...new Set(vendorEntries.map(e => e.vendorName))].sort();
@@ -433,15 +481,20 @@ await loadHistory();
     const q = outstandingSearch.trim().toLowerCase();
     return outstanding.filter(row =>
       (!outstandingStatus || (row.productStatuses ?? "").split(", ").includes(outstandingStatus)) &&
+      (outstandingOrderStatus !== "READY_DELIVERED" || row.reminderAmount > 0) &&
+      (outstandingOrderStatus === "READY_DELIVERED" || !outstandingOrderStatus || (row.orderStatuses ?? "").split(", ").includes(outstandingOrderStatus)) &&
       (!q ||
         row.customerName.toLowerCase().includes(q) ||
         row.customerPhone?.toLowerCase().includes(q) ||
         row.customerEmail?.toLowerCase().includes(q) ||
         row.orderNumbers.toLowerCase().includes(q))
     );
-  }, [outstanding, outstandingSearch, outstandingStatus]);
+  }, [outstanding, outstandingSearch, outstandingStatus, outstandingOrderStatus]);
   const outstandingStatuses = useMemo(() => (
     Array.from(new Set(outstanding.flatMap(row => (row.productStatuses ?? "").split(", ").filter(Boolean)))).sort()
+  ), [outstanding]);
+  const outstandingOrderStatuses = useMemo(() => (
+    Array.from(new Set(outstanding.flatMap(row => (row.orderStatuses ?? "").split(", ").filter(Boolean)))).sort()
   ), [outstanding]);
   const outstandingTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.outstandingAmount, 0), [filteredOutstanding]);
   const outstandingPaidTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.paidAmount, 0), [filteredOutstanding]);
@@ -601,6 +654,17 @@ await loadHistory();
                       <option key={status} value={status}>{productStatusLabels[status] ?? status.replace(/_/g, " ")}</option>
                     ))}
                   </select>
+                  <select
+                    value={outstandingOrderStatus}
+                    onChange={e => setOutstandingOrderStatus(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400"
+                  >
+                    <option value="READY_DELIVERED">Ready / Delivered</option>
+                    <option value="">All Order Status</option>
+                    {outstandingOrderStatuses.map(status => (
+                      <option key={status} value={status}>{orderStatusLabels[status] ?? status.replace(/_/g, " ")}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -621,9 +685,11 @@ await loadHistory();
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Total Billing</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Paid</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Outstanding</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Status</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Product Status</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Last Order</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Nos</th>
+                        <th className="px-3 py-2 text-right font-semibold text-slate-600">Reminder</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -639,6 +705,15 @@ await loadHistory();
                           <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(row.outstandingAmount)}</td>
                           <td className="px-3 py-2">
                             <div className="flex flex-wrap gap-1">
+                              {(row.orderStatuses ?? "").split(", ").filter(Boolean).map(status => (
+                                <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${orderStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
+                                  {orderStatusLabels[status] ?? status.replace(/_/g, " ")}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-1">
                               {(row.productStatuses ?? "").split(", ").filter(Boolean).map(status => (
                                 <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${productStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
                                   {productStatusLabels[status] ?? status.replace(/_/g, " ")}
@@ -648,6 +723,17 @@ await loadHistory();
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(row.lastOrderDate).toLocaleDateString("en-IN")}</td>
                           <td className="max-w-xs truncate px-3 py-2 font-mono text-slate-500" title={row.orderNumbers}>{row.orderNumbers}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              onClick={() => sendBalanceReminder(row)}
+                              disabled={!row.canSendReminder || sendingReminderId === row.customerId}
+                              title={row.canSendReminder ? `Send for ${row.reminderOrderNumbers}` : "Needs phone and Ready/Delivered balance"}
+                              className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400"
+                            >
+                              {sendingReminderId === row.customerId ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
+                              {row.reminderAmount > 0 ? fmt(row.reminderAmount) : "Send"}
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -655,7 +741,7 @@ await loadHistory();
                       <tr>
                         <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Outstanding ({filteredOutstanding.length} customers)</td>
                         <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(outstandingTotal)}</td>
-                        <td colSpan={3} />
+                        <td colSpan={5} />
                       </tr>
                     </tfoot>
                   </table>
@@ -1112,78 +1198,3 @@ await loadHistory();
                     <option key={account.id} value={account.id}>
                       {account.name}{account.bankName ? ` (${account.bankName})` : ""}
                     </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>
-                <input value={editPaymentForm.referenceNumber}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="text-[11px] font-semibold text-slate-600">Notes</span>
-                <textarea rows={3} value={editPaymentForm.notes}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, notes: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none" />
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setEditingPayment(null)}
-                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={savePaymentEdit} disabled={savingPaymentId === editingPayment.id}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
-                {savingPaymentId === editingPayment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reject Payment Modal */}
-      {rejectPaymentId && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
-          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
-            <h2 className="text-sm font-bold text-slate-800 mb-1">Reject Payment Receipt</h2>
-            <p className="text-xs text-slate-500 mb-3">The sales agent will be notified with this reason.</p>
-            <textarea value={rejectPaymentReason} onChange={e => setRejectPaymentReason(e.target.value)}
-              placeholder="Enter rejection reason (e.g. Amount mismatch, Receipt not received)..." rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
-            <div className="flex justify-end gap-2 mt-3">
-              <button onClick={() => { setRejectPaymentId(null); setRejectPaymentReason(""); }}
-                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={rejectPayment} disabled={!!verifyingId}
-                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
-                {verifyingId ? "Rejecting..." : "Reject Receipt"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reject Order Modal */}
-      {rejectId && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
-          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
-            <h2 className="text-sm font-bold text-slate-800 mb-3">Reject Order</h2>
-            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)}
-              placeholder="Enter rejection reason..." rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
-            <div className="flex justify-end gap-2 mt-3">
-              <button onClick={() => { setRejectId(null); setRejectReason(""); }}
-                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={rejectOrder} disabled={processing === rejectId}
-                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
-                {processing === rejectId ? "Rejecting..." : "Reject Order"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-

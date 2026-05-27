@@ -1,7 +1,18 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+// Detect Capacitor build: set CAPACITOR_BUILD=1 when running `npm run build:android`
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
+
 const nextConfig: NextConfig = {
+  // Static export required for Capacitor — the Android WebView loads files from disk
+  ...(isCapacitorBuild && { output: "export" }),
+
+  // Disable Next.js image optimisation in static export (no server to run it)
+  images: {
+    unoptimized: true,
+  },
+
   turbopack: {
     root: path.resolve(__dirname),
   },

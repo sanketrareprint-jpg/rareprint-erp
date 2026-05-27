@@ -196,6 +196,27 @@ export class WhatsAppService {
     }
   }
 
+  async sendBalancePaymentReminder(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNos: string;
+    balanceAmount: number;
+    agentName: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_BALANCE_REMINDER_CAMPAIGN ?? 'balance_payment_reminder_erp',
+      customerName: params.customerName,
+      customerPhone: params.customerPhone,
+      orderNo: params.orderNos,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.orderNos,
+        params.balanceAmount.toFixed(2),
+        params.agentName || 'Rareprint Team',
+      ],
+    });
+  }
+
   async sendOrderReassurance(params: {
     campaignName: string;
     customerName: string;

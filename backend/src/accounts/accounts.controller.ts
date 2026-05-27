@@ -36,6 +36,11 @@ export class AccountsController {
     return this.accountsService.getCustomerOutstanding();
   }
 
+  @Patch('customers/:customerId/balance-reminder')
+  sendBalanceReminder(@Param('customerId') customerId: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.sendBalanceReminder(customerId, req.user);
+  }
+
 @Get('payment-history')
   getPaymentHistory() {
   return this.accountsService.getPaymentHistory();

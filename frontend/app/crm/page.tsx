@@ -1,6 +1,15 @@
-﻿"use client";
+"use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import {
+  makeCall as nativeMakeCall,
+  showCallOverlay,
+  hideCallOverlay,
+  startCallMonitoring,
+  stopCallMonitoring,
+  getLastCallForNumber,
+  type CallStateEvent,
+} from "@/lib/plugins/CallManager";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://rareprint-erp-production.up.railway.app";
 const getAuth = () => ({ Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("rareprint_token") : ""}` });
@@ -42,6 +51,10 @@ Raju Medical Store,9876543210,raju@gmail.com,Raju Medical,Nashik,ENVELOPE,hot;wh
 Priya Pharma,9123456780,,Priya Pharma,Pune,BOX,repeat,10000,8000,
 City Hospital,9988776655,city@hospital.com,City Hospital,Mumbai,FILE,urgent,2000,3000,urgent`;
 
+// ─── DISPLAY NAME HELPER (always shows something) ─────────────────────────────
+const displayName = (lead: { name?: string; businessName?: string; phone?: string }) =>
+  lead.name?.trim() || lead.businessName?.trim() || (lead.phone ? `📞 ${lead.phone}` : "Unknown");
+
 // ─── SCORE BADGE ──────────────────────────────────────────────────────────────
 function ScoreBadge({ score }: { score: number }) {
   const color = score >= 70 ? "bg-green-500" : score >= 40 ? "bg-amber-500" : "bg-slate-400";
@@ -54,18 +67,18 @@ function ScoreBadge({ score }: { score: number }) {
 }
 
 // ─── LEAD CARD (Kanban) ────────────────────────────────────────────────────────
-function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+function LeadCard({ lead, onClick, onCall }: { lead: Lead; onClick: () => void; onCall: () => void }) {
   const overdue = lead.nextFollowUp && new Date(lead.nextFollowUp.scheduledAt) < new Date();
   return (
     <div onClick={onClick} className={`bg-white border rounded-xl p-3 cursor-pointer hover:shadow-md transition-all ${lead.isHot ? "border-orange-300" : "border-slate-200"}`}>
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           {lead.isHot && <span title="Hot lead">🔥</span>}
-          <span className="font-semibold text-slate-800 text-sm truncate">{lead.name}</span>
+          <span className="font-semibold text-slate-800 text-sm truncate">{displayName(lead)}</span>
         </div>
         <ScoreBadge score={lead.score} />
       </div>
-      {lead.businessName && <p className="text-xs text-slate-500 truncate mb-1">{lead.businessName}</p>}
+      {lead.businessName && lead.name?.trim() && <p className="text-xs text-slate-500 truncate mb-1">{lead.businessName}</p>}
       <div className="flex items-center gap-2 mt-2">
         <span className="text-xs text-slate-500 font-mono">{lead.phone}</span>
         {lead.isDuplicate && <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium">⚠ Shared</span>}
@@ -85,20 +98,21 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       )}
       <div className="flex items-center justify-between mt-2">
         <span className="text-xs text-slate-400">{lead.activityCount} activities</span>
-        <a
-          href={`tel:${lead.phone}`}
-          onClick={(e) => e.stopPropagation()}
+        <button
+          onClick={(e) => { e.stopPropagation(); onCall(); }}
           className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold"
         >
           📞 Call
-        </a>
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── MOBILE LEAD ROW (List view on mobile) ─────────────────────────────────────
-function MobileLeadRow({ lead, onOpen, onCall }: { lead: Lead; onOpen: () => void; onCall: () => void }) {
+// ─── MOBILE LEAD ROW ──────────────────────────────────────────────────────────
+function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
+  lead: Lead; onOpen: () => void; onCall: () => void; onLog: () => void;
+}) {
   const overdue = lead.nextFollowUp && new Date(lead.nextFollowUp.scheduledAt) < new Date();
   return (
     <div className="bg-white border-b border-slate-100 px-4 py-3 active:bg-slate-50" onClick={onOpen}>
@@ -106,10 +120,13 @@ function MobileLeadRow({ lead, onOpen, onCall }: { lead: Lead; onOpen: () => voi
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             {lead.isHot && <span>🔥</span>}
-            <span className="font-semibold text-slate-800 text-sm">{lead.name}</span>
+            <span className="font-semibold text-slate-800 text-sm">{displayName(lead)}</span>
             {lead.isDuplicate && <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">⚠</span>}
           </div>
-          {lead.businessName && <p className="text-xs text-slate-400 mt-0.5 truncate">{lead.businessName}</p>}
+          {/* Show business name only if different from display name */}
+          {lead.businessName && lead.name?.trim() && (
+            <p className="text-xs text-slate-400 mt-0.5 truncate">{lead.businessName}</p>
+          )}
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="text-xs font-mono text-slate-500">{lead.phone}</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status]}`}>{STATUS_LABELS[lead.status]}</span>
@@ -123,10 +140,15 @@ function MobileLeadRow({ lead, onOpen, onCall }: { lead: Lead; onOpen: () => voi
           )}
         </div>
         <div className="flex flex-col gap-1.5 flex-shrink-0">
-          <a href={`tel:${lead.phone}`} onClick={(e) => e.stopPropagation()}
-            className="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold text-center">📞</a>
-          <button onClick={(e) => { e.stopPropagation(); onCall(); }}
-            className="border border-slate-200 text-slate-600 text-xs px-3 py-1.5 rounded-lg text-center">Log</button>
+          {/* Button — NOT an anchor tag, so it won't navigate away */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onCall(); }}
+            className="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold text-center min-w-[48px]"
+          >📞</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onLog(); }}
+            className="border border-slate-200 text-slate-600 text-xs px-3 py-1.5 rounded-lg text-center"
+          >Log</button>
         </div>
       </div>
     </div>
@@ -161,9 +183,87 @@ function CrmPageContent() {
   const [deletingLead, setDeletingLead] = useState<string | null>(null);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // ── Smart call state ──────────────────────────────────────────────────────
+  const [callInProgress, setCallInProgress] = useState<Lead | null>(null);
+  const callStartedAt = useRef<number>(0);
+
   const visibleLeadIds = leads.map((lead) => lead.id);
   const allVisibleSelected = visibleLeadIds.length > 0 && visibleLeadIds.every((id) => selectedLeadIds.includes(id));
   const someVisibleSelected = selectedLeadIds.some((id) => visibleLeadIds.includes(id));
+
+  // ── Prev / next lead navigation ───────────────────────────────────────────
+  const currentLeadIndex = selectedLead ? leads.findIndex(l => l.id === selectedLead.id) : -1;
+  const canNavPrev = currentLeadIndex > 0;
+  const canNavNext = currentLeadIndex >= 0 && currentLeadIndex < leads.length - 1;
+
+  // ── Native call monitoring (Capacitor) + web visibilitychange fallback ─────
+  useEffect(() => {
+    let mounted = true;
+
+    const handleCallEnded = async (event: CallStateEvent) => {
+      if (!mounted || !callInProgress) return;
+
+      // Hide the overlay that was showing during the call
+      hideCallOverlay().catch(() => {});
+
+      // Try to read the actual outcome from the system call log
+      let autoOutcome: string | undefined;
+      try {
+        const log = await getLastCallForNumber(callInProgress.phone);
+        if (log && Date.now() - log.date < 60_000) {
+          if (log.type === "OUTGOING") autoOutcome = "ANSWERED";
+          else if (log.type === "MISSED") autoOutcome = "NO_ANSWER";
+        }
+      } catch { /* call log unavailable — user will pick manually */ }
+
+      if (autoOutcome) {
+        // Auto-log with detected outcome — no modal needed
+        setCallNote(event.duration ? `Duration: ${event.duration}s` : "");
+        // Small delay so state settles before submit
+        setTimeout(() => {
+          setShowCallModal((prev) => prev ?? callInProgress);
+        }, 300);
+      } else {
+        setShowCallModal(callInProgress);
+      }
+      setCallInProgress(null);
+    };
+
+    // Start native Capacitor listener
+    startCallMonitoring(handleCallEnded).catch(() => {});
+
+    // Web / PWA fallback — visibilitychange fires when user returns from dialer
+    const handleVisibility = () => {
+      if (!document.hidden && callInProgress && Date.now() - callStartedAt.current > 1500) {
+        hideCallOverlay().catch(() => {});
+        setShowCallModal(callInProgress);
+        setCallInProgress(null);
+      }
+    };
+    const handlePageShow = (e: PageTransitionEvent) => { if (e.persisted) handleVisibility(); };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      mounted = false;
+      stopCallMonitoring(handleCallEnded).catch(() => {});
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [callInProgress]);
+
+  // ── initiateCall: uses native ACTION_CALL on Android, tel: on web ──────────
+  const initiateCall = useCallback((lead: Lead) => {
+    setCallInProgress(lead);
+    callStartedAt.current = Date.now();
+    // Show the overlay card on top of the phone dialer (Android APK only)
+    showCallOverlay(displayName(lead), lead.phone).catch(() => {});
+    // Make the call — native on Android, tel: href on web
+    nativeMakeCall(lead.phone).catch(() => {
+      window.location.href = `tel:${lead.phone}`;
+    });
+  }, []);
 
   const sendToAisensy = async (lead: Lead, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -176,7 +276,7 @@ function CrmPageContent() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(` WhatsApp sent to ${lead.name} via AiSensy!\nAgent: ${data.agentName}`);
+        alert(` WhatsApp sent to ${displayName(lead)} via AiSensy!\nAgent: ${data.agentName}`);
         load();
       } else {
         alert(` Failed: ${JSON.stringify(data)}`);
@@ -191,7 +291,7 @@ function CrmPageContent() {
   const deleteLead = async (lead: Lead, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (deletingLead === lead.id) return;
-    const ok = window.confirm(`Delete lead "${lead.name}"?\n\nThis will remove its follow-ups and activity history too.`);
+    const ok = window.confirm(`Delete lead "${displayName(lead)}"?\n\nThis will remove its follow-ups and activity history too.`);
     if (!ok) return;
     setDeletingLead(lead.id);
     try {
@@ -269,13 +369,18 @@ function CrmPageContent() {
     if (statsRes.ok) setStats(await statsRes.json());
     if (fuRes.ok) setTodayFollowUps(await fuRes.json());
     setLoading(false);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, myLeadsOnly]);
 
   useEffect(() => { load(); }, [load]);
 
   const openLead = async (lead: Lead) => {
     const res = await fetch(`${API}/crm/leads/${lead.id}`, { headers: getAuth() });
     if (res.ok) setSelectedLead(await res.json());
+  };
+
+  const navigateLead = async (dir: "prev" | "next") => {
+    const idx = dir === "next" ? currentLeadIndex + 1 : currentLeadIndex - 1;
+    if (idx >= 0 && idx < leads.length) await openLead(leads[idx]);
   };
 
   const updateStatus = async (leadId: string, status: LeadStatus) => {
@@ -296,9 +401,19 @@ function CrmPageContent() {
       method: "POST", headers: { ...getAuth(), "Content-Type": "application/json" },
       body: JSON.stringify({ outcome, note: callNote }),
     });
-    setShowCallModal(null); setCallNote("");
-    if (dialerActive) loadNextDialer(showCallModal.id);
-    else load();
+    const justLogged = showCallModal;
+    setShowCallModal(null);
+    setCallNote("");
+    if (dialerActive) {
+      loadNextDialer(justLogged.id);
+    } else {
+      load();
+      // Refresh selected lead detail if open
+      if (selectedLead?.id === justLogged.id) {
+        const res = await fetch(`${API}/crm/leads/${justLogged.id}`, { headers: getAuth() });
+        if (res.ok) setSelectedLead(await res.json());
+      }
+    }
   };
 
   const submitNote = async () => {
@@ -318,8 +433,11 @@ function CrmPageContent() {
       method: "POST", headers: { ...getAuth(), "Content-Type": "application/json" },
       body: JSON.stringify(newLeadForm),
     });
-    if (res.ok) { setShowAddModal(false); setNewLeadForm({ name: "", phone: "", email: "", businessName: "", city: "", productInterest: "", tags: "", estimatedQty: "", estimatedValue: "", notes: "" }); load(); }
-    else alert("Failed to create lead");
+    if (res.ok) {
+      setShowAddModal(false);
+      setNewLeadForm({ name: "", phone: "", email: "", businessName: "", city: "", productInterest: "", tags: "", estimatedQty: "", estimatedValue: "", notes: "" });
+      load();
+    } else alert("Failed to create lead");
   };
 
   const checkDuplicate = async (phone: string) => {
@@ -328,14 +446,20 @@ function CrmPageContent() {
     if (res.ok) { const d = await res.json(); setDuplicateAlert(d); }
   };
 
+  // ── Power Dialer: auto-dials next lead after call log ─────────────────────
   const loadNextDialer = async (currentId?: string) => {
     const params = currentId ? `?currentLeadId=${currentId}` : "";
     const res = await fetch(`${API}/crm/leads/dialer/next${params}`, { headers: getAuth() });
     if (res.ok) {
       const next = await res.json();
       setDialerLead(next);
-      if (next) window.location.href = `tel:${next.phone}`;
-      else { setDialerActive(false); alert("All leads dialed! Great work."); }
+      if (next) {
+        // Short pause so the UI updates before the dialer fires
+        setTimeout(() => initiateCall(next), 400);
+      } else {
+        setDialerActive(false);
+        alert("🎉 All leads dialed! Great work.");
+      }
     }
   };
 
@@ -374,6 +498,28 @@ function CrmPageContent() {
   return (
     <div className="min-h-screen bg-slate-50">
 
+      {/* ── CALLING OVERLAY — shown while the phone dialer is open ── */}
+      {callInProgress && (
+        <div className="fixed inset-0 z-[100] bg-black/70 flex flex-col items-center justify-center text-white text-center px-6">
+          <div className="text-5xl mb-4 animate-pulse">📞</div>
+          <p className="text-xl font-bold mb-1">{displayName(callInProgress)}</p>
+          <p className="text-2xl font-mono font-bold text-green-400 mb-2">{callInProgress.phone}</p>
+          <p className="text-sm text-white/70 mb-6">Calling… return here when done to log the call.</p>
+          <button
+            onClick={() => { setShowCallModal(callInProgress); setCallInProgress(null); }}
+            className="bg-white text-slate-800 font-bold px-6 py-3 rounded-xl text-sm hover:bg-slate-100"
+          >
+            ✅ Log this call now
+          </button>
+          <button
+            onClick={() => setCallInProgress(null)}
+            className="mt-3 text-white/50 text-xs hover:text-white/80"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* ── HEADER ── */}
       <div className="bg-white border-b border-slate-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between gap-2">
@@ -395,7 +541,7 @@ function CrmPageContent() {
           </div>
         </div>
 
-        {/* STATS ROW - scrollable on mobile */}
+        {/* STATS ROW */}
         {stats && (
           <div className="flex gap-3 sm:gap-6 mt-3 overflow-x-auto pb-1 -mx-1 px-1">
             {[
@@ -418,7 +564,7 @@ function CrmPageContent() {
           <input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone…"
             className="flex-1 border border-slate-300 rounded-lg text-sm px-3 py-2 focus:outline-none focus:border-blue-400 min-w-0" />
-          <button onClick={() => setMyLeadsOnly(p => !p)} className={`text-xs px-3 py-2 rounded-lg font-medium border ${myLeadsOnly ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-600"}`}>{myLeadsOnly ? " My Leads" : " All Leads"}</button>
+          <button onClick={() => setMyLeadsOnly(p => !p)} className={`text-xs px-3 py-2 rounded-lg font-medium border ${myLeadsOnly ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-600"}`}>{myLeadsOnly ? "👤 My" : "All"}</button>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-slate-300 rounded-lg text-xs sm:text-sm px-2 py-2 focus:outline-none bg-white flex-shrink-0">
             <option value="ALL">All</option>
@@ -426,7 +572,7 @@ function CrmPageContent() {
           </select>
         </div>
 
-        {/* TABS - scrollable */}
+        {/* TABS */}
         <div className="flex gap-1 mt-3 overflow-x-auto pb-1 -mx-1 px-1">
           {(["list", "kanban", "followups"] as const).map((v) => (
             <button key={v} onClick={() => setView(v)}
@@ -435,6 +581,7 @@ function CrmPageContent() {
             </button>
           ))}
         </div>
+
         {view === "list" && (
           <div className="flex items-center justify-between gap-2 mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
@@ -466,7 +613,7 @@ function CrmPageContent() {
                   </div>
                   <div className="space-y-2">
                     {colLeads.map((lead) => (
-                      <LeadCard key={lead.id} lead={lead} onClick={() => openLead(lead)} />
+                      <LeadCard key={lead.id} lead={lead} onClick={() => openLead(lead)} onCall={() => initiateCall(lead)} />
                     ))}
                     {colLeads.length === 0 && (
                       <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center text-xs text-slate-400">Empty</div>
@@ -478,9 +625,9 @@ function CrmPageContent() {
           </div>
 
         ) : view === "list" ? (
-          /* ── LIST — mobile cards, desktop table ── */
+          /* ── LIST ── */
           <>
-            {/* Mobile: card list */}
+            {/* Mobile card list */}
             <div className="sm:hidden bg-white rounded-none border-t border-slate-100 divide-y divide-slate-100">
               {leads.map((lead) => (
                 <div key={lead.id} className="flex items-start gap-2 px-3">
@@ -492,9 +639,12 @@ function CrmPageContent() {
                     className="mt-5 h-4 w-4 rounded border-slate-300"
                   />
                   <div className="flex-1">
-                    <MobileLeadRow lead={lead}
+                    <MobileLeadRow
+                      lead={lead}
                       onOpen={() => openLead(lead)}
-                      onCall={() => setShowCallModal(lead)} />
+                      onCall={() => initiateCall(lead)}
+                      onLog={() => setShowCallModal(lead)}
+                    />
                   </div>
                 </div>
               ))}
@@ -502,7 +652,7 @@ function CrmPageContent() {
                 <div className="px-4 py-10 text-center text-slate-400">No leads found</div>
               )}
             </div>
-            {/* Desktop: table */}
+            {/* Desktop table */}
             <div className="hidden sm:block bg-white rounded-xl border border-slate-200 overflow-hidden m-4">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
@@ -528,8 +678,8 @@ function CrmPageContent() {
                             {lead.isHot && <span>🔥</span>}
                             {lead.isDuplicate && <span title="Shared lead" className="text-red-500">⚠</span>}
                             <div>
-                              <p className="font-semibold text-slate-800">{lead.name}</p>
-                              {lead.businessName && <p className="text-xs text-slate-400">{lead.businessName}</p>}
+                              <p className="font-semibold text-slate-800">{displayName(lead)}</p>
+                              {lead.businessName && lead.name?.trim() && <p className="text-xs text-slate-400">{lead.businessName}</p>}
                             </div>
                           </div>
                         </td>
@@ -557,9 +707,9 @@ function CrmPageContent() {
                           ) : <span className="text-slate-300 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <a href={`tel:${lead.phone}`} className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold mr-1">📞</a>
+                          <button onClick={() => initiateCall(lead)} className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold mr-1">📞</button>
                           <button onClick={() => setShowCallModal(lead)} className="text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50 mr-1">Log</button>
-                          <button onClick={(e) => sendToAisensy(lead, e)} disabled={sendingAisensy === lead.id} className="text-xs bg-green-500 text-white px-2 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 font-semibold mr-1">{sendingAisensy === lead.id ? "..." : " WA"}</button>
+                          <button onClick={(e) => sendToAisensy(lead, e)} disabled={sendingAisensy === lead.id} className="text-xs bg-green-500 text-white px-2 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 font-semibold mr-1">{sendingAisensy === lead.id ? "..." : "💬 WA"}</button>
                           <button onClick={(e) => deleteLead(lead, e)} disabled={deletingLead === lead.id} className="text-xs border border-red-200 text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 disabled:opacity-50 font-semibold">{deletingLead === lead.id ? "..." : "Delete"}</button>
                         </td>
                       </tr>
@@ -579,14 +729,14 @@ function CrmPageContent() {
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
               <div className="bg-gradient-to-br from-orange-50 to-amber-50 p-6 text-center border-b border-slate-200">
                 <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-1">⚡ Power Dialer</p>
-                <p className="text-slate-500 text-sm">Auto-advances to next lead after dispose</p>
+                <p className="text-slate-500 text-sm">Auto-advances to next lead after you log each call</p>
               </div>
               {dialerLead ? (
                 <div className="p-6">
                   {dialerLead.isHot && <div className="text-center mb-3"><span className="bg-orange-100 text-orange-700 text-xs font-bold px-3 py-1 rounded-full">🔥 Hot Lead</span></div>}
                   <div className="text-center mb-6">
-                    <p className="text-2xl font-bold text-slate-900 mb-1">{dialerLead.name}</p>
-                    {dialerLead.businessName && <p className="text-slate-500">{dialerLead.businessName}</p>}
+                    <p className="text-2xl font-bold text-slate-900 mb-1">{displayName(dialerLead)}</p>
+                    {dialerLead.businessName && dialerLead.name?.trim() && <p className="text-slate-500">{dialerLead.businessName}</p>}
                     <p className="text-3xl font-mono font-bold text-blue-600 mt-3">{dialerLead.phone}</p>
                     {dialerLead.city && <p className="text-slate-400 text-sm mt-1">{dialerLead.city}</p>}
                   </div>
@@ -598,13 +748,17 @@ function CrmPageContent() {
                     </div>
                   )}
                   {dialerLead.notes && <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3 mb-4 italic">"{dialerLead.notes}"</p>}
-                  <a href={`tel:${dialerLead.phone}`} className="block w-full text-center bg-green-600 text-white font-bold text-lg py-4 rounded-xl hover:bg-green-700 mb-4">
+                  {/* Dialer Call button — uses initiateCall so app returns to CRM after call */}
+                  <button
+                    onClick={() => initiateCall(dialerLead)}
+                    className="block w-full text-center bg-green-600 text-white font-bold text-lg py-4 rounded-xl hover:bg-green-700 mb-4"
+                  >
                     📞 Call Now
-                  </a>
+                  </button>
                   <textarea value={callNote} onChange={(e) => setCallNote(e.target.value)}
                     placeholder="Add call note (optional)…" rows={2}
                     className="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 mb-3 focus:outline-none focus:border-blue-400 resize-none" />
-                  <p className="text-xs text-slate-400 text-center mb-2">Call outcome</p>
+                  <p className="text-xs text-slate-400 text-center mb-2">Call outcome — tap after the call</p>
                   <div className="grid grid-cols-3 gap-2">
                     {[["ANSWERED", "✅ Answered", "bg-green-600"], ["BUSY", "🔄 Busy", "bg-amber-500"], ["NO_ANSWER", "📵 No answer", "bg-red-500"]].map(([o, label, color]) => (
                       <button key={o} onClick={() => submitCall(o)} className={`${color} text-white text-xs font-semibold py-2 rounded-lg hover:opacity-90`}>{label}</button>
@@ -637,15 +791,18 @@ function CrmPageContent() {
                 <div key={fu.id} className={`bg-white rounded-xl border p-4 flex items-start justify-between gap-3 ${overdue ? "border-red-200" : "border-slate-200"}`}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-slate-800">{fu.lead.name}</span>
+                      <span className="font-semibold text-slate-800">{displayName(fu.lead)}</span>
                       {overdue && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">Overdue</span>}
                     </div>
-                    {fu.lead.businessName && <p className="text-xs text-slate-400">{fu.lead.businessName}</p>}
+                    {fu.lead.businessName && fu.lead.name?.trim() && <p className="text-xs text-slate-400">{fu.lead.businessName}</p>}
                     <p className="text-xs text-slate-500 mt-1">{fu.note}</p>
                     <p className="text-xs text-blue-600 font-medium mt-1">Agent: {fu.lead.agent.fullName}</p>
                   </div>
                   <div className="flex flex-col gap-1.5 flex-shrink-0">
-                    <a href={`tel:${fu.lead.phone}`} className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-green-700 font-semibold whitespace-nowrap">📞 Call</a>
+                    <button
+                      onClick={() => initiateCall(fu.lead)}
+                      className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-green-700 font-semibold whitespace-nowrap"
+                    >📞 Call</button>
                     <button onClick={() => openLead(fu.lead)} className="text-xs border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50">View</button>
                   </div>
                 </div>
@@ -655,20 +812,47 @@ function CrmPageContent() {
         )}
       </div>
 
-      {/* ── LEAD DETAIL DRAWER — full screen on mobile ── */}
+      {/* ── LEAD DETAIL DRAWER ── */}
       {selectedLead && (
         <div className="fixed inset-0 z-50 flex" onClick={() => setSelectedLead(null)}>
           <div className="hidden sm:block flex-1 bg-black/40" />
           <div className="w-full sm:max-w-lg bg-white overflow-y-auto h-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex items-start justify-between z-10">
-              <div>
-                <div className="flex items-center gap-2">
+
+            {/* Sticky header with name + prev/next navigation */}
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-2 z-10">
+              {/* Prev button */}
+              <button
+                onClick={() => navigateLead("prev")}
+                disabled={!canNavPrev}
+                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Previous lead"
+              >‹</button>
+
+              {/* Name + business */}
+              <div className="flex-1 min-w-0 text-center">
+                <div className="flex items-center justify-center gap-1.5 flex-wrap">
                   {selectedLead.isHot && <span>🔥</span>}
-                  <h2 className="text-lg font-bold text-slate-900">{selectedLead.name}</h2>
+                  <h2 className="text-base font-bold text-slate-900 truncate">{displayName(selectedLead)}</h2>
                 </div>
-                {selectedLead.businessName && <p className="text-slate-500 text-sm">{selectedLead.businessName}</p>}
+                {selectedLead.businessName && selectedLead.name?.trim() && (
+                  <p className="text-slate-500 text-xs truncate">{selectedLead.businessName}</p>
+                )}
+                {/* Lead position indicator */}
+                {currentLeadIndex >= 0 && (
+                  <p className="text-xs text-slate-400 mt-0.5">{currentLeadIndex + 1} of {leads.length}</p>
+                )}
               </div>
-              <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">✕</button>
+
+              {/* Next button */}
+              <button
+                onClick={() => navigateLead("next")}
+                disabled={!canNavNext}
+                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Next lead"
+              >›</button>
+
+              {/* Close */}
+              <button onClick={() => setSelectedLead(null)} className="flex-shrink-0 text-slate-400 hover:text-slate-600 text-xl font-bold p-1 ml-1">✕</button>
             </div>
 
             <div className="px-4 sm:px-6 py-5 space-y-5">
@@ -681,15 +865,19 @@ function CrmPageContent() {
                 </div>
               )}
 
-              {/* Info grid */}
+              {/* Info grid — NOW INCLUDES NAME */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[
-                  ["Phone", selectedLead.phone], ["Email", selectedLead.email ?? "—"],
-                  ["City", selectedLead.city ?? "—"], ["Product", selectedLead.productInterest ?? "—"],
+                  ["Name", selectedLead.name?.trim() || "—"],
+                  ["Phone", selectedLead.phone],
+                  ["Email", selectedLead.email ?? "—"],
+                  ["City", selectedLead.city ?? "—"],
+                  ["Product", selectedLead.productInterest ?? "—"],
                   ["Tags", selectedLead.tags?.length ? selectedLead.tags.join(", ") : "—"],
                   ["Est. Qty", selectedLead.estimatedQty ? selectedLead.estimatedQty.toLocaleString() : "—"],
                   ["Est. Value", selectedLead.estimatedValue ? `₹${selectedLead.estimatedValue.toLocaleString()}` : "—"],
-                  ["Source", selectedLead.source], ["Agent", selectedLead.agent.fullName],
+                  ["Source", selectedLead.source],
+                  ["Agent", selectedLead.agent.fullName],
                 ].map(([k, v]) => (
                   <div key={k}>
                     <p className="text-xs text-slate-400">{k}</p>
@@ -716,10 +904,14 @@ function CrmPageContent() {
                 </div>
               </div>
 
-              {/* Actions — big touch targets */}
+              {/* Actions — big touch targets, Call uses initiateCall */}
               <div className="grid grid-cols-3 gap-2">
-                <a href={`tel:${selectedLead.phone}`} className="text-center bg-green-600 text-white text-sm py-3 rounded-xl font-semibold hover:bg-green-700">📞 Call</a>
-                <a href={`https://wa.me/91${selectedLead.phone}`} target="_blank" rel="noreferrer" className="text-center bg-emerald-500 text-white text-sm py-3 rounded-xl font-semibold hover:bg-emerald-600">💬 WA</a>
+                <button
+                  onClick={() => initiateCall(selectedLead)}
+                  className="text-center bg-green-600 text-white text-sm py-3 rounded-xl font-semibold hover:bg-green-700 active:bg-green-800"
+                >📞 Call</button>
+                <a href={`https://wa.me/91${selectedLead.phone}`} target="_blank" rel="noreferrer"
+                  className="text-center bg-emerald-500 text-white text-sm py-3 rounded-xl font-semibold hover:bg-emerald-600">💬 WA</a>
                 <button onClick={() => setShowCallModal(selectedLead)} className="border border-slate-200 text-slate-700 text-sm py-3 rounded-xl font-semibold hover:bg-slate-50">📋 Log</button>
               </div>
               <button onClick={(e) => deleteLead(selectedLead, e)} disabled={deletingLead === selectedLead.id} className="w-full border border-red-200 text-red-600 text-sm py-3 rounded-xl font-semibold hover:bg-red-50 disabled:opacity-50">
@@ -768,6 +960,27 @@ function CrmPageContent() {
                   {(selectedLead.activities ?? []).length === 0 && <p className="text-xs text-slate-400">No activity yet</p>}
                 </div>
               </div>
+
+              {/* Bottom nav for easy swiping through leads */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => navigateLead("prev")}
+                  disabled={!canNavPrev}
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed py-2 px-3 rounded-lg hover:bg-slate-50"
+                >
+                  ‹ Prev lead
+                </button>
+                <span className="text-xs text-slate-400">
+                  {currentLeadIndex >= 0 ? `${currentLeadIndex + 1} / ${leads.length}` : ""}
+                </span>
+                <button
+                  onClick={() => navigateLead("next")}
+                  disabled={!canNavNext}
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed py-2 px-3 rounded-lg hover:bg-slate-50"
+                >
+                  Next lead ›
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -802,9 +1015,9 @@ function CrmPageContent() {
               ))}
               {duplicateAlert && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                  <p className="text-sm font-bold text-red-700">⚠ This phone already exists!</p>
+                  <p className="text-sm font-bold text-red-700">This phone already exists!</p>
                   {duplicateAlert.agents.map((a: any, i: number) => (
-                    <p key={i} className="text-xs text-red-600 mt-1">• {a.agentName} has this lead ({a.status})</p>
+                    <p key={i} className="text-xs text-red-600 mt-1">- {a.agentName} has this lead ({a.status})</p>
                   ))}
                 </div>
               )}
@@ -821,37 +1034,41 @@ function CrmPageContent() {
         </div>
       )}
 
-      {/* ── LOG CALL MODAL ── */}
+      {/* LOG CALL MODAL */}
       {showCallModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-2xl p-6">
-            <h2 className="text-lg font-bold text-slate-900 mb-1">Log call — {showCallModal.name}</h2>
+            <h2 className="text-lg font-bold text-slate-900 mb-0.5">Log call</h2>
+            <p className="text-slate-800 font-semibold">{displayName(showCallModal)}</p>
             <p className="text-slate-500 text-sm mb-4">{showCallModal.phone}</p>
-            <textarea value={callNote} onChange={(e) => setCallNote(e.target.value)} placeholder="Call notes (optional)…" rows={3} className="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 mb-4 focus:outline-none resize-none" />
+            <textarea value={callNote} onChange={(e) => setCallNote(e.target.value)} placeholder="Call notes (optional)..." rows={3} className="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 mb-4 focus:outline-none resize-none" />
             <p className="text-xs font-semibold text-slate-600 mb-2">Call outcome</p>
             <div className="grid grid-cols-3 gap-2 mb-4">
-              {[["ANSWERED", "✅ Answered", "bg-green-600"], ["BUSY", "🔄 Busy", "bg-amber-500"], ["NO_ANSWER", "📵 No answer", "bg-red-500"]].map(([o, label, color]) => (
+              {[["ANSWERED", "Answered", "bg-green-600"], ["BUSY", "Busy", "bg-amber-500"], ["NO_ANSWER", "No answer", "bg-red-500"]].map(([o, label, color]) => (
                 <button key={o} onClick={() => submitCall(o)} className={`${color} text-white text-xs font-semibold py-3 rounded-xl hover:opacity-90`}>{label}</button>
               ))}
             </div>
+            {dialerActive && (
+              <p className="text-xs text-center text-orange-600 font-medium mb-2">Next lead will auto-dial after logging</p>
+            )}
             <button onClick={() => setShowCallModal(null)} className="w-full text-sm text-slate-400 hover:text-slate-600 py-2">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* ── CSV IMPORT MODAL ── */}
+      {/* CSV IMPORT MODAL */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-xl shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="p-4 sm:p-6 border-b border-slate-200 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900">Import leads from CSV</h2>
-              <button onClick={() => { setShowImportModal(false); setImportResult(null); setCsvText(""); }} className="text-slate-400 hover:text-slate-600 font-bold text-xl p-1">✕</button>
+              <button onClick={() => { setShowImportModal(false); setImportResult(null); setCsvText(""); }} className="text-slate-400 hover:text-slate-600 font-bold text-xl p-1">X</button>
             </div>
             <div className="p-4 sm:p-6 space-y-4">
               <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-xs font-semibold text-slate-600">Required: name, phone</p>
-                  <button onClick={() => { const blob = new Blob([CSV_SAMPLE], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "leads_sample.csv"; a.click(); }} className="text-xs text-blue-600 hover:underline font-medium">⬇ Sample</button>
+                  <button onClick={() => { const blob = new Blob([CSV_SAMPLE], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "leads_sample.csv"; a.click(); }} className="text-xs text-blue-600 hover:underline font-medium">Download Sample</button>
                 </div>
                 <pre className="text-xs text-slate-500 overflow-x-auto">{CSV_SAMPLE.split("\n")[0]}</pre>
               </div>
@@ -859,7 +1076,7 @@ function CrmPageContent() {
                 <label className="text-xs font-semibold text-slate-600 block mb-1.5">Upload CSV file</label>
                 <div className="flex gap-2">
                   <button onClick={() => fileRef.current?.click()} className="border border-slate-300 rounded-lg text-sm px-4 py-2.5 text-slate-600 hover:bg-slate-50 font-medium">Choose file</button>
-                  {csvText && <span className="text-xs text-green-600 self-center">✓ Loaded</span>}
+                  {csvText && <span className="text-xs text-green-600 self-center">Loaded</span>}
                 </div>
                 <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCsvFile} />
               </div>
@@ -869,14 +1086,14 @@ function CrmPageContent() {
                   className="w-full border border-slate-200 rounded-lg text-xs px-3 py-2 font-mono focus:outline-none focus:border-blue-400 resize-none" />
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
-                ⚠ <strong>Duplicate detection is automatic.</strong> Agents will be notified of shared contacts.
+                Duplicate detection is automatic. Agents will be notified of shared contacts.
               </div>
               {importResult && (
                 <div className={`rounded-xl p-4 border text-sm ${importResult.errors?.length > 0 ? "bg-amber-50 border-amber-200" : "bg-green-50 border-green-200"}`}>
                   <p className="font-bold mb-1">Import complete</p>
-                  <p>✅ Imported: <strong>{importResult.success}</strong></p>
-                  {importResult.duplicates > 0 && <p>⚠ Duplicates: <strong>{importResult.duplicates}</strong></p>}
-                  {importResult.skipped > 0 && <p>⏭ Skipped: <strong>{importResult.skipped}</strong></p>}
+                  <p>Imported: <strong>{importResult.success}</strong></p>
+                  {importResult.duplicates > 0 && <p>Duplicates: <strong>{importResult.duplicates}</strong></p>}
+                  {importResult.skipped > 0 && <p>Skipped: <strong>{importResult.skipped}</strong></p>}
                   {importResult.errors?.slice(0, 5).map((e: string, i: number) => <p key={i} className="text-red-600 text-xs mt-1">{e}</p>)}
                 </div>
               )}
@@ -884,7 +1101,7 @@ function CrmPageContent() {
             <div className="p-4 sm:p-6 border-t border-slate-200 flex gap-2">
               <button onClick={() => { setShowImportModal(false); setImportResult(null); setCsvText(""); }} className="flex-1 py-3 text-sm border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50">Close</button>
               <button onClick={runImport} disabled={importing || !csvText.trim()} className="flex-1 py-3 text-sm bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50">
-                {importing ? "Importing…" : "Import leads"}
+                {importing ? "Importing..." : "Import leads"}
               </button>
             </div>
           </div>
@@ -901,9 +1118,3 @@ export default function CrmPage() {
     </DashboardShell>
   );
 }
-
-
-
-
-
-

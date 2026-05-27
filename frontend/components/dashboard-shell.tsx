@@ -315,19 +315,4 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 );
               })}
             </div>
-            <button onClick={handleLogout} className="erp-mobile-logout">
-              <LogOut size={16} />
-              Sign out
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-
-
-
-
+  

@@ -428,6 +428,7 @@ export class AccountsService {
           o."orderNumber",
           o."customerId",
           o."orderDate",
+          o.status,
           o."grandTotal",
           COALESCE(op."paidAmount", 0) AS "paidAmount",
           GREATEST(o."grandTotal" - COALESCE(op."paidAmount", 0), 0) AS "balanceAmount"
@@ -453,6 +454,14 @@ export class AccountsService {
         COUNT(*)::int AS "orderCount",
         MAX(ob."orderDate") AS "lastOrderDate",
         STRING_AGG(ob."orderNumber", ', ' ORDER BY ob."orderDate" DESC) AS "orderNumbers",
+        STRING_AGG(DISTINCT ob.status::text, ', ' ORDER BY ob.status::text) AS "orderStatuses",
+        STRING_AGG(ob."orderNumber", ', ' ORDER BY ob."orderDate" DESC)
+          FILTER (WHERE ob.status IN ('READY_FOR_DISPATCH', 'DELIVERED') AND ob."balanceAmount" > 0) AS "reminderOrderNumbers",
+        COALESCE(
+          SUM(ob."balanceAmount")
+            FILTER (WHERE ob.status IN ('READY_FOR_DISPATCH', 'DELIVERED') AND ob."balanceAmount" > 0),
+          0
+        ) AS "reminderAmount",
         STRING_AGG(DISTINCT ois."productStatuses", ', ') AS "productStatuses"
       FROM order_balances ob
       JOIN "Customer" c ON c.id = ob."customerId"
@@ -467,8 +476,57 @@ export class AccountsService {
       totalAmount: Number(row.totalAmount),
       paidAmount: Number(row.paidAmount),
       outstandingAmount: Number(row.outstandingAmount),
+      reminderAmount: Number(row.reminderAmount),
+      canSendReminder: Number(row.reminderAmount) > 0 && Boolean(row.customerPhone),
       productStatuses: Array.from(new Set(String(row.productStatuses ?? '').split(', ').filter(Boolean))).join(', '),
+      orderStatuses: Array.from(new Set(String(row.orderStatuses ?? '').split(', ').filter(Boolean))).join(', '),
+      reminderOrderNumbers: row.reminderOrderNumbers ?? '',
     }));
+  }
+
+  async sendBalanceReminder(customerId: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      include: {
+        orders: {
+          where: { status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.DELIVERED] } },
+          include: {
+            salesAgent: { select: { fullName: true } },
+            payments: { where: { verificationStatus: 'VERIFIED' } },
+          },
+          orderBy: { orderDate: 'desc' },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer.phone) throw new BadRequestException('Customer has no phone number');
+
+    const eligibleOrders = customer.orders
+      .map(order => {
+        const paid = order.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+        const balance = Math.max(0, Number(order.grandTotal) - paid);
+        return { order, balance };
+      })
+      .filter(({ balance }) => balance > 0);
+
+    if (eligibleOrders.length === 0) {
+      throw new BadRequestException('No Ready or Delivered order has balance due for this customer');
+    }
+
+    const balanceAmount = eligibleOrders.reduce((sum, row) => sum + row.balance, 0);
+    const orderNos = eligibleOrders.map(row => row.order.orderNumber).join(', ');
+    const agentName = eligibleOrders[0]?.order.salesAgent?.fullName ?? 'Rareprint Team';
+    const sent = await this.whatsapp.sendBalancePaymentReminder({
+      customerName: customer.businessName,
+      customerPhone: customer.phone,
+      orderNos,
+      balanceAmount,
+      agentName,
+    });
+
+    if (!sent) throw new BadRequestException('Could not send WhatsApp reminder');
+    return { success: true, orderNos, balanceAmount };
   }
 
   async updatePendingPayment(id: string, user: AccountsUser, data: UpdatePendingPaymentDto) {

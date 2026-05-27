@@ -259,23 +259,23 @@ export default function TasksPage() {
             ) : tasks.length === 0 ? (
               <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">{status === "DONE" ? "No completed tasks in history." : "No tasks found."}</div>
             ) : (
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 pb-4">
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-4">
                 {sortedTasks.map(task => (
-                  <div key={task.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div key={task.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
                     {editingId === task.id ? (
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         <div className="grid gap-2 md:grid-cols-[1fr_160px]">
-                          <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Task subject" className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-400" />
-                          <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                          <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Task subject" className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-400" />
+                          <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
                             {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                           </select>
                         </div>
-                        <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+                        <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
                         <div className="grid gap-2 md:grid-cols-[1fr_160px]">
-                          <select value={editForm.assignedToId} onChange={e => setEditForm(p => ({ ...p, assignedToId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                          <select value={editForm.assignedToId} onChange={e => setEditForm(p => ({ ...p, assignedToId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
                             {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
                           </select>
-                          <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
+                          <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none" />
                         </div>
                         <div className="flex justify-end gap-2">
                           <button onClick={() => setEditingId(null)} disabled={editSaving} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60">
@@ -287,29 +287,26 @@ export default function TasksPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div className="min-w-0">
-                          <div className="mb-1 flex flex-wrap items-center gap-2">
-                            <h3 className="font-semibold text-slate-900">{task.title}</h3>
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
-                          </div>
-                          {task.description && <p className="text-sm text-slate-500">{task.description}</p>}
-                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                            <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5" /> Assigned: {task.assignedTo.fullName}</span>
-                            <span>Created: {task.createdBy.fullName}</span>
-                            {task.dueDate && <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Due {new Date(task.dueDate).toLocaleDateString("en-IN")}</span>}
-                            {task.completedAt && <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Completed {new Date(task.completedAt).toLocaleDateString("en-IN")}</span>}
-                          </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-semibold text-slate-900 truncate">{task.title}</span>
+                          <span className="ml-2 text-xs text-slate-400 truncate hidden md:inline">
+                            <UserCheck className="inline h-3 w-3 mb-0.5" /> {task.assignedTo.fullName}
+                            <span className="mx-1">·</span>Created: {task.createdBy.fullName}
+                            {task.dueDate && <><span className="mx-1">·</span><Clock className="inline h-3 w-3 mb-0.5" /> {new Date(task.dueDate).toLocaleDateString("en-IN")}</>}
+                            {task.completedAt && <><span className="mx-1">·</span><CheckCircle2 className="inline h-3 w-3 mb-0.5" /> {new Date(task.completedAt).toLocaleDateString("en-IN")}</>}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => startEdit(task)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                            <Pencil className="h-3.5 w-3.5" /> Edit
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button onClick={() => startEdit(task)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                            <Pencil className="h-3 w-3" /> Edit
                           </button>
-                          <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none">
+                          <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold outline-none">
                             {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                           </select>
-                          <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                          <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
+                            <CheckCircle2 className="h-3 w-3" /> Done
                           </button>
                         </div>
                       </div>
@@ -324,3 +321,4 @@ export default function TasksPage() {
     </DashboardShell>
   );
 }
+                                                                                                                                                                                                                                                                                     
