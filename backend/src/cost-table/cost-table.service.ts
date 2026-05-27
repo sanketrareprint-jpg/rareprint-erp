@@ -183,15 +183,21 @@ export class CostTableService {
       where: {
         productId: dto.productId,
         minQuantity: { lte: dto.quantity },
-        OR: [
-          { maxQuantity: null },
-          { maxQuantity: { gte: dto.quantity } },
-        ],
         effectiveFrom: { lte: new Date() },
-        OR: [
-          { effectiveTo: null },
-          { effectiveTo: { gte: new Date() } },
-        ] as any,
+        AND: [
+          {
+            OR: [
+              { maxQuantity: null },
+              { maxQuantity: { gte: dto.quantity } },
+            ],
+          },
+          {
+            OR: [
+              { effectiveTo: null },
+              { effectiveTo: { gte: new Date() } },
+            ],
+          },
+        ],
       },
       orderBy: { minQuantity: 'desc' }, // pick the largest min that still fits
     });
