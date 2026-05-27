@@ -546,7 +546,7 @@ export class ClubbingSheetService {
   async updateSheet(sheetId: string, data: { sheetNo?: string; gsm?: number; quality?: SheetQuality; quantity?: number; actualPrintedQuantity?: number | null; sizeInches?: string; printing?: ProductSides }) {
     const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
     if (!sheet) throw new NotFoundException('Sheet not found');
-    const canEdit = sheet.status === 'INCOMPLETE' || (sheet.createdBySource === 'AUTO' && sheet.status === 'COMPLETE');
+    const canEdit = ['INCOMPLETE', 'COMPLETE', 'SETTING'].includes(sheet.status);
     const hasCoreChanges =
       (data.sheetNo !== undefined && data.sheetNo.trim() !== sheet.sheetNo) ||
       (data.gsm !== undefined && data.gsm !== sheet.gsm) ||
@@ -554,7 +554,7 @@ export class ClubbingSheetService {
       (data.quantity !== undefined && data.quantity !== sheet.quantity) ||
       (data.sizeInches !== undefined && data.sizeInches !== sheet.sizeInches) ||
       (data.printing !== undefined && data.printing !== sheet.printing);
-    if (!canEdit && hasCoreChanges) throw new BadRequestException('Only incomplete sheets or AUTO complete sheets can be fully edited');
+    if (!canEdit && hasCoreChanges) throw new BadRequestException('Sheets can be fully edited only until complete status');
     if (!canEdit && !['SETTING', 'COMPLETE'].includes(sheet.status)) {
       throw new BadRequestException('Actual printed quantity can be changed only before printing starts');
     }

@@ -476,9 +476,9 @@ export default function ProductionPage() {
   }
 
   function openEditSheet(sheet: PrintSheet) {
-    const canEdit = sheet.status === "INCOMPLETE" || sheet.status === "SETTING" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE");
+    const canEdit = sheet.status === "INCOMPLETE" || sheet.status === "COMPLETE" || sheet.status === "SETTING";
     if (!canEdit) {
-      alert("Only incomplete sheets or AUTO complete sheets can be edited.");
+      alert("Sheets can be edited until complete status.");
       return;
     }
     setEditSheetModal(sheet);
@@ -1504,7 +1504,7 @@ export default function ProductionPage() {
                               <span className="text-xs text-slate-500">{usedPct}% used · {sheet.items.length} items</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              {(sheet.status === "INCOMPLETE" || sheet.status === "SETTING" || (sheet.createdBySource === "AUTO" && sheet.status === "COMPLETE")) && (
+                              {(sheet.status === "INCOMPLETE" || sheet.status === "COMPLETE" || sheet.status === "SETTING") && (
                                 <button onClick={e => { e.stopPropagation(); openEditSheet(sheet); }} className="rounded-md border border-cyan-200 bg-white px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-50">
                                   {sheet.status === "SETTING" ? "Actual Qty" : "Edit"}
                                 </button>
