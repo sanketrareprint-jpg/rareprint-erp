@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { OrderStatus, PaymentStatus, Prisma, ProductSides, PrintingType } from '@prisma/client';
+import { OrderStatus, PaymentMethod, PaymentStatus, PaymentVerificationStatus, Prisma, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const fallbackCatalog = [
@@ -99,20 +99,31 @@ export class StorefrontService {
   }
 
   async createOrder(body: any) {
-    const item = body?.item ?? {};
+    const inputItems = Array.isArray(body?.items) && body.items.length > 0 ? body.items : [body?.item ?? {}];
     const customer = body?.customer ?? {};
     const name = String(customer?.name ?? '').trim();
-    const quantity = Math.max(1, Number(item?.quantity ?? 0));
-    const unitPrice = Math.max(0, Number(item?.unitPrice ?? 0));
 
     if (!name) throw new BadRequestException('Customer name is required');
-    if (!quantity || !unitPrice) throw new BadRequestException('Quantity and unit price are required');
 
-    const product = await this.findOrCreateProduct(item);
+    const rows = await Promise.all(inputItems.map(async (item: any) => {
+      const quantity = Math.max(1, Number(item?.quantity ?? 0));
+      const unitPrice = Math.max(0, Number(item?.unitPrice ?? 0));
+      if (!quantity || !unitPrice) throw new BadRequestException('Quantity and unit price are required');
+      const product = await this.findOrCreateProduct(item);
+      return {
+        item,
+        product,
+        quantity,
+        unitPrice,
+        lineTotal: new Prisma.Decimal(quantity * unitPrice),
+      };
+    }));
+
     const orderNumber = await this.generateOrderNumber();
-    const lineTotal = new Prisma.Decimal(quantity * unitPrice);
+    const subtotal = rows.reduce((sum, row) => sum.plus(row.lineTotal), new Prisma.Decimal(0));
     const customerCode = `WEB-CUST-${Date.now()}`;
     const shippingAddress = [customer.address, customer.city, customer.state, customer.pincode].filter(Boolean).join(', ');
+    const artworkNotes = rows.map((row) => row.item?.artworkNotes).filter(Boolean).join(' || ');
 
     const order = await this.prisma.$transaction(async (tx) => {
       const createdCustomer = await tx.customer.create({
@@ -135,29 +146,32 @@ export class StorefrontService {
           customerId: createdCustomer.id,
           status: OrderStatus.PENDING_APPROVAL,
           paymentStatus: PaymentStatus.PENDING,
-          subtotal: lineTotal,
+          subtotal,
           discount: new Prisma.Decimal(0),
           taxAmount: new Prisma.Decimal(0),
           shippingCharge: new Prisma.Decimal(0),
-          grandTotal: lineTotal,
+          grandTotal: subtotal,
           leadSource: 'WEB_TO_PRINT',
           notes: [
             'Public web-to-print checkout',
-            body?.quote?.advance ? `Suggested advance: ₹${body.quote.advance}` : '',
-            item?.artworkNotes ? `Artwork: ${item.artworkNotes}` : '',
+            'Payment: 50% advance via Razorpay, balance COD',
+            'Shipping provider: Shiprocket',
+            body?.quote?.advance ? `Razorpay advance due: ₹${body.quote.advance}` : '',
+            body?.quote?.balanceCod ? `COD balance: ₹${body.quote.balanceCod}` : '',
+            artworkNotes ? `Artwork: ${artworkNotes}` : '',
           ].filter(Boolean).join(' | '),
           items: {
-            create: [{
-              productId: product.id,
-              quantity,
-              unitPrice: new Prisma.Decimal(unitPrice),
+            create: rows.map((row) => ({
+              productId: row.product.id,
+              quantity: row.quantity,
+              unitPrice: new Prisma.Decimal(row.unitPrice),
               lineDiscount: new Prisma.Decimal(0),
               taxRatePct: new Prisma.Decimal(0),
               taxAmount: new Prisma.Decimal(0),
-              lineTotal,
-              artworkNotes: item?.artworkNotes ?? null,
-              productionNotes: `Source: Web-to-print | Product slug: ${item?.productSlug ?? ''}`,
-            }],
+              lineTotal: row.lineTotal,
+              artworkNotes: row.item?.artworkNotes ?? null,
+              productionNotes: `Source: Web-to-print | Product slug: ${row.item?.productSlug ?? ''}`,
+            })),
           },
         },
       });
@@ -175,5 +189,70 @@ export class StorefrontService {
     });
 
     return { success: true, orderId: order.id, orderNumber: order.orderNumber };
+  }
+
+  async createRazorpayOrder(orderId: string, amount: number) {
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      throw new BadRequestException('Razorpay credentials are not configured');
+    }
+    const Razorpay = require('razorpay');
+    const rzp = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+    const order = await rzp.orders.create({
+      amount: Math.round(Number(amount) * 100),
+      currency: 'INR',
+      receipt: orderId,
+    });
+    return { razorpay_order_id: order.id, key_id: process.env.RAZORPAY_KEY_ID };
+  }
+
+  async confirmPayment(orderId: string, body: any) {
+    if (!process.env.RAZORPAY_KEY_SECRET) {
+      throw new BadRequestException('Razorpay credentials are not configured');
+    }
+
+    const crypto = require('crypto');
+    const sig = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
+      .digest('hex');
+    if (sig !== body.razorpay_signature) throw new BadRequestException('Invalid Razorpay signature');
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new BadRequestException('Order not found');
+
+    let account = await this.prisma.paymentAccount.findFirst({
+      where: { name: 'Razorpay Web Storefront', isActive: true },
+    });
+    if (!account) {
+      account = await this.prisma.paymentAccount.create({
+        data: {
+          name: 'Razorpay Web Storefront',
+          accountType: 'ONLINE_GATEWAY',
+          currentBalance: new Prisma.Decimal(0),
+        },
+      });
+    }
+
+    const amount = new Prisma.Decimal(order.grandTotal).div(2);
+    await this.prisma.payment.create({
+      data: {
+        orderId,
+        paymentAccountId: account.id,
+        amount,
+        method: PaymentMethod.CARD,
+        referenceNumber: body.razorpay_payment_id,
+        notes: `Razorpay order ${body.razorpay_order_id}`,
+        verificationStatus: PaymentVerificationStatus.VERIFIED,
+        verifiedAt: new Date(),
+      },
+    });
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { paymentStatus: PaymentStatus.PARTIALLY_PAID },
+    });
+    return { success: true };
   }
 }
