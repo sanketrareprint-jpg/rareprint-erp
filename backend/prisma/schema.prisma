@@ -36,6 +36,8 @@ model User {
   callAnalyses       CallAnalysis[]         @relation("UserCallAnalyses")
   marketingContacts  MarketingContact[]     @relation("MarketingContactAgent")
   marketingCampaigns MarketingCampaign[]    @relation("MarketingCampaignCreator")
+  bankImports        BankImportSession[]    @relation("BankImports")
+  bankTxnReconciled  BankTransaction[]      @relation("BankTxnReconciledBy")
 }
 
 model Customer {
@@ -160,6 +162,8 @@ model Vendor {
   paperInventory     PaperInventory[]    @relation("PressInventory")
   paperTransactions  PaperTransaction[]  @relation("PressTransactions")
   paperPurchaseOrders PaperPurchaseOrder[] @relation("POSupplier")
+  bankTransactions    BankTransaction[]    @relation("BankTxnVendor")
+  vendorKeywords      VendorKeyword[]      @relation("VendorKeywords")
 }
 
 // ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
@@ -359,6 +363,7 @@ model Payment {
   order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id])
   receivedBy       User?          @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  bankTransactions BankTransaction[] @relation("BankTxnPayment")
 
   @@index([orderId, verificationStatus])
   @@index([paymentDate])
@@ -1257,4 +1262,107 @@ model MarketingMessageEvent {
   @@index([contactId, occurredAt])
   @@index([campaignId, occurredAt])
   @@index([providerMessageId])
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BANK STATEMENT MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+
+model BankImportSession {
+  id              String             @id @default(cuid())
+  accountNumber   String
+  fileName        String
+  importedById    String
+  rowsFound       Int                @default(0)
+  rowsImported    Int                @default(0)
+  rowsSkipped     Int                @default(0)
+  lastSrlImported Int?
+  lastBalance     Decimal?           @db.Decimal(14, 2)
+  status          BankImportStatus   @default(PROCESSING)
+  errorMessage    String?
+  createdAt       DateTime           @default(now())
+  importedBy      User               @relation("BankImports", fields: [importedById], references: [id])
+  transactions    BankTransaction[]
+
+  @@index([accountNumber, createdAt])
+}
+
+model BankTransaction {
+  id                String               @id @default(cuid())
+  sessionId         String
+  accountNumber     String
+  srl               Int
+  txnDate           DateTime
+  valueDate         DateTime
+  description       String
+  chequeNo          String?
+  crDr              BankTxnType
+  amount            Decimal              @db.Decimal(14, 2)
+  balance           Decimal              @db.Decimal(14, 2)
+  reconcileStatus   BankReconcileStatus  @default(UNMATCHED)
+  matchedPaymentId  String?
+  matchedVendorId   String?
+  expenseCategoryId String?
+  reviewNote        String?
+  reconciledAt      DateTime?
+  reconciledById    String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  session           BankImportSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matchedPayment    Payment?             @relation("BankTxnPayment", fields: [matchedPaymentId], references: [id])
+  matchedVendor     Vendor?              @relation("BankTxnVendor", fields: [matchedVendorId], references: [id])
+  expenseCategory   ExpenseCategory?     @relation(fields: [expenseCategoryId], references: [id])
+  reconciledBy      User?                @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
+
+  @@unique([accountNumber, srl])
+  @@index([accountNumber, txnDate])
+  @@index([reconcileStatus])
+  @@index([txnDate])
+}
+
+model VendorKeyword {
+  id        String   @id @default(cuid())
+  keyword   String   @unique
+  vendorId  String
+  createdAt DateTime @default(now())
+  vendor    Vendor   @relation("VendorKeywords", fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+model ExpenseCategory {
+  id           String            @id @default(cuid())
+  name         String            @unique
+  description  String?
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  keywords     ExpenseKeyword[]
+  transactions BankTransaction[]
+}
+
+model ExpenseKeyword {
+  id         String          @id @default(cuid())
+  keyword    String          @unique
+  categoryId String
+  createdAt  DateTime        @default(now())
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
+
+enum BankImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum BankTxnType {
+  CR
+  DR
+}
+
+enum BankReconcileStatus {
+  UNMATCHED
+  MATCHED_PAYMENT
+  MATCHED_VENDOR
+  MATCHED_EXPENSE
+  MANUAL_REVIEW
+  IGNORED
 }
