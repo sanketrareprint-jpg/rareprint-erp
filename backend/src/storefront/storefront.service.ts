@@ -52,6 +52,116 @@ export class StorefrontService {
     };
   }
 
+  private productSlug(product: any) {
+    return cleanSku(product.sku || product.name).toLowerCase();
+  }
+
+  private async mappedProducts() {
+    const catalog = await this.catalog();
+    return (catalog.products as any[]).map((product) => ({
+      ...product,
+      slug: product.slug ?? this.productSlug(product),
+      fromPrice: product.rates?.length ? Math.min(...product.rates.map((rate: any) => Number(rate.unitPrice) * Number(rate.minQuantity || 1))) : null,
+      badges: ['Hot Selling'],
+      gstInclusive: true,
+      active: true,
+    }));
+  }
+
+  async home() {
+    const products = await this.mappedProducts();
+    const categories = await this.categories();
+    const media = products.filter((product) => product.name).slice(0, 8);
+    return {
+      settings: { couponText: 'Use coupon code FIRSTORDER and get 12% extra discount', currency: 'INR' },
+      stories: categories.slice(0, 8).map((category: any) => ({ title: category.name, slug: category.slug, mediaType: 'image' })),
+      heroBanners: this.buildBanners(media, 'hero'),
+      promoBanners: this.buildBanners(media, 'promo'),
+      reels: this.buildReels(media),
+      rails: [
+        { title: 'Corporate Printing', products: products.slice(0, 8) },
+        { title: 'Popular Products', products: products.slice(8, 16) },
+        { title: 'Hot Selling', products: products.slice(0, 10) },
+      ],
+      blogPosts: [
+        { title: 'How to Prepare Print-Ready Artwork', slug: 'print-ready-artwork' },
+        { title: 'Best Sticker Materials for Clinics', slug: 'clinic-stickers' },
+      ],
+    };
+  }
+
+  async categories() {
+    const products = await this.mappedProducts();
+    const map = new Map<string, { slug: string; name: string; count: number }>();
+    for (const product of products) {
+      const slug = cleanSku(product.category || 'Web To Print').toLowerCase();
+      const current = map.get(slug) ?? { slug, name: product.category || 'Web To Print', count: 0 };
+      current.count += 1;
+      map.set(slug, current);
+    }
+    return Array.from(map.values());
+  }
+
+  async category(slug: string) {
+    const products = await this.mappedProducts();
+    const rows = products.filter((product) => cleanSku(product.category || 'Web To Print').toLowerCase() === slug);
+    return { slug, products: rows };
+  }
+
+  async products() {
+    return this.mappedProducts();
+  }
+
+  async product(slug: string) {
+    const products = await this.mappedProducts();
+    const product = products.find((row) => row.slug === slug || row.sku === slug);
+    if (!product) throw new BadRequestException('Product not found');
+    return product;
+  }
+
+  async search(q: string) {
+    const query = q.trim().toLowerCase();
+    const products = await this.mappedProducts();
+    return {
+      query,
+      products: query
+        ? products.filter((product) => [product.name, product.category, product.description].join(' ').toLowerCase().includes(query))
+        : [],
+    };
+  }
+
+  private buildBanners(products: any[], kind: string) {
+    return products.slice(0, 4).map((product, index) => ({
+      id: `${kind}-${index + 1}`,
+      title: index === 0 ? 'Custom Printing for Clinics' : product.category || 'RarePrint Campaign',
+      subtitle: product.name,
+      image: product.image ?? null,
+      href: `/web-to-print/product/${product.slug}`,
+      active: true,
+      sortOrder: index + 1,
+    }));
+  }
+
+  private buildReels(products: any[]) {
+    return products.slice(0, 8).map((product, index) => ({
+      id: `reel-${index + 1}`,
+      title: product.category || product.name,
+      videoUrl: null,
+      posterUrl: product.image ?? null,
+      href: `/web-to-print/product/${product.slug}`,
+      active: true,
+    }));
+  }
+
+  async reels() {
+    return this.buildReels((await this.mappedProducts()).slice(0, 8));
+  }
+
+  async banners() {
+    const products = await this.mappedProducts();
+    return { hero: this.buildBanners(products, 'hero'), promo: this.buildBanners(products, 'promo') };
+  }
+
   private async generateOrderNumber() {
     const last = await this.prisma.order.findFirst({ orderBy: { createdAt: 'desc' } });
     const lastNum = last ? parseInt(last.orderNumber, 10) : 10588;
@@ -189,6 +299,53 @@ export class StorefrontService {
     });
 
     return { success: true, orderId: order.id, orderNumber: order.orderNumber };
+  }
+
+  async uploadArtwork(body: any) {
+    const fileName = String(body?.fileName ?? body?.name ?? '').trim();
+    if (!fileName) throw new BadRequestException('fileName is required');
+    return {
+      success: true,
+      uploadId: `ART-${Date.now()}`,
+      fileName,
+      status: 'RECEIVED_FOR_REVIEW',
+      message: 'Artwork metadata received. File storage can be connected to S3/R2 in production.',
+    };
+  }
+
+  async trackOrder(orderNo?: string, phone?: string) {
+    if (!orderNo && !phone) throw new BadRequestException('orderNo or phone is required');
+    const order = await this.prisma.order.findFirst({
+      where: {
+        ...(orderNo ? { OR: [{ id: orderNo }, { orderNumber: orderNo }] } : {}),
+        ...(phone ? { customer: { phone: { contains: phone } } } : {}),
+        leadSource: 'WEB_TO_PRINT',
+      },
+      include: {
+        customer: true,
+        shipments: { orderBy: { createdAt: 'desc' }, take: 1 },
+        items: { include: { product: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) return { found: false, message: 'No matching RarePrint web order found.' };
+    const shipment = order.shipments[0];
+    return {
+      found: true,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      productionStage: order.productionStage,
+      customer: { name: order.customer.businessName, phone: order.customer.phone },
+      items: order.items.map((item) => ({ name: item.product.name, quantity: item.quantity })),
+      shipment: shipment ? {
+        status: shipment.status,
+        carrierName: shipment.carrierName,
+        trackingNumber: shipment.trackingNumber ?? shipment.awbNumber,
+        awbNumber: shipment.awbNumber,
+      } : null,
+    };
   }
 
   async createRazorpayOrder(orderId: string, amount: number) {

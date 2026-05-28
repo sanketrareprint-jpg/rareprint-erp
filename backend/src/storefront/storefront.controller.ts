@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { StorefrontService } from './storefront.service';
 
 @Controller('storefront')
@@ -10,9 +10,59 @@ export class StorefrontController {
     return this.service.catalog();
   }
 
+  @Get('home')
+  home() {
+    return this.service.home();
+  }
+
+  @Get('categories')
+  categories() {
+    return this.service.categories();
+  }
+
+  @Get('categories/:slug')
+  category(@Param('slug') slug: string) {
+    return this.service.category(slug);
+  }
+
+  @Get('products')
+  products() {
+    return this.service.products();
+  }
+
+  @Get('products/:slug')
+  product(@Param('slug') slug: string) {
+    return this.service.product(slug);
+  }
+
+  @Get('search')
+  search(@Query('q') q = '') {
+    return this.service.search(q);
+  }
+
+  @Get('reels')
+  reels() {
+    return this.service.reels();
+  }
+
+  @Get('banners')
+  banners() {
+    return this.service.banners();
+  }
+
   @Post('orders')
   createOrder(@Body() body: any) {
     return this.service.createOrder(body);
+  }
+
+  @Post('uploads/artwork')
+  uploadArtwork(@Body() body: any) {
+    return this.service.uploadArtwork(body);
+  }
+
+  @Get('orders/track')
+  trackOrder(@Query('orderNo') orderNo?: string, @Query('phone') phone?: string) {
+    return this.service.trackOrder(orderNo, phone);
   }
 
   @Post('create-razorpay-order')

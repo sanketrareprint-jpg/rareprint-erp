@@ -1,11 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, Search, ShoppingBag, X } from "lucide-react";
-import { useState } from "react";
+import { Menu, Search, ShoppingBag, User, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export function Header({ categories }: { categories: { slug: string; name: string }[] }) {
   const [open, setOpen] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
+
+  useEffect(() => {
+    function refreshCartCount() {
+      try {
+        const rows = JSON.parse(window.localStorage.getItem("rareprint.webCart") ?? "[]");
+        setCartCount(Array.isArray(rows) ? rows.length : 0);
+      } catch {
+        setCartCount(0);
+      }
+    }
+    refreshCartCount();
+    window.addEventListener("storage", refreshCartCount);
+    window.addEventListener("rareprint-cart", refreshCartCount);
+    return () => {
+      window.removeEventListener("storage", refreshCartCount);
+      window.removeEventListener("rareprint-cart", refreshCartCount);
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white">
@@ -25,12 +44,15 @@ export function Header({ categories }: { categories: { slug: string; name: strin
         </Link>
 
         <div className="ml-auto flex items-center justify-end gap-1">
-          <Link href="/web-to-print/categories" className="grid h-11 w-11 place-items-center rounded-lg text-slate-900" aria-label="Search products">
+          <Link href="/web-to-print/search" className="grid h-11 w-11 place-items-center rounded-lg text-slate-900" aria-label="Search products">
             <Search className="h-5 w-5" />
           </Link>
           <Link href="/web-to-print/cart" className="relative grid h-11 w-11 place-items-center rounded-lg text-slate-900" aria-label="Cart">
             <ShoppingBag className="h-5 w-5" />
-            <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-[#CC0000] text-[10px] font-black text-white">0</span>
+            <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#CC0000] px-1 text-[10px] font-black text-white">{cartCount}</span>
+          </Link>
+          <Link href="/login" className="hidden h-11 w-11 place-items-center rounded-lg text-slate-900 sm:grid" aria-label="Account">
+            <User className="h-5 w-5" />
           </Link>
         </div>
       </div>

@@ -59,6 +59,7 @@ export function ProductPageClient({
       artworkFile: uploadedFile,
     };
     window.localStorage.setItem("rareprint.webCart", JSON.stringify([...cart.filter((row: any) => row.slug !== product.slug), item]));
+    window.dispatchEvent(new Event("rareprint-cart"));
     setAdded(true);
     setTimeout(() => setAdded(false), 3000);
   }
@@ -229,10 +230,10 @@ export function ProductPageClient({
       {!quoteOnly && (
         <>
           <div className="my-5 border-t border-slate-100" />
-          <div className="rounded-xl border border-slate-200">
-            <button type="button" className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-extrabold text-slate-900">
-              Rate Table <ChevronRight className="h-4 w-4" />
-            </button>
+          <details className="rounded-xl border border-slate-200">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-left text-sm font-extrabold text-slate-900">
+              Full Rate Table <ChevronRight className="h-4 w-4" />
+            </summary>
             <div className="border-t border-slate-100 p-3">
               <ProductRateTable
                 product={product}
@@ -243,7 +244,7 @@ export function ProductPageClient({
                 }}
               />
             </div>
-          </div>
+          </details>
 
           <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <PriceMetric label="Pay Now" value={formatMoney(advance)} />

@@ -25,6 +25,14 @@ function readCart(): CartItem[] {
   }
 }
 
+function readArtworkUpload() {
+  try {
+    return JSON.parse(window.localStorage.getItem("rareprint.artworkUpload") || "null");
+  } catch {
+    return null;
+  }
+}
+
 export function CheckoutClient() {
   const router = useRouter();
   const [items, setItems] = useState<CartItem[]>([]);
@@ -44,6 +52,8 @@ export function CheckoutClient() {
     setStatus("Creating ERP order...");
     try {
       const first = items[0];
+      const artworkUpload = readArtworkUpload();
+      const uploadNote = artworkUpload?.name ? ` Artwork file: ${artworkUpload.name}.` : "";
       const response = await fetch(`${API_BASE_URL}/storefront/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -54,14 +64,14 @@ export function CheckoutClient() {
             productName: item.name,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            artworkNotes: `${designMode}. Selected rate: ${item.rateLabel}`,
+            artworkNotes: `${designMode}. Selected rate: ${item.rateLabel}.${uploadNote}`,
           })),
           item: {
             productSlug: first.slug,
             productName: items.length === 1 ? first.name : `${first.name} + ${items.length - 1} more item(s)`,
             quantity: first.quantity,
             unitPrice: first.unitPrice,
-            artworkNotes: `${designMode}. Cart contains: ${items.map((item) => `${item.name} (${item.rateLabel})`).join("; ")}`,
+            artworkNotes: `${designMode}. Cart contains: ${items.map((item) => `${item.name} (${item.rateLabel})`).join("; ")}.${uploadNote}`,
           },
           quote: { subtotal: total, advance, balanceCod, paymentMode: "RAZORPAY_50_ADVANCE_COD_BALANCE", shippingProvider: "SHIPROCKET" },
         }),

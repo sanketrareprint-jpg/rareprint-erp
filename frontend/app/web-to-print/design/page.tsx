@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Palette, Upload, Wand2 } from "lucide-react";
+import { Palette, Wand2 } from "lucide-react";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { ArtworkUploadCard } from "./ArtworkUploadCard";
 import { DesignerHelpForm } from "./DesignerHelpForm";
 
 export const revalidate = 3600;
@@ -19,14 +20,7 @@ export default function DesignPage() {
         <h1 className="text-3xl font-black tracking-normal text-[#CC0000] md:text-4xl">Choose Design Option</h1>
         <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Pick the fastest way to create or submit your artwork. Our team reviews print readiness before production starts.</p>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <LargeCard
-            icon={Upload}
-            title="Upload Your Artwork File"
-            body="Have a print-ready design? Upload your PDF, AI, PSD, PNG, or TIFF file (300 DPI minimum). We'll review it for print readiness before production starts."
-            cta="Upload File →"
-            href="/web-to-print/checkout"
-            chips={["PDF", "AI", "PSD", "PNG", "JPG", "TIFF"]}
-          />
+          <ArtworkUploadCard />
           <LargeCard
             icon={Wand2}
             title="Design in RarePrint Studio"
