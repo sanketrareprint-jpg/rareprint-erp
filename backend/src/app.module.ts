@@ -29,6 +29,8 @@ import { DesignStudioModule } from './design-studio/design-studio.module';
 import { CustomerDirectoryModule } from './customer-directory/customer-directory.module';
 import { StorefrontModule } from './storefront/storefront.module';
 import { CostTableModule } from './cost-table/cost-table.module';
+import { BankStatementModule } from './bank-statement/bank-statement.module';
+import { CarrierConfigModule } from './carrier-config/carrier-config.module';
 
 @Module({
   imports: [
@@ -57,6 +59,8 @@ import { CostTableModule } from './cost-table/cost-table.module';
     CustomerDirectoryModule,
     StorefrontModule,
     CostTableModule,
+    BankStatementModule,
+    CarrierConfigModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

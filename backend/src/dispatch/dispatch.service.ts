@@ -8,6 +8,8 @@ import {
 import { OrderProductionStage, OrderStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
+import { BigshipService } from '../bigship/bigship.service';
+import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 type LocalRateQuote = {
@@ -110,6 +112,8 @@ export class DispatchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shiprocket: ShiprocketService,
+    private readonly bigship: BigshipService,
+    private readonly carrierConfig: CarrierConfigService,
     private readonly whatsapp: WhatsAppService,
   ) {}
 
@@ -280,7 +284,31 @@ export class DispatchService {
                        extractPincode(order.customer.billingAddress)  ||
                        process.env.SHIPROCKET_DEFAULT_DELIVERY_PINCODE?.trim() || pickup;
 
-    if (this.shiprocket.isConfigured()) {
+    const activeCarrier = this.carrierConfig.getActiveCarrier();
+
+    // ── BigShip ───────────────────────────────────────────────────────────
+    if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {
+      try {
+        const bs = await this.bigship.fetchCourierRates({ pickupPostcode: pickup, deliveryPostcode: delivery, weightKg });
+        if (bs.length) {
+          return {
+            orderId: order.id, orderNo: order.orderNumber,
+            destination: order.customer.businessName,
+            weightKg, deliveryPincode: delivery, pickupPincode: pickup,
+            warehouseId: warehouse.id, warehouseName: warehouse.name,
+            source: 'bigship',
+            rates: bs.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
+              rateId, carrierName, amount, currency, estimatedDays,
+            })),
+          };
+        }
+      } catch (e) {
+        this.logger.warn(`BigShip rates failed: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
+    // ── Shiprocket ────────────────────────────────────────────────────────
+    if (activeCarrier === 'shiprocket' && this.shiprocket.isConfigured()) {
       try {
         const sr = await this.shiprocket.fetchCourierRates({ pickupPostcode: pickup, deliveryPostcode: delivery, weightKg });
         if (sr.length) {
@@ -343,10 +371,35 @@ export class DispatchService {
     let trackingRef    = '';
     let shiprocketNote = '';
 
-    if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
+    const addr = splitAddressForShiprocket(order.customer);
+    const orderIsCod    = isCod ?? /\bCOD[:\s]/i.test(order.notes ?? '');
+    const orderCodAmt   = codAmount ?? (() => { const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i); return m ? Number(m[1]) : undefined; })();
+
+    if (rateId.startsWith('bs-') && this.bigship.isConfigured()) {
+      // ── BigShip booking ─────────────────────────────────────────────────
+      const courierId = parseInt(rateId.replace(/^bs-/, ''), 10);
+      if (Number.isFinite(courierId) && courierId > 0) {
+        const bs = await this.bigship.tryCreateAdhocOrder({
+          orderNumber: order.orderNumber,
+          customerName: order.customer.businessName,
+          customerPhone: order.customer.phone ?? '9999999999',
+          customerEmail: order.customer.email ?? 'noreply@example.com',
+          billingAddress: addr.line, billingCity: addr.city,
+          billingPincode: addr.pincode, billingState: addr.state,
+          weightKg, subTotal: Number(order.grandTotal),
+          courierId,
+          isCod: orderIsCod,
+          codAmount: orderCodAmt,
+        });
+        if (bs.bigshipOrderId) {
+          trackingRef    = bs.awbNumber ?? bs.bigshipOrderId;
+          shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ''}.`;
+        }
+      }
+    } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
+      // ── Shiprocket booking ───────────────────────────────────────────────
       const courierCompanyId = parseInt(rateId.replace(/^sr-/, ''), 10);
       if (Number.isFinite(courierCompanyId) && courierCompanyId > 0) {
-        const addr = splitAddressForShiprocket(order.customer);
         const sr = await this.shiprocket.tryCreateAdhocOrder({
           pickupLocation: warehouse.location,
           orderNumber: order.orderNumber,
@@ -357,8 +410,8 @@ export class DispatchService {
           billingPincode: addr.pincode, billingState: addr.state,
           weightKg, subTotal: Number(order.grandTotal),
           courierCompanyId,
-          isCod: isCod ?? /\bCOD[:\s]/i.test(order.notes ?? ''),
-          codAmount: codAmount ?? (() => { const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i); return m ? Number(m[1]) : undefined; })(),
+          isCod: orderIsCod,
+          codAmount: orderCodAmt,
         });
         if (sr.shiprocketOrderId) {
           trackingRef    = sr.shiprocketOrderId;
