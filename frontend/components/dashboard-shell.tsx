@@ -323,4 +323,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <button onClick={handleLogout} className="erp-mobile-logout">
               <LogOut size={16} />
               Sign out
-            </b
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+
+
+
