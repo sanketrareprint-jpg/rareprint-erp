@@ -1,6 +1,6 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "PORT=${PORT:-8080} node dist/src/main.js"
+    "startCommand": "node dist/src/main.js"
   }
 }
