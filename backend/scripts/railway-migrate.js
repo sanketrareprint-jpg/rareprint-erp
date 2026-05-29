@@ -21,7 +21,7 @@ const statusOutput = run('npx', ['prisma', 'migrate', 'status'], {
   allowFailure: true,
 });
 
-if (statusOutput.includes('failed migrations') && statusOutput.includes(RECOVERABLE_MIGRATION)) {
+if (statusOutput.includes(RECOVERABLE_MIGRATION)) {
   console.log(`Resolving recoverable migration ${RECOVERABLE_MIGRATION} before deploy...`);
   run('npx', ['prisma', 'migrate', 'resolve', '--applied', RECOVERABLE_MIGRATION]);
 }
