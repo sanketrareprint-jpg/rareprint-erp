@@ -189,17 +189,18 @@ export class DispatchService {
   async listReadyForDispatch() {
     const orders = await this.prisma.order.findMany({
       where: {
-        OR: [
-          { status: OrderStatus.PARTIALLY_DISPATCHED },
-          {
-            status: OrderStatus.READY_FOR_DISPATCH,
-            statusLogs: {
-              some: {
-                toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
-              },
-            },
+        status: {
+          notIn: [
+            OrderStatus.DISPATCHED,
+            OrderStatus.DELIVERED,
+            OrderStatus.CANCELLED,
+          ],
+        },
+        items: {
+          some: {
+            itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH,
           },
-        ],
+        },
       },
       orderBy: { updatedAt: 'desc' },
       include: {
