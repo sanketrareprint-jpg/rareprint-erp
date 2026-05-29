@@ -46,10 +46,10 @@ class AiSensyClient:
 
     # ── Text message ─────────────────────────────────────────────────────────
     def send_text(self, phone: str, text: str) -> bool:
+        # Mirror exact incoming webhook structure — no "type" field
         payload = {
             "phone_number": phone,
             "message_content": {
-                "type": "text",
                 "text": text,
             }
         }
