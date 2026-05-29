@@ -98,6 +98,7 @@ async def chat_direct(request: Request):
     original_send_text    = client.send_text
     original_send_image   = client.send_image
     original_send_video   = client.send_video
+    original_send_document = client.send_document
 
     def cap_text(phone, msg):
         captured.append({"type": "text", "content": msg})
@@ -111,9 +112,14 @@ async def chat_direct(request: Request):
         captured.append({"type": "video", "url": url, "caption": caption})
         return True
 
+    def cap_document(phone, url, filename="", caption=""):
+        captured.append({"type": "document", "url": url, "filename": filename, "caption": caption})
+        return True
+
     client.send_text  = cap_text
     client.send_image = cap_image
     client.send_video = cap_video
+    client.send_document = cap_document
 
     try:
         await agent.handle_message(msg_data)
@@ -121,6 +127,7 @@ async def chat_direct(request: Request):
         client.send_text  = original_send_text
         client.send_image = original_send_image
         client.send_video = original_send_video
+        client.send_document = original_send_document
 
     return JSONResponse({"messages": captured})
 
@@ -222,15 +229,30 @@ def _extract_message(payload: dict) -> dict | None:
             or ""
         )
 
-        logger.info(f"📨 Parsed: phone={phone} name={name} text={text[:60]}")
+        # ── Ad referral context ───────────────────────────────────────────
+        referral    = msg_obj.get("referralDetails") or {}
+        ad_headline = referral.get("headline", "").strip()
+        ad_body     = referral.get("body", "")[:100].strip()
+
+        # If customer sent generic "Hello! Can I get more info on this?" from ad click
+        # inject the ad product context so AI knows what they're asking about
+        generic_greetings = [
+            "hello! can i get more info on this?",
+            "hello", "hi", "hey", "hii", "hlo", "helo", "namaste", "hello."
+        ]
+        if ad_headline and text.strip().lower() in generic_greetings:
+            text = f"[FROM AD: {ad_headline}] {text}".strip()
+
+        logger.info(f"📨 Parsed: phone={phone} name={name} text={text[:80]}")
 
         return {
-            "phone": phone,
-            "name": name,
-            "text": text.strip(),
+            "phone":      phone,
+            "name":       name,
+            "text":       text.strip(),
             "media_type": msg_type,
-            "media_url": media_url,
+            "media_url":  media_url,
             "message_id": message_id,
+            "ad_headline": ad_headline,
         }
 
     except Exception as e:
@@ -319,54 +341,62 @@ async def debug_send():
     phone   = "919637318960"   # test phone
     msg     = "Test from Rareprint bot"
 
-    formats = {
-        "f1_phone_number_message_content": {
-            "apiKey": api_key,
-            "phone_number": phone,
-            "message_content": {"text": msg},
-        },
-        "f2_plus_prefix": {
-            "apiKey": api_key,
-            "phone_number": f"+{phone}",
-            "message_content": {"text": msg},
-        },
-        "f3_destination_flat": {
-            "apiKey": api_key,
-            "destination": phone,
-            "message": msg,
-        },
-        "f4_destination_message_content": {
-            "apiKey": api_key,
-            "destination": phone,
-            "message_content": {"text": msg},
-        },
-        "f5_with_project_id": {
-            "apiKey": api_key,
-            "phone_number": phone,
-            "project_id": "67727bb67127df0c20798c5d",
-            "message_content": {"text": msg},
-        },
-        "f6_to_field": {
-            "apiKey": api_key,
-            "to": phone,
-            "type": "text",
-            "text": {"body": msg},
-        },
-        "f7_phone_message_flat": {
-            "apiKey": api_key,
-            "phone": phone,
-            "message": msg,
-        },
+    project_id = "67727bb67127df0c20798c5d"
+
+    # Base payload — try against MULTIPLE endpoint paths
+    payload = {
+        "apiKey":         api_key,
+        "phone_number":   phone,
+        "message_content": {"text": msg},
+    }
+
+    # Also try campaign API (known documented endpoint)
+    campaign_payload = {
+        "apiKey":         api_key,
+        "campaignName":   os.getenv("AISENSY_CAMPAIGN_TEXT", "RAREPRINT_REPLY"),
+        "destination":    phone,
+        "userName":       "Test",
+        "source":         "chatbot",
+        "templateParams": [msg],
+        "media":          {},
+    }
+
+    username  = os.getenv("AISENSY_USERNAME", "RAREPRINT3")
+    client_id = "6226f90501a5c967a00b04d4"
+
+    # e5/e6 need "shop" — try all possible shop values
+    shop_variants = {
+        "shop_project_id":  {**payload, "shop": project_id},
+        "shop_username":    {**payload, "shop": username},
+        "shop_client_id":   {**payload, "shop": client_id},
+        "shop_lower":       {**payload, "shop": username.lower()},
+    }
+
+    correct_url = f"https://apis.aisensy.com/project-apis/v1/project/{project_id}/messages"
+    base_payload = {
+        "phone_number": phone,
+        "message_content": {"text": msg},
+    }
+
+    auth_variants = {
+        "auth1_bearer":      {"Authorization": f"Bearer {api_key}"},
+        "auth2_no_prefix":   {"Authorization": api_key},
+        "auth3_x_api_key":   {"x-api-key": api_key},
+        "auth4_apikey":      {"apikey": api_key},
+        "auth5_token":       {"token": api_key},
+        "auth6_in_body":     {},   # key in body only
+        "auth7_x_auth":      {"x-auth-token": api_key},
     }
 
     results = {}
-    for name, payload in formats.items():
+    for name, headers in auth_variants.items():
         try:
-            r = httpx.post(
-                "https://backend.aisensy.com/direct-apis/t1/messages",
-                json=payload, timeout=10
-            )
-            results[name] = {"status": r.status_code, "body": r.text[:200]}
+            headers["Content-Type"] = "application/json"
+            p = {**base_payload}
+            if name == "auth6_in_body":
+                p["apiKey"] = api_key
+            r = httpx.post(correct_url, json=p, headers=headers, timeout=10)
+            results[name] = {"status": r.status_code, "body": r.text[:300]}
         except Exception as e:
             results[name] = {"status": "error", "body": str(e)}
 

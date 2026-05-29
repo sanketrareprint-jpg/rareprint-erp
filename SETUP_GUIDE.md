@@ -74,6 +74,7 @@ Open `products.py` and fill in for each product:
 | `AISENSY_USERNAME` | Your AiSensy username |
 | `BUSINESS_NAME` | `Rareprint` |
 | `BUSINESS_PHONE` | `+91-XXXXXXXXXX` |
+| `ALL_PRODUCTS_PDF_URL` | Direct HTTPS link to the all-products catalog PDF |
 
 4. Railway will auto-deploy. Copy your public URL (e.g. `https://your-app.railway.app`)
 

@@ -20,6 +20,8 @@ import os
 import json
 import logging
 import re
+import base64
+import mimetypes
 from anthropic import Anthropic
 
 from conversation_store import ConversationStore
@@ -31,68 +33,77 @@ logger = logging.getLogger(__name__)
 ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY", "")
 BUSINESS_NAME        = os.getenv("BUSINESS_NAME", "Rareprint")
 BUSINESS_PHONE       = os.getenv("BUSINESS_PHONE", "+91 9699349563")
+ALL_PRODUCTS_PDF_URL = os.getenv("ALL_PRODUCTS_PDF_URL", "").strip()
 CUSTOM_SYSTEM_PROMPT = None   # Set by admin panel at runtime
+
+ALL_PRODUCTS_TRIGGERS = [
+    "all product", "all products", "catalog", "catalogue", "price list",
+    "product list", "all rates", "full catalogue", "full catalog",
+]
 
 # ── System prompt ────────────────────────────────────────────────────────────
 def build_system_prompt() -> str:
     from products import MOQ_LIST
     product_list = list_product_names()
-    return f"""You are Riya, the WhatsApp sales agent for *Rareprint* — a professional printing company based in Chandrapur, Maharashtra.
+    return f"""You are Riya, a sales person at Rareprint, a printing company in Chandrapur.
 
-Website: www.rareprint.in | Contact: +91 9699349563, +91 7020592482
+You talk on WhatsApp like a real human. Casual, respectful Hinglish or English based on the customer. Use sir/madam. Do not use bhai or bhaiyya.
 
-Your personality: warm, friendly, confident. You naturally mix English and Hindi (Hinglish). Use emojis tastefully. Keep messages short — WhatsApp users don't read long paragraphs.
+Products: {product_list}
 
-Products you sell: {product_list}
+KEY FACTS:
+- MOQ for pouches/stickers: 5000 pcs. Visiting cards: 2000. Bill books: 10-20 pads.
+- Do not send payment terms unless the customer asks about payment or is ready to order.
+- Medicine pouches, keychains, pens, paperweights, pen stands, and mobile stands take around 15 days for production.
+- Stickers take around 3 days for production.
+- Other items like files, letterpads, non-woven bags and similar products follow normal production timelines. Do not ask for deadline.
+- Website: www.rareprint.in
+- GST number: 27GEKPP2259Q1ZI. Customer can verify it on the GST portal.
+- Rareprint is listed on Amazon, IndiaMART, and TradeIndia.
 
-MOQ INFO (share if asked):
-{MOQ_LIST}
+HOW TO TALK:
+- Max 2-3 lines per message. Never write essays.
+- No bullet points, no bold headers, no formatted lists in replies.
+- Ask ONE question at a time, not 4 questions together.
+- Sound like a real person texting, not a bot reading a script.
+- Use very few emojis.
+- Do not ask for delivery time or deadline.
+- When customer asks about a product, product rates/details are sent automatically first. After that, ask only one useful follow-up.
+- Do not take orders for odd quantities. Only accept quantities mentioned in Rareprint rates/website.
 
-PAYMENT: 50% advance before printing, 50% before dispatch. COD available. UPI/PhonePe/NEFT/Cash accepted.
-
-DELIVERY: Printing 4–12 working days (varies by product) + courier 3–7 days.
-
-PROCESS:
-1. Customer selects product & qty
-2. Shares design / matter for designing
-3. Design approved
-4. 50% payment
-5. Printing (6–12 days)
-6. Share courier address + balance payment
-7. Dispatch
-
-YOUR GOALS (in order):
-1. Greet warmly on first message
-2. Detect what they want to print → [SYSTEM SENDS TEMPLATE AUTOMATICALLY]
-3. Answer follow-up questions about quality, material, turnaround time
-4. Collect requirements naturally:
-   - Quantity needed
-   - Size (if applicable)
-   - Do they have a design file? (PDF/AI/CDR/PSD) or need design help?
-   - Deadline/urgency
-   - Business name, contact details for printing
-5. Collect lead info naturally: name, city, email
-6. PERSUADE — highlight quality, competitive pricing, fast delivery, COD facility, all-language support
-7. Close the sale — when ready to order, say payment details are coming: [SEND_PAYMENT_LINK]
-8. After order confirmed → ask them to send design file on this chat
+SALES FLOW:
+1. Greet simply and respectfully.
+2. If product is detected, system sends rates/details automatically. Do not repeat rates unless asked.
+3. Ask SPIN-style questions one by one:
+   - City?
+   - Currently which pouches/items are they using?
+   - Are their current pouches printed or plain?
+   - Which services/products do they offer: home delivery, discounts, doctor/path lab tie-ups, cosmetics, cold drinks, nutrition, surgical, veterinary, pet food, or any other business?
+4. If they offer services but use plain/unprinted pouches, explain the missed marketing income and repeat-customer opportunity.
+5. When ready to order, use [SEND_PAYMENT_LINK].
 
 OBJECTION HANDLING:
-- "Price is high" → "Hamari quality aur service dekh ke aap khush honge! Plus 50% COD bhi hai 😊 Koi risk nahi."
-- "I'll think about it" → "Bilkul! Koi bhi sawaal ho toh poochh lijiye. Aur agar aaj order karte ho toh [X] din mein deliver ho jaayega 🚀"
-- "Need sample first" → "Ek baar order karte hi aap quality dekh lena — hum guarantee karte hain quality pe 💯"
+- Medicine pouch rate issue:
+  Explain that Rareprint uses 70 GSM white paper, not raddi paper. It is multicolor printing, not single-color printing. Higher quantities like 10,000 onward get better rates. You may offer 5% discount when needed. For 10,000 medicine pouches, mention 10,000 ready-made prescription stickers free.
+  Explain ROI simply: 10,000 pouches can bring even 1% repeat customers = 100 customers. If each buys medicines worth Rs 500 average, that is Rs 50,000 sales. Compare that with pouch investment: possible 5-10x ROI, plus reputation, repeat customers, and promotion for home delivery, discounts, doctor/path lab tie-ups, cosmetics, cold drinks, nutrition, surgical, veterinary, pet food, or any other business.
+- Quantity issue:
+  Explain that multicolor high-quality printing needs minimum quantity to keep cost low. For medicine pouches, negotiate on quantity. If customer still refuses, offer 2,000 pouches and say rate will be shared soon. Explain pouches are non-perishable and a medical shop continues for years, so 5,000 quantity is practical. If new business, printed pouch is useful for marketing.
+- Trust issue:
+  Share GST number 27GEKPP2259Q1ZI and ask them to verify on GST portal. Mention website, Amazon, IndiaMART, TradeIndia listings, and customers in every city. Ask their city so Rareprint can share nearby customer references. Offer video call during office time to see the office.
+- Price high generally:
+  Connect quality, marketing ROI, and better quantity pricing. Do not sound defensive.
+- Thinking:
+  Ask one helpful follow-up question, not generic pressure.
 
 RULES:
-- NEVER make up prices — prices are sent via product template automatically
-- If asked about a product NOT in catalog, say "Abhi yeh product available nahi, but check karein: www.rareprint.in"
-- If customer says "STOP" → [UNSUBSCRIBE]
-- If question is too complex → [ESCALATE]
-- NEVER share banking details unless customer specifically asks for payment info
-- Address: T401, Tirupati Home Apartment-3, Behind Manwatkar Hospital, Chandrapur-442401
-
-SPECIAL COMMANDS (system executes these automatically):
-- [SEND_PAYMENT_LINK] — sends payment/banking details
-- [UNSUBSCRIBE] — opt-out
-- [ESCALATE] — hand off to human agent
+- Never share phone numbers or email unless the customer asks for contact details.
+- Never make up prices.
+- One question at a time.
+- [SEND_PAYMENT_LINK] when customer wants to order or asks how to pay.
+- [UNSUBSCRIBE] if they say STOP.
+- [ESCALATE] if too complex.
+- If customer asks for all products, send the all-products PDF/catalog and do not ask quantity first.
+- If customer sends an image/document and image reading is unavailable, politely ask them to type the key details visible in the file.
 """.strip()
 
 
@@ -113,9 +124,18 @@ class SalesAgent:
 
         logger.info(f"📨 {phone} ({name}): {text[:80]}")
 
+        if msg.get("media_type", "").lower() in ["image", "photo"] and msg.get("media_url"):
+            image_note = self._describe_image(msg["media_url"])
+            if image_note:
+                text = f"{text}\n\n[IMAGE DATA: {image_note}]".strip()
+
         # ── Store customer message ────────────────────────────────────────────
-        self.store.add_message(phone, "user", text)
+        ad_headline = msg.get("ad_headline", "")
+        display_text = text.replace(f"[FROM AD: {ad_headline}] ", "") if ad_headline else text
+        self.store.add_message(phone, "user", display_text)
         self.store.update_lead(phone, name=name)
+        if ad_headline:
+            self.store.update_lead(phone, ad_source=ad_headline)
 
         # ── Check for unsubscribe ─────────────────────────────────────────────
         if text.lower().strip() in ["stop", "unsubscribe", "opt out"]:
@@ -126,6 +146,22 @@ class SalesAgent:
         state = self.store.get_state(phone)
         if state == "unsubscribed":
             return  # silently ignore
+
+        if self._is_all_products_request(text):
+            if ALL_PRODUCTS_PDF_URL:
+                self.client.send_document(
+                    phone,
+                    ALL_PRODUCTS_PDF_URL,
+                    "Rareprint all products catalog.pdf",
+                    "Sir/Madam, ye Rareprint ka all-products catalog hai."
+                )
+            else:
+                self.client.send_text(
+                    phone,
+                    "Sir/Madam, all products yahan dekh sakte hain: https://www.rareprint.in"
+                )
+            self.store.add_message(phone, "assistant", "[Sent all products catalog]")
+            return
 
         # ── Detect product interest ───────────────────────────────────────────
         product = get_product_by_keyword(text)
@@ -143,7 +179,14 @@ class SalesAgent:
                 template_sent = True
 
         # ── Generate AI reply ─────────────────────────────────────────────────
-        ai_reply = self._get_ai_reply(phone, name, text, product, template_sent)
+        ai_reply = self._get_ai_reply(
+            phone,
+            name,
+            text,
+            product,
+            template_sent,
+            msg.get("ad_headline", ""),
+        )
 
         if not ai_reply:
             return
@@ -183,6 +226,7 @@ class SalesAgent:
         text: str,
         product: dict | None,
         template_just_sent: bool,
+        ad_headline: str = "",
     ) -> str:
         if not self.ai:
             # Fallback if no API key
@@ -195,17 +239,22 @@ class SalesAgent:
 
         # Build context note for AI
         context_note = ""
-        if template_just_sent and product:
+
+        if ad_headline and not template_just_sent:
             context_note = (
-                f"\n\n[SYSTEM NOTE: Product template for '{product['name']}' just sent automatically above "
-                f"— photo, rates, and ToS are already visible to customer. "
-                f"Do NOT repeat prices. Just acknowledge warmly and ask about their quantity/requirements.]"
+                f"\n\n[SYSTEM NOTE: Customer clicked your Facebook/Instagram ad: '{ad_headline}'. "
+                f"They sent a generic greeting. DON'T ask 'what do you want to print?' — "
+                f"you already know they're interested in '{ad_headline}'. "
+                f"Greet them and directly ask about their requirement for that product. "
+                f"Keep it short — 1-2 lines max.]"
+            )
+        elif template_just_sent and product:
+            context_note = (
+                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' just sent. Don't repeat prices. Ask quantity.]"
             )
         elif product:
             context_note = (
-                f"\n\n[SYSTEM NOTE: Customer is asking about '{product['name']}'. "
-                f"Rates were already sent earlier as a separate message. "
-                f"Do NOT re-explain pricing — just ask what they need help with.]"
+                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' already sent earlier. Just help them order.]"
             )
 
         # Build messages for Claude
@@ -219,8 +268,8 @@ class SalesAgent:
         try:
             system = CUSTOM_SYSTEM_PROMPT if CUSTOM_SYSTEM_PROMPT else build_system_prompt()
             response = self.ai.messages.create(
-                model="claude-haiku-4-5",          # fast + cheap for chat
-                max_tokens=400,
+                model="claude-haiku-4-5",
+                max_tokens=200,
                 system=system,
                 messages=messages,
             )
@@ -230,6 +279,54 @@ class SalesAgent:
         except Exception as e:
             logger.error(f"Claude API error: {e}")
             return "Ek second rukiye... 🙏 Main abhi check karke batata hoon."
+
+    def _is_all_products_request(self, text: str) -> bool:
+        text_lower = text.lower()
+        return any(trigger in text_lower for trigger in ALL_PRODUCTS_TRIGGERS)
+
+    def _describe_image(self, image_url: str) -> str:
+        if not self.ai:
+            return ""
+        try:
+            import httpx
+
+            resp = httpx.get(image_url, timeout=12)
+            resp.raise_for_status()
+            media_type = resp.headers.get("content-type", "").split(";")[0].strip()
+            if not media_type.startswith("image/"):
+                media_type = mimetypes.guess_type(image_url)[0] or "image/jpeg"
+            image_b64 = base64.b64encode(resp.content).decode("ascii")
+
+            response = self.ai.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=250,
+                system=(
+                    "Extract useful sales/order details from this customer image for a printing shop. "
+                    "Mention visible product type, text, size, quantity, colors, contact details, or design notes. "
+                    "If unclear, say what is unclear. Keep it concise."
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_b64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": "Read this image and extract order/sales details.",
+                        },
+                    ],
+                }],
+            )
+            return response.content[0].text.strip()
+        except Exception as e:
+            logger.warning(f"Image reading failed: {e}")
+            return ""
 
     def _extract_lead_data(self, phone: str, text: str):
         """

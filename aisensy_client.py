@@ -1,12 +1,9 @@
 """
 AiSensy Project API Client
 ════════════════════════════
-Uses AiSensy's Project API (same API family as the webhook).
-Endpoint: https://backend.aisensy.com/direct-apis/t1/messages
-
-Payload mirrors the webhook format:
-  phone_number    → same field name as incoming webhook
-  message_content → same structure as incoming webhook
+Endpoint: POST https://apis.aisensy.com/project-apis/v1/project/{project_id}/messages
+Auth:     Header  X-AiSensy-Project-API-Pwd: YOUR_APP_PASSWORD
+Docs:     https://aisensy.stoplight.io/docs/project-api/effdec8a4894f-send-message
 """
 
 import os
@@ -15,15 +12,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Project API endpoint (same API family that sends webhook events)
-SEND_API = "https://backend.aisensy.com/direct-apis/t1/messages"
+PROJECT_ID = os.getenv("AISENSY_PROJECT_ID", "67727bb67127df0c20798c5d")
+SEND_API   = f"https://apis.aisensy.com/project-apis/v1/project/{PROJECT_ID}/messages"
 
 
 class AiSensyClient:
     def __init__(self, api_key: str):
-        self.api_key  = api_key
-        self.username = os.getenv("AISENSY_USERNAME", "RAREPRINT3")
-
+        # api_key here = App Password from AiSensy Settings
+        self.api_key = api_key
         if not api_key:
             logger.warning("⚠️  AISENSY_API_KEY not set — messages will not be sent")
 
@@ -33,12 +29,15 @@ class AiSensyClient:
             logger.error("Cannot send — AISENSY_API_KEY missing")
             return False
 
-        # API key goes in request body, not header
-        payload["apiKey"] = self.api_key
+        headers = {
+            "Content-Type":              "application/json",
+            "Accept":                    "application/json",
+            "X-AiSensy-Project-API-Pwd": self.api_key,
+        }
 
         try:
-            resp = httpx.post(SEND_API, json=payload, timeout=15)
-            logger.info(f"AiSensy [{resp.status_code}] → {resp.text[:400]}")
+            resp = httpx.post(SEND_API, json=payload, headers=headers, timeout=15)
+            logger.info(f"AiSensy [{resp.status_code}] → {resp.text[:300]}")
             return resp.status_code == 200
         except Exception as e:
             logger.error(f"Network error: {e}")
@@ -46,11 +45,12 @@ class AiSensyClient:
 
     # ── Text message ─────────────────────────────────────────────────────────
     def send_text(self, phone: str, text: str) -> bool:
-        # Mirror exact incoming webhook structure — no "type" field
         payload = {
-            "phone_number": phone,
-            "message_content": {
-                "text": text,
+            "to":             phone,
+            "type":           "text",
+            "recipient_type": "individual",
+            "text": {
+                "body": text,
             }
         }
         logger.info(f"→ TEXT {phone}: {text[:60]}")
@@ -59,10 +59,11 @@ class AiSensyClient:
     # ── Image message ─────────────────────────────────────────────────────────
     def send_image(self, phone: str, image_url: str, caption: str = "") -> bool:
         payload = {
-            "phone_number": phone,
-            "message_content": {
-                "type": "image",
-                "url": image_url,
+            "to":             phone,
+            "type":           "image",
+            "recipient_type": "individual",
+            "image": {
+                "link":    image_url,
                 "caption": caption,
             }
         }
@@ -72,24 +73,34 @@ class AiSensyClient:
     # ── Video message ─────────────────────────────────────────────────────────
     def send_video(self, phone: str, video_url: str, caption: str = "") -> bool:
         payload = {
-            "phone_number": phone,
-            "message_content": {
-                "type": "video",
-                "url": video_url,
+            "to":             phone,
+            "type":           "video",
+            "recipient_type": "individual",
+            "video": {
+                "link":    video_url,
                 "caption": caption,
             }
         }
         logger.info(f"→ VIDEO {phone}: {video_url[:60]}")
         return self._post(payload)
 
+    # ── Document message ─────────────────────────────────────────────────────
+    def send_document(self, phone: str, document_url: str, filename: str = "", caption: str = "") -> bool:
+        payload = {
+            "to":             phone,
+            "type":           "document",
+            "recipient_type": "individual",
+            "document": {
+                "link":     document_url,
+                "filename": filename or "Rareprint catalog.pdf",
+                "caption":  caption,
+            }
+        }
+        logger.info(f"→ DOCUMENT {phone}: {document_url[:60]}")
+        return self._post(payload)
+
     # ── Product template ─────────────────────────────────────────────────────
     def send_product_template(self, phone: str, product: dict) -> bool:
-        """
-        Fixed template every time a product is enquired about:
-        1. Video or Image
-        2. Rates as text
-        3. Terms of Service as text
-        """
         if product.get("media_url"):
             if product.get("media_type") == "video":
                 self.send_video(phone, product["media_url"])
@@ -97,9 +108,6 @@ class AiSensyClient:
                 self.send_image(phone, product["media_url"])
 
         self.send_text(phone, product["rates"])
-
-        from products import GLOBAL_TOS
-        self.send_text(phone, product.get("tos", GLOBAL_TOS))
 
         return True
 

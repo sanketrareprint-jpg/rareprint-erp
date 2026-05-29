@@ -147,6 +147,10 @@
         ${msg.caption ? `<div class="caption">${formatText(msg.caption)}</div>` : ""}
       `;
       container.appendChild(wrap);
+
+    } else if (msg.type === "document") {
+      const label = msg.filename || "View document";
+      appendBubble("bot", `${msg.caption ? msg.caption + "\n" : ""}${label}: ${msg.url}`);
     }
 
     scrollBottom();
