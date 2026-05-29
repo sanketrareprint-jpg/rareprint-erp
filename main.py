@@ -307,6 +307,72 @@ async def update_products(request: Request):
     return JSONResponse({"status": "saved"})
 
 
+# ── Debug: try all payload formats ───────────────────────────────────────────
+@app.get("/debug-send")
+async def debug_send():
+    """
+    Tries every known AiSensy payload format and returns which ones succeed.
+    Visit: https://your-domain.railway.app/debug-send
+    """
+    import httpx
+    api_key = os.getenv("AISENSY_API_KEY", "")
+    phone   = "919637318960"   # test phone
+    msg     = "Test from Rareprint bot"
+
+    formats = {
+        "f1_phone_number_message_content": {
+            "apiKey": api_key,
+            "phone_number": phone,
+            "message_content": {"text": msg},
+        },
+        "f2_plus_prefix": {
+            "apiKey": api_key,
+            "phone_number": f"+{phone}",
+            "message_content": {"text": msg},
+        },
+        "f3_destination_flat": {
+            "apiKey": api_key,
+            "destination": phone,
+            "message": msg,
+        },
+        "f4_destination_message_content": {
+            "apiKey": api_key,
+            "destination": phone,
+            "message_content": {"text": msg},
+        },
+        "f5_with_project_id": {
+            "apiKey": api_key,
+            "phone_number": phone,
+            "project_id": "67727bb67127df0c20798c5d",
+            "message_content": {"text": msg},
+        },
+        "f6_to_field": {
+            "apiKey": api_key,
+            "to": phone,
+            "type": "text",
+            "text": {"body": msg},
+        },
+        "f7_phone_message_flat": {
+            "apiKey": api_key,
+            "phone": phone,
+            "message": msg,
+        },
+    }
+
+    results = {}
+    for name, payload in formats.items():
+        try:
+            r = httpx.post(
+                "https://backend.aisensy.com/direct-apis/t1/messages",
+                json=payload, timeout=10
+            )
+            results[name] = {"status": r.status_code, "body": r.text[:200]}
+        except Exception as e:
+            results[name] = {"status": "error", "body": str(e)}
+
+    return JSONResponse(results)
+
+
 # ── Run locally ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
