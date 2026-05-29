@@ -12,6 +12,6 @@ RUN npx prisma generate
 COPY . .
 RUN npx nest build && find dist/ -name "*.js" | head -20
 
-EXPOSE 3000
+EXPOSE 8080
 
-CMD node scripts/railway-migrate.js && node dist/src/main.js
+CMD node scripts/railway-migrate.js && PORT=${PORT:-8080} node dist/src/main.js
