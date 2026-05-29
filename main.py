@@ -43,7 +43,7 @@ RUNTIME_CONFIG = load_runtime_config()
 store  = ConversationStore()
 client = AiSensyClient(api_key=os.getenv("AISENSY_API_KEY", ""))
 agent  = SalesAgent(store=store, client=client)
-followups = FollowUpScheduler(store=store, client=client)
+followups = FollowUpScheduler(store=store, client=client, agent=agent)
 
 
 @app.on_event("startup")

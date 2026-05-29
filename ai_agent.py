@@ -99,6 +99,10 @@ RULES:
 - Never share phone numbers or email unless the customer asks for contact details.
 - Never make up prices.
 - One question at a time.
+- Understand the customer's writing/language, including Hindi, Marathi, English, Hinglish, and other Indian languages/scripts.
+- Always reply in the same language/script the customer uses. If they mix languages, reply in the same mixed style.
+- If the customer's message is unclear because of spelling, transliteration, or mixed script, infer the likely meaning from context and ask one short clarifying question in their language.
+- Keep product names, quantities, prices, website, GST number, and technical print terms accurate even when translating.
 - [SEND_PAYMENT_LINK] when customer wants to order or asks how to pay.
 - [UNSUBSCRIBE] if they say STOP.
 - [ESCALATE] if too complex.
@@ -128,6 +132,9 @@ class SalesAgent:
         if self.store.already_seen_message(phone, message_id):
             logger.info(f"Skipping duplicate message {message_id} for {phone}")
             return
+
+        language_hint = self._detect_language_hint(text)
+        self.store.update_lead(phone, language_hint=language_hint)
 
         if msg.get("media_type", "").lower() in ["image", "photo"] and msg.get("media_url"):
             image_note = self._describe_image(msg["media_url"])
@@ -194,6 +201,7 @@ class SalesAgent:
             product,
             template_sent,
             msg.get("ad_headline", ""),
+            language_hint,
         )
 
         if not ai_reply:
@@ -233,6 +241,7 @@ class SalesAgent:
         product: dict | None,
         template_just_sent: bool,
         ad_headline: str = "",
+        language_hint: str = "same as customer",
     ) -> str:
         if not self.ai:
             # Fallback if no API key
@@ -246,7 +255,7 @@ class SalesAgent:
         flags = self.store.get_conversation_flags(phone)
 
         # Build context note for AI
-        context_note = self._build_known_context(lead, flags)
+        context_note = self._build_known_context(lead, flags, language_hint)
 
         if ad_headline and not template_just_sent:
             context_note += (
@@ -289,7 +298,7 @@ class SalesAgent:
             logger.error(f"Claude API error: {e}")
             return "Ek second rukiye... 🙏 Main abhi check karke batata hoon."
 
-    def _build_known_context(self, lead: dict, flags: dict) -> str:
+    def _build_known_context(self, lead: dict, flags: dict, language_hint: str) -> str:
         known = {
             "product": lead.get("product"),
             "quantity": lead.get("quantity"),
@@ -307,12 +316,43 @@ class SalesAgent:
             f"Known details: {known_text or 'none yet'}. "
             f"Already asked: {asked or 'none'}. Last question: {last_q or 'none'}. "
             "If the customer's latest message answers the last question, do not ask it again. "
-            "Ask only the next unanswered question. Never repeat quantity, city, current pouch, printed/plain, or services questions once known.]"
+            "Ask only the next unanswered question. Never repeat quantity, city, current pouch, printed/plain, or services questions once known. "
+            f"Language/script hint: {language_hint}. Reply in this same language/script unless the customer changes language.]"
         )
 
     def _is_all_products_request(self, text: str) -> bool:
         text_lower = text.lower()
         return any(trigger in text_lower for trigger in ALL_PRODUCTS_TRIGGERS)
+
+    def _detect_language_hint(self, text: str) -> str:
+        if not text.strip():
+            return "same as customer"
+        ranges = [
+            ("Devanagari Hindi/Marathi", "\u0900", "\u097f"),
+            ("Bengali", "\u0980", "\u09ff"),
+            ("Gurmukhi Punjabi", "\u0a00", "\u0a7f"),
+            ("Gujarati", "\u0a80", "\u0aff"),
+            ("Odia", "\u0b00", "\u0b7f"),
+            ("Tamil", "\u0b80", "\u0bff"),
+            ("Telugu", "\u0c00", "\u0c7f"),
+            ("Kannada", "\u0c80", "\u0cff"),
+            ("Malayalam", "\u0d00", "\u0d7f"),
+            ("Arabic/Urdu", "\u0600", "\u06ff"),
+        ]
+        hits = []
+        for name, start, end in ranges:
+            count = sum(1 for char in text if start <= char <= end)
+            if count:
+                hits.append((name, count))
+        latin = sum(1 for char in text if char.isalpha() and ord(char) < 128)
+        if latin:
+            hits.append(("Latin English/Hinglish/transliteration", latin))
+        if not hits:
+            return "same as customer"
+        hits.sort(key=lambda item: item[1], reverse=True)
+        if len(hits) >= 2 and hits[1][1] >= max(2, hits[0][1] * 0.25):
+            return f"mixed {hits[0][0]} + {hits[1][0]}"
+        return hits[0][0]
 
     def _describe_image(self, image_url: str) -> str:
         if not self.ai:

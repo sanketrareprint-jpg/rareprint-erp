@@ -22,9 +22,10 @@ DEFAULT_DELAYS = [10 * 60, 60 * 60, 3 * 60 * 60, 23 * 60 * 60]
 
 
 class FollowUpScheduler:
-    def __init__(self, store: ConversationStore, client: AiSensyClient):
+    def __init__(self, store: ConversationStore, client: AiSensyClient, agent=None):
         self.store = store
         self.client = client
+        self.agent = agent
         self.enabled = os.getenv("FOLLOWUP_ENABLED", "true").lower() not in ["0", "false", "off", "no"]
         self.poll_seconds = int(os.getenv("FOLLOWUP_POLL_SECONDS", "60"))
         self.delays = self._parse_delays(os.getenv("FOLLOWUP_DELAYS_SECONDS", ""))
@@ -81,7 +82,7 @@ class FollowUpScheduler:
                 continue
 
             delay = max(due_delays)
-            message = self._message_for_delay(delay, session)
+            message = await self._localize_message(self._message_for_delay(delay, session), session)
             ok = await asyncio.to_thread(self.client.send_text, phone, message)
             if ok:
                 for old_delay in self.delays:
@@ -102,6 +103,36 @@ class FollowUpScheduler:
         if delay <= 3 * 60 * 60:
             return f"{greeting} Sir/Madam, printed pouch sirf packing nahi hota, repeat customer aur local branding ke liye kaam aata hai. Aap home delivery ya discount bhi dete hain?"
         return f"{greeting} Sir/Madam, 24 hours ke andar yahin reply kar denge toh main same chat mein help kar dunga. Aapko {product} ke liye quantity final karni hai?"
+
+    async def _localize_message(self, message: str, session: dict) -> str:
+        lead = session.get("lead") or {}
+        language_hint = lead.get("language_hint")
+        if not self.agent or not getattr(self.agent, "ai", None) or not language_hint:
+            return message
+        if language_hint == "Latin English/Hinglish/transliteration":
+            return message
+
+        try:
+            return await asyncio.to_thread(self._translate_message, message, language_hint)
+        except Exception as e:
+            logger.warning(f"Follow-up localization failed: {e}")
+            return message
+
+    def _translate_message(self, message: str, language_hint: str) -> str:
+        response = self.agent.ai.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=120,
+            system=(
+                "Rewrite this WhatsApp follow-up in the target customer language/script. "
+                "Keep prices, product names, Rareprint, URLs, GST numbers, and quantities unchanged. "
+                "Keep it short, natural, and respectful. Return only the rewritten message."
+            ),
+            messages=[{
+                "role": "user",
+                "content": f"Target language/script: {language_hint}\nMessage: {message}",
+            }],
+        )
+        return response.content[0].text.strip()
 
     def _time_greeting(self) -> str:
         hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
