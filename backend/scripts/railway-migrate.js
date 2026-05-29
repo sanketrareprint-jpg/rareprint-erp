@@ -1,6 +1,9 @@
 const { spawnSync } = require('node:child_process');
 
-const RECOVERABLE_MIGRATION = '20260520000100_performance_indexes';
+const RECOVERABLE_MIGRATIONS = [
+  '20260520000100_performance_indexes',
+  '20260520000300_sheet_performance_indexes',
+];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -16,9 +19,11 @@ function run(command, args, options = {}) {
   return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 }
 
-console.log(`Checking recoverable migration ${RECOVERABLE_MIGRATION} before deploy...`);
-run('npx', ['prisma', 'migrate', 'resolve', '--applied', RECOVERABLE_MIGRATION], {
-  allowFailure: true,
-});
+for (const migration of RECOVERABLE_MIGRATIONS) {
+  console.log(`Checking recoverable migration ${migration} before deploy...`);
+  run('npx', ['prisma', 'migrate', 'resolve', '--applied', migration], {
+    allowFailure: true,
+  });
+}
 
 run('npx', ['prisma', 'migrate', 'deploy']);
