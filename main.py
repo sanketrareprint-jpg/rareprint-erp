@@ -14,6 +14,7 @@ import uvicorn
 from ai_agent import SalesAgent
 from conversation_store import ConversationStore
 from aisensy_client import AiSensyClient
+from followup_scheduler import FollowUpScheduler
 import products as products_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -42,6 +43,17 @@ RUNTIME_CONFIG = load_runtime_config()
 store  = ConversationStore()
 client = AiSensyClient(api_key=os.getenv("AISENSY_API_KEY", ""))
 agent  = SalesAgent(store=store, client=client)
+followups = FollowUpScheduler(store=store, client=client)
+
+
+@app.on_event("startup")
+async def startup():
+    followups.start()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await followups.stop()
 
 
 # ── Health check ────────────────────────────────────────────────────────────

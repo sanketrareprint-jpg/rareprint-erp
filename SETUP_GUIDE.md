@@ -75,6 +75,9 @@ Open `products.py` and fill in for each product:
 | `BUSINESS_NAME` | `Rareprint` |
 | `BUSINESS_PHONE` | `+91-XXXXXXXXXX` |
 | `ALL_PRODUCTS_PDF_URL` | Direct HTTPS link to the all-products catalog PDF |
+| `FOLLOWUP_ENABLED` | `true` to send normal follow-ups within 24 hours |
+| `FOLLOWUP_DELAYS_SECONDS` | `600,3600,10800,82800` for 10 min, 1 hr, 3 hr, 23 hr |
+| `FOLLOWUP_POLL_SECONDS` | `60` |
 
 4. Railway will auto-deploy. Copy your public URL (e.g. `https://your-app.railway.app`)
 

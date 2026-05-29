@@ -20,8 +20,8 @@ except ImportError:
     _REDIS_AVAILABLE = False
 
 
-MAX_HISTORY = 20          # messages to keep per user
-SESSION_TTL = 60 * 60 * 6  # 6 hours — then start fresh
+MAX_HISTORY = 20
+SESSION_TTL = 60 * 60 * 30  # 30 hours — keeps the 24-hour WhatsApp follow-up window
 
 
 class ConversationStore:
@@ -44,6 +44,12 @@ class ConversationStore:
             "lead":       {},
             "state":      "greeting",   # greeting / product_sent / collecting / closed
             "last_active": 0,
+            "last_customer_message_at": 0,
+            "last_bot_message_at": 0,
+            "followups_sent": {},
+            "asked_questions": [],
+            "last_question_key": "",
+            "seen_message_ids": [],
         })
 
     # ── Read / Write ─────────────────────────────────────────────────────────
@@ -78,6 +84,12 @@ class ConversationStore:
         """Append a message and trim to MAX_HISTORY."""
         session = self.get_session(phone)
         session["history"].append({"role": role, "content": content})
+        now = time.time()
+        if role == "user":
+            session["last_customer_message_at"] = now
+            session["followups_sent"] = {}
+        elif role == "assistant":
+            session["last_bot_message_at"] = now
         # Keep only the last N messages
         session["history"] = session["history"][-MAX_HISTORY:]
         self.save_session(phone, session)
@@ -102,6 +114,64 @@ class ConversationStore:
     def get_state(self, phone: str) -> str:
         return self.get_session(phone).get("state", "greeting")
 
+    def already_seen_message(self, phone: str, message_id: str) -> bool:
+        if not message_id:
+            return False
+        session = self.get_session(phone)
+        seen = session.get("seen_message_ids") or []
+        if message_id in seen:
+            return True
+        seen.append(message_id)
+        session["seen_message_ids"] = seen[-100:]
+        self.save_session(phone, session)
+        return False
+
+    def mark_question_asked(self, phone: str, question_key: str):
+        if not question_key:
+            return
+        session = self.get_session(phone)
+        asked = session.get("asked_questions") or []
+        if question_key not in asked:
+            asked.append(question_key)
+        session["asked_questions"] = asked[-20:]
+        session["last_question_key"] = question_key
+        self.save_session(phone, session)
+
+    def get_conversation_flags(self, phone: str) -> dict:
+        session = self.get_session(phone)
+        return {
+            "asked_questions": session.get("asked_questions") or [],
+            "last_question_key": session.get("last_question_key") or "",
+            "last_customer_message_at": session.get("last_customer_message_at") or 0,
+            "last_bot_message_at": session.get("last_bot_message_at") or 0,
+            "followups_sent": session.get("followups_sent") or {},
+        }
+
+    def mark_followup_sent(self, phone: str, delay_key: str, base_at: float):
+        session = self.get_session(phone)
+        sent = session.get("followups_sent") or {}
+        sent[delay_key] = base_at
+        session["followups_sent"] = sent
+        self.save_session(phone, session)
+
+    def iter_sessions(self):
+        if self._redis:
+            for key in self._redis.scan_iter("session:*"):
+                raw = self._redis.get(key)
+                if not raw:
+                    continue
+                phone = key.split("session:", 1)[1]
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    continue
+                if time.time() - data.get("last_active", 0) <= SESSION_TTL:
+                    yield phone, data
+        else:
+            for phone, session in list(self._memory.items()):
+                if time.time() - session.get("last_active", 0) <= SESSION_TTL:
+                    yield phone, session
+
     def reset(self, phone: str):
         """Clear session for a user (fresh start)."""
         if self._redis:
@@ -116,4 +186,10 @@ class ConversationStore:
             "lead":       {},
             "state":      "greeting",
             "last_active": 0,
+            "last_customer_message_at": 0,
+            "last_bot_message_at": 0,
+            "followups_sent": {},
+            "asked_questions": [],
+            "last_question_key": "",
+            "seen_message_ids": [],
         }

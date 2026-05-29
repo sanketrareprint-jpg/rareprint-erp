@@ -121,8 +121,13 @@ class SalesAgent:
         phone = msg["phone"]
         name  = msg["name"]
         text  = msg["text"]
+        message_id = msg.get("message_id", "")
 
         logger.info(f"📨 {phone} ({name}): {text[:80]}")
+
+        if self.store.already_seen_message(phone, message_id):
+            logger.info(f"Skipping duplicate message {message_id} for {phone}")
+            return
 
         if msg.get("media_type", "").lower() in ["image", "photo"] and msg.get("media_url"):
             image_note = self._describe_image(msg["media_url"])
@@ -136,6 +141,9 @@ class SalesAgent:
         self.store.update_lead(phone, name=name)
         if ad_headline:
             self.store.update_lead(phone, ad_source=ad_headline)
+
+        self._capture_answer_to_last_question(phone, text)
+        self._extract_lead_data(phone, text)
 
         # ── Check for unsubscribe ─────────────────────────────────────────────
         if text.lower().strip() in ["stop", "unsubscribe", "opt out"]:
@@ -215,9 +223,7 @@ class SalesAgent:
         if ai_reply:
             self.client.send_text(phone, ai_reply)
             self.store.add_message(phone, "assistant", ai_reply)
-
-        # ── Extract lead data from conversation ───────────────────────────────
-        self._extract_lead_data(phone, text)
+            self._remember_question_from_reply(phone, ai_reply)
 
     def _get_ai_reply(
         self,
@@ -236,12 +242,14 @@ class SalesAgent:
             )
 
         history = self.store.get_history(phone)
+        lead = self.store.get_lead(phone)
+        flags = self.store.get_conversation_flags(phone)
 
         # Build context note for AI
-        context_note = ""
+        context_note = self._build_known_context(lead, flags)
 
         if ad_headline and not template_just_sent:
-            context_note = (
+            context_note += (
                 f"\n\n[SYSTEM NOTE: Customer clicked your Facebook/Instagram ad: '{ad_headline}'. "
                 f"They sent a generic greeting. DON'T ask 'what do you want to print?' — "
                 f"you already know they're interested in '{ad_headline}'. "
@@ -249,11 +257,12 @@ class SalesAgent:
                 f"Keep it short — 1-2 lines max.]"
             )
         elif template_just_sent and product:
-            context_note = (
-                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' just sent. Don't repeat prices. Ask quantity.]"
+            context_note += (
+                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' just sent. Don't repeat prices. "
+                f"Ask quantity only if quantity is not already known; otherwise ask the next unanswered SPIN question.]"
             )
         elif product:
-            context_note = (
+            context_note += (
                 f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' already sent earlier. Just help them order.]"
             )
 
@@ -279,6 +288,27 @@ class SalesAgent:
         except Exception as e:
             logger.error(f"Claude API error: {e}")
             return "Ek second rukiye... 🙏 Main abhi check karke batata hoon."
+
+    def _build_known_context(self, lead: dict, flags: dict) -> str:
+        known = {
+            "product": lead.get("product"),
+            "quantity": lead.get("quantity"),
+            "city": lead.get("city") or lead.get("pincode"),
+            "current_pouches": lead.get("current_pouches"),
+            "printed_status": lead.get("printed_status"),
+            "services": lead.get("services"),
+            "email": lead.get("email"),
+        }
+        known_text = ", ".join(f"{k}={v}" for k, v in known.items() if v)
+        asked = ", ".join(flags.get("asked_questions") or [])
+        last_q = flags.get("last_question_key") or ""
+        return (
+            "\n\n[SYSTEM MEMORY: "
+            f"Known details: {known_text or 'none yet'}. "
+            f"Already asked: {asked or 'none'}. Last question: {last_q or 'none'}. "
+            "If the customer's latest message answers the last question, do not ask it again. "
+            "Ask only the next unanswered question. Never repeat quantity, city, current pouch, printed/plain, or services questions once known.]"
+        )
 
     def _is_all_products_request(self, text: str) -> bool:
         text_lower = text.lower()
@@ -327,6 +357,42 @@ class SalesAgent:
         except Exception as e:
             logger.warning(f"Image reading failed: {e}")
             return ""
+
+    def _capture_answer_to_last_question(self, phone: str, text: str):
+        flags = self.store.get_conversation_flags(phone)
+        last_q = flags.get("last_question_key")
+        value = text.strip()
+        if not last_q or not value:
+            return
+
+        if last_q == "city" and not self.store.get_lead(phone).get("city"):
+            if not re.search(r"\d", value) and len(value.split()) <= 4:
+                self.store.update_lead(phone, city=value)
+        elif last_q == "current_pouches":
+            self.store.update_lead(phone, current_pouches=value)
+        elif last_q == "printed_status":
+            lowered = value.lower()
+            if any(word in lowered for word in ["plain", "normal", "simple", "without", "no print", "not printed"]):
+                self.store.update_lead(phone, printed_status="plain/unprinted")
+            elif any(word in lowered for word in ["printed", "print", "color", "colour"]):
+                self.store.update_lead(phone, printed_status="printed")
+            else:
+                self.store.update_lead(phone, printed_status=value)
+        elif last_q == "services":
+            self.store.update_lead(phone, services=value)
+
+    def _remember_question_from_reply(self, phone: str, reply: str):
+        text = reply.lower()
+        if "city" in text or "which city" in text or "aap kaha" in text or "kahan" in text or "shehar" in text:
+            self.store.mark_question_asked(phone, "city")
+        elif "currently" in text and ("pouch" in text or "using" in text):
+            self.store.mark_question_asked(phone, "current_pouches")
+        elif "printed" in text or "plain" in text:
+            self.store.mark_question_asked(phone, "printed_status")
+        elif any(word in text for word in ["home delivery", "discount", "doctor", "path lab", "cosmetic", "cold drink", "nutrition", "surgical", "veterinary", "pet food", "services"]):
+            self.store.mark_question_asked(phone, "services")
+        elif any(word in text for word in ["quantity", "qty", "kitni", "kitna"]):
+            self.store.mark_question_asked(phone, "quantity")
 
     def _extract_lead_data(self, phone: str, text: str):
         """
