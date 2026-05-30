@@ -1,7 +1,7 @@
 """
 AI Sales Agent
 ══════════════
-Powered by Anthropic Claude.
+Powered by Google Gemini 2.0 Flash.
 Handles the full sales conversation lifecycle:
 
   1. Greet customer
@@ -22,7 +22,8 @@ import logging
 import re
 import base64
 import mimetypes
-from anthropic import Anthropic
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 from conversation_store import ConversationStore
 from aisensy_client import AiSensyClient
@@ -30,11 +31,19 @@ from products import PRODUCTS, GLOBAL_TOS, get_product_by_keyword, list_product_
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY", "")
 BUSINESS_NAME        = os.getenv("BUSINESS_NAME", "Rareprint")
 BUSINESS_PHONE       = os.getenv("BUSINESS_PHONE", "+91 9699349563")
 ALL_PRODUCTS_PDF_URL = os.getenv("ALL_PRODUCTS_PDF_URL", "").strip()
 CUSTOM_SYSTEM_PROMPT = None   # Set by admin panel at runtime
+
+# Safety settings — disable all filters so sales replies aren't blocked
+_SAFETY_SETTINGS = {
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
 
 ALL_PRODUCTS_TRIGGERS = [
     "all product", "all products", "catalog", "catalogue", "price list",
@@ -96,6 +105,7 @@ OBJECTION HANDLING:
   Ask one helpful follow-up question, not generic pressure.
 
 RULES:
+- Never use filler phrases like "ek second", "rukiye", "main check karta hoon", "abhi batata hoon", "let me check", "one moment", or any stalling phrase. Reply directly.
 - Never share phone numbers or email unless the customer asks for contact details.
 - Never make up prices.
 - One question at a time.
@@ -116,10 +126,21 @@ class SalesAgent:
     def __init__(self, store: ConversationStore, client: AiSensyClient):
         self.store  = store
         self.client = client
-        self.ai     = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+        self.ai     = None
 
-        if not self.ai:
-            logger.warning("ANTHROPIC_API_KEY not set — AI responses disabled")
+        if GEMINI_API_KEY:
+            genai.configure(api_key=GEMINI_API_KEY)
+            self.ai = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=200,
+                    temperature=0.7,
+                ),
+                safety_settings=_SAFETY_SETTINGS,
+            )
+            logger.info("Gemini 2.0 Flash initialized")
+        else:
+            logger.warning("GEMINI_API_KEY not set — AI responses disabled")
 
     async def handle_message(self, msg: dict):
         phone = msg["phone"]
@@ -275,27 +296,30 @@ class SalesAgent:
                 f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' already sent earlier. Just help them order.]"
             )
 
-        # Build messages for Claude
-        messages = []
+        # Build Gemini chat history (alternating user/model)
+        gemini_history = []
         for m in history[:-1]:   # exclude the just-added current message
-            messages.append({"role": m["role"], "content": m["content"]})
-
-        # Current user message with context note
-        messages.append({"role": "user", "content": text + context_note})
+            role = "user" if m["role"] == "user" else "model"
+            gemini_history.append({"role": role, "parts": [m["content"]]})
 
         try:
             system = CUSTOM_SYSTEM_PROMPT if CUSTOM_SYSTEM_PROMPT else build_system_prompt()
-            response = self.ai.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=200,
-                system=system,
-                messages=messages,
+            model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=200,
+                    temperature=0.7,
+                ),
+                safety_settings=_SAFETY_SETTINGS,
+                system_instruction=system,
             )
-            reply = response.content[0].text.strip()
+            chat = model.start_chat(history=gemini_history)
+            response = chat.send_message(text + context_note)
+            reply = response.text.strip()
             logger.info(f"🤖 AI reply to {phone}: {reply[:80]}")
             return reply
         except Exception as e:
-            logger.error(f"Claude API error: {e}")
+            logger.error(f"Gemini API error: {e}")
             return self._fallback_reply(name, text, product, template_just_sent)
 
     def _fallback_reply(
@@ -393,35 +417,25 @@ class SalesAgent:
             media_type = resp.headers.get("content-type", "").split(";")[0].strip()
             if not media_type.startswith("image/"):
                 media_type = mimetypes.guess_type(image_url)[0] or "image/jpeg"
-            image_b64 = base64.b64encode(resp.content).decode("ascii")
+            image_data = resp.content
 
-            response = self.ai.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=250,
-                system=(
+            vision_model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                generation_config=genai.types.GenerationConfig(max_output_tokens=250),
+                safety_settings=_SAFETY_SETTINGS,
+            )
+            response = vision_model.generate_content([
+                {
+                    "mime_type": media_type,
+                    "data": image_data,
+                },
+                (
                     "Extract useful sales/order details from this customer image for a printing shop. "
                     "Mention visible product type, text, size, quantity, colors, contact details, or design notes. "
                     "If unclear, say what is unclear. Keep it concise."
                 ),
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": image_b64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": "Read this image and extract order/sales details.",
-                        },
-                    ],
-                }],
-            )
-            return response.content[0].text.strip()
+            ])
+            return response.text.strip()
         except Exception as e:
             logger.warning(f"Image reading failed: {e}")
             return ""

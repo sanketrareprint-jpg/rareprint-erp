@@ -1,5 +1,5 @@
 # WhatsApp AI Sales Chatbot — Setup Guide
-**For Rareprint × AiSensy × Claude AI**
+**For Rareprint × AiSensy × Gemini 2.0 Flash**
 
 ---
 
@@ -14,7 +14,7 @@ Bot detects product keyword (e.g. "business card")
          ↓
 Automatically sends: [Product Photo/Video] + [Rates] + [Terms of Service]
          ↓
-Claude AI continues conversation:
+Gemini AI continues conversation:
   → Answers questions
   → Collects quantity, design details, deadline
   → Asks for name, city, email
@@ -28,10 +28,11 @@ Order confirmed → design file collected on WhatsApp chat
 
 ## Step 1: Get Your API Keys
 
-### A. Anthropic (Claude AI)
-1. Go to https://console.anthropic.com
-2. Settings → API Keys → Create Key
-3. Copy it — starts with `sk-ant-...`
+### A. Google Gemini (Free Tier Available)
+1. Go to https://aistudio.google.com/apikey
+2. Click **Create API Key**
+3. Copy it — starts with `AIza...`
+> Free tier: 1,500 requests/day, 15 requests/min. Paid: ~$0.075/1M tokens (very cheap).
 
 ### B. AiSensy API Key
 1. Login to AiSensy dashboard
@@ -69,7 +70,7 @@ Open `products.py` and fill in for each product:
 
 | Variable | Value |
 |---|---|
-| `ANTHROPIC_API_KEY` | `sk-ant-xxxx` |
+| `GEMINI_API_KEY` | `AIza-xxxx` |
 | `AISENSY_API_KEY` | Your AiSensy key |
 | `AISENSY_USERNAME` | Your AiSensy username |
 | `BUSINESS_NAME` | `Rareprint` |
@@ -112,7 +113,7 @@ Edit `products.py` — copy an existing product block and fill in the details. T
 ```
 whatsapp-ai-chatbot/
 ├── main.py              # Webhook server (FastAPI)
-├── ai_agent.py          # Claude AI sales agent
+├── ai_agent.py          # Gemini AI sales agent
 ├── aisensy_client.py    # AiSensy API wrapper
 ├── products.py          # Your product catalog ← edit this
 ├── conversation_store.py# Session & lead tracking
