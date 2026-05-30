@@ -366,47 +366,61 @@ export class BigshipService {
    * GET /api/outbound/get-warehouse-list
    * Paginates automatically (max 25 per page) until all pages are fetched.
    */
-  async getWarehouseList(segmentType: 'domestic_b2c' | 'domestic_b2b' | 'hyperlocal' = 'domestic_b2c'): Promise<BigshipWarehouse[]> {
+  async getWarehouseList(): Promise<BigshipWarehouse[]> {
     if (!this.isConfigured()) return [];
     const token = await this.getAuthToken();
+
+    // Bigship stores warehouses per segment_type.
+    // Try all known types and merge, deduplicating by warehouseId.
+    const segmentTypes = ['local', 'hyperlocal', 'domestic_b2b', 'domestic_b2c'];
+    const seen = new Set<number>();
     const results: BigshipWarehouse[] = [];
-    let page = 1;
-    const perPage = 25;
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        const { data } = await this.api().get('/api/outbound/get-warehouse-list', {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { page, perPage, segment_type: segmentType },
-        });
+    for (const segmentType of segmentTypes) {
+      let page = 1;
+      const perPage = 25;
 
-        const list = data?.data?.warehouse;
-        if (!Array.isArray(list) || list.length === 0) break;
-
-        for (const w of list as Record<string, unknown>[]) {
-          results.push({
-            bigshipWarehouseId: Number(w.warehouseId),
-            name:          String(w.warehouseName       ?? w.warehouseContactPerson ?? `Warehouse ${w.warehouseId}`),
-            pincode:       String(w.pincode             ?? ''),
-            city:          String(w.city                ?? ''),
-            state:         String(w.state               ?? ''),
-            address:       String(w.warehouseAddressLine1 ?? ''),
-            contactPerson: String(w.warehouseContactPerson ?? ''),
-            phone:         String(w.warehouseAddressPhone  ?? ''),
-            isActive:      w.isActive === '1' || w.isActive === true,
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          const { data } = await this.api().get('/api/outbound/get-warehouse-list', {
+            headers: { Authorization: `Bearer ${token}` },
+            params: { page, perPage, segment_type: segmentType },
           });
-        }
 
-        const total = Number(data?.data?.total ?? 0);
-        if (results.length >= total || list.length < perPage) break;
-        page++;
-      } catch (e) {
-        this.logger.warn(`Bigship getWarehouseList page ${page} failed: ${e}`);
-        break;
+          const list = data?.data?.warehouse;
+          if (!Array.isArray(list) || list.length === 0) break;
+
+          for (const w of list as Record<string, unknown>[]) {
+            const id = Number(w.warehouseId);
+            if (!seen.has(id)) {
+              seen.add(id);
+              results.push({
+                bigshipWarehouseId: id,
+                name:          String(w.warehouseName         ?? w.warehouseContactPerson ?? `Warehouse ${id}`),
+                pincode:       String(w.pincode               ?? ''),
+                city:          String(w.city                  ?? ''),
+                state:         String(w.state                 ?? ''),
+                address:       String(w.warehouseAddressLine1 ?? ''),
+                contactPerson: String(w.warehouseContactPerson ?? ''),
+                phone:         String(w.warehouseAddressPhone  ?? ''),
+                isActive:      w.isActive === '1' || w.isActive === true,
+              });
+            }
+          }
+
+          const total = Number(data?.data?.total ?? 0);
+          if (results.length >= total || list.length < perPage) break;
+          page++;
+        } catch (e) {
+          // segment type may not be supported — just skip it
+          this.logger.debug(`Bigship getWarehouseList segment=${segmentType} page=${page}: ${e}`);
+          break;
+        }
       }
     }
 
+    this.logger.log(`Bigship getWarehouseList: found ${results.length} warehouse(s) across all segment types`);
     return results;
   }
 
