@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
-import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2 } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse } from "lucide-react";
 
 type CarrierCfg = {
   activeCarrier: "shiprocket" | "bigship";
@@ -14,6 +14,7 @@ type CarrierCfg = {
     pickupWarehouseId: number | null;
     returnWarehouseId: number | null;
     isConfigured: boolean;
+    tokenExpiresAt: string | null;
   };
   shiprocket: {
     email: string;
@@ -24,12 +25,40 @@ type CarrierCfg = {
   };
 };
 
+type TestResult = {
+  ok: boolean;
+  message: string;
+  walletBalance?: string;
+  tokenExpiresAt?: string;
+};
+
+type BigshipWarehouse = {
+  bigshipWarehouseId: number;
+  name: string;
+  pincode: string;
+  city: string;
+  state: string;
+  address: string;
+  contactPerson: string;
+  phone: string;
+  isActive: boolean;
+};
+
 export default function SettingsPage() {
   const [cfg, setCfg]         = useState<CarrierCfg | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [saved, setSaved]     = useState(false);
   const [error, setError]     = useState<string | null>(null);
+
+  // Test connection state
+  const [testing, setTesting]         = useState(false);
+  const [testResult, setTestResult]   = useState<TestResult | null>(null);
+
+  // Bigship warehouse list state
+  const [bsWarehouses, setBsWarehouses]           = useState<BigshipWarehouse[]>([]);
+  const [loadingWarehouses, setLoadingWarehouses] = useState(false);
+  const [warehouseError, setWarehouseError]       = useState<string | null>(null);
 
   // Local edit state (passwords shown as blank when masked)
   const [activeCarrier, setActiveCarrier]     = useState<"shiprocket" | "bigship">("shiprocket");
@@ -63,6 +92,37 @@ export default function SettingsPage() {
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, []);
+
+  const handleLoadWarehouses = async () => {
+    setLoadingWarehouses(true); setWarehouseError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/carrier-config/bigship-warehouses`, { headers: getAuthHeaders() });
+      if (!res.ok) { setWarehouseError("Failed to load warehouses"); return; }
+      const data = await res.json() as { warehouses: BigshipWarehouse[] };
+      setBsWarehouses(data.warehouses ?? []);
+      if ((data.warehouses ?? []).length === 0) setWarehouseError("No warehouses found — add one in your Bigship account first.");
+    } catch {
+      setWarehouseError("Network error loading warehouses.");
+    } finally {
+      setLoadingWarehouses(false);
+    }
+  };
+
+  const handleTestBigship = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/carrier-config/test-bigship`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const data: TestResult = await res.json();
+      setTestResult(data);
+    } catch {
+      setTestResult({ ok: false, message: "Network error — could not reach server." });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   useEffect(() => { void load(); }, [load]);
 
@@ -167,10 +227,10 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* ── BigShip Credentials ─────────────────────────────────────────── */}
+        {/* ── BigShip Direct Credentials ──────────────────────────────────── */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-gray-800 text-base">BigShip API Credentials</h2>
+            <h2 className="font-semibold text-gray-800 text-base">Bigship Direct API Credentials</h2>
             {cfg?.bigship.isConfigured && (
               <span className="text-xs text-green-600 flex items-center gap-1 font-medium">
                 <CheckCircle2 size={13} /> Configured
@@ -178,28 +238,144 @@ export default function SettingsPage() {
             )}
           </div>
           <p className="text-xs text-gray-400">
-            Get these from your BigShip account → <strong>API Settings</strong>.
-            Contact <a href="mailto:apisupport@bigship.in" className="underline">apisupport@bigship.in</a> if you need help.
+            Uses the <strong>Bigship Direct</strong> unified outbound API (<code className="bg-gray-100 px-1 rounded">api.bigship.direct</code>).
+            For access key, contact <a href="mailto:support@bigship.in" className="underline">support@bigship.in</a>.
           </p>
 
           <div className="space-y-4">
             <Field label="Username (Email)" value={bsUsername} onChange={setBsUsername} placeholder="your@email.com" />
             <Field label="Password" value={bsPassword} onChange={setBsPassword} type="password"
-              placeholder={cfg?.bigship.isConfigured ? "••••••••  (leave blank to keep current)" : "BigShip login password"} />
+              placeholder={cfg?.bigship.isConfigured ? "••••••••  (leave blank to keep current)" : "Bigship login password"} />
             <Field label="Access Key" value={bsAccessKey} onChange={setBsAccessKey} type="password"
-              placeholder={cfg?.bigship.isConfigured ? "••••••••  (leave blank to keep current)" : "6e2ac11e…"} />
+              placeholder={cfg?.bigship.isConfigured ? "••••••••  (leave blank to keep current)" : "your_access_key"} />
+          </div>
+
+          {/* Token Status */}
+          {cfg?.bigship.isConfigured && cfg.bigship.tokenExpiresAt && (
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5 text-xs text-blue-700">
+              <Wifi size={13} className="shrink-0" />
+              <span>
+                Active token · expires{" "}
+                <strong>{new Date(cfg.bigship.tokenExpiresAt).toLocaleString("en-IN", {
+                  day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
+                })}</strong>
+              </span>
+            </div>
+          )}
+
+          {/* Test Connection Result */}
+          {testResult && (
+            <div className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs
+              ${testResult.ok
+                ? "bg-green-50 border-green-200 text-green-800"
+                : "bg-red-50 border-red-200 text-red-700"}`}>
+              {testResult.ok
+                ? <CheckCircle2 size={13} className="mt-0.5 shrink-0" />
+                : <WifiOff size={13} className="mt-0.5 shrink-0" />}
+              <div className="space-y-0.5">
+                <p className="font-medium">{testResult.message}</p>
+                {testResult.walletBalance && (
+                  <p className="flex items-center gap-1">
+                    <Wallet size={11} /> Wallet balance: ₹{testResult.walletBalance}
+                  </p>
+                )}
+                {testResult.tokenExpiresAt && (
+                  <p>Token expires: {new Date(testResult.tokenExpiresAt).toLocaleString("en-IN", {
+                    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
+                  })}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Test Connection Button */}
+          <div>
+            <button
+              onClick={handleTestBigship}
+              disabled={testing || !cfg?.bigship.isConfigured}
+              className="flex items-center gap-2 border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium px-4 py-2 rounded-lg text-xs transition-colors"
+            >
+              {testing ? <Loader2 size={13} className="animate-spin" /> : <Wifi size={13} />}
+              {testing ? "Testing connection…" : "Test Connection"}
+            </button>
+            {!cfg?.bigship.isConfigured && (
+              <p className="text-xs text-gray-400 mt-1.5">Save credentials first before testing.</p>
+            )}
           </div>
 
           <div className="border-t border-gray-100 pt-4 space-y-4">
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Warehouse IDs</p>
-            <p className="text-xs text-gray-400 -mt-2">
-              Find these in your BigShip panel under <strong>Warehouses</strong>.
-              You can also use the <code className="bg-gray-100 px-1 rounded">GET /api/warehouse/get/list</code> API.
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Pickup Warehouse ID" value={bsPickupWH} onChange={setBsPickupWH} placeholder="e.g. 44156" inputMode="numeric" />
-              <Field label="Return Warehouse ID" value={bsReturnWH} onChange={setBsReturnWH} placeholder="Same as pickup" inputMode="numeric" />
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide flex items-center gap-1.5">
+                <Warehouse size={13} /> Pickup Warehouses
+              </p>
+              <button
+                onClick={handleLoadWarehouses}
+                disabled={loadingWarehouses || !cfg?.bigship.isConfigured}
+                className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
+              >
+                {loadingWarehouses
+                  ? <Loader2 size={12} className="animate-spin" />
+                  : <RefreshCw size={12} />}
+                {loadingWarehouses ? "Loading…" : "Load from Bigship"}
+              </button>
             </div>
+
+            {warehouseError && (
+              <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={12} />{warehouseError}</p>
+            )}
+
+            {/* Live warehouse dropdown */}
+            {bsWarehouses.length > 0 ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-gray-600">Default Pickup Warehouse</label>
+                  <select
+                    value={bsPickupWH}
+                    onChange={(e) => { setBsPickupWH(e.target.value); if (!bsReturnWH) setBsReturnWH(e.target.value); }}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+                  >
+                    <option value="">— Select warehouse —</option>
+                    {bsWarehouses.filter(w => w.isActive).map((w) => (
+                      <option key={w.bigshipWarehouseId} value={String(w.bigshipWarehouseId)}>
+                        {w.name} — {w.city} {w.pincode}
+                      </option>
+                    ))}
+                  </select>
+                  {bsPickupWH && (() => {
+                    const wh = bsWarehouses.find(w => String(w.bigshipWarehouseId) === bsPickupWH);
+                    return wh ? (
+                      <p className="text-xs text-gray-400">{wh.address}, {wh.city}, {wh.state} · {wh.contactPerson} · {wh.phone}</p>
+                    ) : null;
+                  })()}
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-gray-600">Return Warehouse</label>
+                  <select
+                    value={bsReturnWH}
+                    onChange={(e) => setBsReturnWH(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+                  >
+                    <option value="">— Same as pickup —</option>
+                    {bsWarehouses.filter(w => w.isActive).map((w) => (
+                      <option key={w.bigshipWarehouseId} value={String(w.bigshipWarehouseId)}>
+                        {w.name} — {w.city} {w.pincode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              /* Fallback manual entry if warehouses not loaded yet */
+              <div className="space-y-3">
+                <p className="text-xs text-gray-400">
+                  Click <strong>Load from Bigship</strong> above to see your warehouses, or enter IDs manually below.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Pickup Warehouse ID" value={bsPickupWH} onChange={setBsPickupWH} placeholder="e.g. 218" inputMode="numeric" />
+                  <Field label="Return Warehouse ID" value={bsReturnWH} onChange={setBsReturnWH} placeholder="Same as pickup" inputMode="numeric" />
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

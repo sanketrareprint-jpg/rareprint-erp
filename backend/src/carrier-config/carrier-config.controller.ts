@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CarrierConfigService, type CarrierConfig } from './carrier-config.service';
 import { BigshipService } from '../bigship/bigship.service';
@@ -24,6 +24,7 @@ export class CarrierConfigController {
         pickupWarehouseId: cfg.bigship.pickupWarehouseId,
         returnWarehouseId: cfg.bigship.returnWarehouseId,
         isConfigured:      !!(cfg.bigship.username && cfg.bigship.password && cfg.bigship.accessKey),
+        tokenExpiresAt:    this.bigship.getTokenExpiry(),
       },
       shiprocket: {
         email:           cfg.shiprocket.email,
@@ -33,6 +34,19 @@ export class CarrierConfigController {
         isConfigured:    !!(cfg.shiprocket.email && cfg.shiprocket.password),
       },
     };
+  }
+
+  /** GET /carrier-config/bigship-warehouses — live list of warehouses from Bigship Direct */
+  @Get('bigship-warehouses')
+  async getBigshipWarehouses() {
+    const warehouses = await this.bigship.getWarehouseList();
+    return { warehouses };
+  }
+
+  /** POST /carrier-config/test-bigship — validates credentials live against Bigship Direct API */
+  @Post('test-bigship')
+  async testBigship() {
+    return this.bigship.testConnection();
   }
 
   @Put()

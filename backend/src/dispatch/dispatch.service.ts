@@ -118,6 +118,31 @@ export class DispatchService {
   ) {}
 
   async getWarehouses(): Promise<Warehouse[]> {
+    const activeCarrier = this.carrierConfig.getActiveCarrier();
+
+    // ── Bigship: fetch live warehouses from Bigship Direct ─────────────────
+    if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {
+      try {
+        const bigshipWarehouses = await this.bigship.getWarehouseList();
+        if (bigshipWarehouses.length > 0) {
+          return bigshipWarehouses.map((w) => ({
+            id:                 String(w.bigshipWarehouseId),
+            name:               w.name,
+            pincode:            w.pincode,
+            location:           w.city || w.name,
+            address:            w.address,
+            city:               w.city,
+            state:              w.state,
+            bigshipWarehouseId: w.bigshipWarehouseId,
+            source:             'bigship',
+          }));
+        }
+      } catch (e) {
+        this.logger.warn(`Bigship getWarehouseList failed, falling back to local: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
+    // ── Shiprocket / local fallback ────────────────────────────────────────
     const localWarehouses = loadWarehouses().map((warehouse) => ({ ...warehouse, source: 'local' }));
     let shiprocketPickups: ShiprocketPickupLocation[] = [];
     try {
@@ -153,6 +178,7 @@ export class DispatchService {
     }
 
     const warehouses = loadWarehouses();
+    // For Bigship, warehouseId is the numeric bigshipWarehouseId as a string
     return warehouses.find(w => w.id === warehouseId) ?? warehouses[0]!;
   }
 
@@ -379,6 +405,10 @@ export class DispatchService {
     if (rateId.startsWith('bs-') && this.bigship.isConfigured()) {
       // ── BigShip booking ─────────────────────────────────────────────────
       const courierId = parseInt(rateId.replace(/^bs-/, ''), 10);
+      // warehouseId is the bigshipWarehouseId (numeric string) when Bigship is active
+      const bsPickupWHId = warehouseId && /^\d+$/.test(warehouseId)
+        ? parseInt(warehouseId, 10)
+        : undefined;
       if (Number.isFinite(courierId) && courierId > 0) {
         const bs = await this.bigship.tryCreateAdhocOrder({
           orderNumber: order.orderNumber,
@@ -391,6 +421,7 @@ export class DispatchService {
           courierId,
           isCod: orderIsCod,
           codAmount: orderCodAmt,
+          pickupWarehouseId: bsPickupWHId,
         });
         if (bs.bigshipOrderId) {
           trackingRef    = bs.awbNumber ?? bs.bigshipOrderId;
