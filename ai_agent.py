@@ -296,7 +296,35 @@ class SalesAgent:
             return reply
         except Exception as e:
             logger.error(f"Claude API error: {e}")
-            return "Ek second rukiye... 🙏 Main abhi check karke batata hoon."
+            return self._fallback_reply(name, text, product, template_just_sent)
+
+    def _fallback_reply(
+        self,
+        name: str,
+        text: str,
+        product: dict | None,
+        template_just_sent: bool,
+    ) -> str:
+        lowered = text.lower()
+        if any(word in lowered for word in ["stop", "unsubscribe", "opt out"]):
+            return "[UNSUBSCRIBE]"
+        if any(word in lowered for word in ["pay", "payment", "upi", "advance", "order confirm", "book order"]):
+            return "Sir/Madam, order confirm karne ke liye payment details bhej raha hoon. [SEND_PAYMENT_LINK]"
+        if any(word in lowered for word in ["high", "mahanga", "mehnga", "zyada", "expensive", "rate issue"]):
+            return (
+                "Sir/Madam, medicine pouch mein hum 70 GSM white paper aur multicolor printing use karte hain, raddi/single color nahi. "
+                "10,000 qty par better rate, 5% discount aur 10,000 prescription stickers free de sakte hain."
+            )
+        if any(word in lowered for word in ["trust", "bharosa", "fake", "gst", "proof"]):
+            return (
+                "Sir/Madam, Rareprint ka GST 27GEKPP2259Q1ZI hai, aap GST portal par verify kar sakte hain. "
+                "Hum Amazon, IndiaMART aur TradeIndia par bhi listed hain. Aapka city bata dijiye, nearby reference share karenge."
+            )
+        if template_just_sent and product:
+            return f"Sir/Madam, {product['name']} ke rates/details share kar diye. Aap kitni quantity plan kar rahe hain?"
+        if product:
+            return f"Sir/Madam, {product['name']} ke liye aapka city bata dijiye, main requirement ke hisab se guide karta hoon."
+        return "Sir/Madam, aapko kaunsa product print karwana hai? Medicine pouch, stickers, bill book, letterpad, bag, file ya visiting card?"
 
     def _build_known_context(self, lead: dict, flags: dict, language_hint: str) -> str:
         known = {
