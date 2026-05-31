@@ -383,9 +383,10 @@ export class BigshipService {
       // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
+          // Bigship GET endpoints expect JSON body (not query params)
           const { data } = await this.api().get('/api/outbound/get-warehouse-list', {
             headers: { Authorization: `Bearer ${token}` },
-            params: { page, perPage, segment_type: segmentType },
+            data: { page: String(page), perPage: String(perPage), segment_type: segmentType },
           });
 
           const list = data?.data?.warehouse;
