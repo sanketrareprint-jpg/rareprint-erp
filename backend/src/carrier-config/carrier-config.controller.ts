@@ -54,8 +54,11 @@ export class CarrierConfigController {
    * GET /carrier-config/debug-rates?delivery=440032
    * Calls Bigship step-by-step and returns raw API responses so we can see exactly what fails.
    * Remove this endpoint after debugging is done.
+   * Note: No auth guard so it can be called directly in browser.
    */
   @Get('debug-rates')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // @UseGuards(AuthGuard('jwt')) — temporarily removed for debugging
   async debugRates(@Query('delivery') delivery = '110001') {
     const cfg = this.carrierConfig.getConfig().bigship;
     const warehouseId = cfg.pickupWarehouseId;
