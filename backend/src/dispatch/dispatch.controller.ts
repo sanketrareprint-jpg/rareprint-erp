@@ -53,6 +53,13 @@ export class DispatchController {
       codAmount?: number;
       warehouseId?: string;
       weightKgOverride?: number;
+      selectedQuote?: {
+        rateId: string;
+        carrierName?: string;
+        amount?: number;
+        currency?: string;
+        estimatedDays?: number;
+      };
       pickupName?: string;
       pickupPincode?: string;
       pickupLocation?: string;
@@ -73,6 +80,7 @@ export class DispatchController {
         pincode: body.pickupPincode,
         location: body.pickupLocation,
       },
+      body.selectedQuote,
     );
   }
 

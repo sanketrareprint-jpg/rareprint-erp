@@ -180,6 +180,7 @@ export default function DispatchPage() {
     if (itemIds.length === 0) { alert("Select at least one item"); return; }
     const rateId = selectedRate[orderId];
     if (!rateId) { alert("Fetch and select a shipping rate first"); return; }
+    const selectedQuote = (rates[orderId] ?? []).find(r => r.rateId === rateId);
     const orderData = orders.find(o => o.id === orderId);
     const wid = selectedWarehouse[orderId] || warehouses[0]?.id;
     const pickup = customPickup[orderId];
@@ -192,6 +193,7 @@ export default function DispatchPage() {
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           orderId, itemIds, rateId,
+          selectedQuote,
           isCod: orderData?.isCod ?? false,
           codAmount: orderData?.codAmount ?? undefined,
           warehouseId: wid,

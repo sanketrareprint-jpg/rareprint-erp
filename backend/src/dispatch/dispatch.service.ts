@@ -19,6 +19,7 @@ type LocalRateQuote = {
   currency: string;
   estimatedDays: number;
 };
+type SelectedRateQuote = Partial<LocalRateQuote> & { rateId: string };
 type TransportDispatchInput = {
   orderId: string;
   itemIds: string[];
@@ -82,6 +83,39 @@ function parseDispatchType(notes?: string | null): 'COURIER' | 'TRANSPORT' | 'BY
   if (/Transport:/i.test(text)) return 'TRANSPORT';
   if (/Courier:/i.test(text) || /Courier\s+charges/i.test(text)) return 'COURIER';
   return 'COURIER';
+}
+
+function parseBigshipRateId(rateId: string): { masterCustomOrderId: string; courierId: number } | null {
+  if (rateId.startsWith('bs:')) {
+    const [, encodedOrderId, courierIdText] = rateId.split(':');
+    const courierId = Number(courierIdText);
+    if (encodedOrderId && Number.isFinite(courierId) && courierId > 0) {
+      return { masterCustomOrderId: decodeURIComponent(encodedOrderId), courierId };
+    }
+  }
+
+  if (rateId.startsWith('bs-')) {
+    const courierId = Number(rateId.replace(/^bs-/, ''));
+    if (Number.isFinite(courierId) && courierId > 0) {
+      return { masterCustomOrderId: '', courierId };
+    }
+  }
+
+  return null;
+}
+
+function sanitizeSelectedRateQuote(rateId: string, quote?: SelectedRateQuote): LocalRateQuote | null {
+  if (!quote || quote.rateId !== rateId) return null;
+  const amount = Number(quote.amount);
+  const estimatedDays = Number(quote.estimatedDays ?? 0);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return {
+    rateId,
+    carrierName: String(quote.carrierName ?? 'Bigship Courier'),
+    amount: Math.round(amount * 100) / 100,
+    currency: String(quote.currency ?? 'INR'),
+    estimatedDays: Number.isFinite(estimatedDays) && estimatedDays > 0 ? estimatedDays : 3,
+  };
 }
 
 // ── Warehouse helpers ─────────────────────────────────────────────────────
@@ -353,6 +387,12 @@ export class DispatchService {
     const delivery   = extractPincode(order.customer.shippingAddress) ||
                        extractPincode(order.customer.billingAddress)  ||
                        process.env.SHIPROCKET_DEFAULT_DELIVERY_PINCODE?.trim() || pickup;
+    const addr = splitAddressForShiprocket(order.customer);
+    const orderIsCod = /\bCOD[:\s]/i.test(order.notes ?? '');
+    const orderCodAmt = (() => {
+      const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i);
+      return m ? Number(m[1]) : undefined;
+    })();
 
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
@@ -366,6 +406,16 @@ export class DispatchService {
           pickupPostcode: pickup,
           deliveryPostcode: delivery,
           weightKg,
+          orderNumber: order.orderNumber,
+          invoiceAmount: Number(order.grandTotal),
+          shippingName: order.customer.businessName,
+          shippingMobile: order.customer.phone ?? undefined,
+          shippingEmail: order.customer.email ?? undefined,
+          shippingAddress: addr.line,
+          shippingCity: addr.city,
+          shippingState: addr.state,
+          isCod: orderIsCod,
+          codAmount: orderCodAmt,
           pickupWarehouseId: bsPickupWHId,
         });
         if (bs.length) {
@@ -416,7 +466,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -435,8 +485,10 @@ export class DispatchService {
       throw new BadRequestException('No ready items selected for dispatch');
     }
 
-    const ratesPayload = await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride);
-    const picked = ratesPayload.rates.find((r) => r.rateId === rateId);
+    const bigshipRate = parseBigshipRateId(rateId);
+    const picked = bigshipRate?.masterCustomOrderId
+      ? sanitizeSelectedRateQuote(rateId, selectedQuote)
+      : (await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride)).rates.find((r) => r.rateId === rateId);
     if (!picked) throw new BadRequestException('Invalid shipping rate selection');
 
     const weightKg = weightKgOverride && weightKgOverride > 0
@@ -448,37 +500,48 @@ export class DispatchService {
     const shipmentNumber = `SHP-${Date.now()}-${randomSuffix()}`;
     let trackingRef    = '';
     let shiprocketNote = '';
+    let awbNumber: string | null = null;
 
     const addr = splitAddressForShiprocket(order.customer);
     const orderIsCod    = isCod ?? /\bCOD[:\s]/i.test(order.notes ?? '');
     const orderCodAmt   = codAmount ?? (() => { const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i); return m ? Number(m[1]) : undefined; })();
 
-    if (rateId.startsWith('bs-') && this.bigship.isConfigured()) {
+    if (bigshipRate && this.bigship.isConfigured()) {
       // ── BigShip booking ─────────────────────────────────────────────────
-      const courierId = parseInt(rateId.replace(/^bs-/, ''), 10);
+      const courierId = bigshipRate.courierId;
       // resolveWarehouse now always returns bigshipWarehouseId for Bigship carrier
       const bsPickupWHId =
         (warehouse as Record<string, unknown>).bigshipWarehouseId as number | undefined
         ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined);
+      let bs: { bigshipOrderId?: string; awbNumber?: string; message?: string } = {};
       if (Number.isFinite(courierId) && courierId > 0) {
-        const bs = await this.bigship.tryCreateAdhocOrder({
-          orderNumber: order.orderNumber,
-          customerName: order.customer.businessName,
-          customerPhone: order.customer.phone ?? '9999999999',
-          customerEmail: order.customer.email ?? 'noreply@example.com',
-          billingAddress: addr.line, billingCity: addr.city,
-          billingPincode: addr.pincode, billingState: addr.state,
-          weightKg, subTotal: Number(order.grandTotal),
-          courierId,
-          isCod: orderIsCod,
-          codAmount: orderCodAmt,
-          pickupWarehouseId: bsPickupWHId,
-        });
-        if (bs.bigshipOrderId) {
-          trackingRef    = bs.awbNumber ?? bs.bigshipOrderId;
-          shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ''}.`;
-        }
+        bs = bigshipRate.masterCustomOrderId
+          ? await this.bigship.placeExistingOrder({
+              masterCustomOrderId: bigshipRate.masterCustomOrderId,
+              courierId,
+            })
+          : await this.bigship.tryCreateAdhocOrder({
+              orderNumber: order.orderNumber,
+              customerName: order.customer.businessName,
+              customerPhone: order.customer.phone ?? '9999999999',
+              customerEmail: order.customer.email ?? 'noreply@example.com',
+              billingAddress: addr.line, billingCity: addr.city,
+              billingPincode: addr.pincode, billingState: addr.state,
+              weightKg, subTotal: Number(order.grandTotal),
+              courierId,
+              isCod: orderIsCod,
+              codAmount: orderCodAmt,
+              pickupWarehouseId: bsPickupWHId,
+            });
       }
+
+      if (!bs.bigshipOrderId) {
+        throw new BadRequestException(`Bigship booking failed: ${bs.message ?? 'no Bigship order ID returned'}`);
+      }
+
+      trackingRef    = bs.awbNumber ?? bs.bigshipOrderId;
+      awbNumber      = bs.awbNumber ?? null;
+      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ''}.`;
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
       // ── Shiprocket booking ───────────────────────────────────────────────
       const courierCompanyId = parseInt(rateId.replace(/^sr-/, ''), 10);
@@ -515,6 +578,7 @@ export class DispatchService {
             status: ShipmentStatus.PACKED,
             dispatchDate: new Date(),
             trackingNumber: trackingRef || null,
+            awbNumber,
             dispatchType: 'COURIER',
             transportChargesType: isCod ? 'COD' : 'PREPAID',
             notes: `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}. Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`,

@@ -74,6 +74,7 @@ export type BigshipRateRow = {
   currency: string;
   estimatedDays: number;
   courierId: number;
+  bigshipOrderId: string;
 };
 
 @Injectable()
@@ -234,6 +235,15 @@ export class BigshipService {
     weightKg: number;
     codAmount?: number;
     pickupWarehouseId?: number;
+    orderNumber?: string;
+    invoiceAmount?: number;
+    shippingName?: string;
+    shippingMobile?: string;
+    shippingEmail?: string;
+    shippingAddress?: string;
+    shippingCity?: string;
+    shippingState?: string;
+    isCod?: boolean;
   }): Promise<BigshipRateRow[]> {
     if (!this.isConfigured()) return [];
 
@@ -254,6 +264,9 @@ export class BigshipService {
     const deliveryPostcode = params.deliveryPostcode?.trim() ||
                              params.pickupPostcode?.trim()   ||
                              '110001'; // last-resort default (Delhi)
+    const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
+    const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
+    const invoiceNo = (params.orderNumber ?? `RATE-${Date.now()}`).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 25) || `RATE-${Date.now()}`;
 
     this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
@@ -267,15 +280,17 @@ export class BigshipService {
           MasterOrderPickUpLocation:  warehouseId,
           MasterOrderReturnLocation:  warehouseId,
           MasterOrderDate:            new Date().toISOString().slice(0, 10),
-          MasterOrderPaymentMode:     1,
-          OrderInvoiceNo:             `RATE-${Date.now()}`,
-          MasterOrderInvoiceAmount:   1000,
-          MasterOrderShippingName:    'Rate Check',
-          MasterOrderShippingMobileNo: '9999999999',
-          MasterOrderShippingAddress: 'Rate Check Address',
+          MasterOrderPaymentMode:     params.isCod ? 2 : 1,
+          OrderInvoiceNo:             invoiceNo,
+          MasterOrderInvoiceAmount:   declaredValue,
+          MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
+          MasterOrderShippingName:    (params.shippingName ?? 'Rate Check').slice(0, 60),
+          MasterOrderShippingEmail:   params.shippingEmail ?? '',
+          MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
+          MasterOrderShippingAddress: (params.shippingAddress ?? 'Rate Check Address').slice(0, 100),
           MasterOrderShippingZipCode: deliveryPostcode,
-          MasterOrderShippingCity:    cityFromPincode(deliveryPostcode),
-          MasterOrderShippingState:   stateFromPincode(deliveryPostcode),
+          MasterOrderShippingCity:    (params.shippingCity ?? cityFromPincode(deliveryPostcode)).toUpperCase(),
+          MasterOrderShippingState:   (params.shippingState ?? stateFromPincode(deliveryPostcode)).toUpperCase(),
           MasterOrderShippingCountry: 'India',
           totalNumOfBoxes: 1,
           boxes: [{
@@ -286,9 +301,9 @@ export class BigshipService {
             products: [{
               productName:        'Product',
               qty:                '1',
-              amount:             '1000',
-              totalAmount:        1000,
-              collectableAmount:  params.codAmount ?? 0,
+              amount:             String(declaredValue),
+              totalAmount:        declaredValue,
+              collectableAmount:  codAmount,
               categoryId:         '1',
             }],
           }],
@@ -321,12 +336,13 @@ export class BigshipService {
 
       return list
         .map((c: Record<string, unknown>) => ({
-          rateId:        `bs-${c.courierId}`,
+          rateId:        `bs:${encodeURIComponent(orderId)}:${c.courierId}`,
           carrierName:   String(c.courierName ?? c.planName ?? 'Courier'),
           amount:        Math.round(Number(c.total_freight ?? c.total ?? 0) * 100) / 100,
           currency:      'INR',
           estimatedDays: Number(c.tat ?? 3),
           courierId:     Number(c.courierId),
+          bigshipOrderId: orderId,
         }))
         .filter((r) => r.courierId > 0 && r.amount >= 0);
     } catch (e) {
@@ -430,21 +446,43 @@ export class BigshipService {
       }
 
       // ── Step 2: Place / manifest order ───────────────────────────────────
+      return this.placeExistingOrder({
+        masterCustomOrderId: customOrderId,
+        courierId: input.courierId,
+      });
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: unknown }; message?: string };
+      this.logger.warn(`Bigship order failed: ${JSON.stringify(err.response?.data)?.slice(0, 300)}`);
+      return { message: err.message };
+    }
+  }
+
+  async placeExistingOrder(input: {
+    masterCustomOrderId: string;
+    courierId: number;
+  }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
+    if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
+    const token = await this.getAuthToken();
+
+    try {
       const { data: placeData } = await this.api().post(
         '/api/outbound/place-order',
-        { MasterCustomOrderId: customOrderId, courierId: input.courierId },
+        { MasterCustomOrderId: input.masterCustomOrderId, courierId: input.courierId },
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
       const awb = String(placeData?.data?.awb_assigned ?? placeData?.data?.reference_number ?? '');
       return {
-        bigshipOrderId: customOrderId,
-        awbNumber:      awb || undefined,
+        bigshipOrderId: input.masterCustomOrderId,
+        awbNumber: awb || undefined,
       };
     } catch (e: unknown) {
       const err = e as { response?: { data?: unknown }; message?: string };
-      this.logger.warn(`Bigship order failed: ${JSON.stringify(err.response?.data)?.slice(0, 300)}`);
-      return { message: err.message };
+      const response = err.response?.data ?? err.message ?? 'Bigship place-order failed';
+      this.logger.warn(`Bigship place-order failed: ${JSON.stringify(response)?.slice(0, 300)}`);
+      return {
+        message: typeof response === 'string' ? response : JSON.stringify(response)?.slice(0, 300),
+      };
     }
   }
 
