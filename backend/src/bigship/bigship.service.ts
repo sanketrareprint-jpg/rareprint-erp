@@ -83,6 +83,33 @@ export class BigshipService {
   private tokenUntil = 0;
   private tokenExpiresAt?: string; // ISO string from API
 
+  // ── Warehouse cache ──────────────────────────────────────────────────────────
+  warehouseCache: BigshipWarehouse[] = []; // public so DispatchService can read it
+  private warehouseCacheAt = 0; // timestamp of last fetch
+  private static WAREHOUSE_CACHE_TTL = 30 * 60 * 1000; // 30 min
+
+  /** Returns cached warehouses, refreshing if stale. Non-blocking version available via refreshWarehouseCache(). */
+  async getCachedWarehouses(): Promise<BigshipWarehouse[]> {
+    if (this.warehouseCache.length > 0 && Date.now() - this.warehouseCacheAt < BigshipService.WAREHOUSE_CACHE_TTL) {
+      return this.warehouseCache;
+    }
+    return this.refreshWarehouseCache();
+  }
+
+  /** Fetches fresh warehouse list, stores in cache and returns it */
+  async refreshWarehouseCache(): Promise<BigshipWarehouse[]> {
+    try {
+      const list = await this.getWarehouseList();
+      if (list.length > 0) {
+        this.warehouseCache = list;
+        this.warehouseCacheAt = Date.now();
+      }
+    } catch (e) {
+      this.logger.warn(`Warehouse cache refresh failed: ${e}`);
+    }
+    return this.warehouseCache;
+  }
+
   // ── HTTP client ─────────────────────────────────────────────────────────────
 
   private api(): AxiosInstance {

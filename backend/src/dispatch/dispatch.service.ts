@@ -120,49 +120,42 @@ export class DispatchService {
   async getWarehouses(): Promise<Warehouse[]> {
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
-    // ── Bigship: build warehouse list from saved config (no live API call) ──
-    // Avoids hanging the dispatch page. The user selects their warehouse in
-    // Settings; the saved pickupWarehouseId drives everything.
+    // ── Bigship: return all warehouses from cache (fast, no blocking) ──────────
     if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {
       const cfg = this.carrierConfig.getConfig().bigship;
-      const pickupId = cfg.pickupWarehouseId;
-      const returnId = cfg.returnWarehouseId ?? pickupId;
+      const defaultPickupId = cfg.pickupWarehouseId;
 
-      if (pickupId) {
-        const warehouses: Warehouse[] = [];
-        const seen = new Set<number>();
+      // Try to get from cache first (instant), trigger refresh in background
+      const cached = await this.bigship.getCachedWarehouses();
 
-        // Always include pickup warehouse
-        warehouses.push({
-          id:                 String(pickupId),
-          name:               `Bigship Warehouse ${pickupId}`,
-          pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
-          location:           `Bigship #${pickupId}`,
-          source:             'bigship',
-          bigshipWarehouseId: pickupId,
-        } as Warehouse & { bigshipWarehouseId: number });
-        seen.add(pickupId);
-
-        // Add return warehouse if different
-        if (returnId && !seen.has(returnId)) {
-          warehouses.push({
-            id:                 String(returnId),
-            name:               `Bigship Warehouse ${returnId}`,
-            pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
-            location:           `Bigship #${returnId}`,
+      if (cached.length > 0) {
+        // Return all active warehouses with real names from Bigship
+        return cached
+          .filter(w => w.isActive)
+          .map(w => ({
+            id:                 String(w.bigshipWarehouseId),
+            name:               w.name,
+            pincode:            w.pincode || process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
+            location:           `${w.city}, ${w.state}`,
+            address:            `${w.address}, ${w.city}, ${w.state}`,
+            city:               w.city,
+            state:              w.state,
             source:             'bigship',
-            bigshipWarehouseId: returnId,
-          } as Warehouse & { bigshipWarehouseId: number });
-        }
+            bigshipWarehouseId: w.bigshipWarehouseId,
+          } as Warehouse & { bigshipWarehouseId: number }));
+      }
 
-        // Also try fetching full warehouse details in background to enrich names
-        // (non-blocking — don't await)
-        void this.bigship.getWarehouseList().then((list) => {
-          // Cache for future enrichment if needed
-          this.logger.debug(`Bigship warehouse list background fetch: ${list.length} found`);
-        }).catch(() => { /* silent */ });
-
-        return warehouses;
+      // Cache miss — return saved default warehouse immediately, refresh in background
+      if (defaultPickupId) {
+        void this.bigship.refreshWarehouseCache();
+        return [{
+          id:                 String(defaultPickupId),
+          name:               `Bigship Warehouse ${defaultPickupId}`,
+          pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
+          location:           `Bigship #${defaultPickupId}`,
+          source:             'bigship',
+          bigshipWarehouseId: defaultPickupId,
+        } as Warehouse & { bigshipWarehouseId: number }];
       }
     }
 
@@ -210,15 +203,19 @@ export class DispatchService {
         ? parseInt(warehouseId, 10)
         : cfg.pickupWarehouseId ?? null;
       if (resolvedId) {
-        const pincode =
-          process.env.BIGSHIP_PICKUP_PINCODE?.trim() ||
-          '440032';
+        // Try to get real name/pincode from cache
+        const cached = this.bigship.warehouseCache.find(w => w.bigshipWarehouseId === resolvedId);
+        const pincode = cached?.pincode || process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032';
+        const name    = cached?.name    || `Bigship Warehouse ${resolvedId}`;
         return {
-          id: String(resolvedId),
-          name: `Bigship Warehouse ${resolvedId}`,
+          id:                 String(resolvedId),
+          name,
           pincode,
-          location: `Bigship #${resolvedId}`,
-          source: 'bigship',
+          location:           cached ? `${cached.city}, ${cached.state}` : `Bigship #${resolvedId}`,
+          address:            cached?.address,
+          city:               cached?.city,
+          state:              cached?.state,
+          source:             'bigship',
           bigshipWarehouseId: resolvedId,
         } as Warehouse & { bigshipWarehouseId: number };
       }
