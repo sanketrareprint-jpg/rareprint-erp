@@ -157,6 +157,8 @@ export class BigshipService {
     weightKg: number;
     codAmount?: number;
     pickupWarehouseId?: number;
+    shippingCity?: string;
+    shippingState?: string;
   }): Promise<BigshipRateRow[]> {
     if (!this.isConfigured()) return [];
 
@@ -197,8 +199,8 @@ export class BigshipService {
           MasterOrderShippingMobileNo: '9999999999',
           MasterOrderShippingAddress: 'Rate Check Address',
           MasterOrderShippingZipCode: deliveryPostcode,
-          MasterOrderShippingCity:    'DELHI',
-          MasterOrderShippingState:   'DELHI',
+          MasterOrderShippingCity:    (params.shippingCity?.toUpperCase()  || '').slice(0, 50) || 'CITY',
+          MasterOrderShippingState:   (params.shippingState?.toUpperCase() || '').slice(0, 50) || 'STATE',
           MasterOrderShippingCountry: 'India',
           totalNumOfBoxes: 1,
           boxes: [{

@@ -365,7 +365,16 @@ export class DispatchService {
         // Pass bigshipWarehouseId if the selected warehouse came from Bigship
         const bsPickupWHId = (warehouse as Record<string, unknown>).bigshipWarehouseId as number | undefined
           ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined);
-        const bs = await this.bigship.fetchCourierRates({ pickupPostcode: pickup, deliveryPostcode: delivery, weightKg, pickupWarehouseId: bsPickupWHId });
+        // Extract city/state from customer address so Bigship can validate pincode correctly
+        const customerAddr = splitAddressForShiprocket(order.customer);
+        const bs = await this.bigship.fetchCourierRates({
+          pickupPostcode: pickup,
+          deliveryPostcode: delivery,
+          weightKg,
+          pickupWarehouseId: bsPickupWHId,
+          shippingCity:  customerAddr.city,
+          shippingState: customerAddr.state,
+        });
         if (bs.length) {
           return {
             orderId: order.id, orderNo: order.orderNumber,
