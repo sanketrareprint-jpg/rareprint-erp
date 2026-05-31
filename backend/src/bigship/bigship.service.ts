@@ -166,9 +166,11 @@ export class BigshipService {
           : null);
 
     if (!warehouseId) {
-      this.logger.warn('Bigship: fetchCourierRates — no pickup warehouse ID configured');
+      this.logger.warn('Bigship fetchCourierRates — no pickup warehouse ID. Set BIGSHIP_PICKUP_WAREHOUSE_ID or select a warehouse in Settings.');
       return [];
     }
+
+    this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${params.deliveryPostcode} weight=${weight}kg`);
 
     const token  = await this.getAuthToken();
     const weight = Math.max(0.1, Number(params.weightKg) || 0.1);
@@ -212,12 +214,17 @@ export class BigshipService {
         { headers: { Authorization: `Bearer ${token}` } },
       );
       orderId = createData?.data?.CustomGlobalOrderId as string | null ?? null;
-    } catch (e) {
-      this.logger.warn(`Bigship fetchCourierRates — create draft failed: ${e}`);
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: unknown }; message?: string };
+      this.logger.warn(`Bigship fetchCourierRates — create draft failed: ${JSON.stringify(err.response?.data ?? err.message)}`);
       return [];
     }
 
-    if (!orderId) return [];
+    if (!orderId) {
+      this.logger.warn('Bigship fetchCourierRates — draft order returned no CustomGlobalOrderId');
+      return [];
+    }
+    this.logger.log(`Bigship fetchCourierRates — draft orderId=${orderId}, fetching rates...`);
 
     try {
       // Step 2 — fetch rates for the draft order
@@ -383,10 +390,10 @@ export class BigshipService {
       // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
-          // Bigship GET endpoints expect JSON body (not query params)
-          const { data } = await this.api().get('/api/outbound/get-warehouse-list', {
+          // Bigship documents this as GET with JSON body — send via URL params to be safe
+          const url = `/api/outbound/get-warehouse-list?page=${page}&perPage=${perPage}&segment_type=${segmentType}`;
+          const { data } = await this.api().get(url, {
             headers: { Authorization: `Bearer ${token}` },
-            data: { page: String(page), perPage: String(perPage), segment_type: segmentType },
           });
 
           const list = data?.data?.warehouse;
