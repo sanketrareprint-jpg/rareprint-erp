@@ -97,6 +97,13 @@ function uniqueInvoiceNo(base: string | undefined, prefix: string): string {
   return `${cleanBase}-${suffix}`.slice(0, 25);
 }
 
+function bigshipActiveFlag(value: unknown): boolean {
+  if (value == null) return true;
+  if (value === true || value === 1) return true;
+  const text = String(value).trim().toLowerCase();
+  return ['1', 'true', 'active', 'yes', 'y'].includes(text);
+}
+
 /** Look up a plausible city from pincode — used only when no city is in the address */
 function cityFromPincode(pin: string, fallback?: string): string {
   const prefix2 = pin.trim().slice(0, 2);
@@ -644,7 +651,7 @@ export class BigshipService {
                 address:       String(w.warehouseAddressLine1 ?? ''),
                 contactPerson: String(w.warehouseContactPerson ?? ''),
                 phone:         String(w.warehouseAddressPhone  ?? ''),
-                isActive:      w.isActive === '1' || w.isActive === true,
+                isActive:      bigshipActiveFlag(w.isActive),
               });
             }
           }

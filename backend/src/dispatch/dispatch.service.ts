@@ -200,9 +200,10 @@ export class DispatchService {
       const cached = await this.bigship.getCachedWarehouses();
 
       if (cached.length > 0) {
-        // Return all active warehouses with real names from Bigship
+        // Return all usable warehouses with real names from Bigship. Some Bigship
+        // responses omit or vary the active flag, so only hide explicit inactive rows.
         return cached
-          .filter(w => w.isActive)
+          .filter(w => w.isActive !== false)
           .map(w => ({
             id:                 String(w.bigshipWarehouseId),
             name:               w.name,
