@@ -578,7 +578,7 @@ export class BigshipService {
     try {
       const { data: placeData } = await this.api().post(
         '/api/outbound/place-order',
-        { MasterCustomOrderId: input.masterCustomOrderId, courierId: input.courierId, riskTypeId: 1 },
+        { MasterCustomOrderId: input.masterCustomOrderId, courierId: input.courierId, riskTypeId: 1, invoiceType: 1 },
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
