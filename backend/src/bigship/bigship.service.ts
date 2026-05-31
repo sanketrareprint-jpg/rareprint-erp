@@ -173,7 +173,12 @@ export class BigshipService {
     const token  = await this.getAuthToken();
     const weight = Math.max(0.1, Number(params.weightKg) || 0.1);
 
-    this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${params.deliveryPostcode} weight=${weight}kg`);
+    // Ensure we have a valid delivery pincode — fall back to pickup pincode or a default
+    const deliveryPostcode = params.deliveryPostcode?.trim() ||
+                             params.pickupPostcode?.trim()   ||
+                             '110001'; // last-resort default (Delhi)
+
+    this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
     let orderId: string | null = null;
     try {
@@ -191,7 +196,7 @@ export class BigshipService {
           MasterOrderShippingName:    'Rate Check',
           MasterOrderShippingMobileNo: '9999999999',
           MasterOrderShippingAddress: 'Rate Check Address',
-          MasterOrderShippingZipCode: params.deliveryPostcode.trim(),
+          MasterOrderShippingZipCode: deliveryPostcode,
           MasterOrderShippingCity:    'DELHI',
           MasterOrderShippingState:   'DELHI',
           MasterOrderShippingCountry: 'India',

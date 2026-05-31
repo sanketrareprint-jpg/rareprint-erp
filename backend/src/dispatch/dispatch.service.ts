@@ -136,7 +136,7 @@ export class DispatchService {
         warehouses.push({
           id:                 String(pickupId),
           name:               `Bigship Warehouse ${pickupId}`,
-          pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '',
+          pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
           location:           `Bigship #${pickupId}`,
           source:             'bigship',
           bigshipWarehouseId: pickupId,
@@ -148,7 +148,7 @@ export class DispatchService {
           warehouses.push({
             id:                 String(returnId),
             name:               `Bigship Warehouse ${returnId}`,
-            pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '',
+            pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
             location:           `Bigship #${returnId}`,
             source:             'bigship',
             bigshipWarehouseId: returnId,
