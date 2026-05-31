@@ -35,24 +35,37 @@ const PINCODE_STATE: Record<string, string> = {
   '84': 'JHARKHAND',    '85': 'JHARKHAND',
 };
 
+function titleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function limitText(value: string | undefined, fallback: string, maxLength: number): string {
+  const cleaned = (value ?? fallback).replace(/\s+/g, ' ').trim() || fallback;
+  return cleaned.slice(0, maxLength);
+}
+
 /** Look up Indian state name from a 6-digit pincode */
 function stateFromPincode(pin: string): string {
   const prefix = pin.trim().slice(0, 2);
-  return PINCODE_STATE[prefix] ?? 'DELHI';
+  return titleCase(PINCODE_STATE[prefix] ?? 'DELHI');
 }
 
 /** Look up a plausible city from pincode — used only when no city is in the address */
-function cityFromPincode(pin: string): string {
+function cityFromPincode(pin: string, fallback?: string): string {
   const prefix2 = pin.trim().slice(0, 2);
   const prefix3 = pin.trim().slice(0, 3);
   const CITY_MAP: Record<string, string> = {
-    '110': 'DELHI',       '400': 'MUMBAI',       '411': 'PUNE',
-    '440': 'NAGPUR',      '380': 'AHMEDABAD',    '560': 'BANGALORE',
-    '600': 'CHENNAI',     '500': 'HYDERABAD',    '700': 'KOLKATA',
-    '302': 'JAIPUR',      '208': 'KANPUR',       '226': 'LUCKNOW',
-    '482': 'JABALPUR',    '452': 'INDORE',       '462': 'BHOPAL',
+    '110': 'DELHI',          '400': 'MUMBAI',          '401': 'MUMBAI',
+    '411': 'PUNE',           '422': 'NASHIK',          '440': 'NAGPUR',
+    '442': 'CHANDRAPUR',     '380': 'AHMEDABAD',       '560': 'BANGALORE',
+    '600': 'CHENNAI',        '500': 'HYDERABAD',       '700': 'KOLKATA',
+    '302': 'JAIPUR',         '208': 'KANPUR',          '226': 'LUCKNOW',
+    '262': 'LAKHIMPUR KHERI','482': 'JABALPUR',        '452': 'INDORE',
+    '462': 'BHOPAL',
   };
-  return CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? 'CITY';
+  return titleCase(CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? fallback ?? 'Delhi');
 }
 
 export type BigshipWarehouse = {
@@ -76,6 +89,48 @@ export type BigshipRateRow = {
   courierId: number;
   bigshipOrderId: string;
 };
+
+export type BigshipPackageBox = {
+  noOfBoxes: number;
+  length: number;
+  breadth: number;
+  height: number;
+  weight: number;
+};
+
+function normalizePackageBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5): BigshipPackageBox[] {
+  const normalized = (boxes ?? [])
+    .map((box) => ({
+      noOfBoxes: Math.max(1, Math.floor(Number(box.noOfBoxes) || 1)),
+      length: Math.max(1, Number(box.length) || 0),
+      breadth: Math.max(1, Number(box.breadth) || 0),
+      height: Math.max(1, Number(box.height) || 0),
+      weight: Math.max(0.1, Number(box.weight) || 0),
+    }))
+    .filter((box) => box.length > 0 && box.breadth > 0 && box.height > 0 && box.weight > 0);
+
+  return normalized.length > 0
+    ? normalized
+    : [{ noOfBoxes: 1, length: 20, breadth: 15, height: 10, weight: Math.max(0.1, fallbackWeightKg) }];
+}
+
+function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
+  const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
+  return {
+    totalNumOfBoxes: normalized.reduce((sum, box) => sum + box.noOfBoxes, 0),
+    boxes: normalized.map((box) => ({
+      weight_unit: 'kg',
+      dimension_unit: 'cm',
+      noOfBoxes: box.noOfBoxes,
+      dimensions: [{
+        length: box.length,
+        breadth: box.breadth,
+        height: box.height,
+        weight: box.weight,
+      }],
+    })),
+  };
+}
 
 @Injectable()
 export class BigshipService {
@@ -244,6 +299,7 @@ export class BigshipService {
     shippingCity?: string;
     shippingState?: string;
     isCod?: boolean;
+    packageBoxes?: BigshipPackageBox[];
   }): Promise<BigshipRateRow[]> {
     if (!this.isConfigured()) return [];
 
@@ -267,6 +323,9 @@ export class BigshipService {
     const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
     const invoiceNo = (params.orderNumber ?? `RATE-${Date.now()}`).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 25) || `RATE-${Date.now()}`;
+    const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
+    const shippingCity = cityFromPincode(deliveryPostcode, params.shippingCity);
+    const shippingState = stateFromPincode(deliveryPostcode);
 
     this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
@@ -284,20 +343,17 @@ export class BigshipService {
           OrderInvoiceNo:             invoiceNo,
           MasterOrderInvoiceAmount:   declaredValue,
           MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
-          MasterOrderShippingName:    (params.shippingName ?? 'Rate Check').slice(0, 60),
+          MasterOrderShippingName:    limitText(params.shippingName, 'Rate Check', 25),
           MasterOrderShippingEmail:   params.shippingEmail ?? '',
           MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
-          MasterOrderShippingAddress: (params.shippingAddress ?? 'Rate Check Address').slice(0, 100),
+          MasterOrderShippingAddress: limitText(params.shippingAddress, 'Rate Check Address', 75),
           MasterOrderShippingZipCode: deliveryPostcode,
-          MasterOrderShippingCity:    (params.shippingCity ?? cityFromPincode(deliveryPostcode)).toUpperCase(),
-          MasterOrderShippingState:   (params.shippingState ?? stateFromPincode(deliveryPostcode)).toUpperCase(),
+          MasterOrderShippingCity:    shippingCity,
+          MasterOrderShippingState:   shippingState,
           MasterOrderShippingCountry: 'India',
-          totalNumOfBoxes: 1,
-          boxes: [{
-            weight_unit:    'kg',
-            dimension_unit: 'cm',
-            noOfBoxes: 1,
-            dimensions: [{ length: 20, breadth: 15, height: 10, weight }],
+          totalNumOfBoxes: packagePayload.totalNumOfBoxes,
+          boxes: packagePayload.boxes.map((box) => ({
+            ...box,
             products: [{
               productName:        'Product',
               qty:                '1',
@@ -306,7 +362,7 @@ export class BigshipService {
               collectableAmount:  codAmount,
               categoryId:         '1',
             }],
-          }],
+          })),
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -374,6 +430,7 @@ export class BigshipService {
     isCod?: boolean;
     codAmount?: number;
     pickupWarehouseId?: number;  // override; falls back to env var if omitted
+    packageBoxes?: BigshipPackageBox[];
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return {};
 
@@ -391,6 +448,9 @@ export class BigshipService {
     const declaredValue = Math.max(1, Math.round(input.subTotal));
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
     const invoiceNo     = input.orderNumber.replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 25) || `ORD-${Date.now()}`;
+    const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
+    const shippingCity = cityFromPincode(input.billingPincode, input.billingCity);
+    const shippingState = stateFromPincode(input.billingPincode);
 
     try {
       // ── Step 1: Create draft order ────────────────────────────────────────
@@ -405,27 +465,19 @@ export class BigshipService {
           OrderInvoiceNo:             invoiceNo,
           MasterOrderInvoiceAmount:   declaredValue,
           MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
-          MasterOrderShippingName:    input.customerName.slice(0, 60) || 'Customer',
+          MasterOrderShippingName:    limitText(input.customerName, 'Customer', 25),
           MasterOrderShippingEmail:   input.customerEmail || '',
           MasterOrderShippingMobileNo: input.customerPhone.replace(/\D/g, '').slice(0, 10) || '9999999999',
-          MasterOrderShippingAddress: input.billingAddress.slice(0, 100) || 'Address',
+          MasterOrderShippingAddress: limitText(input.billingAddress, 'Address', 75),
           MasterOrderShippingAddress2: '',
           MasterOrderShippingLandmark: '',
           MasterOrderShippingZipCode: input.billingPincode,
-          MasterOrderShippingCity:    input.billingCity.toUpperCase() || 'DELHI',
-          MasterOrderShippingState:   input.billingState.toUpperCase() || 'DELHI',
+          MasterOrderShippingCity:    shippingCity,
+          MasterOrderShippingState:   shippingState,
           MasterOrderShippingCountry: 'India',
-          totalNumOfBoxes: 1,
-          boxes: [{
-            weight_unit:    'kg',
-            dimension_unit: 'cm',
-            noOfBoxes: 1,
-            dimensions: [{
-              length:  20,
-              breadth: 15,
-              height:  10,
-              weight:  Math.max(0.1, input.weightKg),
-            }],
+          totalNumOfBoxes: packagePayload.totalNumOfBoxes,
+          boxes: packagePayload.boxes.map((box) => ({
+            ...box,
             products: [{
               productName:       'Print order',
               qty:               '1',
@@ -434,7 +486,7 @@ export class BigshipService {
               collectableAmount: codAmount,
               categoryId:        '1',
             }],
-          }],
+          })),
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
