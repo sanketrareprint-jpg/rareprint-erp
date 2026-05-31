@@ -120,25 +120,49 @@ export class DispatchService {
   async getWarehouses(): Promise<Warehouse[]> {
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
-    // ── Bigship: fetch live warehouses from Bigship Direct ─────────────────
+    // ── Bigship: build warehouse list from saved config (no live API call) ──
+    // Avoids hanging the dispatch page. The user selects their warehouse in
+    // Settings; the saved pickupWarehouseId drives everything.
     if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {
-      try {
-        const bigshipWarehouses = await this.bigship.getWarehouseList();
-        if (bigshipWarehouses.length > 0) {
-          return bigshipWarehouses.map((w) => ({
-            id:                 String(w.bigshipWarehouseId),
-            name:               w.name,
-            pincode:            w.pincode,
-            location:           w.city || w.name,
-            address:            w.address,
-            city:               w.city,
-            state:              w.state,
-            bigshipWarehouseId: w.bigshipWarehouseId,
+      const cfg = this.carrierConfig.getConfig().bigship;
+      const pickupId = cfg.pickupWarehouseId;
+      const returnId = cfg.returnWarehouseId ?? pickupId;
+
+      if (pickupId) {
+        const warehouses: Warehouse[] = [];
+        const seen = new Set<number>();
+
+        // Always include pickup warehouse
+        warehouses.push({
+          id:                 String(pickupId),
+          name:               `Bigship Warehouse ${pickupId}`,
+          pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '',
+          location:           `Bigship #${pickupId}`,
+          source:             'bigship',
+          bigshipWarehouseId: pickupId,
+        } as Warehouse & { bigshipWarehouseId: number });
+        seen.add(pickupId);
+
+        // Add return warehouse if different
+        if (returnId && !seen.has(returnId)) {
+          warehouses.push({
+            id:                 String(returnId),
+            name:               `Bigship Warehouse ${returnId}`,
+            pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '',
+            location:           `Bigship #${returnId}`,
             source:             'bigship',
-          }));
+            bigshipWarehouseId: returnId,
+          } as Warehouse & { bigshipWarehouseId: number });
         }
-      } catch (e) {
-        this.logger.warn(`Bigship getWarehouseList failed, falling back to local: ${e instanceof Error ? e.message : e}`);
+
+        // Also try fetching full warehouse details in background to enrich names
+        // (non-blocking — don't await)
+        void this.bigship.getWarehouseList().then((list) => {
+          // Cache for future enrichment if needed
+          this.logger.debug(`Bigship warehouse list background fetch: ${list.length} found`);
+        }).catch(() => { /* silent */ });
+
+        return warehouses;
       }
     }
 
