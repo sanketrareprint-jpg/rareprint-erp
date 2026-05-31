@@ -170,10 +170,10 @@ export class BigshipService {
       return [];
     }
 
-    this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${params.deliveryPostcode} weight=${weight}kg`);
-
     const token  = await this.getAuthToken();
     const weight = Math.max(0.1, Number(params.weightKg) || 0.1);
+
+    this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${params.deliveryPostcode} weight=${weight}kg`);
 
     let orderId: string | null = null;
     try {
