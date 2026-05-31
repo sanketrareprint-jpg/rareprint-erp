@@ -5,6 +5,56 @@ import axios, { type AxiosInstance } from 'axios';
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
 const BIGSHIP_BASE = 'https://api.bigship.direct';
 
+// ─── India pincode prefix → state lookup ─────────────────────────────────────
+// First 2 digits of a 6-digit pincode identify the postal circle / state.
+const PINCODE_STATE: Record<string, string> = {
+  '11': 'DELHI',        '12': 'HARYANA',       '13': 'HARYANA',
+  '14': 'PUNJAB',       '15': 'PUNJAB',        '16': 'PUNJAB',
+  '17': 'HIMACHAL PRADESH', '18': 'JAMMU AND KASHMIR', '19': 'JAMMU AND KASHMIR',
+  '20': 'UTTAR PRADESH', '21': 'UTTAR PRADESH', '22': 'UTTAR PRADESH',
+  '23': 'UTTAR PRADESH', '24': 'UTTAR PRADESH', '25': 'UTTAR PRADESH',
+  '26': 'UTTAR PRADESH', '27': 'UTTAR PRADESH', '28': 'UTTAR PRADESH',
+  '30': 'RAJASTHAN',    '31': 'RAJASTHAN',     '32': 'RAJASTHAN',
+  '33': 'RAJASTHAN',    '34': 'RAJASTHAN',
+  '36': 'GUJARAT',      '37': 'GUJARAT',       '38': 'GUJARAT',       '39': 'GUJARAT',
+  '40': 'MAHARASHTRA',  '41': 'MAHARASHTRA',   '42': 'MAHARASHTRA',
+  '43': 'MAHARASHTRA',  '44': 'MAHARASHTRA',
+  '45': 'MADHYA PRADESH', '46': 'MADHYA PRADESH', '47': 'MADHYA PRADESH',
+  '48': 'MADHYA PRADESH', '49': 'CHHATTISGARH',
+  '50': 'TELANGANA',    '51': 'TELANGANA',     '52': 'TELANGANA',
+  '53': 'ANDHRA PRADESH', '54': 'ANDHRA PRADESH', '55': 'ANDHRA PRADESH',
+  '56': 'KARNATAKA',    '57': 'KARNATAKA',     '58': 'KARNATAKA',     '59': 'KARNATAKA',
+  '60': 'TAMIL NADU',   '61': 'TAMIL NADU',    '62': 'TAMIL NADU',    '63': 'TAMIL NADU',
+  '64': 'TAMIL NADU',
+  '67': 'KERALA',       '68': 'KERALA',        '69': 'KERALA',
+  '70': 'WEST BENGAL',  '71': 'WEST BENGAL',   '72': 'WEST BENGAL',   '73': 'WEST BENGAL',
+  '74': 'WEST BENGAL',
+  '75': 'ODISHA',       '76': 'ODISHA',        '77': 'ODISHA',
+  '78': 'ASSAM',        '79': 'ASSAM',
+  '80': 'BIHAR',        '81': 'BIHAR',         '82': 'BIHAR',         '83': 'BIHAR',
+  '84': 'JHARKHAND',    '85': 'JHARKHAND',
+};
+
+/** Look up Indian state name from a 6-digit pincode */
+function stateFromPincode(pin: string): string {
+  const prefix = pin.trim().slice(0, 2);
+  return PINCODE_STATE[prefix] ?? 'DELHI';
+}
+
+/** Look up a plausible city from pincode — used only when no city is in the address */
+function cityFromPincode(pin: string): string {
+  const prefix2 = pin.trim().slice(0, 2);
+  const prefix3 = pin.trim().slice(0, 3);
+  const CITY_MAP: Record<string, string> = {
+    '110': 'DELHI',       '400': 'MUMBAI',       '411': 'PUNE',
+    '440': 'NAGPUR',      '380': 'AHMEDABAD',    '560': 'BANGALORE',
+    '600': 'CHENNAI',     '500': 'HYDERABAD',    '700': 'KOLKATA',
+    '302': 'JAIPUR',      '208': 'KANPUR',       '226': 'LUCKNOW',
+    '482': 'JABALPUR',    '452': 'INDORE',       '462': 'BHOPAL',
+  };
+  return CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? 'CITY';
+}
+
 export type BigshipWarehouse = {
   bigshipWarehouseId: number;
   name: string;
@@ -157,8 +207,6 @@ export class BigshipService {
     weightKg: number;
     codAmount?: number;
     pickupWarehouseId?: number;
-    shippingCity?: string;
-    shippingState?: string;
   }): Promise<BigshipRateRow[]> {
     if (!this.isConfigured()) return [];
 
@@ -199,8 +247,8 @@ export class BigshipService {
           MasterOrderShippingMobileNo: '9999999999',
           MasterOrderShippingAddress: 'Rate Check Address',
           MasterOrderShippingZipCode: deliveryPostcode,
-          MasterOrderShippingCity:    (params.shippingCity?.toUpperCase()  || '').slice(0, 50) || 'CITY',
-          MasterOrderShippingState:   (params.shippingState?.toUpperCase() || '').slice(0, 50) || 'STATE',
+          MasterOrderShippingCity:    cityFromPincode(deliveryPostcode),
+          MasterOrderShippingState:   stateFromPincode(deliveryPostcode),
           MasterOrderShippingCountry: 'India',
           totalNumOfBoxes: 1,
           boxes: [{
