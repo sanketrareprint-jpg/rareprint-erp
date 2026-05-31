@@ -46,6 +46,16 @@ function limitText(value: string | undefined, fallback: string, maxLength: numbe
   return cleaned.slice(0, maxLength);
 }
 
+function bigshipErrorMessage(error: unknown): string {
+  const err = error as { response?: { data?: unknown }; message?: string };
+  const data = err.response?.data;
+  if (!data) return err.message ?? 'Bigship request failed';
+  if (typeof data === 'string') return data;
+  const message = (data as { message?: string }).message;
+  const errors = (data as { errors?: unknown }).errors;
+  return [message, errors ? JSON.stringify(errors) : ''].filter(Boolean).join(' ');
+}
+
 /** Look up Indian state name from a 6-digit pincode */
 function stateFromPincode(pin: string): string {
   const prefix = pin.trim().slice(0, 2);
@@ -326,51 +336,63 @@ export class BigshipService {
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
     const shippingCity = cityFromPincode(deliveryPostcode, params.shippingCity);
     const shippingState = stateFromPincode(deliveryPostcode);
+    const cityStateAttempts = [
+      { city: shippingCity, state: shippingState },
+      { city: shippingCity.toUpperCase(), state: shippingState.toUpperCase() },
+      { city: titleCase(params.shippingCity ?? shippingCity), state: titleCase(params.shippingState ?? shippingState) },
+    ];
 
     this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
     let orderId: string | null = null;
-    try {
+    let lastCreateError = '';
+    for (const attempt of cityStateAttempts) {
+      try {
       // Step 1 — create draft order (domestic B2C)
-      const { data: createData } = await this.api().post(
-        '/api/outbound/create-order',
-        {
-          segment_type:               'domestic_b2c',
-          MasterOrderPickUpLocation:  warehouseId,
-          MasterOrderReturnLocation:  warehouseId,
-          MasterOrderDate:            new Date().toISOString().slice(0, 10),
-          MasterOrderPaymentMode:     params.isCod ? 2 : 1,
-          OrderInvoiceNo:             invoiceNo,
-          MasterOrderInvoiceAmount:   declaredValue,
-          MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
-          MasterOrderShippingName:    limitText(params.shippingName, 'Rate Check', 25),
-          MasterOrderShippingEmail:   params.shippingEmail ?? '',
-          MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
-          MasterOrderShippingAddress: limitText(params.shippingAddress, 'Rate Check Address', 75),
-          MasterOrderShippingZipCode: deliveryPostcode,
-          MasterOrderShippingCity:    shippingCity,
-          MasterOrderShippingState:   shippingState,
-          MasterOrderShippingCountry: 'India',
-          totalNumOfBoxes: packagePayload.totalNumOfBoxes,
-          boxes: packagePayload.boxes.map((box) => ({
-            ...box,
-            products: [{
-              productName:        'Product',
-              qty:                '1',
-              amount:             String(declaredValue),
-              totalAmount:        declaredValue,
-              collectableAmount:  codAmount,
-              categoryId:         '1',
-            }],
-          })),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      orderId = createData?.data?.CustomGlobalOrderId as string | null ?? null;
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: unknown }; message?: string };
-      this.logger.warn(`Bigship fetchCourierRates — create draft failed: ${JSON.stringify(err.response?.data ?? err.message)}`);
-      return [];
+        const { data: createData } = await this.api().post(
+          '/api/outbound/create-order',
+          {
+            segment_type:               'domestic_b2c',
+            MasterOrderPickUpLocation:  warehouseId,
+            MasterOrderReturnLocation:  warehouseId,
+            MasterOrderDate:            new Date().toISOString().slice(0, 10),
+            MasterOrderPaymentMode:     params.isCod ? 2 : 1,
+            OrderInvoiceNo:             invoiceNo,
+            MasterOrderInvoiceAmount:   declaredValue,
+            MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
+            MasterOrderShippingName:    limitText(params.shippingName, 'Rate Check', 25),
+            MasterOrderShippingEmail:   params.shippingEmail ?? '',
+            MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
+            MasterOrderShippingAddress: limitText(params.shippingAddress, 'Rate Check Address', 75),
+            MasterOrderShippingZipCode: deliveryPostcode,
+            MasterOrderShippingCity:    attempt.city,
+            MasterOrderShippingState:   attempt.state,
+            MasterOrderShippingCountry: 'India',
+            totalNumOfBoxes: packagePayload.totalNumOfBoxes,
+            boxes: packagePayload.boxes.map((box) => ({
+              ...box,
+              products: [{
+                productName:        'Product',
+                qty:                '1',
+                amount:             String(declaredValue),
+                totalAmount:        declaredValue,
+                collectableAmount:  codAmount,
+                categoryId:         '1',
+              }],
+            })),
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        orderId = createData?.data?.CustomGlobalOrderId as string | null ?? null;
+        break;
+      } catch (e: unknown) {
+        lastCreateError = bigshipErrorMessage(e);
+        this.logger.warn(`Bigship fetchCourierRates — create draft failed for ${attempt.city}/${attempt.state}: ${lastCreateError}`);
+      }
+    }
+
+    if (!orderId && lastCreateError) {
+      throw new Error(`Bigship rate check failed: ${lastCreateError}`);
     }
 
     if (!orderId) {
@@ -403,7 +425,7 @@ export class BigshipService {
         .filter((r) => r.courierId > 0 && r.amount >= 0);
     } catch (e) {
       this.logger.warn(`Bigship fetchCourierRates — rates fetch failed: ${e}`);
-      return [];
+      throw new Error(`Bigship rates fetch failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

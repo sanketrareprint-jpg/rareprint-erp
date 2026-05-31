@@ -8,7 +8,7 @@ import {
 import { OrderProductionStage, OrderStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
-import { BigshipService } from '../bigship/bigship.service';
+import { BigshipService, type BigshipPackageBox } from '../bigship/bigship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
@@ -20,6 +20,13 @@ type LocalRateQuote = {
   estimatedDays: number;
 };
 type SelectedRateQuote = Partial<LocalRateQuote> & { rateId: string };
+type DispatchPackageBox = {
+  noOfBoxes?: number;
+  length?: number;
+  breadth?: number;
+  height?: number;
+  weight?: number;
+};
 type TransportDispatchInput = {
   orderId: string;
   itemIds: string[];
@@ -116,6 +123,36 @@ function sanitizeSelectedRateQuote(rateId: string, quote?: SelectedRateQuote): L
     currency: String(quote.currency ?? 'INR'),
     estimatedDays: Number.isFinite(estimatedDays) && estimatedDays > 0 ? estimatedDays : 3,
   };
+}
+
+function normalizeDispatchPackageBoxes(boxes?: DispatchPackageBox[]): BigshipPackageBox[] | undefined {
+  if (!Array.isArray(boxes)) return undefined;
+  const normalized = boxes
+    .map((box) => ({
+      noOfBoxes: Math.max(1, Math.floor(Number(box.noOfBoxes) || 1)),
+      length: Number(box.length),
+      breadth: Number(box.breadth),
+      height: Number(box.height),
+      weight: Number(box.weight),
+    }))
+    .filter((box) =>
+      Number.isFinite(box.length) && box.length > 0 &&
+      Number.isFinite(box.breadth) && box.breadth > 0 &&
+      Number.isFinite(box.height) && box.height > 0 &&
+      Number.isFinite(box.weight) && box.weight > 0,
+    );
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function packageSummary(boxes?: DispatchPackageBox[]): string | null {
+  const normalized = normalizeDispatchPackageBoxes(boxes);
+  if (!normalized) return null;
+  const totalBoxes = normalized.reduce((sum, box) => sum + box.noOfBoxes, 0);
+  const totalWeight = normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
+  const rows = normalized
+    .map((box, index) => `Box ${index + 1}: ${box.noOfBoxes} x ${box.length}x${box.breadth}x${box.height}cm, ${box.weight}kg`)
+    .join('; ');
+  return `Packages: ${totalBoxes} box(es), ${Math.round(totalWeight * 100) / 100}kg total | ${rows}`;
 }
 
 // ── Warehouse helpers ─────────────────────────────────────────────────────
@@ -368,7 +405,7 @@ export class DispatchService {
     return result;
   }
 
-  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride) {
+  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[]) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true, items: { include: { product: true } } },
@@ -378,8 +415,12 @@ export class DispatchService {
     const readyItems = order.items.filter(
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
     );
+    const normalizedBoxes = normalizeDispatchPackageBoxes(packageBoxes);
+    const packageWeightKg = normalizedBoxes?.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
     const weightKg = weightKgOverride && weightKgOverride > 0
       ? weightKgOverride
+      : packageWeightKg && packageWeightKg > 0
+      ? packageWeightKg
       : this.weightKgFromItems(readyItems.length > 0 ? readyItems : order.items);
 
     const warehouse  = this.resolveWarehouse(warehouseId, pickupOverride);
@@ -417,6 +458,7 @@ export class DispatchService {
           isCod: orderIsCod,
           codAmount: orderCodAmt,
           pickupWarehouseId: bsPickupWHId,
+          packageBoxes: normalizedBoxes,
         });
         if (bs.length) {
           return {
@@ -430,8 +472,11 @@ export class DispatchService {
             })),
           };
         }
+        throw new BadRequestException('Bigship did not return any live courier rates.');
       } catch (e) {
         this.logger.warn(`BigShip rates failed: ${e instanceof Error ? e.message : e}`);
+        if (e instanceof BadRequestException) throw e;
+        throw new BadRequestException(e instanceof Error ? e.message : 'Bigship live rates failed.');
       }
     }
 
@@ -466,7 +511,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[]) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -491,9 +536,14 @@ export class DispatchService {
       : (await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride)).rates.find((r) => r.rateId === rateId);
     if (!picked) throw new BadRequestException('Invalid shipping rate selection');
 
+    const normalizedBoxes = normalizeDispatchPackageBoxes(packageBoxes);
+    const packageWeightKg = normalizedBoxes?.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
     const weightKg = weightKgOverride && weightKgOverride > 0
       ? weightKgOverride
+      : packageWeightKg && packageWeightKg > 0
+      ? packageWeightKg
       : this.weightKgFromItems(itemsToDispatch);
+    const packageNote = packageSummary(packageBoxes);
 
     // Resolve warehouse for this booking
     const warehouse   = this.resolveWarehouse(warehouseId, pickupOverride);
@@ -532,6 +582,7 @@ export class DispatchService {
               isCod: orderIsCod,
               codAmount: orderCodAmt,
               pickupWarehouseId: bsPickupWHId,
+              packageBoxes: normalizedBoxes,
             });
       }
 
@@ -581,7 +632,11 @@ export class DispatchService {
             awbNumber,
             dispatchType: 'COURIER',
             transportChargesType: isCod ? 'COD' : 'PREPAID',
-            notes: `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}. Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`,
+            notes: [
+              `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
+              `Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`.trim(),
+              packageNote,
+            ].filter(Boolean).join('. '),
           },
         });
 
@@ -598,7 +653,7 @@ export class DispatchService {
             orderId, fromStatus: order.status, toStatus: newStatus,
             changedById: userId,
             reason: `${itemsToDispatch.length} item(s) dispatched via ${picked.carrierName}`,
-            metadata: { shipmentNumber, rateId, amount: picked.amount, dispatchType: 'COURIER' },
+            metadata: { shipmentNumber, rateId, amount: picked.amount, dispatchType: 'COURIER', packageBoxes: normalizedBoxes },
           },
         });
 

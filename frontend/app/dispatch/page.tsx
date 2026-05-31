@@ -168,7 +168,11 @@ export default function DispatchPage() {
       }
       if (wkg > 0) params.set("weightKg", String(wkg));
       const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}?${params}`, { headers: getAuthHeaders() });
-      if (!res.ok) { alert("Could not fetch rates"); return; }
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        alert(Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Could not fetch rates"));
+        return;
+      }
       const data = await res.json();
       setRates(prev => ({ ...prev, [orderId]: data.rates }));
       if (data.rates?.length) setSelectedRate(prev => ({ ...prev, [orderId]: data.rates[0].rateId }));
