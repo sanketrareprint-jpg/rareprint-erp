@@ -1,6 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type ActiveCarrier = 'shiprocket' | 'bigship';
 
@@ -25,17 +24,22 @@ export type CarrierConfig = {
   shiprocket: ShiprocketCfg;
 };
 
-const CONFIG_FILE = path.join(process.cwd(), 'carrier-config.json');
+const DB_KEY = 'carrier_config';
 
 @Injectable()
-export class CarrierConfigService {
+export class CarrierConfigService implements OnModuleInit {
   private readonly logger = new Logger(CarrierConfigService.name);
-  private config: CarrierConfig;
+  private config: CarrierConfig = this.envBootstrap();
 
-  constructor() {
-    this.config = this.loadConfig();
-    // Sync env vars so existing services (Shiprocket) keep working
+  constructor(private readonly prisma: PrismaService) {}
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+  async onModuleInit() {
+    // Load from DB on startup; if nothing there yet, env bootstrap is already set
+    await this.loadFromDb();
     this.applyToEnv(this.config);
+    this.logger.log(`Carrier config loaded — active: ${this.config.activeCarrier}`);
   }
 
   // ── Read ──────────────────────────────────────────────────────────────────
@@ -50,33 +54,58 @@ export class CarrierConfigService {
 
   // ── Write ─────────────────────────────────────────────────────────────────
 
-  updateConfig(patch: Partial<CarrierConfig>): CarrierConfig {
+  async updateConfig(patch: Partial<CarrierConfig>): Promise<CarrierConfig> {
     this.config = {
       ...this.config,
       ...patch,
       bigship:    { ...this.config.bigship,    ...(patch.bigship    ?? {}) },
       shiprocket: { ...this.config.shiprocket, ...(patch.shiprocket ?? {}) },
     };
-    this.saveConfig();
+    await this.saveToDb();
     this.applyToEnv(this.config);
     return this.config;
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
 
-  private loadConfig(): CarrierConfig {
+  /** Load from SystemConfig table; leaves in-memory config untouched if nothing found */
+  private async loadFromDb(): Promise<void> {
     try {
-      if (fs.existsSync(CONFIG_FILE)) {
-        const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-        const parsed = JSON.parse(raw) as CarrierConfig;
-        this.logger.log('Loaded carrier config from carrier-config.json');
-        return parsed;
+      const row = await this.prisma.systemConfig.findUnique({ where: { key: DB_KEY } });
+      if (row?.value) {
+        const parsed = JSON.parse(row.value) as CarrierConfig;
+        // Deep merge so new fields added in code don't get lost
+        this.config = {
+          ...this.config,
+          ...parsed,
+          bigship:    { ...this.config.bigship,    ...(parsed.bigship    ?? {}) },
+          shiprocket: { ...this.config.shiprocket, ...(parsed.shiprocket ?? {}) },
+        };
+        this.logger.log('Carrier config loaded from database (SystemConfig)');
+      } else {
+        this.logger.log('No carrier config in database — using env var bootstrap');
       }
     } catch (e) {
-      this.logger.warn(`Could not load carrier-config.json, falling back to env vars: ${e}`);
+      this.logger.warn(`Failed to load carrier config from database: ${e}`);
     }
+  }
 
-    // Bootstrap from .env
+  /** Persist current in-memory config to SystemConfig table */
+  private async saveToDb(): Promise<void> {
+    try {
+      await this.prisma.systemConfig.upsert({
+        where:  { key: DB_KEY },
+        update: { value: JSON.stringify(this.config) },
+        create: { key: DB_KEY, value: JSON.stringify(this.config) },
+      });
+      this.logger.log('Carrier config saved to database');
+    } catch (e) {
+      this.logger.error(`Failed to save carrier config to database: ${e}`);
+    }
+  }
+
+  /** Bootstrap from environment variables (used before DB is available) */
+  private envBootstrap(): CarrierConfig {
     return {
       activeCarrier: (process.env.ACTIVE_CARRIER as ActiveCarrier) ?? 'shiprocket',
       bigship: {
@@ -89,39 +118,29 @@ export class CarrierConfigService {
           ? parseInt(process.env.BIGSHIP_RETURN_WAREHOUSE_ID, 10) : null,
       },
       shiprocket: {
-        email:           process.env.SHIPROCKET_EMAIL            ?? '',
-        password:        process.env.SHIPROCKET_PASSWORD         ?? '',
-        pickupLocation:  process.env.SHIPROCKET_PICKUP_LOCATION  ?? 'Office',
-        pickupPincode:   process.env.SHIPROCKET_PICKUP_PINCODE   ?? '110001',
+        email:           process.env.SHIPROCKET_EMAIL           ?? '',
+        password:        process.env.SHIPROCKET_PASSWORD        ?? '',
+        pickupLocation:  process.env.SHIPROCKET_PICKUP_LOCATION ?? 'Office',
+        pickupPincode:   process.env.SHIPROCKET_PICKUP_PINCODE  ?? '110001',
       },
     };
   }
 
-  private saveConfig(): void {
-    try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf-8');
-    } catch (e) {
-      this.logger.error(`Could not save carrier-config.json: ${e}`);
-    }
-  }
-
-  /** Keep process.env in sync so ShiprocketService and BigshipService can read from it */
+  /** Keep process.env in sync so BigshipService / ShiprocketService can read from it */
   private applyToEnv(cfg: CarrierConfig): void {
-    process.env.ACTIVE_CARRIER              = cfg.activeCarrier;
+    process.env.ACTIVE_CARRIER             = cfg.activeCarrier;
 
-    // BigShip
-    process.env.BIGSHIP_USERNAME            = cfg.bigship.username;
-    process.env.BIGSHIP_PASSWORD            = cfg.bigship.password;
-    process.env.BIGSHIP_ACCESS_KEY          = cfg.bigship.accessKey;
+    process.env.BIGSHIP_USERNAME           = cfg.bigship.username;
+    process.env.BIGSHIP_PASSWORD           = cfg.bigship.password;
+    process.env.BIGSHIP_ACCESS_KEY         = cfg.bigship.accessKey;
     if (cfg.bigship.pickupWarehouseId != null)
       process.env.BIGSHIP_PICKUP_WAREHOUSE_ID = String(cfg.bigship.pickupWarehouseId);
     if (cfg.bigship.returnWarehouseId != null)
       process.env.BIGSHIP_RETURN_WAREHOUSE_ID = String(cfg.bigship.returnWarehouseId);
 
-    // Shiprocket
-    process.env.SHIPROCKET_EMAIL            = cfg.shiprocket.email;
-    process.env.SHIPROCKET_PASSWORD         = cfg.shiprocket.password;
-    process.env.SHIPROCKET_PICKUP_LOCATION  = cfg.shiprocket.pickupLocation;
-    process.env.SHIPROCKET_PICKUP_PINCODE   = cfg.shiprocket.pickupPincode;
+    process.env.SHIPROCKET_EMAIL           = cfg.shiprocket.email;
+    process.env.SHIPROCKET_PASSWORD        = cfg.shiprocket.password;
+    process.env.SHIPROCKET_PICKUP_LOCATION = cfg.shiprocket.pickupLocation;
+    process.env.SHIPROCKET_PICKUP_PINCODE  = cfg.shiprocket.pickupPincode;
   }
 }

@@ -50,8 +50,8 @@ export class CarrierConfigController {
   }
 
   @Put()
-  updateConfig(@Body() body: Partial<CarrierConfig>) {
-    const updated = this.carrierConfig.updateConfig(body);
+  async updateConfig(@Body() body: Partial<CarrierConfig>) {
+    const updated = await this.carrierConfig.updateConfig(body);
     // If BigShip credentials changed, clear the cached token
     if (body.bigship) {
       this.bigship.clearToken();

@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { CarrierConfigService } from './carrier-config.service';
 import { CarrierConfigController } from './carrier-config.controller';
 import { BigshipModule } from '../bigship/bigship.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  imports:     [BigshipModule],
+  imports:     [BigshipModule, PrismaModule],
   controllers: [CarrierConfigController],
   providers:   [CarrierConfigService],
   exports:     [CarrierConfigService],
