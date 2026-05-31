@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2 } from "lucide-react";
+import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
@@ -33,6 +33,7 @@ type RateQuote = { rateId: string; carrierName: string; amount: number; currency
 type DispatchMethod = "COURIER" | "TRANSPORT" | "BY_HAND" | "SELF_COLLECTED";
 type TransportForm = { transportName: string; lrNumber: string; transportChargesType: "TOPAY" | "PREPAID"; transportBy: string; totalTransportCharges: string; notes: string };
 type DirectForm = { deliveryBoyName: string; collectedByName: string; collectedByPhone: string; otp: string };
+type PackageBoxForm = { noOfBoxes: string; length: string; breadth: string; height: string; weight: string };
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -50,6 +51,31 @@ function parseNotes(notes?: string) {
   const gsm = notes.match(/GSM:\s*([^,]+)/)?.[1]?.trim();
   const sides = notes.match(/Sides:\s*([^,]+)/)?.[1]?.trim();
   return { size, gsm, sides };
+}
+
+function defaultPackageBox(weightKg: number): PackageBoxForm {
+  return { noOfBoxes: "1", length: "20", breadth: "15", height: "10", weight: Math.max(0.1, weightKg).toFixed(2) };
+}
+
+function sanitizePackageBoxes(rows: PackageBoxForm[]) {
+  return rows
+    .map(row => ({
+      noOfBoxes: Math.max(1, Math.floor(Number(row.noOfBoxes) || 1)),
+      length: Number(row.length),
+      breadth: Number(row.breadth),
+      height: Number(row.height),
+      weight: Number(row.weight),
+    }))
+    .filter(row =>
+      Number.isFinite(row.length) && row.length > 0 &&
+      Number.isFinite(row.breadth) && row.breadth > 0 &&
+      Number.isFinite(row.height) && row.height > 0 &&
+      Number.isFinite(row.weight) && row.weight > 0
+    );
+}
+
+function packageTotalWeight(rows: PackageBoxForm[]) {
+  return sanitizePackageBoxes(rows).reduce((sum, row) => sum + row.noOfBoxes * row.weight, 0);
 }
 
 function orderAge(dateStr: string): string {
@@ -82,6 +108,8 @@ export default function DispatchPage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<Record<string, string>>({});
   const [customPickup, setCustomPickup] = useState<Record<string, { name: string; pincode: string }>>({});
   const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
+  const [multiBoxEnabled, setMultiBoxEnabled] = useState<Record<string, boolean>>({});
+  const [packageBoxes, setPackageBoxes] = useState<Record<string, PackageBoxForm[]>>({});
   const [dispatchMethod, setDispatchMethod] = useState<Record<string, DispatchMethod>>({});
   const [transportForm, setTransportForm] = useState<Record<string, TransportForm>>({});
   const [directForm, setDirectForm] = useState<Record<string, DirectForm>>({});
@@ -145,6 +173,35 @@ export default function DispatchPage() {
     });
   }
 
+  function getPackageRows(orderId: string, weightKg: number) {
+    return packageBoxes[orderId]?.length ? packageBoxes[orderId] : [defaultPackageBox(weightKg)];
+  }
+
+  function updatePackageRow(orderId: string, weightKg: number, index: number, patch: Partial<PackageBoxForm>) {
+    setPackageBoxes(prev => {
+      const rows = getPackageRows(orderId, weightKg).map(row => ({ ...row }));
+      rows[index] = { ...rows[index], ...patch };
+      return { ...prev, [orderId]: rows };
+    });
+    setRates(prev => ({ ...prev, [orderId]: [] }));
+    setSelectedRate(prev => ({ ...prev, [orderId]: "" }));
+  }
+
+  function addPackageRow(orderId: string, weightKg: number) {
+    setPackageBoxes(prev => ({ ...prev, [orderId]: [...getPackageRows(orderId, weightKg), defaultPackageBox(Math.max(0.1, weightKg / 2))] }));
+    setRates(prev => ({ ...prev, [orderId]: [] }));
+    setSelectedRate(prev => ({ ...prev, [orderId]: "" }));
+  }
+
+  function removePackageRow(orderId: string, weightKg: number, index: number) {
+    setPackageBoxes(prev => {
+      const rows = getPackageRows(orderId, weightKg).filter((_, i) => i !== index);
+      return { ...prev, [orderId]: rows.length ? rows : [defaultPackageBox(weightKg)] };
+    });
+    setRates(prev => ({ ...prev, [orderId]: [] }));
+    setSelectedRate(prev => ({ ...prev, [orderId]: "" }));
+  }
+
   async function fetchRates(orderId: string) {
     setRatesLoading(orderId);
     try {
@@ -152,6 +209,12 @@ export default function DispatchPage() {
       const pickup = customPickup[orderId];
       const warehouse = warehouses.find(w => w.id === wid);
       const wkg = parseFloat(weightOverride[orderId] || "0");
+      const orderData = orders.find(o => o.id === orderId);
+      const selected = selectedItems[orderId] ?? new Set();
+      const selectedWeight = orderData?.readyItems.filter(i => selected.has(i.id)).reduce((s, i) => s + i.weightKg, 0) ?? 0.5;
+      const packageRows = getPackageRows(orderId, selectedWeight);
+      const sanitizedBoxes = multiBoxEnabled[orderId] ? sanitizePackageBoxes(packageRows) : [];
+      if (multiBoxEnabled[orderId] && sanitizedBoxes.length === 0) { alert("Enter valid package box details"); return; }
       const params = new URLSearchParams();
       if (wid === "CUSTOM") {
         if (!pickup?.pincode?.trim()) { alert("Enter pickup pincode"); return; }
@@ -167,6 +230,7 @@ export default function DispatchPage() {
         params.set("warehouseId", wid);
       }
       if (wkg > 0) params.set("weightKg", String(wkg));
+      if (sanitizedBoxes.length > 0) params.set("packageBoxes", JSON.stringify(sanitizedBoxes));
       const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
@@ -190,6 +254,9 @@ export default function DispatchPage() {
     const pickup = customPickup[orderId];
     const warehouse = warehouses.find(w => w.id === wid);
     if (wid === "CUSTOM" && !pickup?.pincode?.trim()) { alert("Enter pickup pincode"); return; }
+    const selectedWeight = orderData?.readyItems.filter(i => (selectedItems[orderId] ?? new Set()).has(i.id)).reduce((s, i) => s + i.weightKg, 0) ?? 0.5;
+    const sanitizedBoxes = multiBoxEnabled[orderId] ? sanitizePackageBoxes(getPackageRows(orderId, selectedWeight)) : [];
+    if (multiBoxEnabled[orderId] && sanitizedBoxes.length === 0) { alert("Enter valid package box details"); return; }
     setBookingId(orderId);
     try {
       const res = await fetch(`${API_BASE_URL}/dispatch/book`, {
@@ -205,6 +272,7 @@ export default function DispatchPage() {
           pickupLocation: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : warehouse?.location,
           pickupPincode: wid === "CUSTOM" ? pickup?.pincode.trim() : warehouse?.pincode,
           weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
+          packageBoxes: sanitizedBoxes.length > 0 ? sanitizedBoxes : undefined,
         }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
@@ -435,41 +503,39 @@ export default function DispatchPage() {
 
           {/* ── QUEUE TAB ── */}
           {tab === "queue" && <>
-          {/* Search */}
+          {/* Search bar */}
           <div className="flex flex-wrap gap-2">
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <div className="relative flex-1 min-w-[180px] max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
               <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="Search order, customer, phone, agent…"
-                className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                className="w-full rounded-md border border-slate-200 pl-7 pr-3 py-1 text-xs outline-none focus:border-blue-400" />
             </div>
             {allCarriers.length > 0 && (
               <select value={courierFilter} onChange={e => setCourierFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
+                className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                 <option value="ALL">All Couriers</option>
                 {allCarriers.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
             {search && (
-              <button onClick={() => setSearch("")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
+              <button onClick={() => setSearch("")} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
                 <X className="h-3 w-3" /> Clear
               </button>
             )}
-            <span className="text-xs text-slate-400 self-center">{filtered.length} order{filtered.length !== 1 ? "s" : ""}</span>
+            <span className="text-xs text-slate-400 self-center">{filtered.length} orders</span>
           </div>
 
-          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
+          {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>}
 
           {loading ? (
-            <div className="flex justify-center py-20"><Loader2 className="h-10 w-10 animate-spin text-blue-600" /></div>
+            <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
           ) : filtered.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-500 shadow-sm">
-              {orders.length === 0
-                ? "No items ready for dispatch. Mark items as Ready for Dispatch in Production first."
-                : "No orders match your search."}
+            <div className="rounded-xl border border-slate-200 bg-white py-10 text-center text-xs text-slate-500 shadow-sm">
+              {orders.length === 0 ? "No items ready for dispatch." : "No orders match your search."}
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {filtered.map((o) => {
                 const orderSelected = selectedItems[o.id] ?? new Set();
                 const allSelected = o.readyItems.every(i => orderSelected.has(i.id));
@@ -485,213 +551,210 @@ export default function DispatchPage() {
                 const method = dispatchMethod[o.id] || o.dispatchType || "COURIER";
                 const transport = transportForm[o.id] || { transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "", totalTransportCharges: "", notes: "" };
                 const direct = directForm[o.id] || { deliveryBoyName: "", collectedByName: "", collectedByPhone: "", otp: "" };
+                const isMultiBox = !!multiBoxEnabled[o.id];
+                const currentPackageRows = getPackageRows(o.id, selectedWeight);
+                const packageWeight = packageTotalWeight(currentPackageRows);
 
                 return (
-                  <div key={o.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    {/* Header */}
-                    <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
-                      <div className="flex flex-wrap gap-4">
-                        <div className="flex items-start gap-4 flex-1">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 shrink-0 mt-0.5">
-                            <Package className="h-5 w-5 text-blue-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <p className="font-bold text-slate-900">{o.orderNo}</p>
-                              <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
-                              {o.salesAgentName && (
-                                <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-semibold border border-blue-100">👤 {o.salesAgentName}</span>
-                              )}
-                              {o.isCod ? (
-                                <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold border border-amber-200">COD{o.codAmount ? ` ${fmt(o.codAmount)}` : ""}</span>
-                              ) : (
-                                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-xs font-bold border border-emerald-200">PREPAID</span>
-                              )}
-                            </div>
-                            <p className="font-semibold text-slate-800">{o.customerName}</p>
-                            {o.customerPhone && <p className="text-xs text-slate-500">📞 {o.customerPhone}</p>}
-                            {/* Full Ship-To address */}
-                            {o.shipTo && o.shipTo !== "—" && (
-                              <div className="mt-1.5 flex items-start gap-1 text-xs text-slate-600">
-                                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                                <span className="leading-relaxed">{o.shipTo}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {/* Right column: stats + pickup */}
-                        <div className="flex flex-col gap-2 items-end shrink-0">
-                          <div className="flex gap-4 text-xs text-right">
-                            <div>
-                              <p className="text-slate-500">Ready Items</p>
-                              <p className="font-semibold text-emerald-600">{o.readyItems.length} of {o.totalItems}</p>
-                            </div>
-                            <div>
-                              <p className="text-slate-500">Sel. Weight</p>
-                              <p className="font-semibold text-slate-700">{selectedWeight.toFixed(2)} kg</p>
-                            </div>
-                          </div>
-                          {/* Pickup from */}
-                          {activeWarehouse && (
-                            <div className="flex items-start gap-1 text-xs text-slate-500 text-right">
-                              <Building2 className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                              <span>
-                                Pickup: <span className="font-semibold text-slate-700">{activeWarehouse.name}</span> · Pin {activeWarehouse.pincode}
-                                {activePickupAddress && <span className="block max-w-[280px] truncate text-[10px] text-slate-400">{activePickupAddress}</span>}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                  <div key={o.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+
+                    {/* ── Compact Header ── */}
+                    <div className="bg-slate-50 border-b border-slate-200 px-3 py-2 flex flex-wrap items-start gap-x-4 gap-y-1">
+                      {/* Left: order info */}
+                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                        <span className="font-bold text-slate-900 text-sm">{o.orderNo}</span>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
+                        {o.salesAgentName && <span className="text-[10px] text-blue-600 font-semibold">👤 {o.salesAgentName}</span>}
+                        {o.isCod
+                          ? <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">COD {o.codAmount ? fmt(o.codAmount) : ""}</span>
+                          : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
+                        <span className="font-semibold text-slate-800 text-xs">{o.customerName}</span>
+                        {o.customerPhone && <span className="text-[10px] text-slate-500">{o.customerPhone}</span>}
+                        {o.shipTo && o.shipTo !== "—" && (
+                          <span className="text-[10px] text-slate-500 flex items-center gap-0.5 truncate max-w-[300px]">
+                            <MapPin className="h-2.5 w-2.5 shrink-0" />{o.shipTo}
+                          </span>
+                        )}
+                      </div>
+                      {/* Right: weight + pickup */}
+                      <div className="flex items-center gap-3 text-[10px] text-slate-500 shrink-0">
+                        <span>Items <strong className="text-emerald-600">{o.readyItems.length}/{o.totalItems}</strong></span>
+                        <span>Wt <strong className="text-slate-700">{selectedWeight.toFixed(2)}kg</strong></span>
+                        {activeWarehouse && (
+                          <span className="flex items-center gap-0.5">
+                            <Building2 className="h-2.5 w-2.5 shrink-0" />
+                            <strong className="text-slate-700">{activeWarehouse.name}</strong> · {activeWarehouse.pincode}
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Items */}
-                    <div className="px-6 py-4 border-b border-slate-100">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Select Items to Dispatch</p>
+                    {/* ── Items (compact rows) ── */}
+                    <div className="px-3 py-2 border-b border-slate-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Items</span>
                         <button onClick={() => toggleAll(o.id, o.readyItems)}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800">
-                          {allSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 hover:text-blue-800">
+                          {allSelected ? <CheckSquare className="h-3 w-3" /> : <Square className="h-3 w-3" />}
                           {allSelected ? "Deselect All" : "Select All"}
                         </button>
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-1">
                         {o.readyItems.map((item, idx) => {
                           const { size, gsm, sides } = parseNotes(item.productionNotes);
                           const isSelected = orderSelected.has(item.id);
                           return (
                             <div key={item.id} onClick={() => toggleItem(o.id, item.id)}
-                              className={`cursor-pointer rounded-xl border-2 p-3 transition ${isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
-                              <div className="flex items-center gap-3">
-                                {isSelected ? <CheckSquare className="h-5 w-5 text-blue-600 shrink-0" /> : <Square className="h-5 w-5 text-slate-400 shrink-0" />}
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-bold">{o.orderNo}-{idx + 1}</span>
-                                    <span className="font-semibold text-slate-900 text-sm">{item.productName}</span>
-                                    <span className="text-xs text-slate-500">({item.sku})</span>
-                                  </div>
-                                  <div className="flex items-center gap-4 mt-1 text-xs text-slate-600">
-                                    <span>Qty: <strong>{item.quantity}</strong></span>
-                                    {size && <span>Size: <strong>{size}</strong></span>}
-                                    {gsm && <span>GSM: <strong>{gsm}</strong></span>}
-                                    {sides && <span>Sides: <strong>{sides === "SINGLE_SIDE" ? "Single" : sides === "DOUBLE_SIDE" ? "Double" : sides}</strong></span>}
-                                    <span>Weight: <strong>{item.weightKg.toFixed(2)} kg</strong></span>
-                                  </div>
-                                </div>
-                              </div>
+                              className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${isSelected ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
+                              {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <Square className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+                              <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold shrink-0">{o.orderNo}-{idx + 1}</span>
+                              <span className="font-semibold text-slate-900 text-xs">{item.productName}</span>
+                              <span className="text-[10px] text-slate-400">({item.sku})</span>
+                              <span className="text-[10px] text-slate-500 ml-auto flex gap-2 shrink-0">
+                                <span>Qty <strong>{item.quantity}</strong></span>
+                                {size && <span>Size <strong>{size}</strong></span>}
+                                {gsm && <span>GSM <strong>{gsm}</strong></span>}
+                                {sides && <span>Sides <strong>{sides === "SINGLE_SIDE" ? "S" : sides === "DOUBLE_SIDE" ? "D" : sides}</strong></span>}
+                                <span>Wt <strong>{item.weightKg.toFixed(2)}kg</strong></span>
+                              </span>
                             </div>
                           );
                         })}
                       </div>
                     </div>
 
-                    {/* Dispatch method */}
-                    <div className="px-6 py-4">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dispatch Method</p>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {[
-                          { key: "COURIER", label: "Courier" },
-                          { key: "TRANSPORT", label: "Transport" },
-                          { key: "BY_HAND", label: "By Hand" },
-                          { key: "SELF_COLLECTED", label: "Self Collected" },
-                        ].map(option => (
-                          <button
-                            key={option.key}
-                            type="button"
-                            onClick={() => {
-                              setDispatchMethod(prev => ({ ...prev, [o.id]: option.key as DispatchMethod }));
-                              setRates(prev => ({ ...prev, [o.id]: [] }));
-                              setSelectedRate(prev => ({ ...prev, [o.id]: "" }));
-                            }}
-                            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${method === option.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
+                    {/* ── Method tabs ── */}
+                    <div className="px-3 py-2 flex items-center gap-1.5 border-b border-slate-100">
+                      {[
+                        { key: "COURIER", label: "Courier" },
+                        { key: "TRANSPORT", label: "Transport" },
+                        { key: "BY_HAND", label: "By Hand" },
+                        { key: "SELF_COLLECTED", label: "Self Collected" },
+                      ].map(opt => (
+                        <button key={opt.key} type="button"
+                          onClick={() => { setDispatchMethod(prev => ({ ...prev, [o.id]: opt.key as DispatchMethod })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
+                          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition ${method === opt.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
 
-                    {/* Courier */}
+                    {/* ── Courier section ── */}
                     {method === "COURIER" && (
-                    <div className="px-6 py-4 border-t border-slate-100">
-                      <div className="flex flex-wrap items-end gap-3 mb-3">
-                        <div className="flex-1 min-w-[160px]">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Shipping</p>
-                          <select
-                            value={selectedPickupId}
-                            onChange={e => {
-                              setSelectedWarehouse(prev => ({ ...prev, [o.id]: e.target.value }));
-                              setRates(prev => ({ ...prev, [o.id]: [] }));
-                              setSelectedRate(prev => ({ ...prev, [o.id]: "" }));
-                            }}
-                            className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
-                            {warehouses.map(w => (
-                              <option key={w.id} value={w.id}>{w.name} ({w.pincode}){w.source === "shiprocket" ? " - Shiprocket" : ""}</option>
-                            ))}
-                            <option value="CUSTOM">Edit pickup location...</option>
-                          </select>
-                          {selectedPickupId === "CUSTOM" && (
-                            <div className="mt-2 grid grid-cols-2 gap-2">
-                              <input
-                                type="text"
-                                placeholder="Pickup name"
-                                value={pickupDraft.name}
-                                onChange={e => setCustomPickup(prev => ({ ...prev, [o.id]: { ...(prev[o.id] || { name: "", pincode: "" }), name: e.target.value } }))}
-                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
-                              />
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                maxLength={6}
-                                placeholder="Pickup pincode"
-                                value={pickupDraft.pincode}
-                                onChange={e => setCustomPickup(prev => ({ ...prev, [o.id]: { ...(prev[o.id] || { name: "", pincode: "" }), pincode: e.target.value.replace(/\D/g, "").slice(0, 6) } }))}
-                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
-                              />
-                            </div>
-                          )}
-                          {selectedPickupId !== "CUSTOM" && activePickupAddress && (
-                            <p className="mt-1 text-[10px] leading-snug text-slate-500">
-                              {activePickupAddress}
-                            </p>
-                          )}
-                        </div>
-                        <div className="min-w-[110px]">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Weight (kg)</p>
-                          <input
-                            type="number" step="0.1" min="0.1"
-                            placeholder={selectedWeight.toFixed(2)}
-                            value={weightOverride[o.id] || ""}
-                            onChange={e => setWeightOverride(prev => ({ ...prev, [o.id]: e.target.value }))}
-                            className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400"
-                          />
-                        </div>
+                    <div className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <select value={selectedPickupId}
+                          onChange={e => { setSelectedWarehouse(prev => ({ ...prev, [o.id]: e.target.value })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
+                          className="flex-1 min-w-[160px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
+                          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.pincode})</option>)}
+                          <option value="CUSTOM">Edit pickup…</option>
+                        </select>
+                        {selectedPickupId === "CUSTOM" && (
+                          <div className="flex gap-1.5 w-full">
+                            <input type="text" placeholder="Pickup name" value={pickupDraft.name}
+                              onChange={e => setCustomPickup(prev => ({ ...prev, [o.id]: { ...(prev[o.id] || { name: "", pincode: "" }), name: e.target.value } }))}
+                              className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                            <input type="text" inputMode="numeric" maxLength={6} placeholder="Pincode" value={pickupDraft.pincode}
+                              onChange={e => setCustomPickup(prev => ({ ...prev, [o.id]: { ...(prev[o.id] || { name: "", pincode: "" }), pincode: e.target.value.replace(/\D/g, "").slice(0, 6) } }))}
+                              className="w-24 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                          </div>
+                        )}
+                        {selectedPickupId !== "CUSTOM" && activePickupAddress && (
+                          <span className="text-[10px] text-slate-400 truncate max-w-[260px]">{activePickupAddress}</span>
+                        )}
+                        <input type="number" step="0.1" min="0.1" placeholder={selectedWeight.toFixed(2)}
+                          value={weightOverride[o.id] || ""}
+                          onChange={e => setWeightOverride(prev => ({ ...prev, [o.id]: e.target.value }))}
+                          className="w-20 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
                         <button onClick={() => fetchRates(o.id)} disabled={ratesLoading === o.id || !someSelected}
-                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50 self-end">
-                          {ratesLoading === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">
+                          {ratesLoading === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                           Fetch Rates
                         </button>
                       </div>
+
+                      <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-slate-700">
+                            <input type="checkbox" checked={isMultiBox}
+                              onChange={e => {
+                                setMultiBoxEnabled(prev => ({ ...prev, [o.id]: e.target.checked }));
+                                setPackageBoxes(prev => ({ ...prev, [o.id]: getPackageRows(o.id, selectedWeight) }));
+                                setRates(prev => ({ ...prev, [o.id]: [] }));
+                                setSelectedRate(prev => ({ ...prev, [o.id]: "" }));
+                              }}
+                              className="h-3.5 w-3.5 rounded border-slate-300" />
+                            <Boxes className="h-3.5 w-3.5 text-slate-500" />
+                            Multi-box shipment
+                          </label>
+                          {isMultiBox && (
+                            <span className="text-[10px] text-slate-500">
+                              Total weight <strong className="text-slate-800">{packageWeight.toFixed(2)}kg</strong>
+                            </span>
+                          )}
+                        </div>
+
+                        {isMultiBox && (
+                          <div className="mt-2 space-y-1.5">
+                            <div className="hidden sm:grid grid-cols-[72px_repeat(4,minmax(0,1fr))_32px] gap-1.5 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              <span>Boxes</span><span>L cm</span><span>B cm</span><span>H cm</span><span>Kg/box</span><span />
+                            </div>
+                            {currentPackageRows.map((box, index) => (
+                              <div key={index} className="grid grid-cols-2 sm:grid-cols-[72px_repeat(4,minmax(0,1fr))_32px] gap-1.5">
+                                <input type="number" min="1" value={box.noOfBoxes}
+                                  onChange={e => updatePackageRow(o.id, selectedWeight, index, { noOfBoxes: e.target.value })}
+                                  placeholder="Boxes" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                <input type="number" min="1" step="0.1" value={box.length}
+                                  onChange={e => updatePackageRow(o.id, selectedWeight, index, { length: e.target.value })}
+                                  placeholder="L cm" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                <input type="number" min="1" step="0.1" value={box.breadth}
+                                  onChange={e => updatePackageRow(o.id, selectedWeight, index, { breadth: e.target.value })}
+                                  placeholder="B cm" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                <input type="number" min="1" step="0.1" value={box.height}
+                                  onChange={e => updatePackageRow(o.id, selectedWeight, index, { height: e.target.value })}
+                                  placeholder="H cm" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                <input type="number" min="0.1" step="0.1" value={box.weight}
+                                  onChange={e => updatePackageRow(o.id, selectedWeight, index, { weight: e.target.value })}
+                                  placeholder="Kg/box" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                <button type="button" onClick={() => removePackageRow(o.id, selectedWeight, index)}
+                                  disabled={currentPackageRows.length === 1}
+                                  title="Remove box row"
+                                  className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-red-600 disabled:opacity-40">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            <button type="button" onClick={() => addPackageRow(o.id, selectedWeight)}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                              <Plus className="h-3 w-3" /> Add box type
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Rate cards — compact rows */}
                       {orderRates.length > 0 && (
                         <>
-                          <div className="grid gap-3 sm:grid-cols-3 mb-4">
+                          <div className="grid gap-1.5 grid-cols-3 sm:grid-cols-4 mb-2">
                             {orderRates
                               .filter(r => courierFilter === "ALL" || r.carrierName === courierFilter)
                               .map(r => (
                                 <label key={r.rateId}
-                                  className={`cursor-pointer rounded-xl border-2 p-4 transition ${selectedRate[o.id] === r.rateId ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
+                                  className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${selectedRate[o.id] === r.rateId ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
                                   <input type="radio" name={`rate-${o.id}`} className="sr-only"
                                     checked={selectedRate[o.id] === r.rateId}
                                     onChange={() => setSelectedRate(prev => ({ ...prev, [o.id]: r.rateId }))} />
-                                  <p className="font-semibold text-slate-900 text-sm">{r.carrierName}</p>
-                                  <p className="mt-1 text-lg font-bold text-blue-700">{fmt(r.amount)}</p>
-                                  <p className="mt-1 text-xs text-slate-500">~{r.estimatedDays} days</p>
+                                  <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold text-slate-800 truncate">{r.carrierName}</p>
+                                    <p className="text-xs font-bold text-blue-700">{fmt(r.amount)} <span className="text-[10px] font-normal text-slate-400">~{r.estimatedDays}d</span></p>
+                                  </div>
                                 </label>
                               ))}
                           </div>
                           <div className="flex justify-end">
                             <button onClick={() => book(o.id)} disabled={bookingId === o.id || !someSelected}
-                              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                              {bookingId === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                              {bookingId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                               Dispatch {orderSelected.size} Item{orderSelected.size !== 1 ? "s" : ""}
                             </button>
                           </div>
@@ -700,54 +763,47 @@ export default function DispatchPage() {
                     </div>
                     )}
 
-                    {/* Transport */}
+                    {/* ── Transport ── */}
                     {method === "TRANSPORT" && (
-                      <div className="px-6 py-4 border-t border-slate-100">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Transport Details</p>
-                        <div className="grid gap-2 sm:grid-cols-4">
-                          <input value={transport.transportName} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportName: e.target.value } }))} placeholder="Transport name" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                          <input value={transport.lrNumber} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, lrNumber: e.target.value } }))} placeholder="LR number" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                          <select value={transport.transportChargesType} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportChargesType: e.target.value as "TOPAY" | "PREPAID" } }))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400 bg-white">
+                      <div className="px-3 py-2">
+                        <div className="grid gap-1.5 sm:grid-cols-4">
+                          <input value={transport.transportName} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportName: e.target.value } }))} placeholder="Transport name" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                          <input value={transport.lrNumber} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, lrNumber: e.target.value } }))} placeholder="LR number" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                          <select value={transport.transportChargesType} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportChargesType: e.target.value as "TOPAY" | "PREPAID" } }))} className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
                             <option value="TOPAY">To Pay</option>
                             <option value="PREPAID">Prepaid</option>
                           </select>
-                          <input value={transport.transportBy} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportBy: e.target.value } }))} placeholder="Booked by" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          <input value={transport.transportBy} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportBy: e.target.value } }))} placeholder="Booked by" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
                         </div>
                         {transport.transportChargesType === "PREPAID" && (
-                          <div className="mt-2 grid gap-2 sm:grid-cols-[180px_1fr]">
-                            <input type="number" min="0" value={transport.totalTransportCharges} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, totalTransportCharges: e.target.value } }))} placeholder="Total transport charges" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                            <input value={transport.notes} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, notes: e.target.value } }))} placeholder="Transport notes" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
+                          <div className="mt-1.5 grid gap-1.5 sm:grid-cols-[150px_1fr]">
+                            <input type="number" min="0" value={transport.totalTransportCharges} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, totalTransportCharges: e.target.value } }))} placeholder="Charges" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                            <input value={transport.notes} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, notes: e.target.value } }))} placeholder="Notes" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
                           </div>
                         )}
-                        {transport.transportChargesType === "TOPAY" && (
-                          <p className="mt-2 text-[10px] text-slate-500">To Pay transport charges will be collected by the transport company from the customer, so no ERP charge is required.</p>
-                        )}
-                        <div className="mt-3 flex justify-end">
+                        <div className="mt-2 flex justify-end">
                           <button onClick={() => bookTransport(o.id)} disabled={bookingId === o.id || !someSelected}
-                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                            {bookingId === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                            {bookingId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                             Dispatch by Transport
                           </button>
                         </div>
                       </div>
                     )}
 
-                    {/* By hand / self collected */}
+                    {/* ── By Hand / Self Collected ── */}
                     {(method === "BY_HAND" || method === "SELF_COLLECTED") && (
-                      <div className="px-6 py-4 border-t border-slate-100">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{method === "BY_HAND" ? "By Hand Delivery OTP" : "Self Collected OTP"}</p>
-                        <div className="grid gap-2 sm:grid-cols-4">
-                          {method === "BY_HAND" ? (
-                            <input value={direct.deliveryBoyName} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, deliveryBoyName: e.target.value } }))} placeholder="Delivery boy name" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                          ) : (
-                            <>
-                              <input value={direct.collectedByName} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, collectedByName: e.target.value } }))} placeholder="Collected by name" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                              <input value={direct.collectedByPhone} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, collectedByPhone: e.target.value } }))} placeholder="Collector phone" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                            </>
-                          )}
-                          <input value={direct.otp} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, otp: e.target.value.replace(/\D/g, "").slice(0, 6) } }))} placeholder="Enter customer OTP" className="rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-400" />
-                          <button onClick={() => sendDirectOtp(o.id, method as "BY_HAND" | "SELF_COLLECTED")} disabled={bookingId === o.id || !someSelected} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">Send OTP</button>
-                          <button onClick={() => verifyDirectOtp(o.id)} disabled={bookingId === o.id || !someSelected} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Verify & Deliver</button>
+                      <div className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {method === "BY_HAND"
+                            ? <input value={direct.deliveryBoyName} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, deliveryBoyName: e.target.value } }))} placeholder="Delivery boy name" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 flex-1 min-w-[140px]" />
+                            : <>
+                                <input value={direct.collectedByName} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, collectedByName: e.target.value } }))} placeholder="Collected by name" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 flex-1 min-w-[130px]" />
+                                <input value={direct.collectedByPhone} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, collectedByPhone: e.target.value } }))} placeholder="Phone" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 w-28" />
+                              </>}
+                          <input value={direct.otp} onChange={e => setDirectForm(prev => ({ ...prev, [o.id]: { ...direct, otp: e.target.value.replace(/\D/g, "").slice(0, 6) } }))} placeholder="OTP" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 w-20" />
+                          <button onClick={() => sendDirectOtp(o.id, method as "BY_HAND" | "SELF_COLLECTED")} disabled={bookingId === o.id || !someSelected} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">Send OTP</button>
+                          <button onClick={() => verifyDirectOtp(o.id)} disabled={bookingId === o.id || !someSelected} className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Verify & Deliver</button>
                         </div>
                       </div>
                     )}

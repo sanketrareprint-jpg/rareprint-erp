@@ -35,6 +35,30 @@ const PINCODE_STATE: Record<string, string> = {
   '84': 'JHARKHAND',    '85': 'JHARKHAND',
 };
 
+const STATE_CODE: Record<string, string> = {
+  'DELHI': 'DL',
+  'HARYANA': 'HR',
+  'PUNJAB': 'PB',
+  'HIMACHAL PRADESH': 'HP',
+  'JAMMU AND KASHMIR': 'JK',
+  'UTTAR PRADESH': 'UP',
+  'RAJASTHAN': 'RJ',
+  'GUJARAT': 'GJ',
+  'MAHARASHTRA': 'MH',
+  'MADHYA PRADESH': 'MP',
+  'CHHATTISGARH': 'CG',
+  'TELANGANA': 'TS',
+  'ANDHRA PRADESH': 'AP',
+  'KARNATAKA': 'KA',
+  'TAMIL NADU': 'TN',
+  'KERALA': 'KL',
+  'WEST BENGAL': 'WB',
+  'ODISHA': 'OD',
+  'ASSAM': 'AS',
+  'BIHAR': 'BR',
+  'JHARKHAND': 'JH',
+};
+
 function titleCase(value: string): string {
   return value
     .toLowerCase()
@@ -60,6 +84,17 @@ function bigshipErrorMessage(error: unknown): string {
 function stateFromPincode(pin: string): string {
   const prefix = pin.trim().slice(0, 2);
   return titleCase(PINCODE_STATE[prefix] ?? 'DELHI');
+}
+
+function stateCodeFromPincode(pin: string): string {
+  const prefix = pin.trim().slice(0, 2);
+  return STATE_CODE[PINCODE_STATE[prefix] ?? 'DELHI'] ?? 'DL';
+}
+
+function uniqueInvoiceNo(base: string | undefined, prefix: string): string {
+  const cleanBase = (base ?? prefix).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 12) || prefix;
+  const suffix = Date.now().toString(36).toUpperCase().slice(-8);
+  return `${cleanBase}-${suffix}`.slice(0, 25);
 }
 
 /** Look up a plausible city from pincode — used only when no city is in the address */
@@ -332,13 +367,15 @@ export class BigshipService {
                              '110001'; // last-resort default (Delhi)
     const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
-    const invoiceNo = (params.orderNumber ?? `RATE-${Date.now()}`).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 25) || `RATE-${Date.now()}`;
+    const invoiceNo = uniqueInvoiceNo(params.orderNumber, 'RATE');
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
     const shippingCity = cityFromPincode(deliveryPostcode, params.shippingCity);
     const shippingState = stateFromPincode(deliveryPostcode);
     const cityStateAttempts = [
       { city: shippingCity, state: shippingState },
       { city: shippingCity.toUpperCase(), state: shippingState.toUpperCase() },
+      { city: shippingCity.toUpperCase(), state: stateCodeFromPincode(deliveryPostcode) },
+      { city: shippingCity, state: stateCodeFromPincode(deliveryPostcode) },
       { city: titleCase(params.shippingCity ?? shippingCity), state: titleCase(params.shippingState ?? shippingState) },
     ];
 
@@ -469,7 +506,7 @@ export class BigshipService {
     const token         = await this.getAuthToken();
     const declaredValue = Math.max(1, Math.round(input.subTotal));
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
-    const invoiceNo     = input.orderNumber.replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 25) || `ORD-${Date.now()}`;
+    const invoiceNo     = uniqueInvoiceNo(input.orderNumber, 'ORD');
     const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
     const shippingCity = cityFromPincode(input.billingPincode, input.billingCity);
     const shippingState = stateFromPincode(input.billingPincode);

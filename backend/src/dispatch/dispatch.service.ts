@@ -427,7 +427,8 @@ export class DispatchService {
     const pickup     = warehouse.pincode;
     const delivery   = extractPincode(order.customer.shippingAddress) ||
                        extractPincode(order.customer.billingAddress)  ||
-                       process.env.SHIPROCKET_DEFAULT_DELIVERY_PINCODE?.trim() || pickup;
+                       pickup ||
+                       process.env.SHIPROCKET_DEFAULT_DELIVERY_PINCODE?.trim() || '110001';
     const addr = splitAddressForShiprocket(order.customer);
     const orderIsCod = /\bCOD[:\s]/i.test(order.notes ?? '');
     const orderCodAmt = (() => {
