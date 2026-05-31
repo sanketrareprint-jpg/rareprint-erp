@@ -201,8 +201,30 @@ export class DispatchService {
       };
     }
 
+    // For Bigship, warehouseId is the numeric bigshipWarehouseId sent as a string (e.g. "111821").
+    // loadWarehouses() only knows about Shiprocket warehouses, so we must handle Bigship separately.
+    const activeCarrier = this.carrierConfig.getActiveCarrier();
+    if (activeCarrier === 'bigship') {
+      const cfg = this.carrierConfig.getConfig().bigship;
+      const resolvedId = (warehouseId && /^\d+$/.test(warehouseId))
+        ? parseInt(warehouseId, 10)
+        : cfg.pickupWarehouseId ?? null;
+      if (resolvedId) {
+        const pincode =
+          process.env.BIGSHIP_PICKUP_PINCODE?.trim() ||
+          '440032';
+        return {
+          id: String(resolvedId),
+          name: `Bigship Warehouse ${resolvedId}`,
+          pincode,
+          location: `Bigship #${resolvedId}`,
+          source: 'bigship',
+          bigshipWarehouseId: resolvedId,
+        } as Warehouse & { bigshipWarehouseId: number };
+      }
+    }
+
     const warehouses = loadWarehouses();
-    // For Bigship, warehouseId is the numeric bigshipWarehouseId as a string
     return warehouses.find(w => w.id === warehouseId) ?? warehouses[0]!;
   }
 
@@ -432,10 +454,10 @@ export class DispatchService {
     if (rateId.startsWith('bs-') && this.bigship.isConfigured()) {
       // ── BigShip booking ─────────────────────────────────────────────────
       const courierId = parseInt(rateId.replace(/^bs-/, ''), 10);
-      // warehouseId is the bigshipWarehouseId (numeric string) when Bigship is active
-      const bsPickupWHId = warehouseId && /^\d+$/.test(warehouseId)
-        ? parseInt(warehouseId, 10)
-        : undefined;
+      // resolveWarehouse now always returns bigshipWarehouseId for Bigship carrier
+      const bsPickupWHId =
+        (warehouse as Record<string, unknown>).bigshipWarehouseId as number | undefined
+        ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined);
       if (Number.isFinite(courierId) && courierId > 0) {
         const bs = await this.bigship.tryCreateAdhocOrder({
           orderNumber: order.orderNumber,

@@ -391,6 +391,7 @@ export class BigshipService {
     for (const segmentType of segmentTypes) {
       let page = 1;
       const perPage = 25;
+      let fetchedForSegment = 0;
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -422,8 +423,10 @@ export class BigshipService {
             }
           }
 
+          fetchedForSegment += list.length;
+          // Use per-segment total so cross-segment accumulation doesn't break pagination
           const total = Number(data?.data?.total ?? 0);
-          if (results.length >= total || list.length < perPage) break;
+          if (fetchedForSegment >= total || list.length < perPage) break;
           page++;
         } catch (e) {
           // segment type may not be supported — just skip it
@@ -436,7 +439,6 @@ export class BigshipService {
     this.logger.log(`Bigship getWarehouseList: found ${results.length} warehouse(s) across all segment types`);
     return results;
   }
-
   // ── Token management ────────────────────────────────────────────────────────
 
   /** Call this after updating credentials so the cached token is re-fetched */
