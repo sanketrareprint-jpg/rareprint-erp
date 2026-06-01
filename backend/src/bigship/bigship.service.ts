@@ -778,15 +778,20 @@ export class BigshipService {
     try {
       let placeData: Record<string, unknown>;
       try {
+        this.logger.log(`Bigship place-order basic attempt — orderId=${input.masterCustomOrderId} courierId=${input.courierId}`);
         const { data } = await this.postPlaceOrderBasic({
           token,
           masterCustomOrderId: input.masterCustomOrderId,
           courierId: input.courierId,
           invoiceAmount: input.invoiceData?.amount ?? 0,
         });
+        this.logger.log(`Bigship place-order basic success — ${JSON.stringify(data)?.slice(0, 200)}`);
         placeData = data;
       } catch (e: unknown) {
+        const errMsg = JSON.stringify((e as { response?: { data?: unknown } }).response?.data ?? (e as { message?: string }).message ?? '');
+        this.logger.warn(`Bigship place-order basic failed — ${errMsg.slice(0, 200)}`);
         if (!isBigshipInvoiceRequiredError(e)) throw e;
+        this.logger.log(`Bigship place-order — invoice required, generating PDF and retrying multipart`);
         const pdfBuffer = await generateInvoicePdf({
           invoiceNo: input.masterCustomOrderId,
           orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
@@ -794,6 +799,7 @@ export class BigshipService {
           amount: input.invoiceData?.amount ?? 0,
           date: invoiceDate,
         });
+        this.logger.log(`Bigship place-order — PDF generated (${pdfBuffer.length} bytes), sending multipart`);
         const { data } = await this.postPlaceOrderMultipart({
           token,
           masterCustomOrderId: input.masterCustomOrderId,
@@ -801,6 +807,7 @@ export class BigshipService {
           invoiceAmount: input.invoiceData?.amount ?? 0,
           pdfBuffer,
         });
+        this.logger.log(`Bigship place-order multipart success — ${JSON.stringify(data)?.slice(0, 200)}`);
         placeData = data;
       }
 
