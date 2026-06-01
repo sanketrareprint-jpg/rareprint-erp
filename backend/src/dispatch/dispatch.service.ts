@@ -623,7 +623,7 @@ export class DispatchService {
         }
       }
 
-      trackingRef    = bs.awbNumber ?? bs.bigshipOrderId;
+      trackingRef    = bs.awbNumber ?? '';
       awbNumber      = bs.awbNumber ?? null;
       shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ' (manual manifest pending)'}.`;
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
@@ -701,8 +701,10 @@ export class DispatchService {
     // ── WhatsApp: Dispatched 🚚 ────────────────────────────────────────────
     if (order.customer.phone) {
       const productNames = itemsToDispatch.map(i => i.product.name).join(', ');
-      const trackingInfo = trackingRef ? ` Tracking: ${trackingRef}` : '';
-      const statusMsg    = `Dispatched 🚚 via ${picked.carrierName}.${trackingInfo}`;
+      const trackingInfo = awbNumber ? ` Tracking: ${awbNumber}` : '';
+      const statusMsg    = awbNumber
+        ? `Dispatched 🚚 via ${picked.carrierName}.${trackingInfo}`
+        : `Dispatch booked via ${picked.carrierName}. Tracking will be shared after courier manifest.`;
 
       void this.whatsapp.sendOrderUpdate({
         customerName:  order.customer.businessName,
