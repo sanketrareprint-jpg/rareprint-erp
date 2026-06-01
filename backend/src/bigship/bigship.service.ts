@@ -657,6 +657,7 @@ export class BigshipService {
           token,
           masterCustomOrderId: input.masterCustomOrderId,
           courierId: input.courierId,
+          invoiceAmount: input.invoiceData?.amount ?? 0,
         });
         placeData = data;
       } catch (e: unknown) {
@@ -672,6 +673,7 @@ export class BigshipService {
           token,
           masterCustomOrderId: input.masterCustomOrderId,
           courierId: input.courierId,
+          invoiceAmount: input.invoiceData?.amount ?? 0,
           pdfBuffer,
         });
         placeData = data;
@@ -697,10 +699,13 @@ export class BigshipService {
     token: string;
     masterCustomOrderId: string;
     courierId: number;
+    invoiceAmount: number;
   }): Promise<{ data: Record<string, unknown> }> {
     const form = new FormData();
     form.append('MasterCustomOrderId', input.masterCustomOrderId);
     form.append('courierId', String(input.courierId));
+    form.append('order_invoice_amount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
+    form.append('MasterOrderInvoiceAmount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
     form.append('riskTypeId', '2');
     const contentLength = await new Promise<number>((resolve, reject) => {
       form.getLength((err, length) => {
@@ -724,6 +729,7 @@ export class BigshipService {
     token: string;
     masterCustomOrderId: string;
     courierId: number;
+    invoiceAmount: number;
     pdfBuffer: Buffer;
   }): Promise<{ data: Record<string, unknown> }> {
     const invoicePath = path.join(os.tmpdir(), `bigship-invoice-${input.masterCustomOrderId}-${Date.now()}.pdf`);
@@ -734,6 +740,8 @@ export class BigshipService {
       const form = new FormData();
       form.append('MasterCustomOrderId', input.masterCustomOrderId);
       form.append('courierId', String(input.courierId));
+      form.append('order_invoice_amount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
+      form.append('MasterOrderInvoiceAmount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
       form.append('invoiceType', 'uploaded');
       form.append('InvoiceData', createReadStream(invoicePath), {
         filename: 'invoice.pdf',
