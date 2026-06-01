@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
+import FormData from 'form-data';
+import puppeteer from 'puppeteer';
 
 // ─── Base URL ────────────────────────────────────────────────────────────────
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
@@ -567,6 +569,11 @@ export class BigshipService {
       return this.placeExistingOrder({
         masterCustomOrderId: customOrderId,
         courierId: input.courierId,
+        invoiceData: {
+          orderNumber: input.orderNumber ?? customOrderId,
+          customerName: input.customerName ?? 'Customer',
+          amount: input.subTotal,
+        },
       });
     } catch (e: unknown) {
       const err = e as { response?: { data?: unknown }; message?: string };
@@ -578,22 +585,38 @@ export class BigshipService {
   async placeExistingOrder(input: {
     masterCustomOrderId: string;
     courierId: number;
+    invoiceData?: { orderNumber: string; customerName: string; amount: number; date?: string };
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
     const token = await this.getAuthToken();
+    const invoiceDate = new Date().toISOString().slice(0, 10);
 
     try {
+      // Generate a minimal invoice PDF for domestic orders (Bigship requires uploaded invoice)
+      const pdfBuffer = await generateInvoicePdf({
+        invoiceNo: input.masterCustomOrderId,
+        orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
+        customerName: input.invoiceData?.customerName ?? 'Customer',
+        amount: input.invoiceData?.amount ?? 0,
+        date: input.invoiceData?.date ?? invoiceDate,
+      });
+
+      const form = new FormData();
+      form.append('MasterCustomOrderId', input.masterCustomOrderId);
+      form.append('courierId', String(input.courierId));
+      form.append('riskTypeId', '1');
+      form.append('invoiceType', 'uploaded');
+      form.append('invoiceNumber', input.masterCustomOrderId);
+      form.append('invoiceDate', invoiceDate);
+      form.append('InvoiceData', pdfBuffer, {
+        filename: `invoice-${input.masterCustomOrderId}.pdf`,
+        contentType: 'application/pdf',
+      });
+
       const { data: placeData } = await this.api().post(
         '/api/outbound/place-order',
-        {
-          MasterCustomOrderId: input.masterCustomOrderId,
-          courierId: input.courierId,
-          riskTypeId: 1,
-          invoiceType: 'system',
-          invoiceNumber: input.masterCustomOrderId,
-          invoiceDate: new Date().toISOString().slice(0, 10),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
+        form,
+        { headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() } },
       );
 
       const awb = String(placeData?.data?.awb_assigned ?? placeData?.data?.reference_number ?? '');
@@ -658,33 +681,4 @@ export class BigshipService {
                 address:       String(w.warehouseAddressLine1 ?? ''),
                 contactPerson: String(w.warehouseContactPerson ?? ''),
                 phone:         String(w.warehouseAddressPhone  ?? ''),
-                isActive:      bigshipActiveFlag(w.isActive),
-              });
-            }
-          }
-
-          fetchedForSegment += list.length;
-          // Use per-segment total so cross-segment accumulation doesn't break pagination
-          const total = Number(data?.data?.total ?? 0);
-          if (fetchedForSegment >= total || list.length < perPage) break;
-          page++;
-        } catch (e) {
-          // segment type may not be supported — just skip it
-          this.logger.debug(`Bigship getWarehouseList segment=${segmentType} page=${page}: ${e}`);
-          break;
-        }
-      }
-    }
-
-    this.logger.log(`Bigship getWarehouseList: found ${results.length} warehouse(s) across all segment types`);
-    return results;
-  }
-  // ── Token management ────────────────────────────────────────────────────────
-
-  /** Call this after updating credentials so the cached token is re-fetched */
-  clearToken(): void {
-    this.token          = undefined;
-    this.tokenUntil     = 0;
-    this.tokenExpiresAt = undefined;
-  }
-}
+                isActive:      b

@@ -571,6 +571,11 @@ export class DispatchService {
           ? await this.bigship.placeExistingOrder({
               masterCustomOrderId: bigshipRate.masterCustomOrderId,
               courierId,
+              invoiceData: {
+                orderNumber: order.orderNumber,
+                customerName: order.customer.businessName,
+                amount: Number(order.grandTotal),
+              },
             })
           : await this.bigship.tryCreateAdhocOrder({
               orderNumber: order.orderNumber,
@@ -943,10 +948,4 @@ export class DispatchService {
         orderNo: s.order.orderNumber,
         customerName: s.order.customer.businessName,
         customerPhone: s.order.customer.phone ?? null,
-        shippingAddress: s.order.customer.shippingAddress ?? s.order.customer.billingAddress ?? null,
-        salesAgentName: s.order.salesAgent?.fullName ?? null,
-        notes: s.notes,
-      };
-    });
-  }
-}
+        
