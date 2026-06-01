@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import FormData from 'form-data';
+import PDFDocument from 'pdfkit';
 
 // ─── Base URL ────────────────────────────────────────────────────────────────
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
@@ -735,65 +736,44 @@ async function generateInvoicePdf(params: {
   date: string;
 }): Promise<Buffer> {
   const amount = Number.isFinite(params.amount) ? params.amount : 0;
-  const lines = [
-    { text: 'Tax Invoice', size: 20, x: 72, y: 760 },
-    { text: `Invoice No: ${params.invoiceNo}`, size: 12, x: 72, y: 720 },
-    { text: `Order No: ${params.orderNumber}`, size: 12, x: 72, y: 700 },
-    { text: `Date: ${params.date}`, size: 12, x: 72, y: 680 },
-    { text: `Bill To: ${params.customerName}`, size: 12, x: 72, y: 650 },
-    { text: 'Description', size: 12, x: 72, y: 600 },
-    { text: 'Amount (INR)', size: 12, x: 390, y: 600 },
-    { text: 'Print Order', size: 12, x: 72, y: 575 },
-    { text: amount.toFixed(2), size: 12, x: 420, y: 575 },
-    { text: `Total: INR ${amount.toFixed(2)}`, size: 14, x: 350, y: 535 },
-  ];
+  const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: false });
+  const chunks: Buffer[] = [];
 
-  const content = [
-    'BT',
-    ...lines.flatMap((line) => [
-      `/F1 ${line.size} Tf`,
-      `${line.x} ${line.y} Td`,
-      `(${escapePdfText(line.text)}) Tj`,
-      `${-line.x} ${-line.y} Td`,
-    ]),
-    'ET',
-  ].join('\n');
+  return await new Promise<Buffer>((resolve, reject) => {
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('error', reject);
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-  return createSimplePdf(content);
+    doc.font('Helvetica-Bold').fontSize(20).text('Tax Invoice');
+    doc.moveDown(0.4);
+    doc.font('Helvetica').fontSize(10).text('RarePrint Dispatch Invoice');
+    doc.moveDown(1.2);
+
+    doc.fontSize(11);
+    doc.text(`Invoice No: ${sanitizePdfText(params.invoiceNo)}`);
+    doc.text(`Order No: ${sanitizePdfText(params.orderNumber)}`);
+    doc.text(`Date: ${sanitizePdfText(params.date)}`);
+    doc.moveDown();
+    doc.text(`Bill To: ${sanitizePdfText(params.customerName)}`);
+    doc.moveDown(1.5);
+
+    const tableTop = doc.y;
+    doc.rect(56, tableTop, 483, 28).stroke();
+    doc.font('Helvetica-Bold').text('Description', 70, tableTop + 9);
+    doc.text('Amount (INR)', 400, tableTop + 9);
+
+    doc.rect(56, tableTop + 28, 483, 32).stroke();
+    doc.font('Helvetica').text('Print Order', 70, tableTop + 40);
+    doc.text(amount.toFixed(2), 420, tableTop + 40);
+
+    doc.moveDown(4);
+    doc.font('Helvetica-Bold').fontSize(13).text(`Total: INR ${amount.toFixed(2)}`, { align: 'right' });
+    doc.moveDown(2);
+    doc.font('Helvetica').fontSize(9).text('Generated for courier invoice upload.', { align: 'center' });
+    doc.end();
+  });
 }
 
-function escapePdfText(value: string): string {
-  return value
-    .replace(/[^\x20-\x7E]/g, ' ')
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)');
-}
-
-function createSimplePdf(content: string): Buffer {
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
-  ];
-  const chunks: string[] = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'];
-  const offsets = [0];
-
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(chunks.join(''), 'ascii'));
-    chunks.push(`${index + 1} 0 obj\n${object}\nendobj\n`);
-  });
-
-  const xrefOffset = Buffer.byteLength(chunks.join(''), 'ascii');
-  chunks.push(`xref\n0 ${objects.length + 1}\n`);
-  chunks.push('0000000000 65535 f \n');
-  offsets.slice(1).forEach((offset) => {
-    chunks.push(`${String(offset).padStart(10, '0')} 00000 n \n`);
-  });
-  chunks.push(`trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`);
-  chunks.push(`startxref\n${xrefOffset}\n%%EOF\n`);
-
-  return Buffer.from(chunks.join(''), 'ascii');
+function sanitizePdfText(value: string): string {
+  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
 }
