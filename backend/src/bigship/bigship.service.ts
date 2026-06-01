@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
+import { createReadStream, promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
 import FormData from 'form-data';
 import PDFDocument from 'pdfkit';
-import { Readable } from 'stream';
 
 // ─── Base URL ────────────────────────────────────────────────────────────────
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
@@ -119,7 +121,7 @@ function cityFromPincode(pin: string, fallback?: string): string {
   const cleanPin = pin.trim();
   const exactCityMap: Record<string, string> = {
     '230403': 'PRATAPGARH',
-    '262701': 'LAKHIMPUR',
+    '262701': 'KHERI',
   };
   const prefix2 = pin.trim().slice(0, 2);
   const prefix3 = pin.trim().slice(0, 3);
@@ -137,8 +139,12 @@ function cityFromPincode(pin: string, fallback?: string): string {
 
 function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string): Array<{ city: string; state: string }> {
   const state = stateFromPincode(pin);
+  const extraCityMap: Record<string, string[]> = {
+    '262701': ['KHERI', 'LAKHIMPUR', 'LAKHIMPUR KHERI', 'LAKHIMPUR-KHERI'],
+  };
   const cityCandidates = [
     cityFromPincode(pin),
+    ...(extraCityMap[pin.trim()] ?? []),
     fallbackCity,
   ]
     .filter((city): city is string => !!city?.trim())
@@ -653,33 +659,41 @@ export class BigshipService {
     courierId: number;
     pdfBuffer: Buffer;
   }): Promise<{ data: Record<string, unknown> }> {
-    const form = new FormData();
-    form.append('MasterCustomOrderId', input.masterCustomOrderId);
-    form.append('courierId', String(input.courierId));
-    form.append('invoiceType', 'uploaded');
-    form.append('InvoiceData', Readable.from(input.pdfBuffer), {
-      filename: 'invoice.pdf',
-      contentType: 'application/pdf',
-      knownLength: input.pdfBuffer.length,
-    });
-    form.append('EwaybillNo', '');
-    form.append('riskTypeId', '2');
-    const contentLength = await new Promise<number>((resolve, reject) => {
-      form.getLength((err, length) => {
-        if (err) reject(err);
-        else resolve(length);
-      });
-    });
+    const invoicePath = path.join(os.tmpdir(), `bigship-invoice-${input.masterCustomOrderId}-${Date.now()}.pdf`);
 
-    return this.api().post('/api/outbound/place-order', form, {
-      headers: {
-        Authorization: `Bearer ${input.token}`,
-        ...form.getHeaders(),
-        'Content-Length': contentLength,
-      },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-    });
+    try {
+      await fs.writeFile(invoicePath, input.pdfBuffer);
+
+      const form = new FormData();
+      form.append('MasterCustomOrderId', input.masterCustomOrderId);
+      form.append('courierId', String(input.courierId));
+      form.append('invoiceType', 'uploaded');
+      form.append('InvoiceData', createReadStream(invoicePath), {
+        filename: 'invoice.pdf',
+        contentType: 'application/pdf',
+        knownLength: input.pdfBuffer.length,
+      });
+      form.append('EwaybillNo', '');
+      form.append('riskTypeId', '2');
+      const contentLength = await new Promise<number>((resolve, reject) => {
+        form.getLength((err, length) => {
+          if (err) reject(err);
+          else resolve(length);
+        });
+      });
+
+      return await this.api().post('/api/outbound/place-order', form, {
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+          ...form.getHeaders(),
+          'Content-Length': contentLength,
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+    } finally {
+      await fs.unlink(invoicePath).catch(() => undefined);
+    }
   }
 
   // ── Warehouse list ──────────────────────────────────────────────────────────
