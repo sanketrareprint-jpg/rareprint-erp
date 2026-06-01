@@ -143,4 +143,12 @@ export class DispatchController {
   ) {
     return this.dispatchService.verifyDirectOtp(body.orderId, body.otp, req.user.id);
   }
+
+  @Post('mark-dispatched')
+  markDispatched(
+    @Body() body: { orderId: string; awbNumber?: string; carrierName?: string; trackingNumber?: string; notes?: string },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.dispatchService.markManuallyDispatched(body.orderId, req.user.id, body);
+  }
 }

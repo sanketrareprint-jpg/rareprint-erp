@@ -94,6 +94,9 @@ function ageColor(dateStr: string): string {
 export default function DispatchPage() {
   const router = useRouter();
   const [tab, setTab] = useState<"queue" | "history">("queue");
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [markModal, setMarkModal] = useState<{ orderId: string; orderNo: string } | null>(null);
+  const [markForm, setMarkForm] = useState({ awbNumber: "", carrierName: "", notes: "" });
   const [orders, setOrders] = useState<DispatchOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -200,6 +203,23 @@ export default function DispatchPage() {
     });
     setRates(prev => ({ ...prev, [orderId]: [] }));
     setSelectedRate(prev => ({ ...prev, [orderId]: "" }));
+  }
+
+  async function markDispatched() {
+    if (!markModal) return;
+    setMarkingId(markModal.orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/mark-dispatched`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: markModal.orderId, ...markForm }),
+      });
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
+      alert(`✅ Order ${markModal.orderNo} marked as dispatched!`);
+      setMarkModal(null);
+      setMarkForm({ awbNumber: "", carrierName: "", notes: "" });
+      await load();
+    } finally { setMarkingId(null); }
   }
 
   async function fetchRates(orderId: string) {
@@ -586,6 +606,13 @@ export default function DispatchPage() {
                             <strong className="text-slate-700">{activeWarehouse.name}</strong> · {activeWarehouse.pincode}
                           </span>
                         )}
+                      <button
+                        onClick={() => { setMarkModal({ orderId: o.id, orderNo: o.orderNo }); setMarkForm({ awbNumber: "", carrierName: "", notes: "" }); }}
+                        className="ml-2 inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-green-700"
+                        title="Already booked in Bigship? Mark as dispatched"
+                      >
+                        <CheckSquare className="h-3 w-3" /> Mark Dispatched
+                      </button>
                       </div>
                     </div>
 
@@ -815,6 +842,41 @@ export default function DispatchPage() {
           </>}
         </div>
       </div>
+
+      {/* ── Mark Dispatched Modal ── */}
+      {markModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-bold text-slate-900 mb-1">Mark as Dispatched</h2>
+            <p className="text-xs text-slate-500 mb-4">Order <strong>{markModal.orderNo}</strong> — already booked externally?</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">AWB / Tracking Number</label>
+                <input value={markForm.awbNumber} onChange={e => setMarkForm(f => ({ ...f, awbNumber: e.target.value }))}
+                  placeholder="Enter AWB number" className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Carrier / Courier Name</label>
+                <input value={markForm.carrierName} onChange={e => setMarkForm(f => ({ ...f, carrierName: e.target.value }))}
+                  placeholder="e.g. Delhivery, Ekart" className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Notes (optional)</label>
+                <input value={markForm.notes} onChange={e => setMarkForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Any notes" className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setMarkModal(null)} className="flex-1 rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={markDispatched} disabled={!!markingId}
+                className="flex-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-1">
+                {markingId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckSquare className="h-3.5 w-3.5" />}
+                Confirm Dispatch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardShell>
   );
 }

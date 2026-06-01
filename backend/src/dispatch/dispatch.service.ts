@@ -1042,4 +1042,71 @@ export class DispatchService {
       };
     });
   }
+
+  async markManuallyDispatched(
+    orderId: string,
+    userId: string,
+    input: { awbNumber?: string; carrierName?: string; trackingNumber?: string; notes?: string },
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: true,
+        salesAgent: { select: { fullName: true } },
+        items: { include: { product: true } },
+      },
+    });
+    if (!order) throw new BadRequestException('Order not found');
+
+    const shipmentNumber = `MAN-${Date.now()}-${randomSuffix()}`;
+    const carrierName = input.carrierName?.trim() || 'Manual';
+    const trackingRef = input.awbNumber?.trim() || input.trackingNumber?.trim() || null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.shipment.create({
+        data: {
+          orderId,
+          handledById: userId,
+          shipmentNumber,
+          carrierName,
+          status: ShipmentStatus.PACKED,
+          dispatchDate: new Date(),
+          trackingNumber: trackingRef,
+          awbNumber: trackingRef,
+          dispatchType: 'COURIER',
+          notes: input.notes || `Manually marked as dispatched via ${carrierName}`,
+        },
+      });
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.DISPATCHED },
+      });
+
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: OrderStatus.DISPATCHED,
+          changedById: userId,
+          reason: `Manually marked as dispatched. Carrier: ${carrierName}${trackingRef ? `. AWB: ${trackingRef}` : ''}`,
+          metadata: { shipmentNumber, carrierName, awbNumber: trackingRef },
+        },
+      });
+    });
+
+    if (order.customer.phone) {
+      void this.whatsapp.sendOrderUpdate({
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone,
+        orderNo: order.orderNumber,
+        product: order.items.map(i => i.product.name).join(', '),
+        status: `Dispatched via ${carrierName}${trackingRef ? `. Tracking: ${trackingRef}` : ''}`,
+        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+      });
+    }
+
+    return { success: true, shipmentNumber, carrierName, awbNumber: trackingRef };
+  }
+
 }
