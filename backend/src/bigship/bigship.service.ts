@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import FormData from 'form-data';
 import PDFDocument from 'pdfkit';
+import { Readable } from 'stream';
 
 // ─── Base URL ────────────────────────────────────────────────────────────────
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
@@ -115,6 +116,11 @@ function bigshipActiveFlag(value: unknown): boolean {
 
 /** Look up a plausible city from pincode — used only when no city is in the address */
 function cityFromPincode(pin: string, fallback?: string): string {
+  const cleanPin = pin.trim();
+  const exactCityMap: Record<string, string> = {
+    '230403': 'PRATAPGARH',
+    '262701': 'LAKHIMPUR',
+  };
   const prefix2 = pin.trim().slice(0, 2);
   const prefix3 = pin.trim().slice(0, 3);
   const CITY_MAP: Record<string, string> = {
@@ -126,7 +132,27 @@ function cityFromPincode(pin: string, fallback?: string): string {
     '262': 'LAKHIMPUR KHERI','482': 'JABALPUR',        '452': 'INDORE',
     '462': 'BHOPAL',
   };
-  return titleCase(CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? fallback ?? 'Delhi');
+  return titleCase(exactCityMap[cleanPin] ?? CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? fallback ?? 'Delhi');
+}
+
+function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string): Array<{ city: string; state: string }> {
+  const state = stateFromPincode(pin);
+  const cityCandidates = [
+    cityFromPincode(pin),
+    fallbackCity,
+  ]
+    .filter((city): city is string => !!city?.trim())
+    .flatMap((city) => [titleCase(city), city.toUpperCase()]);
+
+  const seen = new Set<string>();
+  return cityCandidates
+    .map((city) => ({ city, state }))
+    .filter((attempt) => {
+      const key = `${attempt.city}|${attempt.state}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 export type BigshipWarehouse = {
@@ -384,15 +410,7 @@ export class BigshipService {
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
     const invoiceNo = uniqueInvoiceNo(params.orderNumber, 'RATE');
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
-    const shippingCity = cityFromPincode(deliveryPostcode, params.shippingCity);
-    const shippingState = stateFromPincode(deliveryPostcode);
-    const cityStateAttempts = [
-      { city: shippingCity, state: shippingState },
-      { city: shippingCity.toUpperCase(), state: shippingState.toUpperCase() },
-      { city: shippingCity.toUpperCase(), state: stateCodeFromPincode(deliveryPostcode) },
-      { city: shippingCity, state: stateCodeFromPincode(deliveryPostcode) },
-      { city: titleCase(params.shippingCity ?? shippingCity), state: titleCase(params.shippingState ?? shippingState) },
-    ];
+    const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode, params.shippingCity);
 
     this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
@@ -639,8 +657,8 @@ export class BigshipService {
     form.append('MasterCustomOrderId', input.masterCustomOrderId);
     form.append('courierId', String(input.courierId));
     form.append('invoiceType', 'uploaded');
-    form.append('InvoiceData', input.pdfBuffer, {
-      filename: `invoice-${input.masterCustomOrderId}.pdf`,
+    form.append('InvoiceData', Readable.from(input.pdfBuffer), {
+      filename: 'invoice.pdf',
       contentType: 'application/pdf',
       knownLength: input.pdfBuffer.length,
     });
