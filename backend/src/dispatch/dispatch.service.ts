@@ -339,15 +339,26 @@ export class DispatchService {
     const notesCodAmount = notesCodAmountMatch ? Number(notesCodAmountMatch[1]) : null;
     const balanceDue = this.paymentBalanceDue(order);
     const balanceAmount = balanceDue > 0.5 ? Math.ceil(balanceDue) : 0;
-    const isCod = notesIsCod || balanceAmount > 0;
-    const codAmount = isCod ? (notesCodAmount ?? (balanceAmount > 0 ? balanceAmount : null)) : null;
+    const isCod = notesIsCod;
+    const codAmount = isCod ? notesCodAmount : null;
     return { isCod, codAmount, balanceDue: balanceAmount };
   }
 
-  private assertCanDispatch(order: { status: OrderStatus }) {
+  private async assertCanDispatch(order: { id: string; status: OrderStatus }) {
     const dispatchableStatuses: OrderStatus[] = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
     if (!dispatchableStatuses.includes(order.status)) {
       throw new BadRequestException('Order must be approved by accounts before dispatch');
+    }
+    const approval = await this.prisma.statusLog.findFirst({
+      where: {
+        orderId: order.id,
+        fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+        toStatus: OrderStatus.READY_FOR_DISPATCH,
+      },
+      select: { id: true },
+    });
+    if (!approval) {
+      throw new BadRequestException('Sales must submit dispatch payment details and accounts must approve before booking');
     }
   }
 
@@ -356,6 +367,12 @@ export class DispatchService {
       where: {
         status: {
           in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED],
+        },
+        statusLogs: {
+          some: {
+            fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+            toStatus: OrderStatus.READY_FOR_DISPATCH,
+          },
         },
         items: {
           some: {
@@ -441,7 +458,7 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    this.assertCanDispatch(order);
+    await this.assertCanDispatch(order);
 
     const readyItems = order.items.filter(
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
@@ -572,7 +589,7 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    this.assertCanDispatch(order);
+    await this.assertCanDispatch(order);
 
     const itemsToDispatch = order.items.filter(
       (i) => itemIds.includes(i.id) &&
@@ -606,7 +623,7 @@ export class DispatchService {
 
     const addr = splitAddressForShiprocket(order.customer);
     const paymentInfo = this.dispatchPaymentInfo(order);
-    const orderIsCod = paymentInfo.balanceDue > 0 ? true : (isCod ?? paymentInfo.isCod);
+    const orderIsCod = isCod ?? paymentInfo.isCod;
     const orderCodAmt = codAmount ?? paymentInfo.codAmount ?? undefined;
 
     if (bigshipRate && this.bigship.isConfigured()) {
@@ -767,7 +784,7 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    this.assertCanDispatch(order);
+    await this.assertCanDispatch(order);
 
     const itemsToDispatch = order.items.filter(
       (i) => input.itemIds.includes(i.id) &&
@@ -852,7 +869,7 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    this.assertCanDispatch(order);
+    await this.assertCanDispatch(order);
     const itemsToDispatch = order.items.filter(
       (i) => input.itemIds.includes(i.id) &&
         i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
