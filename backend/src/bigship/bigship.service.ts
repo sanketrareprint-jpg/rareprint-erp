@@ -609,12 +609,27 @@ export class BigshipService {
       form.append('InvoiceData', pdfBuffer, {
         filename: `invoice-${input.masterCustomOrderId}.pdf`,
         contentType: 'application/pdf',
+        knownLength: pdfBuffer.length,
+      });
+      const contentLength = await new Promise<number>((resolve, reject) => {
+        form.getLength((err, length) => {
+          if (err) reject(err);
+          else resolve(length);
+        });
       });
 
       const { data: placeData } = await this.api().post(
         '/api/outbound/place-order',
         form,
-        { headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() } },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...form.getHeaders(),
+            'Content-Length': contentLength,
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        },
       );
 
       const awb = String(placeData?.data?.awb_assigned ?? placeData?.data?.reference_number ?? '');
@@ -763,7 +778,7 @@ function createSimplePdf(content: string): Buffer {
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
     `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
   ];
-  const chunks: string[] = ['%PDF-1.4\n'];
+  const chunks: string[] = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'];
   const offsets = [0];
 
   objects.forEach((object, index) => {
