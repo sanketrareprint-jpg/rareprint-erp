@@ -75,6 +75,14 @@ function limitText(value: string | undefined, fallback: string, maxLength: numbe
   return cleaned.slice(0, maxLength);
 }
 
+function limitBigshipName(value: string | undefined, fallback: string, maxLength: number): string {
+  const cleaned = (value ?? fallback)
+    .replace(/[^a-zA-Z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || fallback;
+  return cleaned.slice(0, maxLength).trim() || fallback;
+}
+
 function bigshipErrorMessage(error: unknown): string {
   const err = error as { response?: { data?: unknown }; message?: string };
   const data = err.response?.data;
@@ -120,8 +128,11 @@ function bigshipActiveFlag(value: unknown): boolean {
 function cityFromPincode(pin: string, fallback?: string): string {
   const cleanPin = pin.trim();
   const exactCityMap: Record<string, string> = {
+    '132001': 'KARNAL',
     '230403': 'PRATAPGARH',
     '262701': 'KHERI',
+    '477441': 'LAHAR',
+    '848210': 'ROSERA',
   };
   const prefix2 = pin.trim().slice(0, 2);
   const prefix3 = pin.trim().slice(0, 3);
@@ -140,7 +151,10 @@ function cityFromPincode(pin: string, fallback?: string): string {
 function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string): Array<{ city: string; state: string }> {
   const state = stateFromPincode(pin);
   const extraCityMap: Record<string, string[]> = {
+    '132001': ['KARNAL'],
     '262701': ['KHERI', 'LAKHIMPUR', 'LAKHIMPUR KHERI', 'LAKHIMPUR-KHERI'],
+    '477441': ['LAHAR', 'BHIND'],
+    '848210': ['ROSERA', 'SAMASTIPUR'],
   };
   const cityCandidates = [
     cityFromPincode(pin),
@@ -436,7 +450,7 @@ export class BigshipService {
             OrderInvoiceNo:             invoiceNo,
             MasterOrderInvoiceAmount:   declaredValue,
             MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
-            MasterOrderShippingName:    limitText(params.shippingName, 'Rate Check', 25),
+            MasterOrderShippingName:    limitBigshipName(params.shippingName, 'Rate Check', 25),
             MasterOrderShippingEmail:   params.shippingEmail ?? '',
             MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
             MasterOrderShippingAddress: limitText(params.shippingAddress, 'Rate Check Address', 75),
@@ -563,7 +577,7 @@ export class BigshipService {
           OrderInvoiceNo:             invoiceNo,
           MasterOrderInvoiceAmount:   declaredValue,
           MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
-          MasterOrderShippingName:    limitText(input.customerName, 'Customer', 25),
+          MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
           MasterOrderShippingEmail:   input.customerEmail || '',
           MasterOrderShippingMobileNo: input.customerPhone.replace(/\D/g, '').slice(0, 10) || '9999999999',
           MasterOrderShippingAddress: limitText(input.billingAddress, 'Address', 75),
