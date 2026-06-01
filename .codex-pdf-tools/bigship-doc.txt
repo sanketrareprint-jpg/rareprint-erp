@@ -1,0 +1,1437 @@
+API Documentation for Outbound (User) for
+Bigship Direct
+📚 Table Of Contents & List of APIs
+1. Overview
+2. Changelog
+3. Base URL
+4. Authentication
+5. API Rate Limiting
+6. Currency Format
+7. Common Response Format
+8. Error Handling & Sample Response
+9. Environment Information
+10. Support & Contact
+11. Pagination Rules
+12. Other Helpful Notes
+13. API: User Login
+14. API: Get Profile
+15. API: Save Warehouse (Save Pickup Location)
+16. API: Get Warehouse List (Get Pickup Location List)
+17. API: Update Warehouse API (Update Pickup Location)
+18. API: Get Package Types List
+19. API: Create Order (Draft Mode)
+20. API: Get Serviceable Couriers and Rate Quotation for Draft Order
+21. API: Place/Manifest Order
+22. API: Cancel Order
+23. API: Track Order
+24. API: Order Information
+📘 Overview
+This document provides details about the Unified Outbound APIs offered by Bigship. Please read this
+section carefully before you begin integrating the APIs.
+📑 Changelog
+Date Version Changes Made
+07-06-2025 1.0 🔹Initial draft of Hyperlocal Outbound API documentation created,
+including core APIs for login, warehouse management, order creation,
+courier rates, and order lifecycle.
+
+-- 1 of 33 --
+
+19-09-2025 1.1
+🔹 Updated the Hyperlocal Outbound API documentation:
+• In the Order Creation API, the fields Length, Width, and Height have
+been changed from mandatory to optional.
+• If these fields are not provided in the request payload, the backend
+will now automatically apply default dimensions of 10 × 10 × 10.
+10-10-2025 1.2
+🔹 Added Two New APIs: Track Order and Order Information
+09-04-2026 1.3
+🔹 Allow Domestic (B2B & B2C) APIs for complete flow.
+✅ Base URL
+https://api.bigship.direct/
+To form the full URL for any endpoint, append the API path to the base URL.
+For example, If the endpoint is: api/outbound/login. The full URL is:
+https://api.bigship.direct/api/outbound/login
+🔒 Authentication
+All APIs (except login) require a valid Bearer Token in the request header:
+Authorization: Bearer {token}
+You can obtain this token by calling the User Login API.
+🚦 API Rate Limiting
+To maintain system performance and prevent abuse, rate limiting may be applied:
+• Standard rate limit: 100 requests per minute per IP (can be customized based on integration
+level)
+• Exceeding limits may result in a 429 Too Many Requests error.
+💰 Currency Format
+All amounts (e.g., wallet balance, rates, invoice amounts) are in Indian Rupees (₹), not in paise.
+Example: A balance of "1000.00" represents ₹1,000.00.
+ ⚠️	
+Common Response Format
+Most APIs follow a standard response format with keys like status, message, status_code, and data.
+Refer to each API's response section for examples.
+📄 Error Handling
+• 400 Bad Request: Invalid input or missing parameters.
+
+-- 2 of 33 --
+
+• 401 Unauthorized: Token is missing or expired.
+• 403 Forbidden: You do not have permission to access this resource.
+• 404 Not Found: Endpoint or resource does not exist.
+• 409 Conflict: Request could not be completed due to a conflict with the current state of the
+resource.
+• 422 Unprocessable Entity: The request was well-formed but contains semantic errors.
+• 429 Too Many Requests: You have sent too many requests in a given amount of time. Please
+slow down.
+• 500 Internal Server Error: An error occurred on the server.
+Success Response:
+{
+"status": true,
+"message": "Error message description appears here.",
+"status_code": 200,
+"data": ""
+}
+Error Response:
+{
+"status": false,
+"message": "Error message description appears here.",
+"status_code": 400,
+"data": ""
+}
+Validation Error Response:
+{
+"status": false,
+"type": "validation",
+"message": "First Key error message appears here.",
+"status_code": 422,
+"data": "",
+"errors": {
+"example_key": [
+"Example Key is required or invalid."
+]
+}
+}
+Unauthorized Error Response:
+{
+"status": false,
+"message": "Unauthenticated",
+"status_code": 401,
+"error": "Invalid token or session expired."
+
+-- 3 of 33 --
+
+}
+📄 Pagination Rules
+When fetching paginated data from endpoints (e.g., warehouse list, drop locations list), follow the
+rules below:
+• The perPage value must be a multiple of 5.
+• You can request a maximum of 25 records per page.
+• If these rules are not followed, the API will respond with an appropriate error message:
+o You can view up to 25 records per page at a time.
+o You can get records in multiples of 5.
+✅ Valid values for perPage: 5, 10, 15, 20, 25
+📨 Support & Contact
+If API users face issues or need assistance, they should have a clear support contact:
+• 📧 Support Email: support@bigship.in
+🌍 Environment Information
+APIs are accessible in different environments based on your stage of integration. Use the
+appropriate Base URL according to your environment:
+Environment Base URL Description
+Production https://api.bigship.direct/ Live environment for real
+operations
+💡 Other Helpful Notes
+• Always use Content-Type: application/json in headers.
+• Some APIs have conditional mandatory fields. Be sure to review the notes under each
+parameter.
+• Payload field types like segment_type, latitude, etc., must match the required case and data
+type.
+• Date/time values returned by APIs are in UTC format.
+
+-- 4 of 33 --
+
+1. API: User Login/Token Generation
+Purpose: This endpoint allows users to log in to the system by providing their credentials. Upon
+successful authentication, the API returns user-specific data along with a session token.
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/login
+Request Headers:
+• Content-Type: application/json
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• username (string, required): The email address of the user.
+• password (string, required): The password associated with the user's account.
+• access_key (string, required): A key used for additional access control.
+Sample Request Body:
+{
+"username": "your_email@example.com",
+"password": "your_password",
+"access_key": "your_access_key"
+}
+Response Structure:
+This information is crucial for managing user sessions and accessing user-specific data within the
+application.
+On a successful login, the API responds with a JSON object that includes the following keys:
+• status (boolean): Indicates whether the login was successful.
+• message (string): A message providing additional information about the login attempt.
+• status_code (integer): The HTTP status code of the response.
+• data (object): Contains user-specific information, including:
+o firstName (string): The first name of the user.
+o lastName (string): The last name of the user.
+o EmailID (string): The email address of the user.
+o mobileNumber (string): The mobile number of the user.
+o countryname (string): The name of the country associated with the user.
+o IsEmailVerifed (boolean): Indicates whether the user's email has been verified.
+o token (string): The session token for the authenticated user.
+o tokenExpiringAt (string): The expiration time of the session token.
+
+-- 5 of 33 --
+
+o is_outbound_service_enabled (boolean): Indicates if outbound services are enabled
+for the user.
+o api_master_client_account (object): Contains details about the user's API account,
+including:
+▪ access_key (string): The access key for the API account.
+▪ access_key_generated_date (string): The date when the access key was
+generated.
+▪ is_account_enabled (boolean): Indicates if the account is enabled.
+▪ created_date (string): The date when the account was created.
+▪ updated_date (string): The date when the account was last updated.
+o userWallet (object): Contains wallet information for the user, including:
+▪ Balance (string): The current balance in the user's wallet.
+▪ kycCurrency (string): The currency used for KYC (Know Your Customer)
+purposes.
+Response JSON:
+{
+"status": true,
+"message": "Logged In Successfully",
+"status_code": 200,
+"data": {
+"firstName": "Sudhanshu",
+"lastName": "Mittal",
+"EmailID": "your_email@example.com",
+"mobileNumber": "9879879870",
+"countryname": "India",
+"IsEmailVerifed": "1",
+"token": "your_generated_bearer_token",
+"tokenExpiringAt": "2025-05-29T12:25:30.664918Z",
+"is_outbound_service_enabled": "1",
+"api_master_client_account": {
+"access_key": "your_access_key",
+"access_key_generated_date": "2025-05-28 08:04:59.9980000",
+"is_account_enabled": "1",
+"created_date": "2025-05-27T13:54:34.940000Z",
+"updated_date": "2025-05-28T08:05:06.547000Z"
+},
+"userWallet": {
+"Balance": "1192826.66",
+"kycCurrency": "₹"
+}
+}
+}
+
+-- 6 of 33 --
+
+2. API: Get Profile
+Purpose: This API endpoint makes an HTTP GET request to retrieve the user profile information.
+API Request:
+• Method: GET
+• URL: {{url}}api/outbound/profile
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body: No body or parameters are required for this GET request.
+Response Structure:
+The API response returns a JSON object with the following keys:
+1. status (boolean): Indicates the success of the request.
+2. message (string): A message related to the response.
+3. status_code (integer): The HTTP status code of the response.
+4. data (object): The profile data object containing the following keys:
+a. firstName (string): The first name of the user.
+b. lastName (string): The last name of the user.
+c. EmailID (string): The email ID associated with the profile.
+d. mobileNumber (string): The mobile number associated with the profile.
+e. countryname (string): The name of the country.
+f. IsEmailVerifed (string): Indicates if the email is verified.
+g. is_outbound_service_enabled (string): Indicates if the outbound service is enabled.
+h. api_master_client_account (object): The API master client account object
+containing the following keys:
+i. access_key (string): The access key for the account.
+ii. access_key_generated_date (string): The date when the access key was
+generated.
+iii. is_account_enabled (string): Indicates if the account is enabled.
+iv. created_date (string): The date when the account was created.
+v. updated_date (string): The date when the account was last updated.
+i. userWallet (object): The user's wallet information containing the following keys:
+i. Balance (string): The current balance in the wallet.
+ii. kycCurrency (string): The currency used for KYC.
+Response JSON:
+{
+"status": true,
+
+-- 7 of 33 --
+
+"message": "User profile fetched successfully.",
+"status_code": 200,
+"data": {
+"firstName": "Sudhanshu",
+"lastName": "Mittal",
+"EmailID": "your_email@example.com",
+"mobileNumber": "9879879870",
+"countryname": "India",
+"IsEmailVerifed": "1",
+"is_outbound_service_enabled": "1",
+"api_master_client_account": {
+"access_key": "your_access_key",
+"access_key_generated_date": "2025-06-04 13:44:04.7740000",
+"is_account_enabled": "1",
+"created_date": "2025-05-27T13:54:34.940000Z",
+"updated_date": "2025-06-04T13:44:04.916000Z"
+},
+"userWallet": {
+"Balance": "1192516.48",
+"kycCurrency": "₹"
+}
+}
+}
+3. API: Save Warehouse API (Save Pickup Location Data)
+Purpose: This API endpoint is used to save warehouse data for logistics operations.
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/save-warehouse-data
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• segment_type (text, required): The type of segment (e.g., hyperlocal, local).
+• warehouseContactPerson (text, required): The contact person at the warehouse.
+• warehouseAddressPhone (text, required): The phone number of the warehouse.
+• warehouseCountry (text, required): The country where the warehouse is located. It must be
+India when segment_type is hyperlocal or local.
+
+-- 8 of 33 --
+
+• warehouseState (text, required): The state where the warehouse is located.
+• warehouseCity (text, required): The city where the warehouse is located.
+• warehousePinCode (text, required): The pin code of the warehouse.
+• warehouseAddressLine1 (text, required): Primary address of the warehouse. Must contain a
+minimum of 3 words and a maximum of 75 words.
+• warehouseAddressLine2 (text, optional): Secondary address of the warehouse. Must
+contain a minimum of 3 words and a maximum of 75 words.
+• warehouseAddressLandMark (text, required): Landmark near the warehouse. Must contain
+a minimum of 3 words and a maximum of 50 words.
+• latitude (text, required): The latitude of the warehouse. Only required when segment_type
+is hyperlocal.
+• longitude (text, required): The longitude of the warehouse. Only required when
+segment_type is hyperlocal.
+• address_type (text, required): Specifies the type of address. This field is required only when
+segment_type is hyperlocal. Allowed values are: Home, Office, Shop, Factory, Hotel, Other.
+Sample Request Body:
+{
+"segment_type": "hyperlocal", //hyperlocal, local
+"warehouseContactPerson": "Siddharth",
+"warehouseAddressPhone": "7854693258",
+"warehouseCountry": "India", //optional or it must be India when segment_type is hyperlocal or local.
+"warehouseState": "Karnataka",
+"warehouseCity": "BANGALORE",
+"warehousePinCode": "560113",
+"warehouseAddressLandMark": "Hudda City Centre",
+"warehouseAddressLine1": "Sector 29",
+"warehouseAddressLine2": "Sector 29",
+"latitude": "12.947146336879577", // required only when segment_type is hyperlocal.
+"longitude": "77.62102993895199", // required only when segment_type is hyperlocal.
+"address_type": "home" // required only when segment_type is hyperlocal.
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status: Indicates the status of the request (e.g., success, error).
+• message: Message providing additional information about the request outcome.
+• data: An object containing:
+o warehouseId: The ID of the warehouse where the data was saved.
+o is_phone_verified: Indicates if the phone number of the warehouse is verified (0 for
+not verified, 1 for verified).
+o phone_number: The phone number associated with the warehouse.
+
+-- 9 of 33 --
+
+Response JSON:
+{
+"status": true,
+"message": "Warehouse added successfully.",
+"status_code": 200,
+"data": {
+"warehouseId": 218,
+"is_phone_verified": 0,
+"phone_number": "7854693258"
+}
+}
+4. API: Get Warehouse List API (List Saved Pickup Locations)
+Purpose: This API endpoint is used to retrieve a list of warehouses.
+API Request:
+• Method: GET
+• URL: {{url}}api/outbound/get-warehouse-list
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• page: (string, required) Page number for pagination.
+• perPage: (string, required) Number of warehouses per page (Minimum 10, Maximum 25
+records at a time).
+• segment_type: (string, required) Type of segment to filter warehouses (e.g., hyperlocal,
+local).
+• status: (string, optional) Filter by warehouse status and it can be 0 or 1.
+• filter_type: (string, optional) Type of filter to be applied (Options: warehouse_name,
+warehouse_phone, warehouse_pin, warehouse_contact_person).
+• filter_value: (string, optional) The value to apply for the selected filter type. Filtering is
+applied only if the filter_type key has a predefined value.
+Sample Request Parameters:
+{
+"perPage": "1",
+"page": "1",
+"segment_type": "hyperlocal", //hyperlocal, local
+
+-- 10 of 33 --
+
+"status": "", //optional, can be 0 or 1
+"filter_type": "", // warehouse_name, warehouse_phone,warehouse_pin,warehouse_contact_person
+"filter_value": "" //Bigship , 9842175668
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status: (boolean) Indicates the success of the request.
+• message: (string) Additional information or message from the server.
+• status_code: (number) HTTP status code of the response.
+• data: (object) Contains the warehouse data.
+• warehouse: (array) List of warehouses matching the filter criteria.
+• total: (number) Total count of warehouses matching the filter criteria.
+Response JSON:
+{
+"status": true,
+"message": "Warehouses get successfully.",
+"status_code": 200,
+"data": {
+"warehouse": [
+{
+"warehouseId": 218,
+"warehouseName": "HYP_Siddharth_1749123891",
+"warehouseContactPerson": "Siddharth",
+"warehouseAddressLine1": "Sector 29",
+"warehouseAddressLine2": "Sector 29",
+"warehouseAddressLandMark": "Hudda City Centre",
+"warehouseAddressPhone": "7854693258",
+"isActive": "1",
+"isShipped": "0",
+"isEditable": 1,
+"country": "India",
+"state": "KARNATAKA",
+"city": "BANGALORE",
+"pincode": "560113",
+"is_location_enabled": "1",
+"addedOn": "2025-06-05T11:44:51.223000Z",
+"hyperlocal": {
+"type": "warehouse",
+"latitude": "12.947146",
+"longitude": "77.621030",
+"mapLocationId": null,
+"addressType": "home"
+}
+}
+
+-- 11 of 33 --
+
+],
+"total": 16
+}
+}
+5. API: Update Warehouse API (Edit Saved Pickup Location)
+Purpose: This API endpoint is used to edit warehouse data for hyperlocal logistics operations.
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/edit-warehouse-data
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• warehouseId (text, required): The ID of the warehouse to be edited.
+• warehouseName (text, required): The name of the warehouse.
+• warehouseContactPerson (text, required): The contact person at the warehouse.
+• warehouseAddressPhone (text, required): The phone number of the warehouse.
+• warehouseCountry (text, required): The country where the warehouse is located. It must be
+India when segment_type is hyperlocal or local.
+• warehouseState (text, required): The state where the warehouse is located.
+• warehouseCity (text, required): The city where the warehouse is located.
+• warehousePinCode (text, required): The pin code of the warehouse.
+• warehouseAddressLine1 (text, required): Primary address of the warehouse. Must contain a
+minimum of 3 words and a maximum of 75 words.
+• warehouseAddressLine2 (text, optional): Secondary address of the warehouse. Must
+contain a minimum of 3 words and a maximum of 75 words.
+• warehouseAddressLandMark (text, required): Landmark near the warehouse. Must contain
+a minimum of 3 words and a maximum of 50 words.
+• latitude (text, required): The latitude of the warehouse. Only required when the warehouse
+was created for hyperlocal.
+• longitude (text, required): The longitude of the warehouse. Only required when the
+warehouse was created for hyperlocal.
+• address_type (text, required): Specifies the type of address. This field is required only when
+the warehouse is created for hyperlocal. Allowed values are: Home, Office, Shop, Factory,
+Hotel, Other.
+
+-- 12 of 33 --
+
+Sample Request Body:
+{
+"warehouseId": "214",
+"warehouseName": "Hyperlocal BANGALORE Pickup Rohit",
+"warehouseContactPerson": "Siddharth",
+"warehouseAddressPhone": "7854693258",
+"warehouseCountry": "India", //optional or it must be India when segment_type is hyperlocal or local.
+"warehouseState": "Karnataka",
+"warehouseCity": "BANGALORE",
+"warehousePinCode": "560113",
+"warehouseAddressLandMark": "Hudda City Centre",
+"warehouseAddressLine1": "Sector 52",
+"warehouseAddressLine2": "Sector 29",
+"latitude": "12.947146336879577", // only when segment_type is hyperlocal.
+"longitude": "77.62102993895199", // only when segment_type is hyperlocal.
+"address_type": "home" // only when segment_type is hyperlocal.
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status: Indicates the status of the request (e.g., success, error).
+• message: Message providing additional information about the request outcome.
+• data: An object containing:
+o is_phone_verified: Indicates if the phone number of the warehouse is verified (0 for
+not verified, 1 for verified).
+o phone_number: The phone number associated with the warehouse.
+Response JSON:
+{
+"status": true,
+"message": "Warehouse updated successfully",
+"status_code": 200,
+"data": {
+"is_phone_verified": 1,
+"phone_number": "7854693258"
+}
+}
+6. API: Get Packages Type List API
+Purpose: This API endpoint is used to edit warehouse data for hyperlocal logistics operations.
+API Request:
+
+-- 13 of 33 --
+
+• Method: GET
+• URL: {{url}}api/outbound/hyperlocal/get-packages-list
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+• Nobody is required for this API request.
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status (boolean): Indicates whether the request was successful.
+• message (string): A message providing additional information about the request status. This
+may be empty.
+• status_code (integer): A code representing the status of the response (200 typically
+indicates success).
+• data (array): An array of package objects, each containing:
+o HyperlocalPackageTypeId (integer): The unique identifier for the package type.
+o PackageType (string): The name or type of the package.
+o Description (string): A description of the package type.
+o IsEnabled (string): A flag indicating whether the package type is enabled.
+Response JSON:
+{
+"status": true,
+"message": "HyperLocalPackages List get successfully.",
+"status_code": 200,
+"data": [
+{
+"HyperlocalPackageTypeId": 1,
+"PackageType": "Electronics",
+"Description": "Electronic gadgets, devices, and accessories",
+"IsEnabled": "1"
+}
+]
+}
+7. API: Create Order API (Draft Order)
+Purpose: This API endpoint is used to create a new order with the provided details.
+
+-- 14 of 33 --
+
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/create-order
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body: The request body should be in JSON format and contain the following parameters:
+Important Note About Segments
+The request payload changes based on the selected segment_type, and the purpose/meaning of
+fields also differs for each segment. Every segment has its own required fields and its own payload
+structure.
+Supported segment_type values:
+• hyperlocal
+• domestic_b2b
+• domestic_b2c
+Common Request Fields (Applicable to Most Segments)
+• segment_type (string, required): The type of segment for the order, e.g., "hyperlocal",
+"domestic_b2b", "domestic_b2c".
+• MasterOrderPickUpLocation (integer, required): The warehouse ID for order pickup.
+• MasterOrderPaymentMode (integer, required): The mode of payment for the order.
+• MasterOrderShippingName (string, required): The name of the shipping entity.
+• MasterOrderShippingEmail (string, optional): The email of the shipping entity.
+• MasterOrderShippingMobileNo (string, required): The mobile number of the shipping
+entity.
+• MasterOrderShippingZipCode (string, required): The zip code of the shipping address.
+• MasterOrderShippingCity (string, required): The city of the shipping address.
+• MasterOrderShippingState (string, required): The state of the shipping address.
+• MasterOrderShippingCountry (string, required): The country of the shipping address.
+• MasterOrderShippingAddress (string, required): The primary address of the shipping entity.
+• MasterOrderShippingAddress2 (string, optional): Additional address details for the shipping
+entity.
+• MasterOrderShippingLandmark (string, optional): Landmark of the shipping address.
+Segment-Wise Payload Structures
+
+-- 15 of 33 --
+
+Below are the final sample payloads, updated and aligned with the actual requirement for each
+segment type.
+1. Hyperlocal Payload
+• MasterOrderShippingLatitude (string, required): The latitude of the shipping location.
+• MasterOrderShippingLongitude (string, required): The longitude of the shipping location.
+• OrderInvoiceNo (string, optional): The invoice number for the order.
+• MasterOrderInvoiceAmount (integer, required): The total invoice amount for the order.
+• PackageTypeId (integer, required): The ID representing the type of package and only used
+for hyperlocal only.
+• pickup_instructions (string, optional): Instructions for the pickup.
+• additional_comments (string, optional): Any additional comments regarding the order.
+• boxes (object, required): Contains details about the boxes in the order.
+o weight_unit (string, required): The unit of weight for the boxes.
+o dimension_unit (string, required): The unit of dimensions for the boxes.
+o dimensions (array, required): An array of dimensions for each box.
+▪ length (integer, optional): The length of the box.
+▪ breadth (integer, optional): The breadth of the box.
+▪ height (integer, optional): The height of the box.
+▪ weight (integer, required): The weight of the box.
+Sample Request Body:
+{
+"segment_type": "hyperlocal", //hyperlocal, domestic_b2b, domestic_b2c
+"MasterOrderPickUpLocation": 96, //Sender Warehouse Id
+"PackageTypeId": 5,
+"MasterOrderInvoiceAmount": 100, //package_value
+"OrderInvoiceNo": "1234", //optional
+"MasterOrderPaymentMode": 1, //fixed
+//Start::Receiver Information
+"MasterOrderShippingName": "Tony carreiro",
+"MasterOrderShippingMobileNo": "9166761588",
+"MasterOrderShippingZipCode": "110002",
+"MasterOrderShippingCity": "DELHI",
+"MasterOrderShippingState": "DELHI",
+"MasterOrderShippingCountry": "India",
+"MasterOrderShippingAddress": "asq",
+"MasterOrderShippingAddress2": "wqewq",
+"MasterOrderShippingLandmark": "N/A",
+"MasterOrderShippingLatitude": "28.641909999999999",
+"MasterOrderShippingLongitude": "77.222053000000002",
+//End::Receiver Information
+"pickup_instructions": "", //optional
+"additional_comments": "", //optional
+//Start::Box Dimesion Details
+
+-- 16 of 33 --
+
+"boxes": {
+"weight_unit": "kg", //fixed
+"dimension_unit": "cm", //fixed
+"dimensions": [
+{
+"length": 40, //optional
+"breadth": 40, //optional
+"height": 40, //optional
+"weight": 20, //required
+}
+]
+}
+//End::Box Dimesion Details
+}
+2. Domestic B2B Payload
+• MasterOrderReturnLocation (integer, required): The warehouse ID for order pickup.
+• MasterOrderDate (date, required): When your order has been created.
+• OrderInvoiceNo (string, required): The invoice number for the order.
+• MasterOrderInvoiceAmount (integer, required): The total invoice amount for the order.
+• MasterOrderCollectableAmount (string, optional): When payment mode is COD of the
+order.
+• ProductName (string, required): Any additional comments regarding the order.
+• boxes (array, required): Contains details about the boxes in the order.
+o weight_unit (string, required): The unit of weight for the boxes.
+o dimension_unit (string, required): The unit of dimensions for the boxes.
+o dimensions (array, required): An array of dimensions for each box.
+▪ length (integer, required): The length of the box.
+▪ breadth (integer, required): The breadth of the box.
+▪ height (integer, required): The height of the box.
+▪ weight (integer, required): The weight of the box.
+o noOfBoxes (string, required): An array of dimensions for each box.
+Sample Request Body:
+// B2B
+{
+"segment_type": "domestic_b2b",
+"MasterOrderPickUpLocation": 258,
+"MasterOrderReturnLocation": 258, //only required for domestic
+"MasterOrderDate": "2025-11-15",
+"MasterOrderPaymentMode": 1,
+"OrderInvoiceNo": "1234", //required
+"MasterOrderInvoiceAmount": 1000,
+"MasterOrderCollectableAmount": "", //only when payment mode is COD
+//Start::Receiver Information
+
+-- 17 of 33 --
+
+"MasterOrderShippingEmail": "test@gmail.com", //optional
+"MasterOrderShippingName": "test company",
+"MasterOrderShippingMobileNo": 8956231470,
+"MasterOrderShippingAddress": "test",
+"MasterOrderShippingAddress2": "",
+"MasterOrderShippingLandmark": "test",
+"MasterOrderShippingZipCode": "110011",
+"MasterOrderShippingCountry": "India",
+"MasterOrderShippingState": "DELHI",
+"MasterOrderShippingCity": "DELHI",
+//End::Receiver Information
+"totalNumOfBoxes": 2, // sum of the noOfBoxes field from all boxes listed below
+"ProductName": "test product",
+"boxes": [
+{
+"weight_unit": "kg", //fixed
+"dimension_unit": "cm", //fixed
+"noOfBoxes": 1,
+"dimensions": [
+{
+"length": 101,
+"breadth": 40,
+"height": 40,
+"weight": 20
+}
+]
+},
+{
+"weight_unit": "kg", //fixed
+"dimension_unit": "cm", //fixed
+"noOfBoxes": 1,
+"dimensions": [
+{
+"length": 40,
+"breadth": 40,
+"height": 40,
+"weight": 20
+}
+]
+}
+]
+}
+3. Domestic B2C Payload
+• MasterOrderReturnLocation (integer, required): The warehouse ID for order pickup.
+• MasterOrderDate (date, required): When your order has been created.
+• OrderInvoiceNo (string, required): The invoice number for the order.
+• MasterOrderInvoiceAmount (required): The total invoice amount of the order and it must
+be equal to the sum of totalAmount field for every product item.
+
+-- 18 of 33 --
+
+• boxes (array, required): Contains details about the boxes in the order.
+o weight_unit (string, required): The unit of weight for the boxes.
+o dimension_unit (string, required): The unit of dimensions for the boxes.
+o dimensions (array, required): An array of dimensions for each box.
+▪ length (integer, required): The length of the box.
+▪ breadth (integer, required): The breadth of the box.
+▪ height (integer, required): The height of the box.
+▪ weight (integer, required): The weight of the box.
+o noOfBoxes (string, required): An array of dimensions for each box.
+o products (array, required when segment_type is domestic_b2c): An array of
+products for each box.
+▪ productName (string, required): The length of the box.
+▪ hsn (string, optional): The breadth of the box.
+▪ qty (integer, optional): The height of the box.
+▪ amount (integer, required): The weight of the box.
+▪ totalAmount (integer, required): The weight of the box.
+▪ collectableAmount (integer, required): The weight of the box.
+▪ categoryID (string, required): The weight of the box.
+Sample Request Body:
+// B2C
+{
+"segment_type": "domestic_b2c",
+"MasterOrderPickUpLocation": 258,
+"MasterOrderReturnLocation": 258,
+"MasterOrderDate": "2025-08-28",
+"MasterOrderPaymentMode": 1,
+"OrderInvoiceNo": "1234", //required
+"MasterOrderInvoiceAmount": 1000, //sum of all products total amount
+//Start::Reciever Information
+"MasterOrderShippingEmail": "test@gmail.com", //optional
+"MasterOrderShippingName": "test company",
+"MasterOrderShippingMobileNo": 8956231470,
+"MasterOrderShippingAddress": "test",
+"MasterOrderShippingAddress2": "",
+"MasterOrderShippingLandmark": "test",
+"MasterOrderShippingZipCode": "110011",
+"MasterOrderShippingCountry": "India",
+"MasterOrderShippingState": "DELHI",
+"MasterOrderShippingCity": "DELHI",
+//End::Reciever Information
+"totalNumOfBoxes": 1, // sum of the noOfBoxes field from all boxes listed below
+"boxes": [
+{
+"weight_unit": "kg",
+"dimension_unit": "cm",
+"noOfBoxes": 1,
+
+-- 19 of 33 --
+
+"dimensions": [
+{
+"length": 101,
+"breadth": 40,
+"height": 40,
+"weight": 20
+}
+],
+"products": [
+{
+"productName": "soap",
+"hsn": "1111", //optional
+"qty": "1",
+"amount": "4000",
+"totalAmount": 4000,
+"collectableAmount": 4000,
+"categoryId": "1"
+},
+{
+"productName": "balti",
+"hsn": "1111", //optional
+"qty": "1",
+"amount": "4000",
+"totalAmount": 4000,
+"collectableAmount": 4000,
+"categoryId": "1"
+}
+]
+}
+]
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status (boolean): Indicates if the request was successful.
+• message (string): A message related to the request.
+• status_code (integer): The HTTP status code of the response.
+• data (object): Contains the data related to the order creation.
+o CustomGlobalOrderId (string): The unique order ID for tracking the order.
+Response JSON:
+{
+"status": true,
+"message": "Order Created Successfully.",
+"status_code": 200,
+"data": {
+"CustomGlobalOrderId": "311276742"
+
+-- 20 of 33 --
+
+}
+}
+8. API: Order Rate Calculation API (Fetch Serviceable couriers for
+Order)
+Purpose: This API is designed to calculate the shipping cost for a given shipment based on various
+parameters. This API allows users to obtain the estimated shipping costs associated with a specific
+order, facilitating better decision-making for shipping logistics.
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/courier-wise-shipment-cost
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• MasterCustomOrderId (string, required): A unique identifier for the custom order. This ID is
+essential for retrieving the relevant shipment details and calculating the associated costs.
+Sample Request Body:
+{
+"MasterCustomOrderId": "311276742"
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status (boolean): Indicates whether the request was successful.
+• message (string): A message providing additional context about the request status (may be empty).
+• status_code (integer): A code representing the status of the response (0 indicates success).
+• data (object): Contains the calculated shipping cost details, which include:
+o segment_type (string): The type of shipment segment (e.g., domestic, international).
+o calculatedRates (array): An array of objects containing detailed rate information for each
+courier option:
+▪ courierId (integer): A unique identifier for the courier.
+▪ courierName (string): The name of the courier service.
+▪ courierImage (string): A URL or path to the courier's logo/image.
+▪ vehicle_type (string): The type of vehicle used for shipping.
+
+-- 21 of 33 --
+
+▪ capacity (string): The capacity of the vehicle.
+▪ planName (string): The name of the shipping plan offered by the courier.
+▪ base_freight (number): The base freight charge for the shipment.
+▪ gst_amount (number): The Goods and Services Tax applicable to the shipment.
+▪ total_freight (number): The total freight cost, including base freight and taxes.
+▪ currency (string): The currency in which the costs are denominated.
+Response JSON:
+1. Hyperlocal Response
+{
+"status": true,
+"message": "Rates Retrieved successfully.",
+"status_code": 200,
+"data": {
+"segment_type": "hyperlocal",
+"calculatedRates": [
+{
+"courierId": 25,
+"courierName": "Borzo",
+"courierImage": "https://storage.bigship.direct/files/1743485968_25.svg",
+"vehicle_type": "TWO_WHEELER",
+"capacity": "20kg",
+"planName": "Sprint",
+"base_freight": 278.55,
+"gst_amount": 50.14,
+"total_freight": 328.69,
+"currency": "₹"
+}
+]
+}
+}
+2. Domestic B2B Response
+{
+"status": true,
+"message": "Rates Retrieve successfully.",
+"status_code": 200,
+"data": {
+"segment_type": "domestic_b2b",
+"calculatedRates": [
+{
+"planName": "Franchise",
+"courierName": "Delhivery LTL",
+"courierId": "18",
+"pickup": "DELHI",
+"destination": "DELHI",
+"charged_weight": 56,
+"weight_unit": "kg",
+
+-- 22 of 33 --
+
+"base_freight": 425.6,
+"riskTypeName": "Owner Risk",
+"courierType": "Surface",
+"zone": "N1-N1",
+"riskCharge": "33.00",
+"lrCost": "80.00",
+"handlingCharge": ".00",
+"greenTax": "100.00",
+"codCharges": 0,
+"toPay": ".00",
+"oda": ".00",
+"tat": 3,
+"warai_Charge": 0,
+"state_Tax": 0,
+"pickup_Charge": "75.00",
+"smsNotificationCharge": 0,
+"emailNotificationCharge": 0,
+"whatsappNotificationCharge": 0,
+"total": "713.60",
+"kycCurrency": "₹",
+"courierImage": "https://storage.bigship.direct/files/1759153246_18.svg",
+"riskCharges": [
+{
+"typeId": 2,
+"name": "Owner Risk",
+"chargeValue": "33.00",
+"isRisk": true
+},
+{
+"typeId": 3,
+"name": "Carrier Risk",
+"chargeValue": "63.00",
+"isRisk": false
+}
+]
+}
+]
+}
+}
+3. Domestic B2C Response
+{
+"status": true,
+"message": "Rates Retrieve successfully.",
+"status_code": 200,
+"data": {
+"segment_type": "domestic_b2c",
+"calculatedRates": [
+{
+"planName": "Max",
+
+-- 23 of 33 --
+
+"courierName": "Amazon 10KG",
+"courierId": "64",
+"pickup": "DELHI",
+"destination": "DELHI",
+"charged_weight": 33,
+"weight_unit": "kg",
+"base_freight": 528,
+"riskTypeName": "Owner Risk",
+"courierType": "Surface",
+"zone": "A-A",
+"riskCharge": ".00",
+"lrCost": ".00",
+"handlingCharge": ".00",
+"greenTax": ".00",
+"codCharges": 0,
+"toPay": ".00",
+"oda": ".00",
+"tat": 1,
+"warai_Charge": 0,
+"state_Tax": 0,
+"pickup_Charge": ".00",
+"smsNotificationCharge": 0,
+"emailNotificationCharge": 0,
+"whatsappNotificationCharge": 0,
+"total": "528.00",
+"kycCurrency": "₹",
+"courierImage": null,
+"riskCharges": [
+{
+"typeId": 1,
+"name": "Third Party Insurance",
+"chargeValue": "120.00",
+"isRisk": false
+},
+{
+"typeId": 2,
+"name": "Owner Risk",
+"chargeValue": "0.00",
+"isRisk": true
+}
+]
+}
+]
+}
+}
+9. API: Place/Manifest Order API
+Purpose: This API endpoint is used to place an order with the provided details.
+
+-- 24 of 33 --
+
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/place-order
+Request Headers:
+• Content-Type: application/json (Only for hyperlocal)
+• Authorization: Bearer Token
+Note: Please ensure the Order Rate Calculation API must be executed before this API call.
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• MasterCustomOrderId (string, required): A unique identifier for the custom order. This ID is
+essential for retrieving the relevant shipment details and calculating the associated costs.
+• courierId (integer, required): The ID of the courier for the order which you received in Order
+Rate Calculation API.
+Sample Request Body:
+1. Hyperlocal Payload
+{
+"MasterCustomOrderId": "311276742",
+"courierId": 25
+}
+2. Domestic B2B/B2C Payload
+It must be form-data & in headers, Content-Type must be multipart/form-data.
+{
+"MasterCustomOrderId": "774827072",
+"courierId": "64",
+"invoiceType": "uploaded",
+"InvoiceData": (binary file data), // only required for b2b courier orders.
+"EwaybillNo": "", // required when order InvoiceAmount is gte 50k and for b2b courier orders only.
+"EwayBillData": (binary file data), // required when order InvoiceAmount is gte 50k and for b2b courier orders only.
+"riskTypeId": "2" // 1:Third-Party 2:Owner 3:Carrier
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status (boolean): Indicates whether the request was successful.
+• message (string): A message providing additional context about the request status (may be empty).
+• status_code (integer): A code representing the status of the response (0 indicates success).
+• data (object): Contains additional data related to the order placement.
+• reference_number (string): The reference number for the order.
+
+-- 25 of 33 --
+
+• awb_assigned (string): The assigned AWB number for the order.
+Response JSON:
+{
+"status": true,
+"message": "Order placed successfully.",
+"status_code": 200,
+"data": {
+"reference_number": 305585,
+"awb_assigned": 305585
+}
+}
+10. API: Cancel Order API
+Purpose: This API endpoint cancels the order with the provided details.
+API Request:
+• Method: POST
+• URL: {{url}}api/outbound/cancel-order
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Cases:
+• An order can only be cancelled before it reaches the Rider-Assigned status.
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• MasterCustomOrderId (string, required): A unique identifier for the custom order. This ID is
+essential for retrieving the relevant shipment details.
+Sample Request Body:
+{
+"CustomGlobalOrderId": "311276742",
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+
+-- 26 of 33 --
+
+• status (boolean): Indicates whether the request was successful.
+• message (string): A message providing additional context about the request status (may be empty).
+• status_code (integer): A code representing the response's status (0 indicates success).
+• data (array): An array that may contain details of the canceled order or additional data related to the
+cancellation, and it can be a blank array.
+Response JSON:
+{
+"status": true,
+"message": "Order cancelled successfully",
+"status_code": 200,
+"data": []
+}
+11. API: Track Order API
+Purpose: This API endpoint displays order tracking information.
+API Request:
+• Method: GET
+• URL: {{url}}api/outbound/track-order
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• MasterCustomOrderId (string, required): A unique identifier for the custom order. This ID is
+essential for retrieving the relevant shipment details.
+Sample Request Body:
+{
+"CustomGlobalOrderId": "311276742",
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status (boolean): Indicates whether the request was successful.
+
+-- 27 of 33 --
+
+• message (string): A message providing additional context about the request status (may be empty).
+• status_code (integer): A code representing the response's status (0 indicates success).
+• data (array): An array that may contain details of the canceled order or additional data related to the
+cancellation, and it can be a blank array.
+Response JSON:
+{
+"status": true,
+"message": "Data retrieved successfully.",
+"status_code": 200,
+"data": {
+"CustomGlobalOrderId": "383123781",
+"order_place_time": "2025-05-03T06:17:53.277000Z",
+"tracking_number": "65948160",
+"courier_name": "Borzo",
+"courier_image": "https://storage.bigship.direct/files/1748353411_25.svg",
+"tag": "Delivered",
+"order_status": "Delivered",
+"latest_checkpoint_time": "2025-05-03T08:13:43.092000Z",
+"source_coordinate": {
+"latitude": "28.577874",
+"longitude": "77.313792",
+"mapLocationId": "ChIJ1SWqHADlDDkRiy5a9enrjZ4",
+"addressType": "Office"
+},
+"drop_coordinate": {
+"latitude": "28.623762",
+"longitude": "77.294691",
+"mapLocationId": "ChIJjxhljK7kDDkRd33o-87f5ws",
+"addressType": "other"
+},
+"tracking_current_status": {
+"tracking_status": "Delivered",
+"partner_details": {
+"name": "Nishu Ratan Vashudev Singh",
+"vehicle": {
+"number": null,
+"type": "TWO_WHEELER"
+},
+"contact": {
+"primary": {
+"country_code": "+91",
+"number": "8287623320"
+},
+"secondary": {
+"country_code": "+91",
+"number": "8287623320"
+}
+}
+},
+"location": {
+"latitude": null,
+"longitude": null
+},
+"timestamps": {
+"pickup": null,
+
+-- 28 of 33 --
+
+"order": {
+"accepted": null,
+"started": null,
+"ended": "2025-05-03 08:13:42"
+}
+},
+"fare_details": {
+"currency": "INR",
+"amount": "110.43"
+}
+},
+"tracking_histories": [
+{
+"location": {
+"latitude": null,
+"longitude": null
+},
+"tag": "Delivered",
+"order_status": "Delivered",
+"checkpoint_time": "2025-05-03T08:13:42.984000Z",
+"message": "Order has been successfully delivered."
+},
+{
+"location": {
+"latitude": "28.6258068",
+"longitude": "77.3141718"
+},
+"tag": "In-Transit",
+"order_status": "In-Transit",
+"checkpoint_time": "2025-05-03T08:13:35.472000Z",
+"message": "Rider is on the way."
+},
+{
+"location": {
+"latitude": "28.57778",
+"longitude": "77.3136367"
+},
+"tag": "In-Transit",
+"order_status": "In-Transit",
+"checkpoint_time": "2025-05-03T06:47:11.978000Z",
+"message": "Rider is on the way."
+},
+{
+"location": {
+"latitude": "28.57778",
+"longitude": "77.3136367"
+},
+"tag": "In-Transit",
+"order_status": "In-Transit",
+"checkpoint_time": "2025-05-03T06:47:06.089000Z",
+"message": "Rider is on the way."
+},
+{
+"location": {
+"latitude": "28.5903803",
+"longitude": "77.3176818"
+},
+"tag": "Rider Assigned",
+"order_status": "Rider Assigned",
+
+-- 29 of 33 --
+
+"checkpoint_time": "2025-05-03T06:24:16.998000Z",
+"message": "Rider has been assigned."
+},
+{
+"location": {
+"latitude": "28.5891388",
+"longitude": "77.3088083"
+},
+"tag": "Rider Assigned",
+"order_status": "Rider Assigned",
+"checkpoint_time": "2025-05-03T06:21:26.153000Z",
+"message": "Rider has been assigned."
+},
+{
+"location": {
+"latitude": "28.5892363",
+"longitude": "77.307343"
+},
+"tag": "Rider Assigned",
+"order_status": "Rider Assigned",
+"checkpoint_time": "2025-05-03T06:21:07.136000Z",
+"message": "Rider has been assigned."
+}
+]
+}
+}
+12. API: Order Detail API
+Purpose: This API endpoint displays Order details with the current status.
+API Request:
+• Method: GET
+• URL: {{url}}api/outbound/order-shipment-details
+Request Headers:
+• Content-Type: application/json
+• Authorization: Bearer Token
+Request Body:
+The request body should be in JSON format and contain the following parameters:
+• MasterCustomOrderId (string, required): A unique identifier for the custom order. This ID is
+essential for retrieving the relevant shipment details.
+Sample Request Body:
+{
+
+-- 30 of 33 --
+
+"MasterCustomOrderId": "311276742",
+}
+Response Structure:
+The response will be a JSON object containing the following keys:
+• status (boolean): Indicates whether the request was successful.
+• message (string): A message providing additional context about the request status (may be empty).
+• status_code (integer): A code representing the response's status (0 indicates success).
+• data (array): An array that may contain details of the canceled order or additional data related to the
+cancellation, and it can be a blank array.
+Response JSON:
+{
+"status": true,
+"message": "Orders shipment details retrieved successfully.",
+"status_code": 200,
+"data": {
+"segment_type": "hyperlocal",
+"getOrderDetails": {
+"MasterCustomOrderId": "383123781",
+"InvoiceNumber": "",
+"MasterOrderCurrency": "INR",
+"AwbNumber": "582586663",
+"created_at": "2025-05-03T06:13:51.272000Z",
+"updated_at": "2025-05-03T08:13:43.120000Z",
+"MasterCustomInvoiceId": null,
+"PaymentMode": "Prepaid",
+"InvoiceStatusId": "0",
+"InvoiceStatus": "Pending",
+"status_id": "7",
+"status": "Delivered",
+"products_name": "",
+"product_details": [
+{
+"numberOfProducts": "1",
+"detailsIdentifier": "2672-1",
+"products": [],
+"box_details": [
+{
+"parameterName": "Length",
+"parameterValue": "10",
+"parameterCategory": "CM"
+},
+{
+"parameterName": "Breadth",
+"parameterValue": "10",
+"parameterCategory": "CM"
+},
+{
+"parameterName": "Height",
+"parameterValue": "10",
+"parameterCategory": "CM"
+}
+],
+
+-- 31 of 33 --
+
+"weight": {
+"value": "2",
+"unit": "KG"
+}
+}
+],
+"MasterOrderShippingZipCode": "110092",
+"totalNoOfBoxes": null,
+"consignorType": "Self",
+"consignor": {
+"companyName": "Testing Account",
+"companyEmailId": "sumit.upadhayay@bigship.in",
+"companyMobile": "9310643058",
+"orderCountry": "India",
+"orderState": "DELHI",
+"orderCity": "DELHI",
+"orderPin": "110025",
+"billingAddress": "Testing Account",
+"billingAddress2": "Testing Account",
+"landmark": "Nodia",
+"consignorBusinessType": "Individual"
+},
+"consignee": {
+"companyName": "SUMIT UPADHAYAY",
+"companyEmailId": null,
+"companyMobile": "9310643058",
+"orderCountry": "India",
+"orderState": "DELHI",
+"orderCity": "DELHI",
+"orderPin": "110092",
+"billingAddress": "E-409, Shanti Marg",
+"billingAddress2": "West Vinod Nagar, Block B, Block E, Mandawali",
+"landmark": "Delhi, India",
+"consigneeBusinessType": "Individual"
+},
+"consigneeBilling": {
+"companyName": "SUMIT UPADHAYAY",
+"companyEmailId": null,
+"companyMobile": "9310643058",
+"orderCountry": "India",
+"orderState": "DELHI",
+"orderCity": "DELHI",
+"orderPin": "110092",
+"billingAddress": "E-409, Shanti Marg",
+"billingAddress2": "West Vinod Nagar, Block B, Block E, Mandawali",
+"landmark": "Delhi, India",
+"consigneeBillingBusinessType": "Individual"
+}
+},
+"pickupDetail": {
+"warehouseName": "HYP_NISHANK JAIN_1746194216",
+"warehouseContactPerson": "NISHANK JAIN",
+"warehouseAddressLine1": "Bigmudra",
+"warehouseAddressLine2": "A Block, Sector 16",
+"warehouseAddressLandMark": "Noida, Uttar Pradesh, India",
+"warehouseAddressPhone": "9818885873",
+"warehousePin": "201301",
+"warehouseCity": "Gautam Buddha Nagar",
+"warehouseState": "UTTAR PRADESH",
+
+-- 32 of 33 --
+
+"warehouseCountry": "India"
+},
+"totalInvoiceAmount": "1000.00",
+"InvoiceCurrency": "₹",
+"weight": "2.00",
+"weightUnit": "kg",
+"box_dimensions": [
+{
+"length": "10",
+"breadth": "10",
+"height": "10",
+"each_box_weight": "2",
+"no_of_box": "1"
+}
+],
+"dimensions": [
+"10x10x10"
+],
+"orderDate": "2025-05-03 06:13:51.3090000",
+"collectableAmount": "0.00",
+"PackageTypeId": "2",
+"PackageTypeName": "Documents"
+}
+}
+
+-- 33 of 33 --
+

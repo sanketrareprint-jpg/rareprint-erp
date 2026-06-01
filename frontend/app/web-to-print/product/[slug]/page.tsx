@@ -36,7 +36,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
     .filter((item) => item.categorySlug === product.categorySlug && item.slug !== product.slug)
     .slice(0, 8);
 
-  const gallery = product.image ? [product.image, product.image, product.image] : [];
+  const gallery = product.image ? [product.image] : [];
 
   return (
     <main className="min-h-screen bg-white">

@@ -3,7 +3,7 @@
 import { MessageCircle } from "lucide-react";
 
 export function WhatsAppButton() {
-  const number = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919XXXXXXXXX";
+  const number = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "918645614505";
   const href = `https://wa.me/${number}?text=Hi%20RarePrint%2C%20I%20want%20to%20place%20a%20print%20order`;
   return (
     <a

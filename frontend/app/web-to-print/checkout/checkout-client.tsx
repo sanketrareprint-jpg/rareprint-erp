@@ -39,10 +39,25 @@ export function CheckoutClient() {
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
   const [designMode, setDesignMode] = useState("Upload own design");
   const [status, setStatus] = useState<string | null>(null);
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [couponMessage, setCouponMessage] = useState<string | null>(null);
   useEffect(() => setItems(readCart()), []);
   const total = useMemo(() => items.reduce((sum, item) => sum + item.subtotal, 0), [items]);
-  const advance = Math.ceil(total * 0.5);
-  const balanceCod = Math.max(0, total - advance);
+  const discount = appliedCoupon === "FIRSTORDER" ? Math.round(total * 0.12) : 0;
+  const payableTotal = Math.max(0, total - discount);
+  const advance = Math.ceil(payableTotal * 0.5);
+  const balanceCod = Math.max(0, payableTotal - advance);
+
+  function applyCoupon() {
+    if (couponCode.trim().toUpperCase() === "FIRSTORDER") {
+      setAppliedCoupon("FIRSTORDER");
+      setCouponMessage("FIRSTORDER applied. 12% discount added.");
+      return;
+    }
+    setAppliedCoupon(null);
+    setCouponMessage("Invalid coupon code.");
+  }
 
   async function submit() {
     if (!items.length) {
@@ -73,7 +88,7 @@ export function CheckoutClient() {
             unitPrice: first.unitPrice,
             artworkNotes: `${designMode}. Cart contains: ${items.map((item) => `${item.name} (${item.rateLabel})`).join("; ")}.${uploadNote}`,
           },
-          quote: { subtotal: total, advance, balanceCod, paymentMode: "RAZORPAY_50_ADVANCE_COD_BALANCE", shippingProvider: "SHIPROCKET" },
+          quote: { subtotal: total, discount, couponCode: appliedCoupon, total: payableTotal, advance, balanceCod, paymentMode: "RAZORPAY_50_ADVANCE_COD_BALANCE", shippingProvider: "SHIPROCKET" },
         }),
       });
       if (!response.ok) throw new Error("Order failed");
@@ -164,8 +179,26 @@ export function CheckoutClient() {
         </div>
         <div className="mt-4 space-y-3 text-sm font-bold">
           <Row label="Subtotal" value={formatMoney(total)} />
+          <Row label="Coupon discount" value={discount ? `- ${formatMoney(discount)}` : "-"} />
+          <Row label="Total" value={formatMoney(payableTotal)} />
           <Row label="Razorpay advance" value={formatMoney(advance)} />
           <Row label="COD balance" value={formatMoney(balanceCod)} />
+        </div>
+        <div className="mt-5">
+          <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="coupon-code">Coupon code</label>
+          <div className="mt-2 flex gap-2">
+            <input
+              id="coupon-code"
+              value={couponCode}
+              onChange={(event) => setCouponCode(event.target.value)}
+              placeholder="Enter coupon code"
+              className="h-11 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
+            />
+            <button type="button" onClick={applyCoupon} className="rounded-lg bg-[#CC0000] px-4 py-2 text-sm font-black text-white">
+              Apply
+            </button>
+          </div>
+          {couponMessage && <p className={`mt-2 text-sm font-bold ${appliedCoupon ? "text-green-700" : "text-red-700"}`}>{couponMessage}</p>}
         </div>
         {!items.length && <Link href="/web-to-print/categories" className="mt-5 block rounded-lg bg-slate-100 px-4 py-3 text-center text-sm font-black text-slate-700">Add products</Link>}
       </aside>

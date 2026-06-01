@@ -8,7 +8,7 @@ import { type Product } from "../catalog";
 export function DesignActionPanel({ product, selectedQty }: { product: Product; selectedQty: number }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [fileName, setFileName] = useState("");
-  const whatsapp = `https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919XXXXXXXXX"}?text=${encodeURIComponent(`Hi RarePrint, I need design help for ${product.name}, quantity ${selectedQty}.`)}`;
+  const whatsapp = `https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "91[YOUR NUMBER]"}?text=${encodeURIComponent(`Hi RarePrint, I need design help for ${product.name}, quantity ${selectedQty}.`)}`;
 
   return (
     <div className="grid gap-3 md:grid-cols-2">

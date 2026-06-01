@@ -148,6 +148,7 @@ function MarketingPageContent() {
     city: "",
     state: "",
     productCategory: "",
+    createdThisWeek: true,
   });
 
   const load = useCallback(async () => {
@@ -226,12 +227,17 @@ function MarketingPageContent() {
       city: campaignForm.city || undefined,
       state: campaignForm.state || undefined,
       productCategory: campaignForm.productCategory || undefined,
+      createdThisWeek: campaignForm.createdThisWeek || undefined,
     };
-    if (filters.city || filters.state || filters.productCategory) {
+    if (filters.city || filters.state || filters.productCategory || filters.createdThisWeek) {
       const segmentRes = await fetch(`${API_BASE_URL}/marketing/segments`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ name: `${campaignForm.name} Audience`, filters }),
+        body: JSON.stringify({
+          name: `${campaignForm.name} Audience`,
+          description: filters.createdThisWeek ? "Contacts created from Monday 12:00 AM IST onwards" : undefined,
+          filters,
+        }),
       });
       if (segmentRes.ok) segmentId = (await segmentRes.json()).id;
     }
@@ -248,7 +254,7 @@ function MarketingPageContent() {
         steps: [{ templateId: campaignForm.templateId, stepOrder: 1, delayHours: 0 }],
       }),
     });
-    setCampaignForm({ name: "", templateId: templates[0]?.id ?? "", dailyLimit: "10000", cooldownDays: "30", priority: "0", city: "", state: "", productCategory: "" });
+    setCampaignForm({ name: "", templateId: templates[0]?.id ?? "", dailyLimit: "10000", cooldownDays: "30", priority: "0", city: "", state: "", productCategory: "", createdThisWeek: true });
     load();
   };
 
@@ -506,6 +512,10 @@ function MarketingPageContent() {
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="City filter" value={campaignForm.city} onChange={(e) => setCampaignForm({ ...campaignForm, city: e.target.value })} />
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="State filter" value={campaignForm.state} onChange={(e) => setCampaignForm({ ...campaignForm, state: e.target.value })} />
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Product category filter" value={campaignForm.productCategory} onChange={(e) => setCampaignForm({ ...campaignForm, productCategory: e.target.value })} />
+                <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <input type="checkbox" checked={campaignForm.createdThisWeek} onChange={(e) => setCampaignForm({ ...campaignForm, createdThisWeek: e.target.checked })} />
+                  Only this week's new contacts
+                </label>
                 <button onClick={createCampaign} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
                   <Plus size={16} />
                   Save Campaign

@@ -123,3 +123,12 @@ Keep separate editable databases for:
 - SEO pages and content blocks.
 
 The existing ERP already has `ProductCategory`, `Product`, `ProductCostSlab`, `Order`, `OrderItem`, `Payment`, `Shipment`, and `designFiles`, so the next step is to expose admin-safe screens for storefront product/rate maintenance.
+
+## Current Import Status
+
+- Imported 593 products from the live RarePrint WooCommerce Store API into `frontend/app/web-to-print/rareprint-catalog.json`.
+- Simple products include current WooCommerce prices.
+- Verified public slab tables were added for small, medium, and extra-large medicine pouches plus A4 multicolor letterpad.
+- Variable products whose combination prices are not exposed by the Store API are marked with `hasVariableRatesToConfirm: true`; their options/MOQs/categories/images are imported and their final rate rows can be corrected from the database.
+- Checkout mode is set to 50% Razorpay advance with remaining balance as COD.
+- Shipping provider is currently Shiprocket, with Bigship intended as the next connector.

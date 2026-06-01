@@ -92,16 +92,75 @@ export class MarketingService {
     const duplicateRowsInFile = rows.length - result.skipped - contacts.length;
     if (duplicateRowsInFile > 0) result.skipped += duplicateRowsInFile;
 
-    for (const chunk of this.chunkArray(contacts, 1000)) {
-      const created = await (this.prisma as any).marketingContact.createMany({
-        data: chunk,
-        skipDuplicates: true,
+    for (const contact of contacts) {
+      const existing = await (this.prisma as any).marketingContact.findUnique({
+        where: { mobile: contact.mobile },
+        select: { id: true },
       });
-      result.success += created.count ?? 0;
-      result.skipped += chunk.length - (created.count ?? 0);
+
+      if (existing) {
+        await (this.prisma as any).marketingContact.update({
+          where: { mobile: contact.mobile },
+          data: this.compactContactUpdate(contact),
+        });
+        result.updated++;
+      } else {
+        await (this.prisma as any).marketingContact.create({ data: contact });
+        result.success++;
+      }
     }
 
     return result;
+  }
+
+  async receiveContactWebhook(body: any, signature: string | undefined, source: string) {
+    if (process.env.AISENSY_WEBHOOK_SECRET && signature !== process.env.AISENSY_WEBHOOK_SECRET) {
+      throw new BadRequestException('Invalid webhook signature');
+    }
+
+    const rows = this.extractWebhookContactRows(body, source);
+    const result = { success: 0, updated: 0, skipped: 0, errors: [] as string[] };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const mobile = this.normalizePhone(row.mobile ?? row.phone ?? row.phone_number ?? row.wa_id ?? row.destination);
+      if (!mobile) {
+        result.skipped++;
+        result.errors.push(`Contact ${i + 1}: invalid mobile`);
+        continue;
+      }
+
+      const data = {
+        mobile,
+        shopName: this.clean(row.shopName ?? row.shop_name ?? row.businessName ?? row.business_name ?? row.company ?? row.name),
+        ownerName: this.clean(row.ownerName ?? row.owner_name ?? row.contactPerson ?? row.contact_person ?? row.userName ?? row.user_name ?? row.profile_name ?? row.customerName),
+        city: this.clean(row.city),
+        state: this.clean(row.state),
+        productCategory: this.clean(row.productCategory ?? row.product_category ?? row.productInterest ?? row.product_interest),
+        tags: this.mergeTags(this.toTags(row.tags), [source, 'webhook']),
+      };
+
+      const existing = await (this.prisma as any).marketingContact.findUnique({
+        where: { mobile },
+        select: { id: true, tags: true },
+      });
+
+      if (existing) {
+        await (this.prisma as any).marketingContact.update({
+          where: { mobile },
+          data: {
+            ...this.compactContactUpdate(data),
+            tags: this.mergeTags(existing.tags, data.tags),
+          },
+        });
+        result.updated++;
+      } else {
+        await (this.prisma as any).marketingContact.create({ data });
+        result.success++;
+      }
+    }
+
+    return { ok: true, source, contacts: rows.length, ...result };
   }
 
   updateContact(id: string, body: any) {
@@ -707,6 +766,8 @@ export class MarketingService {
     if (filters.temperature) where.leadTemperature = filters.temperature;
     if (filters.minScore) where.engagementScore = { gte: Number(filters.minScore) };
     if (filters.tag) where.tags = { has: filters.tag };
+    if (filters.createdThisWeek) where.createdAt = { gte: this.startOfWeek() };
+    if (filters.createdSince) where.createdAt = { gte: new Date(filters.createdSince) };
     return where;
   }
 
@@ -744,6 +805,37 @@ export class MarketingService {
     return String(raw ?? '').split(',').map((tag) => tag.trim()).filter(Boolean);
   }
 
+  private mergeTags(...groups: string[][]): string[] {
+    return Array.from(new Set(groups.flat().map((tag) => String(tag).trim()).filter(Boolean)));
+  }
+
+  private compactContactUpdate(data: any) {
+    return Object.fromEntries(
+      Object.entries(data).filter(([, value]) => {
+        if (Array.isArray(value)) return value.length > 0;
+        return value !== undefined && value !== null && value !== '';
+      }),
+    );
+  }
+
+  private extractWebhookContactRows(body: any, source: string): any[] {
+    const candidates = [
+      body?.contacts,
+      body?.data?.contacts,
+      body?.data?.contact,
+      body?.contact,
+      body?.customer,
+      body?.data?.customer,
+      body?.message,
+      body?.data?.message,
+      body,
+    ];
+    const rows = candidates.find((candidate) => Array.isArray(candidate) || candidate?.phone || candidate?.mobile || candidate?.wa_id || candidate?.phone_number);
+    if (Array.isArray(rows)) return rows;
+    if (!rows) return [];
+    return [{ ...rows, tags: this.mergeTags(this.toTags(rows.tags), this.toTags(body?.tags), [source]) }];
+  }
+
   private clean(value: any): string | undefined {
     const text = String(value ?? '').trim();
     return text || undefined;
@@ -768,5 +860,20 @@ export class MarketingService {
     const month = Number(parts.find((part) => part.type === 'month')?.value);
     const day = Number(parts.find((part) => part.type === 'day')?.value);
     return new Date(Date.UTC(year, month - 1, day, -5, -30, 0, 0));
+  }
+
+  private startOfWeek() {
+    const parts = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = Number(parts.find((part) => part.type === 'year')?.value);
+    const month = Number(parts.find((part) => part.type === 'month')?.value);
+    const day = Number(parts.find((part) => part.type === 'day')?.value);
+    const localDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const mondayOffset = (localDate.getUTCDay() + 6) % 7;
+    return new Date(Date.UTC(year, month - 1, day - mondayOffset, -5, -30, 0, 0));
   }
 }

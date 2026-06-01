@@ -43,7 +43,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
             <h2 className="text-2xl font-black text-slate-950">Corporate Gifts Need Bulk Quote</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Pens, keychains, stands, bottles, and other gifting products vary by stock, branding area, and quantity. Send your requirement and we will quote quickly.</p>
             <a
-              href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919XXXXXXXXX"}?text=${encodeURIComponent("Hi RarePrint, I need a bulk quote for corporate gifts.")}`}
+              href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "91[YOUR NUMBER]"}?text=${encodeURIComponent("Hi RarePrint, I need a bulk quote for corporate gifts.")}`}
               target="_blank"
               rel="noreferrer"
               className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-black text-white"

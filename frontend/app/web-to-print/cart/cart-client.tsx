@@ -24,16 +24,43 @@ function readCart(): CartItem[] {
   }
 }
 
+const VALID_COUPONS: Record<string, number> = { FIRSTORDER: 12 };
+
 export function CartClient() {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [couponMsg, setCouponMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   useEffect(() => setItems(readCart()), []);
-  const total = useMemo(() => items.reduce((sum, item) => sum + item.subtotal, 0), [items]);
+
+  const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.subtotal, 0), [items]);
+  const discountPct = appliedCoupon ? (VALID_COUPONS[appliedCoupon] ?? 0) : 0;
+  const discountAmt = Math.floor(subtotal * discountPct / 100);
+  const total = subtotal - discountAmt;
   const advance = Math.ceil(total * 0.5);
 
   function remove(slug: string) {
     const next = items.filter((item) => item.slug !== slug);
     setItems(next);
     window.localStorage.setItem("rareprint.webCart", JSON.stringify(next));
+    window.dispatchEvent(new Event("rareprint-cart"));
+  }
+
+  function applyCoupon() {
+    const code = couponInput.trim().toUpperCase();
+    if (VALID_COUPONS[code]) {
+      setAppliedCoupon(code);
+      setCouponMsg({ type: "success", text: `✓ Coupon "${code}" applied — ${VALID_COUPONS[code]}% discount!` });
+    } else {
+      setCouponMsg({ type: "error", text: "Invalid coupon code. Try FIRSTORDER." });
+    }
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCouponInput("");
+    setCouponMsg(null);
   }
 
   return (
@@ -67,15 +94,48 @@ export function CartClient() {
               </div>
             ))}
           </div>
-          <aside className="h-fit rounded-lg border border-red-100 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black">Order Summary</h2>
-            <div className="mt-4 space-y-3 text-sm font-bold">
-              <Row label="Subtotal" value={formatMoney(total)} />
-              <Row label="Razorpay advance 50%" value={formatMoney(advance)} />
-              <Row label="COD balance" value={formatMoney(total - advance)} />
-              <Row label="Shipping" value="Shiprocket quote later" />
+          <aside className="h-fit space-y-4">
+            {/* Coupon Box */}
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="text-sm font-black">Have a coupon code?</p>
+              {appliedCoupon ? (
+                <div className="mt-2 flex items-center justify-between rounded-lg bg-green-50 px-3 py-2 text-sm font-bold text-green-700">
+                  <span>{appliedCoupon} &mdash; {discountPct}% off</span>
+                  <button onClick={removeCoupon} className="text-xs font-black text-red-600 underline">Remove</button>
+                </div>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
+                    placeholder="e.g. FIRSTORDER"
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold uppercase outline-none focus:border-[#CC0000]"
+                  />
+                  <button onClick={applyCoupon} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-black text-white">Apply</button>
+                </div>
+              )}
+              {couponMsg && (
+                <p className={`mt-2 text-xs font-bold ${couponMsg.type === "success" ? "text-green-700" : "text-red-600"}`}>{couponMsg.text}</p>
+              )}
             </div>
-            <Link href="/web-to-print/checkout" className="mt-5 block rounded-lg bg-red-600 px-5 py-3 text-center text-sm font-black text-white">Proceed to checkout</Link>
+
+            {/* Order Summary */}
+            <div className="rounded-lg border border-red-100 bg-white p-5 shadow-sm">
+              <h2 className="text-xl font-black">Order Summary</h2>
+              <div className="mt-4 space-y-3 text-sm font-bold">
+                <Row label="Subtotal" value={formatMoney(subtotal)} />
+                {discountAmt > 0 && <Row label={`Discount (${discountPct}%)`} value={`-${formatMoney(discountAmt)}`} highlight />}
+                <Row label="Total" value={formatMoney(total)} bold />
+                <div className="border-t border-slate-100 pt-3" />
+                <Row label="Razorpay advance (50%)" value={formatMoney(advance)} />
+                <Row label="COD balance" value={formatMoney(total - advance)} />
+                <Row label="Shipping" value="Quoted at dispatch" />
+              </div>
+              <Link href="/web-to-print/checkout" className="mt-5 block rounded-lg bg-red-600 px-5 py-3 text-center text-sm font-black text-white">
+                Proceed to Checkout
+              </Link>
+            </div>
           </aside>
         </div>
       )}
@@ -83,6 +143,11 @@ export function CartClient() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return <div className="flex justify-between gap-3"><span className="text-slate-500">{label}</span><span>{value}</span></div>;
+function Row({ label, value, bold, highlight }: { label: string; value: string; bold?: boolean; highlight?: boolean }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className={highlight ? "text-green-700" : "text-slate-500"}>{label}</span>
+      <span className={`${bold ? "font-black text-slate-900" : ""} ${highlight ? "text-green-700" : ""}`}>{value}</span>
+    </div>
+  );
 }

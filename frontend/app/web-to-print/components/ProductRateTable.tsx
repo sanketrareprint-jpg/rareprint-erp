@@ -19,7 +19,7 @@ export function ProductRateTable({
           Rates confirmed on WhatsApp for your exact quantity and quality requirements.
         </p>
         <a
-          href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "919XXXXXXXXX"}?text=${encodeURIComponent(`Hi RarePrint, I need a quote for ${product.name}.`)}`}
+          href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "91[YOUR NUMBER]"}?text=${encodeURIComponent(`Hi RarePrint, I need a quote for ${product.name}.`)}`}
           target="_blank"
           rel="noreferrer"
           className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-bold text-white"

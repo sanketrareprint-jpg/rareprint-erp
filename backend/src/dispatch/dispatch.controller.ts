@@ -4,6 +4,23 @@ import type { Request } from 'express';
 import { DispatchService } from './dispatch.service';
 
 type JwtUser = { id: string };
+type DispatchPackageBox = {
+  noOfBoxes?: number;
+  length?: number;
+  breadth?: number;
+  height?: number;
+  weight?: number;
+};
+
+function parsePackageBoxes(raw?: string): DispatchPackageBox[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed as DispatchPackageBox[] : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 @Controller('dispatch')
 @UseGuards(AuthGuard('jwt'))
@@ -34,13 +51,14 @@ export class DispatchController {
     @Query('pickupName') pickupName?: string,
     @Query('pickupPincode') pickupPincode?: string,
     @Query('pickupLocation') pickupLocation?: string,
+    @Query('packageBoxes') packageBoxesRaw?: string,
   ) {
     const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
     return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride, {
       name: pickupName,
       pincode: pickupPincode,
       location: pickupLocation,
-    });
+    }, parsePackageBoxes(packageBoxesRaw));
   }
 
   @Post('book')
@@ -63,6 +81,7 @@ export class DispatchController {
       pickupName?: string;
       pickupPincode?: string;
       pickupLocation?: string;
+      packageBoxes?: DispatchPackageBox[];
     },
     @Req() req: Request & { user: JwtUser },
   ) {
@@ -81,6 +100,7 @@ export class DispatchController {
         location: body.pickupLocation,
       },
       body.selectedQuote,
+      body.packageBoxes,
     );
   }
 

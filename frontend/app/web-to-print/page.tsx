@@ -3,15 +3,15 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   Clock,
+  Home,
   Package,
-  Search,
   ShoppingBag,
-  Sparkles,
   Star,
   Truck,
   User,
 } from "lucide-react";
 import { formatMoney, getAllCategories, getAllProducts, getFeaturedProducts, getProductsByCategory, type Product } from "./catalog";
+import { HeroSliderClient } from "./components/HeroSliderClient";
 
 export const revalidate = 3600;
 
@@ -48,7 +48,7 @@ export default function WebToPrintHomePage() {
       <HotSelling products={hotSelling} />
       <ArticlesSection />
       <BrandStory />
-      <InstagramProof products={hotSelling.slice(0, 6)} />
+      <InstagramProof />
       <MobileBottomNav />
     </main>
   );
@@ -104,32 +104,7 @@ function HeroSlider({ products }: { products: Product[] }) {
     },
   ];
 
-  return (
-    <section className="bg-white py-4">
-      <div className="mx-auto flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {slides.map((slide, index) => (
-          <Link
-            key={slide.title}
-            href={slide.href}
-            className="relative min-h-[210px] w-[88vw] max-w-5xl flex-shrink-0 snap-center overflow-hidden rounded-2xl bg-slate-950 md:w-full"
-          >
-            {slide.image && <Image src={slide.image} alt={slide.title} fill sizes="100vw" className="object-cover opacity-75" priority={index === 0} unoptimized />}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/25 to-transparent" />
-            <div className="relative z-10 flex min-h-[210px] max-w-md flex-col justify-end p-5 text-white sm:p-8">
-              <p className="text-xs font-black uppercase tracking-widest text-white/80">RarePrint Campaign</p>
-              <h1 className="mt-2 text-3xl font-black leading-tight sm:text-5xl">{slide.title}</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-white/90">{slide.sub}</p>
-            </div>
-            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-              {slides.map((dot) => (
-                <span key={dot.title} className={`h-1.5 rounded-full ${dot.title === slide.title ? "w-5 bg-white" : "w-1.5 bg-white/50"}`} />
-              ))}
-            </div>
-          </Link>
-        ))}
-      </div>
-    </section>
-  );
+  return <HeroSliderClient slides={slides} />;
 }
 
 function RoundCategoryCards({ categories, products }: { categories: ReturnType<typeof getAllCategories>; products: Product[] }) {
@@ -304,19 +279,17 @@ function BrandStory() {
   );
 }
 
-function InstagramProof({ products }: { products: Product[] }) {
+function InstagramProof() {
   return (
     <section className="mx-auto max-w-7xl px-4 py-7">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-black">Follow RarePrint</h2>
-        <a href="https://www.instagram.com/" target="_blank" rel="noreferrer" className="text-sm font-black text-slate-700">@rareprint</a>
-      </div>
-      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
-        {products.map((product) => (
-          <Link key={`insta-${product.slug}`} href={`/web-to-print/product/${product.slug}`} className="relative aspect-square overflow-hidden rounded-xl bg-slate-100">
-            {product.image && <Image src={product.image} alt={product.name} fill sizes="160px" className="object-cover" loading="lazy" unoptimized />}
-          </Link>
-        ))}
+      <div className="flex flex-col items-start justify-between gap-4 rounded-lg border border-slate-200 bg-white p-5 md:flex-row md:items-center">
+        <div>
+          <h2 className="text-xl font-black">Follow us @rareprint.in on Instagram for latest work</h2>
+          <p className="mt-2 text-sm font-semibold text-slate-600">See recent print jobs, product ideas, and finishing samples from RarePrint.</p>
+        </div>
+        <a href="https://www.instagram.com/rareprint.in" target="_blank" rel="noreferrer" className="rounded-lg bg-[#CC0000] px-4 py-2 text-sm font-black text-white">
+          @rareprint.in on Instagram
+        </a>
       </div>
     </section>
   );
@@ -324,11 +297,11 @@ function InstagramProof({ products }: { products: Product[] }) {
 
 function MobileBottomNav() {
   const nav = [
-    { label: "Shop", href: "/web-to-print/categories", icon: Package },
+    { label: "Home", href: "/web-to-print", icon: Home },
+    { label: "Products", href: "/web-to-print/categories", icon: Package },
     { label: "Track", href: "/web-to-print/track-order", icon: Truck },
     { label: "Cart", href: "/web-to-print/cart", icon: ShoppingBag },
-    { label: "Account", href: "/login", icon: User },
-    { label: "Search", href: "/web-to-print/categories", icon: Search },
+    { label: "Account", href: "/web-to-print/account", icon: User },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl md:hidden">

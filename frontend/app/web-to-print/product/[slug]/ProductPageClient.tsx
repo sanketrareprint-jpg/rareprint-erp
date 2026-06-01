@@ -41,7 +41,7 @@ export function ProductPageClient({
   const finishOptions = finishAttr?.terms.map((term) => term.name) ?? [];
   const sidesOptions = sidesAttr?.terms.map((term) => term.name) ?? [];
 
-  const whatsappHref = `https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "919XXXXXXXXX"}?text=${encodeURIComponent(`Hi RarePrint, I need a quote for ${product.name}, quantity ${selectedQty}.`)}`;
+  const whatsappHref = `https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "91[YOUR NUMBER]"}?text=${encodeURIComponent(`Hi RarePrint, I need a quote for ${product.name}, quantity ${selectedQty}.`)}`;
 
   function handleAddToCart() {
     const cart = JSON.parse(window.localStorage.getItem("rareprint.webCart") ?? "[]");

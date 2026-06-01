@@ -5,6 +5,16 @@ import { MarketingService } from './marketing.service';
 export class MarketingWebhookController {
   constructor(private readonly marketing: MarketingService) {}
 
+  @Post('contact')
+  contact(@Body() body: any, @Headers('x-aisensy-signature') signature?: string) {
+    return this.marketing.receiveContactWebhook(body, signature, 'aisensy');
+  }
+
+  @Post('contacts')
+  contacts(@Body() body: any, @Headers('x-aisensy-signature') signature?: string) {
+    return this.marketing.receiveContactWebhook(body, signature, 'aisensy');
+  }
+
   @Post('status')
   status(@Body() body: any, @Headers('x-aisensy-signature') signature?: string) {
     return this.marketing.receiveAisensyWebhook(body, signature, 'status');
