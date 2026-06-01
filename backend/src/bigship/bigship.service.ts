@@ -589,7 +589,7 @@ export class BigshipService {
           MasterCustomOrderId: input.masterCustomOrderId,
           courierId: input.courierId,
           riskTypeId: 1,
-          invoiceType: 'uploaded',
+          invoiceType: 'system',
           invoiceNumber: input.masterCustomOrderId,
           invoiceDate: new Date().toISOString().slice(0, 10),
         },
@@ -688,3 +688,4 @@ export class BigshipService {
     this.tokenExpiresAt = undefined;
   }
 }
+  
