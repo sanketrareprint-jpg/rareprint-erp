@@ -112,7 +112,7 @@ function isBigshipInvoiceRequiredError(error: unknown): boolean {
   const err = error as { response?: { data?: unknown; status?: number } };
   const data = err.response?.data;
   const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
-  return /invoice.*(mandatory|required)|invoice data failed to upload/i.test(text);
+  return /invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international/i.test(text);
 }
 
 /** Look up Indian state name from a 6-digit pincode */
@@ -152,13 +152,138 @@ function cityFromPincode(pin: string, fallback?: string): string {
   const prefix2 = pin.trim().slice(0, 2);
   const prefix3 = pin.trim().slice(0, 3);
   const CITY_MAP: Record<string, string> = {
-    '110': 'DELHI',          '400': 'MUMBAI',          '401': 'MUMBAI',
-    '411': 'PUNE',           '422': 'NASHIK',          '440': 'NAGPUR',
-    '442': 'CHANDRAPUR',     '380': 'AHMEDABAD',       '560': 'BANGALORE',
-    '600': 'CHENNAI',        '500': 'HYDERABAD',       '700': 'KOLKATA',
-    '302': 'JAIPUR',         '208': 'KANPUR',          '226': 'LUCKNOW',
-    '262': 'LAKHIMPUR KHERI','482': 'JABALPUR',        '452': 'INDORE',
-    '462': 'BHOPAL',
+    // Delhi
+    '110': 'DELHI', '111': 'DELHI',
+    // Maharashtra
+    '400': 'MUMBAI', '401': 'MUMBAI', '402': 'MUMBAI', '403': 'GOA',
+    '410': 'NAVI MUMBAI', '411': 'PUNE', '412': 'PUNE', '413': 'SOLAPUR',
+    '414': 'AHMEDNAGAR', '415': 'SATARA', '416': 'KOLHAPUR', '417': 'LATUR',
+    '418': 'OSMANABAD', '421': 'THANE', '422': 'NASHIK', '423': 'NASHIK',
+    '424': 'DHULE', '425': 'JALGAON', '431': 'AURANGABAD', '432': 'AURANGABAD',
+    '440': 'NAGPUR', '441': 'NAGPUR', '442': 'CHANDRAPUR', '443': 'WARDHA',
+    '444': 'AMRAVATI', '445': 'YAVATMAL', '446': 'AKOLA',
+    // Gujarat
+    '380': 'AHMEDABAD', '381': 'AHMEDABAD', '382': 'AHMEDABAD', '383': 'GANDHINAGAR',
+    '384': 'MEHSANA', '385': 'RAJKOT', '360': 'RAJKOT', '361': 'JAMNAGAR',
+    '362': 'JUNAGADH', '363': 'SURENDRANAGAR', '364': 'BHAVNAGAR',
+    '370': 'KUTCH', '371': 'KUTCH', '390': 'VADODARA', '391': 'VADODARA',
+    '394': 'SURAT', '395': 'SURAT', '396': 'VALSAD',
+    // Karnataka
+    '560': 'BANGALORE', '561': 'BANGALORE', '562': 'MYSORE', '563': 'KOLAR',
+    '570': 'MYSORE', '571': 'MYSORE', '572': 'TUMKUR', '573': 'HASSAN',
+    '574': 'MANGALORE', '575': 'MANGALORE', '576': 'UDUPI', '577': 'SHIMOGA',
+    '580': 'HUBLI', '581': 'DHARWAD', '582': 'GADAG', '583': 'BELLARY',
+    '584': 'RAICHUR', '585': 'GULBARGA', '586': 'BIJAPUR',
+    // Tamil Nadu
+    '600': 'CHENNAI', '601': 'CHENNAI', '602': 'CHENNAI', '603': 'CHENNAI',
+    '604': 'PONDICHERRY', '605': 'PONDICHERRY', '606': 'VILLUPURAM',
+    '607': 'CUDDALORE', '608': 'CUDDALORE', '609': 'NAGAPATTINAM',
+    '610': 'THANJAVUR', '611': 'THANJAVUR', '612': 'THANJAVUR',
+    '613': 'TRICHY', '614': 'TRICHY', '615': 'TRICHY', '616': 'TRICHY',
+    '620': 'TRICHY', '621': 'TRICHY', '622': 'PUDUKKOTTAI',
+    '623': 'RAMANATHAPURAM', '624': 'DINDIGUL', '625': 'MADURAI',
+    '626': 'VIRUDHUNAGAR', '627': 'TIRUNELVELI', '628': 'TUTICORIN',
+    '629': 'KANYAKUMARI', '630': 'SIVAGANGA', '631': 'VELLORE',
+    '632': 'VELLORE', '635': 'KRISHNAGIRI', '636': 'SALEM', '637': 'SALEM',
+    '638': 'ERODE', '639': 'KARUR', '641': 'COIMBATORE', '642': 'COIMBATORE',
+    '643': 'NILGIRIS', '644': 'COIMBATORE',
+    // Telangana / Andhra Pradesh
+    '500': 'HYDERABAD', '501': 'HYDERABAD', '502': 'HYDERABAD', '503': 'HYDERABAD',
+    '504': 'ADILABAD', '505': 'KARIMNAGAR', '506': 'WARANGAL', '507': 'KHAMMAM',
+    '508': 'NALGONDA', '509': 'MAHBUBNAGAR',
+    '515': 'ANANTAPUR', '516': 'CUDDAPAH', '517': 'CHITTOOR', '518': 'KURNOOL',
+    '520': 'VIJAYAWADA', '521': 'KRISHNA', '522': 'GUNTUR', '523': 'PRAKASAM',
+    '524': 'NELLORE', '530': 'VISAKHAPATNAM', '531': 'VISAKHAPATNAM',
+    '532': 'SRIKAKULAM', '533': 'EAST GODAVARI', '534': 'WEST GODAVARI',
+    // Kerala
+    '670': 'KANNUR', '671': 'KANNUR', '672': 'KASARAGOD', '673': 'KOZHIKODE',
+    '674': 'MALAPPURAM', '676': 'MALAPPURAM', '677': 'PALAKKAD', '678': 'PALAKKAD',
+    '679': 'PALAKKAD', '680': 'THRISSUR', '681': 'THRISSUR', '682': 'ERNAKULAM',
+    '683': 'ERNAKULAM', '684': 'ALAPPUZHA', '685': 'IDUKKI', '686': 'KOTTAYAM',
+    '688': 'ALAPPUZHA', '689': 'PATHANAMTHITTA', '690': 'KOLLAM', '691': 'KOLLAM',
+    '695': 'THIRUVANANTHAPURAM', '696': 'THIRUVANANTHAPURAM',
+    // West Bengal
+    '700': 'KOLKATA', '701': 'KOLKATA', '702': 'KOLKATA', '703': 'KOLKATA',
+    '711': 'HOWRAH', '712': 'HOOGHLY', '713': 'BURDWAN', '721': 'MIDNAPORE',
+    '722': 'BANKURA', '723': 'PURULIA', '731': 'BIRBHUM', '732': 'MURSHIDABAD',
+    '733': 'MALDA', '734': 'DARJEELING', '735': 'JALPAIGURI', '736': 'COOCH BEHAR',
+    '741': 'NADIA', '742': 'NADIA', '743': 'NORTH 24 PARGANAS',
+    '744': 'SOUTH 24 PARGANAS',
+    // Odisha
+    '751': 'BHUBANESWAR', '752': 'BHUBANESWAR', '753': 'CUTTACK', '754': 'JAGATSINGHPUR',
+    '755': 'JAJPUR', '756': 'BALESWAR', '757': 'MAYURBHANJ', '758': 'KEONJHAR',
+    '759': 'ANGUL', '760': 'SAMBALPUR', '761': 'GANJAM', '762': 'PHULBANI',
+    '763': 'KORAPUT', '764': 'RAYAGADA', '765': 'KALAHANDI', '766': 'BARGARH',
+    '767': 'BOLANGIR',
+    // Assam
+    '781': 'GUWAHATI', '782': 'NAGAON', '783': 'GOALPARA', '784': 'SONITPUR',
+    '785': 'JORHAT', '786': 'DIBRUGARH', '787': 'LAKHIMPUR',
+    // Bihar
+    '800': 'PATNA', '801': 'PATNA', '802': 'PATNA', '803': 'NALANDA',
+    '804': 'JEHANABAD', '805': 'GAYA', '811': 'MUNGER', '812': 'BHAGALPUR',
+    '813': 'BHAGALPUR', '814': 'DUMKA', '815': 'GIRIDIH', '816': 'GODDA',
+    '821': 'ROHTAS', '822': 'GAYA', '823': 'GAYA', '824': 'AURANGABAD',
+    '825': 'HAZARIBAGH', '826': 'DHANBAD', '827': 'BOKARO', '828': 'DHANBAD',
+    '829': 'RAMGARH', '831': 'JAMSHEDPUR', '832': 'EAST SINGHBHUM',
+    '833': 'WEST SINGHBHUM', '834': 'RANCHI', '835': 'LOHARDAGA',
+    '841': 'SARAN', '842': 'SIWAN', '843': 'MUZAFFARPUR', '844': 'VAISHALI',
+    '845': 'EAST CHAMPARAN', '846': 'DARBHANGA', '847': 'MADHUBANI',
+    '848': 'SAMASTIPUR', '849': 'BEGUSARAI', '851': 'KHAGARIA',
+    '852': 'SUPAUL', '853': 'SAHARSA', '854': 'MADHEPURA', '855': 'PURNEA',
+    '856': 'KATIHAR', '857': 'ARARIA',
+    // Rajasthan
+    '302': 'JAIPUR', '303': 'JAIPUR', '304': 'JAIPUR', '305': 'AJMER',
+    '306': 'PALI', '307': 'SIROHI', '311': 'BHILWARA', '312': 'CHITTORGARH',
+    '313': 'UDAIPUR', '314': 'DUNGARPUR', '321': 'BHARATPUR', '322': 'SAWAI MADHOPUR',
+    '323': 'KOTA', '324': 'KOTA', '325': 'BARAN', '326': 'JHALAWAR',
+    '327': 'JHALAWAR', '331': 'CHURU', '332': 'SIKAR', '333': 'JHUNJHUNU',
+    '334': 'BIKANER', '335': 'GANGANAGAR', '341': 'NAGAUR', '342': 'JODHPUR',
+    '343': 'BARMER', '344': 'JAISALMER', '345': 'JODHPUR',
+    // Madhya Pradesh
+    '450': 'KHANDWA', '451': 'KHARGONE', '452': 'INDORE', '453': 'INDORE',
+    '454': 'DHAR', '455': 'DEWAS', '456': 'UJJAIN', '457': 'RATLAM',
+    '458': 'MANDSOUR', '460': 'BETUL', '461': 'HARDA', '462': 'BHOPAL',
+    '463': 'SEHORE', '464': 'VIDISHA', '465': 'RAJGARH', '466': 'GUNA',
+    '470': 'SAGAR', '471': 'CHHATARPUR', '472': 'TIKAMGARH', '473': 'GUNA',
+    '474': 'GWALIOR', '475': 'BHIND', '476': 'MORENA', '477': 'BHIND',
+    '480': 'CHHINDWARA', '481': 'BALAGHAT', '482': 'JABALPUR', '483': 'JABALPUR',
+    '484': 'MANDLA', '485': 'SATNA', '486': 'REWA', '487': 'NARSINGHPUR',
+    '488': 'PANNA', '489': 'SHAHDOL',
+    // Chhattisgarh
+    '490': 'DURG', '491': 'DURG', '492': 'RAIPUR', '493': 'MAHASAMUND',
+    '494': 'KANKER', '495': 'BILASPUR', '496': 'KORBA', '497': 'SURGUJA',
+    '498': 'RAIGARH',
+    // Uttar Pradesh
+    '201': 'NOIDA', '202': 'NOIDA', '203': 'BULANDSHAHR', '204': 'ALIGARH',
+    '205': 'MAINPURI', '206': 'ETAWAH', '207': 'KANPUR', '208': 'KANPUR',
+    '209': 'FATEHPUR', '210': 'BANDA', '211': 'ALLAHABAD', '212': 'ALLAHABAD',
+    '213': 'ALLAHABAD', '214': 'JAUNPUR', '221': 'VARANASI', '222': 'VARANASI',
+    '223': 'GHAZIPUR', '224': 'AZAMGARH', '225': 'FAIZABAD', '226': 'LUCKNOW',
+    '227': 'LUCKNOW', '228': 'SULTANPUR', '229': 'PRATAPGARH',
+    '230': 'PRATAPGARH', '231': 'MIRZAPUR', '232': 'CHANDAULI',
+    '241': 'HARDOI', '242': 'SHAHJAHANPUR', '243': 'BAREILLY', '244': 'MORADABAD',
+    '245': 'HAPUR', '246': 'PAURI GARHWAL', '247': 'SAHARANPUR',
+    '248': 'DEHRADUN', '249': 'HARIDWAR', '250': 'MEERUT', '251': 'MEERUT',
+    '261': 'SITAPUR', '262': 'LAKHIMPUR KHERI', '263': 'NAINITAL',
+    '271': 'GORAKHPUR', '272': 'BASTI', '273': 'GORAKHPUR', '274': 'DEORIA',
+    '275': 'MAU', '276': 'AZAMGARH', '281': 'MATHURA', '282': 'AGRA',
+    '283': 'AGRA', '284': 'JHANSI', '285': 'KANPUR', '301': 'ALWAR',
+    // Haryana
+    '121': 'FARIDABAD', '122': 'GURUGRAM', '123': 'REWARI', '124': 'ROHTAK',
+    '125': 'HISAR', '126': 'JIND', '127': 'BHIWANI', '128': 'SIRSA',
+    '129': 'KURUKSHETRA', '130': 'SONIPAT', '131': 'SONIPAT', '132': 'KARNAL',
+    '133': 'AMBALA', '134': 'AMBALA', '135': 'YAMUNANAGAR', '136': 'KAITHAL',
+    // Punjab
+    '140': 'MOHALI', '141': 'LUDHIANA', '142': 'LUDHIANA', '143': 'AMRITSAR',
+    '144': 'JALANDHAR', '145': 'JALANDHAR', '146': 'HOSHIARPUR', '147': 'PATIALA',
+    '148': 'PATIALA', '149': 'BATHINDA', '151': 'BATHINDA', '152': 'FEROZEPUR',
+    '153': 'FAZILKA', '154': 'MUKTSAR', '155': 'MANSA', '160': 'CHANDIGARH',
+    // Himachal Pradesh
+    '170': 'PANCHKULA', '171': 'SHIMLA', '172': 'SHIMLA', '173': 'SOLAN',
+    '174': 'BILASPUR', '175': 'MANDI', '176': 'KANGRA', '177': 'HAMIRPUR',
+    // J&K
+    '180': 'JAMMU', '181': 'JAMMU', '182': 'JAMMU', '184': 'KATHUA',
+    '185': 'ANANTNAG', '190': 'SRINAGAR', '191': 'SRINAGAR', '193': 'BARAMULLA',
   };
   return titleCase(exactCityMap[cleanPin] ?? CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? fallback ?? 'Delhi');
 }
@@ -701,28 +826,21 @@ export class BigshipService {
     courierId: number;
     invoiceAmount: number;
   }): Promise<{ data: Record<string, unknown> }> {
-    const form = new FormData();
-    form.append('MasterCustomOrderId', input.masterCustomOrderId);
-    form.append('courierId', String(input.courierId));
-    form.append('order_invoice_amount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
-    form.append('MasterOrderInvoiceAmount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
-    form.append('riskTypeId', '2');
-    const contentLength = await new Promise<number>((resolve, reject) => {
-      form.getLength((err, length) => {
-        if (err) reject(err);
-        else resolve(length);
-      });
-    });
-
-    return this.api().post('/api/outbound/place-order', form, {
-      headers: {
-        Authorization: `Bearer ${input.token}`,
-        ...form.getHeaders(),
-        'Content-Length': contentLength,
+    const invoiceAmt = Math.max(1, Math.round(Number(input.invoiceAmount) || 1));
+    return this.api().post(
+      '/api/outbound/place-order',
+      {
+        MasterCustomOrderId: input.masterCustomOrderId,
+        courierId: input.courierId,
+        riskTypeId: 1,
+        invoiceType: 'system',
+        invoiceNumber: input.masterCustomOrderId,
+        invoiceDate: new Date().toISOString().slice(0, 10),
+        MasterOrderInvoiceAmount: invoiceAmt,
+        order_invoice_amount: invoiceAmt,
       },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-    });
+      { headers: { Authorization: `Bearer ${input.token}` } },
+    );
   }
 
   private async postPlaceOrderMultipart(input: {
