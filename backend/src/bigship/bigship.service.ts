@@ -82,6 +82,13 @@ function bigshipErrorMessage(error: unknown): string {
   return [message, errors ? JSON.stringify(errors) : ''].filter(Boolean).join(' ');
 }
 
+function isBigshipInvoiceUploadError(error: unknown): boolean {
+  const err = error as { response?: { data?: unknown; status?: number } };
+  const data = err.response?.data;
+  const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+  return err.response?.status === 422 && /invoice data failed to upload/i.test(text);
+}
+
 /** Look up Indian state name from a 6-digit pincode */
 function stateFromPincode(pin: string): string {
   const prefix = pin.trim().slice(0, 2);
@@ -599,40 +606,15 @@ export class BigshipService {
         date: invoiceDate,
       });
 
-      const form = new FormData();
-      form.append('MasterCustomOrderId', input.masterCustomOrderId);
-      form.append('courierId', String(input.courierId));
-      form.append('riskTypeId', '1');
-      form.append('invoiceType', 'uploaded');
-      form.append('invoiceNumber', input.masterCustomOrderId);
-      form.append('invoiceDate', invoiceDate);
-      form.append('InvoiceData', pdfBuffer, {
-        filename: `invoice-${input.masterCustomOrderId}.pdf`,
-        contentType: 'application/pdf',
-        knownLength: pdfBuffer.length,
-      });
-      const contentLength = await new Promise<number>((resolve, reject) => {
-        form.getLength((err, length) => {
-          if (err) reject(err);
-          else resolve(length);
-        });
+      const { data: placeData } = await this.postPlaceOrderMultipart({
+        token,
+        masterCustomOrderId: input.masterCustomOrderId,
+        courierId: input.courierId,
+        pdfBuffer,
       });
 
-      const { data: placeData } = await this.api().post(
-        '/api/outbound/place-order',
-        form,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            ...form.getHeaders(),
-            'Content-Length': contentLength,
-          },
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
-        },
-      );
-
-      const awb = String(placeData?.data?.awb_assigned ?? placeData?.data?.reference_number ?? '');
+      const placePayload = placeData?.data as Record<string, unknown> | undefined;
+      const awb = String(placePayload?.awb_assigned ?? placePayload?.reference_number ?? '');
       return {
         bigshipOrderId: input.masterCustomOrderId,
         awbNumber: awb || undefined,
@@ -645,6 +627,41 @@ export class BigshipService {
         message: typeof response === 'string' ? response : JSON.stringify(response)?.slice(0, 300),
       };
     }
+  }
+
+  private async postPlaceOrderMultipart(input: {
+    token: string;
+    masterCustomOrderId: string;
+    courierId: number;
+    pdfBuffer: Buffer;
+  }): Promise<{ data: Record<string, unknown> }> {
+    const form = new FormData();
+    form.append('MasterCustomOrderId', input.masterCustomOrderId);
+    form.append('courierId', String(input.courierId));
+    form.append('invoiceType', 'uploaded');
+    form.append('InvoiceData', input.pdfBuffer, {
+      filename: `invoice-${input.masterCustomOrderId}.pdf`,
+      contentType: 'application/pdf',
+      knownLength: input.pdfBuffer.length,
+    });
+    form.append('EwaybillNo', '');
+    form.append('riskTypeId', '2');
+    const contentLength = await new Promise<number>((resolve, reject) => {
+      form.getLength((err, length) => {
+        if (err) reject(err);
+        else resolve(length);
+      });
+    });
+
+    return this.api().post('/api/outbound/place-order', form, {
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        ...form.getHeaders(),
+        'Content-Length': contentLength,
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
   }
 
   // ── Warehouse list ──────────────────────────────────────────────────────────
