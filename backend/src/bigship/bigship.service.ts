@@ -83,6 +83,14 @@ function limitBigshipName(value: string | undefined, fallback: string, maxLength
   return cleaned.slice(0, maxLength).trim() || fallback;
 }
 
+function limitBigshipAddress(value: string | undefined, fallback: string, maxLength: number): string {
+  const cleaned = (value ?? fallback)
+    .replace(/[^a-zA-Z0-9\-./,#_ ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || fallback;
+  return cleaned.slice(0, maxLength).trim() || fallback;
+}
+
 function bigshipErrorMessage(error: unknown): string {
   const err = error as { response?: { data?: unknown }; message?: string };
   const data = err.response?.data;
@@ -453,7 +461,7 @@ export class BigshipService {
             MasterOrderShippingName:    limitBigshipName(params.shippingName, 'Rate Check', 25),
             MasterOrderShippingEmail:   params.shippingEmail ?? '',
             MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
-            MasterOrderShippingAddress: limitText(params.shippingAddress, 'Rate Check Address', 75),
+            MasterOrderShippingAddress: limitBigshipAddress(params.shippingAddress, 'Rate Check Address', 75),
             MasterOrderShippingZipCode: deliveryPostcode,
             MasterOrderShippingCity:    attempt.city,
             MasterOrderShippingState:   attempt.state,
@@ -580,7 +588,7 @@ export class BigshipService {
           MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
           MasterOrderShippingEmail:   input.customerEmail || '',
           MasterOrderShippingMobileNo: input.customerPhone.replace(/\D/g, '').slice(0, 10) || '9999999999',
-          MasterOrderShippingAddress: limitText(input.billingAddress, 'Address', 75),
+          MasterOrderShippingAddress: limitBigshipAddress(input.billingAddress, 'Address', 75),
           MasterOrderShippingAddress2: '',
           MasterOrderShippingLandmark: '',
           MasterOrderShippingZipCode: input.billingPincode,

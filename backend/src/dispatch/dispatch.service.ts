@@ -477,8 +477,25 @@ export class DispatchService {
         throw new BadRequestException('Bigship did not return any live courier rates.');
       } catch (e) {
         this.logger.warn(`BigShip rates failed: ${e instanceof Error ? e.message : e}`);
-        if (e instanceof BadRequestException) throw e;
-        throw new BadRequestException(e instanceof Error ? e.message : 'Bigship live rates failed.');
+        if (this.shiprocket.isConfigured()) {
+          try {
+            const sr = await this.shiprocket.fetchCourierRates({ pickupPostcode: pickup, deliveryPostcode: delivery, weightKg });
+            if (sr.length) {
+              return {
+                orderId: order.id, orderNo: order.orderNumber,
+                destination: order.customer.businessName,
+                weightKg, deliveryPincode: delivery, pickupPincode: pickup,
+                warehouseId: warehouse.id, warehouseName: warehouse.name,
+                source: 'shiprocket',
+                rates: sr.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
+                  rateId, carrierName, amount, currency, estimatedDays,
+                })),
+              };
+            }
+          } catch (srError) {
+            this.logger.warn(`Shiprocket fallback rates failed: ${srError instanceof Error ? srError.message : srError}`);
+          }
+        }
       }
     }
 
@@ -594,12 +611,21 @@ export class DispatchService {
       }
 
       if (!bs.bigshipOrderId) {
-        throw new BadRequestException(`Bigship booking failed: ${bs.message ?? 'no Bigship order ID returned'}`);
+        const message = bs.message ?? 'no Bigship order ID returned';
+        if (/invoice file data is mandatory|invoice data failed to upload/i.test(message) && bigshipRate.masterCustomOrderId) {
+          this.logger.warn(`Bigship booking invoice upload blocked; saving manual manifest dispatch for ${order.orderNumber}: ${message}`);
+          bs = {
+            bigshipOrderId: bigshipRate.masterCustomOrderId,
+            message: 'Bigship manual manifest required: upload invoice/place order in Bigship panel',
+          };
+        } else {
+          throw new BadRequestException(`Bigship booking failed: ${message}`);
+        }
       }
 
       trackingRef    = bs.awbNumber ?? bs.bigshipOrderId;
       awbNumber      = bs.awbNumber ?? null;
-      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ''}.`;
+      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ' (manual manifest pending)'}.`;
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
       // ── Shiprocket booking ───────────────────────────────────────────────
       const courierCompanyId = parseInt(rateId.replace(/^sr-/, ''), 10);
