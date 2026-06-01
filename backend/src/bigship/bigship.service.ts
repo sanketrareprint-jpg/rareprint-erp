@@ -585,20 +585,19 @@ export class BigshipService {
   async placeExistingOrder(input: {
     masterCustomOrderId: string;
     courierId: number;
-    invoiceData?: { orderNumber: string; customerName: string; amount: number; date?: string };
+    invoiceData?: { orderNumber: string; customerName: string; amount: number };
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
     const token = await this.getAuthToken();
     const invoiceDate = new Date().toISOString().slice(0, 10);
 
     try {
-      // Generate a minimal invoice PDF for domestic orders (Bigship requires uploaded invoice)
       const pdfBuffer = await generateInvoicePdf({
         invoiceNo: input.masterCustomOrderId,
         orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
         customerName: input.invoiceData?.customerName ?? 'Customer',
         amount: input.invoiceData?.amount ?? 0,
-        date: input.invoiceData?.date ?? invoiceDate,
+        date: invoiceDate,
       });
 
       const form = new FormData();
@@ -681,4 +680,74 @@ export class BigshipService {
                 address:       String(w.warehouseAddressLine1 ?? ''),
                 contactPerson: String(w.warehouseContactPerson ?? ''),
                 phone:         String(w.warehouseAddressPhone  ?? ''),
-                isActive:      b
+                isActive:      bigshipActiveFlag(w.isActive),
+              });
+            }
+          }
+
+          fetchedForSegment += list.length;
+          // Use per-segment total so cross-segment accumulation doesn't break pagination
+          const total = Number(data?.data?.total ?? 0);
+          if (fetchedForSegment >= total || list.length < perPage) break;
+          page++;
+        } catch (e) {
+          // segment type may not be supported — just skip it
+          this.logger.debug(`Bigship getWarehouseList segment=${segmentType} page=${page}: ${e}`);
+          break;
+        }
+      }
+    }
+
+    this.logger.log(`Bigship getWarehouseList: found ${results.length} warehouse(s) across all segment types`);
+    return results;
+  }
+  // ── Token management ────────────────────────────────────────────────────────
+
+  /** Call this after updating credentials so the cached token is re-fetched */
+  clearToken(): void {
+    this.token          = undefined;
+    this.tokenUntil     = 0;
+    this.tokenExpiresAt = undefined;
+  }
+}
+
+// ── Invoice PDF generator ─────────────────────────────────────────────────────
+
+async function generateInvoicePdf(params: {
+  invoiceNo: string;
+  orderNumber: string;
+  customerName: string;
+  amount: number;
+  date: string;
+}): Promise<Buffer> {
+  const html = [
+    '<!DOCTYPE html><html><head><meta charset="utf-8">',
+    '<style>',
+    'body{font-family:Arial,sans-serif;margin:40px;font-size:13px;}',
+    'h1{font-size:20px;margin-bottom:4px;}',
+    'table{width:100%;border-collapse:collapse;margin-top:20px;}',
+    'th,td{border:1px solid #ccc;padding:8px;text-align:left;}',
+    'th{background:#f5f5f5;}.right{text-align:right;}.total{font-weight:bold;}',
+    '</style></head><body>',
+    '<h1>Tax Invoice</h1>',
+    '<p><strong>Invoice No:</strong> ' + params.invoiceNo + '</p>',
+    '<p><strong>Order No:</strong> ' + params.orderNumber + '</p>',
+    '<p><strong>Date:</strong> ' + params.date + '</p>',
+    '<p><strong>Bill To:</strong> ' + params.customerName + '</p>',
+    '<table><thead><tr><th>Description</th><th class="right">Amount (INR)</th></tr></thead>',
+    '<tbody>',
+    '<tr><td>Print Order</td><td class="right">' + params.amount.toFixed(2) + '</td></tr>',
+    '<tr class="total"><td>Total</td><td class="right">INR ' + params.amount.toFixed(2) + '</td></tr>',
+    '</tbody></table></body></html>',
+  ].join('');
+
+  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdf = await page.pdf({ format: 'A4', printBackground: true });
+    return Buffer.from(pdf);
+  } finally {
+    await browser.close();
+  }
+}
