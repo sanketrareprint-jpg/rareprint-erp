@@ -428,7 +428,10 @@ export default function OrdersPage() {
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-      alert(`✅ ${orderIds.length} order(s) sent to Accounts for approval!`);
+      const result = await res.json();
+      const processed = result.processedOrders ?? orderIds.length;
+      if (processed === 0) { alert("⚠️ No orders were submitted. Orders must be in 'Ready for Dispatch' status."); return; }
+      alert(`✅ ${processed} order(s) sent to Accounts for approval!`);
       setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setRates([]);
       await load();
     } finally { setBookingSubmitting(false); }
