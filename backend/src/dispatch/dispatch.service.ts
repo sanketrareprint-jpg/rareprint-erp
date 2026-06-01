@@ -663,7 +663,7 @@ export class DispatchService {
 
       if (!bs.bigshipOrderId) {
         const message = bs.message ?? 'no Bigship order ID returned';
-        if (/invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international/i.test(message) && bigshipRate.masterCustomOrderId) {
+        if (/invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international|order_invoice_amount/i.test(message) && bigshipRate.masterCustomOrderId) {
           this.logger.warn(`Bigship booking invoice upload blocked; saving manual manifest dispatch for ${order.orderNumber}: ${message}`);
           bs = {
             bigshipOrderId: bigshipRate.masterCustomOrderId,

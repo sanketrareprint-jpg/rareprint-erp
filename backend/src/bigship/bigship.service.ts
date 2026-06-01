@@ -112,7 +112,7 @@ function isBigshipInvoiceRequiredError(error: unknown): boolean {
   const err = error as { response?: { data?: unknown; status?: number } };
   const data = err.response?.data;
   const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
-  return /invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international/i.test(text);
+  return /invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international|order_invoice_amount/i.test(text);
 }
 
 /** Look up Indian state name from a 6-digit pincode */
@@ -856,18 +856,20 @@ export class BigshipService {
       await fs.writeFile(invoicePath, input.pdfBuffer);
 
       const form = new FormData();
+      const invoiceAmt = String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1)));
       form.append('MasterCustomOrderId', input.masterCustomOrderId);
       form.append('courierId', String(input.courierId));
-      form.append('order_invoice_amount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
-      form.append('MasterOrderInvoiceAmount', String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1))));
+      form.append('riskTypeId', '1');
       form.append('invoiceType', 'uploaded');
+      form.append('invoiceNumber', input.masterCustomOrderId);
+      form.append('invoiceDate', new Date().toISOString().slice(0, 10));
+      form.append('order_invoice_amount', invoiceAmt);
+      form.append('MasterOrderInvoiceAmount', invoiceAmt);
       form.append('InvoiceData', createReadStream(invoicePath), {
         filename: 'invoice.pdf',
         contentType: 'application/pdf',
         knownLength: input.pdfBuffer.length,
       });
-      form.append('EwaybillNo', '');
-      form.append('riskTypeId', '2');
       const contentLength = await new Promise<number>((resolve, reject) => {
         form.getLength((err, length) => {
           if (err) reject(err);
