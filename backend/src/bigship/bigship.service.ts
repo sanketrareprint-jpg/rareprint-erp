@@ -226,7 +226,6 @@ export class BigshipService {
     return axios.create({
       baseURL: BIGSHIP_BASE,
       timeout: 25_000,
-      headers: { 'Content-Type': 'application/json' },
     });
   }
 
