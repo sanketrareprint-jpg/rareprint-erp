@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import FormData from 'form-data';
-import puppeteer from 'puppeteer';
 
 // ─── Base URL ────────────────────────────────────────────────────────────────
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
@@ -720,34 +719,66 @@ async function generateInvoicePdf(params: {
   amount: number;
   date: string;
 }): Promise<Buffer> {
-  const html = [
-    '<!DOCTYPE html><html><head><meta charset="utf-8">',
-    '<style>',
-    'body{font-family:Arial,sans-serif;margin:40px;font-size:13px;}',
-    'h1{font-size:20px;margin-bottom:4px;}',
-    'table{width:100%;border-collapse:collapse;margin-top:20px;}',
-    'th,td{border:1px solid #ccc;padding:8px;text-align:left;}',
-    'th{background:#f5f5f5;}.right{text-align:right;}.total{font-weight:bold;}',
-    '</style></head><body>',
-    '<h1>Tax Invoice</h1>',
-    '<p><strong>Invoice No:</strong> ' + params.invoiceNo + '</p>',
-    '<p><strong>Order No:</strong> ' + params.orderNumber + '</p>',
-    '<p><strong>Date:</strong> ' + params.date + '</p>',
-    '<p><strong>Bill To:</strong> ' + params.customerName + '</p>',
-    '<table><thead><tr><th>Description</th><th class="right">Amount (INR)</th></tr></thead>',
-    '<tbody>',
-    '<tr><td>Print Order</td><td class="right">' + params.amount.toFixed(2) + '</td></tr>',
-    '<tr class="total"><td>Total</td><td class="right">INR ' + params.amount.toFixed(2) + '</td></tr>',
-    '</tbody></table></body></html>',
-  ].join('');
+  const amount = Number.isFinite(params.amount) ? params.amount : 0;
+  const lines = [
+    { text: 'Tax Invoice', size: 20, x: 72, y: 760 },
+    { text: `Invoice No: ${params.invoiceNo}`, size: 12, x: 72, y: 720 },
+    { text: `Order No: ${params.orderNumber}`, size: 12, x: 72, y: 700 },
+    { text: `Date: ${params.date}`, size: 12, x: 72, y: 680 },
+    { text: `Bill To: ${params.customerName}`, size: 12, x: 72, y: 650 },
+    { text: 'Description', size: 12, x: 72, y: 600 },
+    { text: 'Amount (INR)', size: 12, x: 390, y: 600 },
+    { text: 'Print Order', size: 12, x: 72, y: 575 },
+    { text: amount.toFixed(2), size: 12, x: 420, y: 575 },
+    { text: `Total: INR ${amount.toFixed(2)}`, size: 14, x: 350, y: 535 },
+  ];
 
-  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({ format: 'A4', printBackground: true });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
+  const content = [
+    'BT',
+    ...lines.flatMap((line) => [
+      `/F1 ${line.size} Tf`,
+      `${line.x} ${line.y} Td`,
+      `(${escapePdfText(line.text)}) Tj`,
+      `${-line.x} ${-line.y} Td`,
+    ]),
+    'ET',
+  ].join('\n');
+
+  return createSimplePdf(content);
+}
+
+function escapePdfText(value: string): string {
+  return value
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+function createSimplePdf(content: string): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
+  ];
+  const chunks: string[] = ['%PDF-1.4\n'];
+  const offsets = [0];
+
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(chunks.join(''), 'ascii'));
+    chunks.push(`${index + 1} 0 obj\n${object}\nendobj\n`);
+  });
+
+  const xrefOffset = Buffer.byteLength(chunks.join(''), 'ascii');
+  chunks.push(`xref\n0 ${objects.length + 1}\n`);
+  chunks.push('0000000000 65535 f \n');
+  offsets.slice(1).forEach((offset) => {
+    chunks.push(`${String(offset).padStart(10, '0')} 00000 n \n`);
+  });
+  chunks.push(`trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`);
+  chunks.push(`startxref\n${xrefOffset}\n%%EOF\n`);
+
+  return Buffer.from(chunks.join(''), 'ascii');
 }
