@@ -288,6 +288,18 @@ function cityFromPincode(pin: string, fallback?: string): string {
   return titleCase(exactCityMap[cleanPin] ?? CITY_MAP[prefix3] ?? CITY_MAP[prefix2] ?? fallback ?? 'Delhi');
 }
 
+// State capital fallbacks — used as last resort when all city attempts fail
+const STATE_CAPITAL: Record<string, string> = {
+  'Delhi': 'Delhi', 'Haryana': 'Gurugram', 'Punjab': 'Ludhiana',
+  'Himachal Pradesh': 'Shimla', 'Jammu And Kashmir': 'Jammu',
+  'Uttar Pradesh': 'Lucknow', 'Rajasthan': 'Jaipur', 'Gujarat': 'Ahmedabad',
+  'Maharashtra': 'Mumbai', 'Madhya Pradesh': 'Bhopal', 'Chhattisgarh': 'Raipur',
+  'Telangana': 'Hyderabad', 'Andhra Pradesh': 'Vijayawada', 'Karnataka': 'Bangalore',
+  'Tamil Nadu': 'Chennai', 'Kerala': 'Kochi', 'West Bengal': 'Kolkata',
+  'Odisha': 'Bhubaneswar', 'Assam': 'Guwahati', 'Bihar': 'Patna',
+  'Jharkhand': 'Ranchi',
+};
+
 function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string): Array<{ city: string; state: string }> {
   const state = stateFromPincode(pin);
   const extraCityMap: Record<string, string[]> = {
@@ -296,10 +308,19 @@ function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string): Array
     '477441': ['LAHAR', 'BHIND'],
     '848210': ['ROSERA', 'SAMASTIPUR'],
   };
+
+  // Only use fallbackCity if it looks like a real city (not a full address)
+  const cleanFallback = fallbackCity && fallbackCity.trim().length < 30 && !fallbackCity.includes(',')
+    ? fallbackCity
+    : undefined;
+
+  const stateCapital = STATE_CAPITAL[state] ?? 'Delhi';
+
   const cityCandidates = [
     cityFromPincode(pin),
     ...(extraCityMap[pin.trim()] ?? []),
-    fallbackCity,
+    cleanFallback,
+    stateCapital,       // last-resort: use state capital
   ]
     .filter((city): city is string => !!city?.trim())
     .flatMap((city) => [titleCase(city), city.toUpperCase()]);
@@ -606,7 +627,7 @@ export class BigshipService {
                 qty:                '1',
                 amount:             String(declaredValue),
                 totalAmount:        declaredValue,
-                collectableAmount:  codAmount,
+                collectableAmount:  Math.min(codAmount, declaredValue),
                 categoryId:         '1',
               }],
             })),

@@ -65,14 +65,17 @@ function splitAddressForShiprocket(customer: {
   shippingAddress: string | null;
   billingAddress: string | null;
   businessName: string;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
 }): { line: string; city: string; state: string; pincode: string } {
   const raw = customer.shippingAddress?.trim() || customer.billingAddress?.trim() || customer.businessName;
-  const pin = extractPincode(raw) || '110001';
-  const parts = raw.split(',').map((p) => p.trim()).filter(Boolean);
-  const city  = parts.length >= 2 ? parts[parts.length - 2]! : 'City';
-  const state = parts.length >= 3 ? parts[parts.length - 3]! : 'State';
-  const line  = parts.length ? parts.slice(0, Math.max(1, parts.length - 2)).join(', ') : raw;
-  return { line: line || 'Address', city, state, pincode: pin };
+  const pin = customer.pincode?.trim() || extractPincode(raw) || '110001';
+  const city = customer.city?.trim() || '';
+  const state = customer.state?.trim() || '';
+  // Use the raw address as the line (strip pincode if present)
+  const line = raw.replace(/\b\d{6}\b/, '').replace(/,\s*$/, '').trim() || 'Address';
+  return { line, city, state, pincode: pin };
 }
 
 function parseProductionNotes(notes?: string | null) {
@@ -663,11 +666,12 @@ export class DispatchService {
 
       if (!bs.bigshipOrderId) {
         const message = bs.message ?? 'no Bigship order ID returned';
-        if (/invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international|order_invoice_amount/i.test(message) && bigshipRate.masterCustomOrderId) {
-          this.logger.warn(`Bigship booking invoice upload blocked; saving manual manifest dispatch for ${order.orderNumber}: ${message}`);
+        if (bigshipRate.masterCustomOrderId) {
+          // Always fall back to saving the draft so user can manually process in Bigship
+          this.logger.warn(`Bigship place-order failed for ${order.orderNumber}, saving draft for manual processing: ${message}`);
           bs = {
             bigshipOrderId: bigshipRate.masterCustomOrderId,
-            message: 'Bigship manual manifest required: upload invoice/place order in Bigship panel',
+            message: `Bigship manual manifest required: ${message}`,
           };
         } else {
           throw new BadRequestException(`Bigship booking failed: ${message}`);
