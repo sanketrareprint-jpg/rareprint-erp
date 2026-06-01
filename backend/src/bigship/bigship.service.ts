@@ -37,7 +37,7 @@ const PINCODE_STATE: Record<string, string> = {
   '75': 'ODISHA',       '76': 'ODISHA',        '77': 'ODISHA',
   '78': 'ASSAM',        '79': 'ASSAM',
   '80': 'BIHAR',        '81': 'BIHAR',         '82': 'BIHAR',         '83': 'BIHAR',
-  '84': 'JHARKHAND',    '85': 'JHARKHAND',
+  '84': 'BIHAR',        '85': 'JHARKHAND',
 };
 
 const STATE_CODE: Record<string, string> = {
@@ -300,8 +300,8 @@ const STATE_CAPITAL: Record<string, string> = {
   'Jharkhand': 'Ranchi',
 };
 
-function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string): Array<{ city: string; state: string }> {
-  const state = stateFromPincode(pin);
+function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string, fallbackState?: string): Array<{ city: string; state: string }> {
+  const state = fallbackState?.trim() ? titleCase(fallbackState.trim()) : stateFromPincode(pin);
   const extraCityMap: Record<string, string[]> = {
     '132001': ['KARNAL'],
     '262701': ['KHERI', 'LAKHIMPUR', 'LAKHIMPUR KHERI', 'LAKHIMPUR-KHERI'],
@@ -591,7 +591,7 @@ export class BigshipService {
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
     const invoiceNo = uniqueInvoiceNo(params.orderNumber, 'RATE');
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
-    const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode, params.shippingCity);
+    const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode, params.shippingCity, params.shippingState);
 
     this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
@@ -861,11 +861,9 @@ export class BigshipService {
         MasterCustomOrderId: input.masterCustomOrderId,
         courierId: input.courierId,
         riskTypeId: 1,
-        invoiceType: 'system',
         invoiceNumber: input.masterCustomOrderId,
         invoiceDate: new Date().toISOString().slice(0, 10),
         MasterOrderInvoiceAmount: invoiceAmt,
-        order_invoice_amount: invoiceAmt,
       },
       { headers: { Authorization: `Bearer ${input.token}` } },
     );
@@ -1007,7 +1005,7 @@ async function generateInvoicePdf(params: {
   date: string;
 }): Promise<Buffer> {
   const amount = Number.isFinite(params.amount) ? params.amount : 0;
-  const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: false });
+  const doc = new PDFDocument({ size: 'A4', margin: 50, compress: false });
   const chunks: Buffer[] = [];
 
   return await new Promise<Buffer>((resolve, reject) => {
@@ -1015,32 +1013,49 @@ async function generateInvoicePdf(params: {
     doc.on('error', reject);
     doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-    doc.font('Helvetica-Bold').fontSize(20).text('Tax Invoice');
-    doc.moveDown(0.4);
-    doc.font('Helvetica').fontSize(10).text('RarePrint Dispatch Invoice');
-    doc.moveDown(1.2);
+    // Header
+    doc.rect(50, 50, 495, 60).fill('#1a1a2e');
+    doc.fillColor('white').font('Helvetica-Bold').fontSize(22).text('TAX INVOICE', 60, 68);
+    doc.fillColor('#cccccc').font('Helvetica').fontSize(10).text('RarePrint — Dispatch Invoice', 60, 95);
 
-    doc.fontSize(11);
-    doc.text(`Invoice No: ${sanitizePdfText(params.invoiceNo)}`);
-    doc.text(`Order No: ${sanitizePdfText(params.orderNumber)}`);
-    doc.text(`Date: ${sanitizePdfText(params.date)}`);
-    doc.moveDown();
-    doc.text(`Bill To: ${sanitizePdfText(params.customerName)}`);
-    doc.moveDown(1.5);
+    // Invoice details box
+    doc.fillColor('black').rect(50, 125, 495, 90).stroke('#cccccc');
+    doc.font('Helvetica-Bold').fontSize(11);
+    doc.text('Invoice No:', 65, 140);
+    doc.text('Order No:', 65, 158);
+    doc.text('Date:', 65, 176);
+    doc.text('Bill To:', 65, 194);
+    doc.font('Helvetica').fontSize(11);
+    doc.text(sanitizePdfText(params.invoiceNo), 160, 140);
+    doc.text(sanitizePdfText(params.orderNumber), 160, 158);
+    doc.text(sanitizePdfText(params.date), 160, 176);
+    doc.text(sanitizePdfText(params.customerName).slice(0, 50), 160, 194);
 
-    const tableTop = doc.y;
-    doc.rect(56, tableTop, 483, 28).stroke();
-    doc.font('Helvetica-Bold').text('Description', 70, tableTop + 9);
-    doc.text('Amount (INR)', 400, tableTop + 9);
+    // Table header
+    doc.rect(50, 230, 495, 28).fill('#f0f0f0').stroke('#cccccc');
+    doc.fillColor('black').font('Helvetica-Bold').fontSize(11);
+    doc.text('Description', 65, 239);
+    doc.text('Qty', 320, 239);
+    doc.text('Amount (INR)', 390, 239);
 
-    doc.rect(56, tableTop + 28, 483, 32).stroke();
-    doc.font('Helvetica').text('Print Order', 70, tableTop + 40);
-    doc.text(amount.toFixed(2), 420, tableTop + 40);
+    // Table row
+    doc.rect(50, 258, 495, 32).stroke('#cccccc');
+    doc.font('Helvetica').fontSize(11);
+    doc.text('Print Order / Stationery', 65, 268);
+    doc.text('1', 320, 268);
+    doc.text(amount.toFixed(2), 390, 268);
 
-    doc.moveDown(4);
-    doc.font('Helvetica-Bold').fontSize(13).text(`Total: INR ${amount.toFixed(2)}`, { align: 'right' });
-    doc.moveDown(2);
-    doc.font('Helvetica').fontSize(9).text('Generated for courier invoice upload.', { align: 'center' });
+    // Total
+    doc.rect(50, 290, 495, 32).fill('#f8f8f8').stroke('#cccccc');
+    doc.fillColor('black').font('Helvetica-Bold').fontSize(12);
+    doc.text('TOTAL', 65, 300);
+    doc.text(`INR ${amount.toFixed(2)}`, 390, 300);
+
+    // Footer
+    doc.fillColor('#666666').font('Helvetica').fontSize(8);
+    doc.text('This is a system-generated invoice for courier dispatch purposes.', 50, 350, { align: 'center', width: 495 });
+    doc.text('RarePrint — Print Solutions', 50, 362, { align: 'center', width: 495 });
+
     doc.end();
   });
 }
