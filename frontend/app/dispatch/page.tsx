@@ -26,7 +26,7 @@ type DispatchOrder = {
   totalItems: number; readyItems: ReadyItem[];
   dispatchType?: DispatchMethod;
   paymentType?: "COD" | "PREPAID";
-  isCod: boolean; codAmount: number | null;
+  isCod: boolean; codAmount: number | null; balanceDue?: number;
 };
 
 type RateQuote = { rateId: string; carrierName: string; amount: number; currency: string; estimatedDays: number; };
@@ -568,6 +568,9 @@ export default function DispatchPage() {
                         {o.isCod
                           ? <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">COD {o.codAmount ? fmt(o.codAmount) : ""}</span>
                           : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
+                        {!!o.balanceDue && o.balanceDue > 0 && (
+                          <span className="rounded-full bg-red-100 text-red-800 px-1.5 py-0.5 text-[10px] font-bold">BAL {fmt(o.balanceDue)}</span>
+                        )}
                         <span className="font-semibold text-slate-800 text-xs">{o.customerName}</span>
                         {o.customerPhone && <span className="text-[10px] text-slate-500">{o.customerPhone}</span>}
                         {o.shipTo && o.shipTo !== "—" && (

@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderProductionStage, OrderStatus, Prisma, ShipmentStatus } from '@prisma/client';
+import { OrderProductionStage, OrderStatus, PaymentVerificationStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
 import { BigshipService, type BigshipPackageBox } from '../bigship/bigship.service';
@@ -327,15 +327,35 @@ export class DispatchService {
     return Math.max(0, paid - Number(order.grandTotal));
   }
 
+  private paymentBalanceDue(order: { grandTotal: Prisma.Decimal; payments?: Array<{ amount: Prisma.Decimal }> }): number {
+    const paid = (order.payments ?? []).reduce((sum, payment) => sum + Number(payment.amount), 0);
+    return Math.max(0, Number(order.grandTotal) - paid);
+  }
+
+  private dispatchPaymentInfo(order: { notes?: string | null; grandTotal: Prisma.Decimal; payments?: Array<{ amount: Prisma.Decimal }> }) {
+    const notes = order.notes ?? '';
+    const notesIsCod = /\bCOD[:\s]/i.test(notes);
+    const notesCodAmountMatch = notes.match(/COD(?:\s+amount)?:\s*₹?(\d+(?:\.\d+)?)/i);
+    const notesCodAmount = notesCodAmountMatch ? Number(notesCodAmountMatch[1]) : null;
+    const balanceDue = this.paymentBalanceDue(order);
+    const balanceAmount = balanceDue > 0.5 ? Math.ceil(balanceDue) : 0;
+    const isCod = notesIsCod || balanceAmount > 0;
+    const codAmount = isCod ? (notesCodAmount ?? (balanceAmount > 0 ? balanceAmount : null)) : null;
+    return { isCod, codAmount, balanceDue: balanceAmount };
+  }
+
+  private assertCanDispatch(order: { status: OrderStatus }) {
+    const dispatchableStatuses: OrderStatus[] = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
+    if (!dispatchableStatuses.includes(order.status)) {
+      throw new BadRequestException('Order must be approved by accounts before dispatch');
+    }
+  }
+
   async listReadyForDispatch() {
     const orders = await this.prisma.order.findMany({
       where: {
         status: {
-          notIn: [
-            OrderStatus.DISPATCHED,
-            OrderStatus.DELIVERED,
-            OrderStatus.CANCELLED,
-          ],
+          in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED],
         },
         items: {
           some: {
@@ -348,6 +368,10 @@ export class DispatchService {
         customer: true,
         salesAgent: { select: { fullName: true } },
         items: { include: { product: true } },
+        payments: {
+          where: { verificationStatus: PaymentVerificationStatus.VERIFIED },
+          select: { amount: true },
+        },
       },
     });
 
@@ -358,7 +382,7 @@ export class DispatchService {
       totalItems: number; readyItemsCount: number;
       dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
       paymentType: 'COD' | 'PREPAID';
-      isCod: boolean; codAmount: number | null;
+      isCod: boolean; codAmount: number | null; balanceDue: number;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
         productionNotes: string | null; weightKg: number;
@@ -372,10 +396,7 @@ export class DispatchService {
       );
       if (readyItems.length === 0) continue;
 
-      // Detect COD from notes — handle both formats written by submitForDispatch and submitDispatchBatch
-      const notesIsCod = /\bCOD[:\s]/i.test(o.notes ?? '');
-      const notesCodeAmountMatch = (o.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i);
-      const notescodAmount = notesCodeAmountMatch ? Number(notesCodeAmountMatch[1]) : null;
+      const paymentInfo = this.dispatchPaymentInfo(o);
 
       result.push({
         id: o.id,
@@ -389,9 +410,10 @@ export class DispatchService {
         totalItems: o.items.length,
         readyItemsCount: readyItems.length,
         dispatchType: parseDispatchType(o.notes),
-        paymentType: notesIsCod ? 'COD' : 'PREPAID',
-        isCod: notesIsCod,
-        codAmount: notescodAmount,
+        paymentType: paymentInfo.isCod ? 'COD' : 'PREPAID',
+        isCod: paymentInfo.isCod,
+        codAmount: paymentInfo.codAmount,
+        balanceDue: paymentInfo.balanceDue,
         readyItems: readyItems.map((i) => {
           const { size, gsm, sides } = parseProductionNotes(i.productionNotes);
           return {
@@ -409,9 +431,17 @@ export class DispatchService {
   async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[]) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { customer: true, items: { include: { product: true } } },
+      include: {
+        customer: true,
+        items: { include: { product: true } },
+        payments: {
+          where: { verificationStatus: PaymentVerificationStatus.VERIFIED },
+          select: { amount: true },
+        },
+      },
     });
     if (!order) throw new NotFoundException('Order not found');
+    this.assertCanDispatch(order);
 
     const readyItems = order.items.filter(
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
@@ -431,11 +461,9 @@ export class DispatchService {
                        pickup ||
                        process.env.SHIPROCKET_DEFAULT_DELIVERY_PINCODE?.trim() || '110001';
     const addr = splitAddressForShiprocket(order.customer);
-    const orderIsCod = /\bCOD[:\s]/i.test(order.notes ?? '');
-    const orderCodAmt = (() => {
-      const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i);
-      return m ? Number(m[1]) : undefined;
-    })();
+    const paymentInfo = this.dispatchPaymentInfo(order);
+    const orderIsCod = paymentInfo.isCod;
+    const orderCodAmt = paymentInfo.codAmount ?? undefined;
 
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
@@ -537,9 +565,14 @@ export class DispatchService {
         customer: true,
         salesAgent: { select: { fullName: true } },
         items: { include: { product: true } },
+        payments: {
+          where: { verificationStatus: PaymentVerificationStatus.VERIFIED },
+          select: { amount: true },
+        },
       },
     });
     if (!order) throw new NotFoundException('Order not found');
+    this.assertCanDispatch(order);
 
     const itemsToDispatch = order.items.filter(
       (i) => itemIds.includes(i.id) &&
@@ -572,8 +605,9 @@ export class DispatchService {
     let awbNumber: string | null = null;
 
     const addr = splitAddressForShiprocket(order.customer);
-    const orderIsCod    = isCod ?? /\bCOD[:\s]/i.test(order.notes ?? '');
-    const orderCodAmt   = codAmount ?? (() => { const m = (order.notes ?? '').match(/COD(?:\s+amount)?:\s*₹?(\d+)/i); return m ? Number(m[1]) : undefined; })();
+    const paymentInfo = this.dispatchPaymentInfo(order);
+    const orderIsCod = paymentInfo.balanceDue > 0 ? true : (isCod ?? paymentInfo.isCod);
+    const orderCodAmt = codAmount ?? paymentInfo.codAmount ?? undefined;
 
     if (bigshipRate && this.bigship.isConfigured()) {
       // ── BigShip booking ─────────────────────────────────────────────────
@@ -664,7 +698,7 @@ export class DispatchService {
             trackingNumber: trackingRef || null,
             awbNumber,
             dispatchType: 'COURIER',
-            transportChargesType: isCod ? 'COD' : 'PREPAID',
+            transportChargesType: orderIsCod ? 'COD' : 'PREPAID',
             notes: [
               `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
               `Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`.trim(),
@@ -725,11 +759,15 @@ export class DispatchService {
       include: {
         customer: true,
         salesAgent: { select: { fullName: true } },
-        payments: true,
+        payments: {
+          where: { verificationStatus: PaymentVerificationStatus.VERIFIED },
+          select: { amount: true },
+        },
         items: { include: { product: true } },
       },
     });
     if (!order) throw new NotFoundException('Order not found');
+    this.assertCanDispatch(order);
 
     const itemsToDispatch = order.items.filter(
       (i) => input.itemIds.includes(i.id) &&
@@ -814,6 +852,7 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
+    this.assertCanDispatch(order);
     const itemsToDispatch = order.items.filter(
       (i) => input.itemIds.includes(i.id) &&
         i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
