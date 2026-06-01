@@ -108,6 +108,13 @@ function isBigshipInvoiceUploadError(error: unknown): boolean {
   return err.response?.status === 422 && /invoice data failed to upload/i.test(text);
 }
 
+function isBigshipInvoiceRequiredError(error: unknown): boolean {
+  const err = error as { response?: { data?: unknown; status?: number } };
+  const data = err.response?.data;
+  const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+  return /invoice.*(mandatory|required)|invoice data failed to upload/i.test(text);
+}
+
 /** Look up Indian state name from a 6-digit pincode */
 function stateFromPincode(pin: string): string {
   const prefix = pin.trim().slice(0, 2);
@@ -644,20 +651,31 @@ export class BigshipService {
     const invoiceDate = new Date().toISOString().slice(0, 10);
 
     try {
-      const pdfBuffer = await generateInvoicePdf({
-        invoiceNo: input.masterCustomOrderId,
-        orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
-        customerName: input.invoiceData?.customerName ?? 'Customer',
-        amount: input.invoiceData?.amount ?? 0,
-        date: invoiceDate,
-      });
-
-      const { data: placeData } = await this.postPlaceOrderMultipart({
-        token,
-        masterCustomOrderId: input.masterCustomOrderId,
-        courierId: input.courierId,
-        pdfBuffer,
-      });
+      let placeData: Record<string, unknown>;
+      try {
+        const { data } = await this.postPlaceOrderBasic({
+          token,
+          masterCustomOrderId: input.masterCustomOrderId,
+          courierId: input.courierId,
+        });
+        placeData = data;
+      } catch (e: unknown) {
+        if (!isBigshipInvoiceRequiredError(e)) throw e;
+        const pdfBuffer = await generateInvoicePdf({
+          invoiceNo: input.masterCustomOrderId,
+          orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
+          customerName: input.invoiceData?.customerName ?? 'Customer',
+          amount: input.invoiceData?.amount ?? 0,
+          date: invoiceDate,
+        });
+        const { data } = await this.postPlaceOrderMultipart({
+          token,
+          masterCustomOrderId: input.masterCustomOrderId,
+          courierId: input.courierId,
+          pdfBuffer,
+        });
+        placeData = data;
+      }
 
       const placePayload = placeData?.data as Record<string, unknown> | undefined;
       const awb = String(placePayload?.awb_assigned ?? placePayload?.reference_number ?? '');
@@ -673,6 +691,33 @@ export class BigshipService {
         message: typeof response === 'string' ? response : JSON.stringify(response)?.slice(0, 300),
       };
     }
+  }
+
+  private async postPlaceOrderBasic(input: {
+    token: string;
+    masterCustomOrderId: string;
+    courierId: number;
+  }): Promise<{ data: Record<string, unknown> }> {
+    const form = new FormData();
+    form.append('MasterCustomOrderId', input.masterCustomOrderId);
+    form.append('courierId', String(input.courierId));
+    form.append('riskTypeId', '2');
+    const contentLength = await new Promise<number>((resolve, reject) => {
+      form.getLength((err, length) => {
+        if (err) reject(err);
+        else resolve(length);
+      });
+    });
+
+    return this.api().post('/api/outbound/place-order', form, {
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        ...form.getHeaders(),
+        'Content-Length': contentLength,
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
   }
 
   private async postPlaceOrderMultipart(input: {
