@@ -692,7 +692,6 @@ export class OrdersService {
       });
       if (!order) continue;
       if (order.status !== OrderStatus.READY_FOR_DISPATCH) continue;
-      if (!order.items.some((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH)) continue;
 
       const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
         ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
