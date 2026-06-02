@@ -23,9 +23,9 @@ export const metadata: Metadata = {
 export default function WebToPrintHomePage() {
   const categories = getAllCategories();
   const allPriced = getAllProducts().filter((product) => product.rates.length > 0);
-  const featured = [...getFeaturedProducts(10), ...allPriced].filter((product, index, rows) => rows.findIndex((row) => row.slug === product.slug) === index).slice(0, 10);
-  const stickers = getProductsByCategory("prescription-stickers").slice(0, 8);
-  const hotSelling = [...featured, ...stickers].filter(Boolean).slice(0, 8);
+  const featured = [...getFeaturedProducts(6), ...allPriced].filter((product, index, rows) => rows.findIndex((row) => row.slug === product.slug) === index).slice(0, 6);
+  const stickers = getProductsByCategory("prescription-stickers").slice(0, 4);
+  const hotSelling = [...featured, ...stickers].filter(Boolean).slice(0, 4);
   const heroImages = featured.filter((product) => product.image).slice(0, 3);
   const storyItems = [
     { label: "Making", href: "/web-to-print/categories", image: heroImages[0]?.image },
@@ -40,11 +40,11 @@ export default function WebToPrintHomePage() {
     <main className="bg-white text-slate-950">
       <StoryHighlights items={storyItems} />
       <HeroSlider products={heroImages} />
-      <RoundCategoryCards categories={categories.slice(0, 8)} products={featured} />
+      <RoundCategoryCards categories={categories.slice(0, 6)} products={featured} />
       <PromoBanners products={featured} />
-      <ProductRail title="Corporate Printing" products={featured.slice(0, 8)} />
-      <ReelsSection products={hotSelling.slice(0, 6)} />
-      <ProductRail title="Popular Products" products={stickers.length ? stickers : featured.slice(0, 8)} compact />
+      <ProductRail title="Corporate Printing" products={featured.slice(0, 4)} />
+      <ReelsSection products={hotSelling.slice(0, 4)} />
+      <ProductRail title="Popular Products" products={stickers.length ? stickers : featured.slice(0, 4)} compact />
       <HotSelling products={hotSelling} />
       <ArticlesSection />
       <BrandStory />
@@ -67,7 +67,7 @@ function StoryHighlights({ items }: { items: { label: string; href: string; imag
             <div className="mx-auto rounded-full bg-gradient-to-br from-[#CC0000] via-slate-900 to-[#CC0000] p-[2px]">
               <div className="relative h-[70px] w-[70px] overflow-hidden rounded-full bg-white">
                 {item.image ? (
-                  <Image src={item.image} alt={item.label} fill sizes="70px" className="object-cover p-1" loading={index < 2 ? "eager" : "lazy"} unoptimized />
+                  <Image src={item.image} alt={item.label} fill sizes="70px" className="object-cover p-1" loading={index < 2 ? "eager" : "lazy"} unoptimized referrerPolicy="no-referrer" />
                 ) : (
                   <div className="grid h-full place-items-center bg-slate-100 text-xs font-black text-slate-700">RP</div>
                 )}
@@ -117,7 +117,7 @@ function RoundCategoryCards({ categories, products }: { categories: ReturnType<t
           return (
             <Link key={category.slug} href={`/web-to-print/category/${category.slug}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="relative aspect-[4/3] bg-slate-50">
-                {image && <Image src={image} alt={category.name} fill sizes="(max-width: 640px) 50vw, 220px" className="object-contain p-3" loading="lazy" unoptimized />}
+                {image && <Image src={image} alt={category.name} fill sizes="(max-width: 640px) 50vw, 220px" className="object-contain p-3" loading="lazy" unoptimized referrerPolicy="no-referrer" />}
               </div>
               <div className="p-3">
                 <p className="line-clamp-1 text-sm font-black text-slate-900">{category.name}</p>
@@ -142,7 +142,7 @@ function PromoBanners({ products }: { products: Product[] }) {
       <div className="grid gap-4 md:grid-cols-3">
         {banners.map(([title, sub, href, image]) => (
           <Link key={title} href={href || "/web-to-print/categories"} className="relative min-h-40 overflow-hidden rounded-2xl bg-slate-900">
-            {image && <Image src={image} alt={title || "RarePrint"} fill sizes="(max-width: 768px) 100vw, 420px" className="object-cover opacity-55" loading="lazy" unoptimized />}
+            {image && <Image src={image} alt={title || "RarePrint"} fill sizes="(max-width: 768px) 100vw, 420px" className="object-cover opacity-55" loading="lazy" unoptimized referrerPolicy="no-referrer" />}
             <div className="absolute inset-0 bg-gradient-to-r from-black/75 to-transparent" />
             <div className="relative z-10 flex min-h-40 flex-col justify-end p-5 text-white">
               <h2 className="text-xl font-black">{title}</h2>
@@ -181,7 +181,7 @@ function HomeProductCard({ product, badge }: { product: Product; badge: string }
       <div className="relative aspect-square bg-slate-50">
         <span className="absolute left-2 top-2 z-10 rounded-full bg-slate-900 px-2 py-1 text-[11px] font-black text-white">{badge}</span>
         {product.image ? (
-          <Image src={product.image} alt={product.name} fill sizes="(max-width: 640px) 50vw, 260px" className="object-contain p-3" loading="lazy" unoptimized />
+          <Image src={product.image} alt={product.name} fill sizes="(max-width: 640px) 50vw, 260px" className="object-contain p-3" loading="lazy" unoptimized referrerPolicy="no-referrer" />
         ) : (
           <div className="grid h-full place-items-center text-3xl font-black text-slate-300">RP</div>
         )}
@@ -208,7 +208,7 @@ function ReelsSection({ products }: { products: Product[] }) {
         <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
           {products.map((product, index) => (
             <Link key={`reel-${product.slug}`} href={`/web-to-print/product/${product.slug}`} className="relative aspect-[9/16] w-36 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-900 shadow-sm">
-              {product.image && <Image src={product.image} alt={product.name} fill sizes="160px" className="object-cover opacity-75" loading="lazy" unoptimized />}
+              {product.image && <Image src={product.image} alt={product.name} fill sizes="160px" className="object-cover opacity-75" loading="lazy" unoptimized referrerPolicy="no-referrer" />}
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[11px] font-black text-slate-900">Reel {index + 1}</div>
               <p className="absolute bottom-3 left-3 right-3 line-clamp-2 text-xs font-black text-white">{product.category}</p>

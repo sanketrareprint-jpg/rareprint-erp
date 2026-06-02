@@ -68,6 +68,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                         className="object-contain p-1"
                         loading="lazy"
                         unoptimized
+                        referrerPolicy="no-referrer"
                       />
                     </div>
                   ))}
@@ -88,6 +89,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                       className="object-contain p-6"
                       priority
                       unoptimized
+                      referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-6xl font-black text-slate-300">

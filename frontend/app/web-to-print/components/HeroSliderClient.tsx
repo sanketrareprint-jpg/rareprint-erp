@@ -27,11 +27,19 @@ export function HeroSliderClient({ slides }: { slides: Slide[] }) {
     <section className="bg-white py-4">
       <div className="mx-auto max-w-7xl px-4">
         <Link href={active.href} className="relative block min-h-[210px] overflow-hidden rounded-2xl bg-slate-950">
-          {slides.map((slide, index) => (
-            <div key={slide.title} className={`absolute inset-0 transition-opacity duration-700 ${index === activeIndex ? "opacity-100" : "opacity-0"}`}>
-              {slide.image && <Image src={slide.image} alt={slide.title} fill sizes="100vw" className="object-cover opacity-75" priority={index === 0} unoptimized />}
-            </div>
-          ))}
+          {active.image && (
+            <Image
+              key={active.image}
+              src={active.image}
+              alt={active.title}
+              fill
+              sizes="100vw"
+              className="object-cover opacity-75"
+              priority
+              unoptimized
+              referrerPolicy="no-referrer"
+            />
+          )}
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/25 to-transparent" />
           <div className="relative z-10 flex min-h-[210px] max-w-md flex-col justify-end p-5 text-white sm:p-8">
             <p className="text-xs font-black uppercase tracking-widest text-white/80">RarePrint Campaign</p>

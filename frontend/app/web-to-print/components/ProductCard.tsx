@@ -28,6 +28,7 @@ export function ProductCard({ product }: { product: Product }) {
             className="object-contain p-2"
             loading="lazy"
             unoptimized
+            referrerPolicy="no-referrer"
           />
         ) : (
           <div className="grid h-full place-items-center rounded-lg bg-slate-50 text-2xl font-black text-slate-300">RP</div>
