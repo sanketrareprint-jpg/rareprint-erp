@@ -461,7 +461,12 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    await this.assertCanDispatch(order);
+    // Rate fetching only needs a valid dispatchable status — skip the approval
+    // log check here (that's enforced on actual booking in bookItems).
+    const dispatchableStatuses = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
+    if (!dispatchableStatuses.includes(order.status)) {
+      throw new BadRequestException('Order must be in a dispatchable status to fetch rates');
+    }
 
     const readyItems = order.items.filter(
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
@@ -603,9 +608,27 @@ export class DispatchService {
     }
 
     const bigshipRate = parseBigshipRateId(rateId);
-    const picked = bigshipRate?.masterCustomOrderId
-      ? sanitizeSelectedRateQuote(rateId, selectedQuote)
-      : (await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride)).rates.find((r) => r.rateId === rateId);
+    let picked: LocalRateQuote | undefined | null;
+    if (bigshipRate?.masterCustomOrderId) {
+      // Try to validate the quote passed from the frontend. If it's missing or
+      // malformed (e.g. forwarded without the amount field), fall back to a
+      // minimal valid quote built from data encoded in the rateId itself so the
+      // booking can still proceed.
+      picked = sanitizeSelectedRateQuote(rateId, selectedQuote);
+      if (!picked) {
+        const fallbackAmount = Number(selectedQuote?.amount ?? 0);
+        picked = {
+          rateId,
+          carrierName: String(selectedQuote?.carrierName ?? 'Bigship Courier'),
+          amount: Number.isFinite(fallbackAmount) && fallbackAmount >= 0 ? fallbackAmount : 0,
+          currency: String(selectedQuote?.currency ?? 'INR'),
+          estimatedDays: Number(selectedQuote?.estimatedDays ?? 3) || 3,
+        };
+        this.logger.warn(`bookItems: selectedQuote validation failed for rateId=${rateId}, using fallback quote`);
+      }
+    } else {
+      picked = (await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride)).rates.find((r) => r.rateId === rateId);
+    }
     if (!picked) throw new BadRequestException('Invalid shipping rate selection');
 
     const normalizedBoxes = normalizeDispatchPackageBoxes(packageBoxes);

@@ -384,19 +384,31 @@ function normalizePackageBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0
 
 function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
   const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
+
+  // Bigship B2C requires exactly 1 box entry with noOfBoxes = 1.
+  // When multiple ERP box rows are present, collapse them into a single box:
+  //   - Dimensions: use the box with the largest volume
+  //   - Weight: sum of all individual boxes (noOfBoxes × weight per row)
+  const totalWeight = normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
+  const representative = normalized.reduce((best, box) => {
+    const vol = box.length * box.breadth * box.height;
+    const bestVol = best.length * best.breadth * best.height;
+    return vol > bestVol ? box : best;
+  }, normalized[0]);
+
   return {
-    totalNumOfBoxes: normalized.reduce((sum, box) => sum + box.noOfBoxes, 0),
-    boxes: normalized.map((box) => ({
+    totalNumOfBoxes: 1,
+    boxes: [{
       weight_unit: 'kg',
       dimension_unit: 'cm',
-      noOfBoxes: box.noOfBoxes,
+      noOfBoxes: 1,
       dimensions: [{
-        length: box.length,
-        breadth: box.breadth,
-        height: box.height,
-        weight: box.weight,
+        length: representative.length,
+        breadth: representative.breadth,
+        height: representative.height,
+        weight: Math.max(0.1, Math.round(totalWeight * 100) / 100),
       }],
-    })),
+    }],
   };
 }
 
