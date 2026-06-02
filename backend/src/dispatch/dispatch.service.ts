@@ -463,7 +463,7 @@ export class DispatchService {
     if (!order) throw new NotFoundException('Order not found');
     // Rate fetching only needs a valid dispatchable status — skip the approval
     // log check here (that's enforced on actual booking in bookItems).
-    const dispatchableStatuses = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
+    const dispatchableStatuses: OrderStatus[] = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
     if (!dispatchableStatuses.includes(order.status)) {
       throw new BadRequestException('Order must be in a dispatchable status to fetch rates');
     }
