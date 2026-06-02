@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ProductVisual } from "./ProductVisual";
 
 type Slide = {
   title: string;
@@ -27,19 +27,9 @@ export function HeroSliderClient({ slides }: { slides: Slide[] }) {
     <section className="bg-white py-4">
       <div className="mx-auto max-w-7xl px-4">
         <Link href={active.href} className="relative block min-h-[210px] overflow-hidden rounded-2xl bg-slate-950">
-          {active.image && (
-            <Image
-              key={active.image}
-              src={active.image}
-              alt={active.title}
-              fill
-              sizes="100vw"
-              className="object-cover opacity-75"
-              priority
-              unoptimized
-              referrerPolicy="no-referrer"
-            />
-          )}
+          <div className="absolute inset-y-0 right-0 hidden w-1/2 opacity-40 sm:block">
+            <ProductVisual label={active.title} />
+          </div>
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/25 to-transparent" />
           <div className="relative z-10 flex min-h-[210px] max-w-md flex-col justify-end p-5 text-white sm:p-8">
             <p className="text-xs font-black uppercase tracking-widest text-white/80">RarePrint Campaign</p>
