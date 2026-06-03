@@ -211,8 +211,19 @@ export default function OrdersPage() {
     transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "",
     awbNumber: "", courierBy: "", deliveryBoyName: "",
     collectedByName: "", collectedByPhone: "",
+    productPhoto: "" as string, // base64 data URL
   });
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [printReceiptData, setPrintReceiptData] = useState<null | {
+    orders: typeof selectedOrders;
+    courierCharges: number;
+    isCod: boolean;
+    codAmount: number;
+    dispatchType: string;
+    transportName: string;
+    awbNumber: string;
+    productPhoto: string;
+  }>(null);
   const [newPayment, setNewPayment] = useState({
     amount: "", method: "CASH", paymentAccountId: "",
     referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10),
@@ -367,6 +378,7 @@ export default function OrdersPage() {
   async function openBookingModal() {
     if (selectedOrderIds.size === 0) { alert("Select at least one order"); return; }
     setBookingModal(true); setRates([]); setItemsLoading(true);
+    setBookingForm(p => ({ ...p, productPhoto: "" }));
     try {
       const itemsMap: Record<string, OrderItem[]> = {};
       for (const orderId of selectedOrderIds) {
@@ -431,7 +443,17 @@ export default function OrdersPage() {
       const result = await res.json();
       const processed = result.processedOrders ?? orderIds.length;
       if (processed === 0) { alert("⚠️ No orders were submitted. Orders must be in 'Ready for Dispatch' status."); return; }
-      alert(`✅ ${processed} order(s) sent to Accounts for approval!`);
+      // Store data for print receipt
+      setPrintReceiptData({
+        orders: selectedOrders,
+        courierCharges: courierNum,
+        isCod: bookingForm.isCod,
+        codAmount: bookingForm.isCod ? Number(bookingForm.codAmount || suggestedCod) : 0,
+        dispatchType: bookingForm.dispatchType,
+        transportName: bookingForm.transportName,
+        awbNumber: bookingForm.awbNumber,
+        productPhoto: bookingForm.productPhoto,
+      });
       setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setRates([]);
       await load();
     } finally { setBookingSubmitting(false); }
@@ -1155,6 +1177,39 @@ export default function OrdersPage() {
                     </div>
                   )}
                 </div>
+                {/* Product Photo for Receipt/Label */}
+                <div className="rounded-lg border border-slate-200 px-3 py-2">
+                  <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Product Photo <span className="text-slate-400 font-normal normal-case">(for receipt &amp; label)</span></p>
+                  {bookingForm.productPhoto ? (
+                    <div className="flex items-center gap-3">
+                      <img src={bookingForm.productPhoto} alt="Product" className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] text-emerald-600 font-semibold">✓ Photo added</span>
+                        <button onClick={() => setBookingForm(p => ({ ...p, productPhoto: "" }))}
+                          className="text-[10px] text-red-500 hover:text-red-700 flex items-center gap-1">
+                          <X className="h-3 w-3" /> Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 cursor-pointer w-fit">
+                      <div className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-[10px] text-slate-500 font-medium transition">
+                        <Upload className="h-3.5 w-3.5" />
+                        Upload product photo
+                      </div>
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = ev => setBookingForm(p => ({ ...p, productPhoto: ev.target?.result as string }));
+                          reader.readAsDataURL(file);
+                          e.target.value = "";
+                        }} />
+                    </label>
+                  )}
+                </div>
+
                 {/* Courier Rates + COD — side by side when both visible */}
                 {bookingForm.dispatchType === "COURIER" && (
                   <div className="rounded-lg border border-slate-200 px-3 py-2">
@@ -1257,6 +1312,99 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {/* ── Print Receipt / Dispatch Label Modal ──────────────────────────── */}
+      {printReceiptData && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", width: "100%", maxWidth: "480px", boxShadow: "0 25px 50px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", borderBottom: "1px solid #e2e8f0" }}>
+              <div>
+                <h2 style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", margin: 0 }}>✅ Order Booked Successfully</h2>
+                <p style={{ fontSize: "11px", color: "#64748b", margin: "2px 0 0" }}>Print receipt or dispatch label</p>
+              </div>
+              <button onClick={() => setPrintReceiptData(null)} style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8" }}>
+                <X style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+            {/* Receipt Preview */}
+            <div id="dispatch-receipt-print" style={{ padding: "1rem", fontFamily: "Arial, sans-serif" }}>
+              <div style={{ textAlign: "center", marginBottom: "12px", paddingBottom: "10px", borderBottom: "2px solid #0f172a" }}>
+                <p style={{ fontSize: "16px", fontWeight: 800, margin: 0, color: "#0f172a" }}>RAREPRINT</p>
+                <p style={{ fontSize: "9px", color: "#64748b", margin: "2px 0 0" }}>Dispatch Receipt / Courier Label</p>
+                <p style={{ fontSize: "9px", color: "#64748b", margin: "1px 0 0" }}>{new Date().toLocaleString("en-IN")}</p>
+              </div>
+
+              {/* Product Photo */}
+              {printReceiptData.productPhoto && (
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}>
+                  <div style={{ textAlign: "center" }}>
+                    <img src={printReceiptData.productPhoto} alt="Product" style={{ height: "120px", width: "120px", objectFit: "cover", borderRadius: "8px", border: "2px solid #e2e8f0" }} />
+                    <p style={{ fontSize: "9px", color: "#94a3b8", margin: "4px 0 0" }}>PRODUCT PHOTO</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Order(s) */}
+              {printReceiptData.orders.map(o => (
+                <div key={o.id} style={{ marginBottom: "10px", padding: "8px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a" }}>{o.orderNo}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 600, color: "#2563eb" }}>{fmt(o.totalAmount)}</span>
+                  </div>
+                  <p style={{ fontSize: "11px", fontWeight: 700, color: "#334155", margin: "0 0 2px" }}>{o.customerName}</p>
+                  {o.customerPhone && <p style={{ fontSize: "10px", color: "#64748b", margin: "0 0 2px" }}>📞 {o.customerPhone}</p>}
+                  {o.shippingAddress && <p style={{ fontSize: "10px", color: "#64748b", margin: 0, lineHeight: "1.4" }}>📍 {o.shippingAddress}</p>}
+                </div>
+              ))}
+
+              {/* Dispatch Info */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "10px" }}>
+                <div style={{ padding: "6px 8px", background: "#eff6ff", borderRadius: "6px", border: "1px solid #bfdbfe" }}>
+                  <p style={{ fontSize: "9px", color: "#3b82f6", fontWeight: 600, margin: "0 0 2px", textTransform: "uppercase" }}>Dispatch Via</p>
+                  <p style={{ fontSize: "11px", fontWeight: 700, color: "#1e40af", margin: 0 }}>
+                    {printReceiptData.dispatchType === "COURIER" ? "🚚 Courier" : printReceiptData.dispatchType === "TRANSPORT" ? "🚛 Transport" : printReceiptData.dispatchType === "BY_HAND" ? "🚶 By Hand" : "🏪 Self Collect"}
+                    {printReceiptData.transportName ? ` — ${printReceiptData.transportName}` : ""}
+                  </p>
+                  {printReceiptData.awbNumber && <p style={{ fontSize: "10px", color: "#2563eb", margin: "2px 0 0" }}>AWB: <strong>{printReceiptData.awbNumber}</strong></p>}
+                </div>
+                <div style={{ padding: "6px 8px", background: printReceiptData.isCod ? "#fff7ed" : "#f0fdf4", borderRadius: "6px", border: `1px solid ${printReceiptData.isCod ? "#fed7aa" : "#bbf7d0"}` }}>
+                  <p style={{ fontSize: "9px", color: printReceiptData.isCod ? "#ea580c" : "#16a34a", fontWeight: 600, margin: "0 0 2px", textTransform: "uppercase" }}>Payment</p>
+                  <p style={{ fontSize: "11px", fontWeight: 700, color: printReceiptData.isCod ? "#c2410c" : "#15803d", margin: 0 }}>
+                    {printReceiptData.isCod ? `💰 COD — ${fmt(printReceiptData.codAmount)}` : "✅ Prepaid"}
+                  </p>
+                  {printReceiptData.courierCharges > 0 && <p style={{ fontSize: "10px", color: "#64748b", margin: "2px 0 0" }}>Courier: {fmt(printReceiptData.courierCharges)}</p>}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "center", borderTop: "1px dashed #cbd5e1", paddingTop: "8px" }}>
+                <p style={{ fontSize: "9px", color: "#94a3b8", margin: 0 }}>Scan &amp; apply label to correct product before dispatch</p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0" }}>
+              <button onClick={() => setPrintReceiptData(null)}
+                style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 12px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
+                Close
+              </button>
+              <button onClick={() => {
+                const el = document.getElementById("dispatch-receipt-print");
+                if (!el) return;
+                const win = window.open("", "_blank", "width=480,height=700");
+                if (!win) return;
+                win.document.write(`<html><head><title>Dispatch Receipt</title><style>body{margin:0;padding:16px;font-family:Arial,sans-serif;}@media print{body{margin:0;}}</style></head><body>${el.innerHTML}</body></html>`);
+                win.document.close();
+                win.focus();
+                setTimeout(() => { win.print(); }, 400);
+              }}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", borderRadius: "6px", border: "none", background: "#0f172a", padding: "6px 16px", fontSize: "12px", fontWeight: 600, color: "white", cursor: "pointer" }}>
+                🖨️ Print Receipt / Label
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Edit Payment Modal ─────────────────────────────────────────────── */}
       {editingPayment && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: "1rem" }}>
@@ -1318,6 +1466,7 @@ export default function OrdersPage() {
                 className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
               <button onClick={savePaymentEdit} disabled={savingPaymentEdit}
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+
                 {savingPaymentEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                 Save Changes
               </button>
@@ -1328,13 +1477,3 @@ export default function OrdersPage() {
     </>
   );
 }
-
-
-
-
-
-
-
-
-
-

@@ -119,33 +119,10 @@ export class BankStatementService {
     const { accountNumber, rows } = this.parseXls(buffer);
     if (rows.length === 0) throw new BadRequestException('No valid transactions found in file');
 
-    // Find last imported srl for this account
-    const lastTxn = await this.prisma.bankTransaction.findFirst({
-      where: { accountNumber },
-      orderBy: { srl: 'desc' },
-      select: { srl: true, balance: true },
-    });
-
-    // Smart dedup: skip rows already imported
-    // Strategy: find the row whose balance matches lastTxn.balance, start from next
-    let startIndex = 0;
-    if (lastTxn) {
-      const lastBalance = Number(lastTxn.balance);
-      // Walk through rows from top to find the balance anchor
-      const anchorIdx = rows.findIndex(
-        (r) => Math.abs(r.balance - lastBalance) < 0.01,
-      );
-      if (anchorIdx !== -1) {
-        startIndex = anchorIdx + 1;
-      } else {
-        // Fallback: skip by srl
-        const firstNewIdx = rows.findIndex((r) => r.srl > lastTxn.srl);
-        startIndex = firstNewIdx === -1 ? rows.length : firstNewIdx;
-      }
-    }
-
-    const newRows = rows.slice(startIndex);
-    const skipped = rows.length - newRows.length;
+    // Dedup is handled at DB level via @@unique([accountNumber, txnDate, srl])
+    // and skipDuplicates:true below — no file-level anchor logic needed.
+    const newRows = rows;
+    let skipped = 0;
 
     // Create import session
     const session = await this.prisma.bankImportSession.create({
@@ -256,12 +233,15 @@ export class BankStatementService {
       importedCount++;
     }
 
-    // Bulk insert — skip duplicates on (accountNumber, srl)
+    // Bulk insert — skip duplicates on (accountNumber, txnDate, srl)
+    let insertedCount = 0;
     if (toCreate.length > 0) {
-      await this.prisma.bankTransaction.createMany({
+      const result = await this.prisma.bankTransaction.createMany({
         data: toCreate,
         skipDuplicates: true,
       });
+      insertedCount = result.count;
+      skipped = toCreate.length - insertedCount;
     }
 
     // Update session status
@@ -269,7 +249,7 @@ export class BankStatementService {
     await this.prisma.bankImportSession.update({
       where: { id: session.id },
       data: {
-        rowsImported: importedCount,
+        rowsImported: insertedCount,
         lastSrlImported: lastRow?.srl ?? null,
         lastBalance: lastRow?.balance ?? null,
         status: 'COMPLETED',
@@ -281,7 +261,7 @@ export class BankStatementService {
       accountNumber,
       totalInFile: rows.length,
       skipped,
-      imported: importedCount,
+      imported: insertedCount,
       summary: {
         matched_payment: toCreate.filter((r) => r.reconcileStatus === 'MATCHED_PAYMENT').length,
         matched_vendor: toCreate.filter((r) => r.reconcileStatus === 'MATCHED_VENDOR').length,
