@@ -359,15 +359,13 @@ export default function AccountsPage() {
     setBankMatchResults([]);
     setBankMatchLoading(true);
     try {
-      const payDate = new Date(payment.paymentDate);
-      const from = new Date(payDate); from.setDate(from.getDate() - 3);
-      const to = new Date(payDate); to.setDate(to.getDate() + 3);
+      const paymentDate = new Date(payment.paymentDate).toISOString().split("T")[0];
       const params = new URLSearchParams({
         crDr: "CR",
-        amountMin: String(Math.floor(payment.amount * 0.95)),
-        amountMax: String(Math.ceil(payment.amount * 1.05)),
-        fromDate: from.toISOString().split("T")[0],
-        toDate: to.toISOString().split("T")[0],
+        amountMin: String(payment.amount),
+        amountMax: String(payment.amount),
+        fromDate: paymentDate,
+        toDate: paymentDate,
         limit: "50",
       });
       const res = await fetch(`${API_BASE_URL}/bank-statement/transactions?${params}`, { headers: getAuthHeaders() });
@@ -1344,7 +1342,7 @@ await loadHistory();
                   <p style={{ fontSize: "11px", color: "#64748b", margin: "3px 0 0" }}>
                     {bankMatchPayment.orderNo} · {bankMatchPayment.customerName} · <strong style={{ color: "#16a34a" }}>{fmt(bankMatchPayment.amount)}</strong> · {new Date(bankMatchPayment.paymentDate).toLocaleDateString("en-IN")}
                   </p>
-                  <p style={{ fontSize: "10px", color: "#94a3b8", margin: "2px 0 0" }}>Showing credit entries within 5% amount and 3 days of payment date</p>
+                  <p style={{ fontSize: "10px", color: "#94a3b8", margin: "2px 0 0" }}>Showing credit entries for the same date and same amount only</p>
                 </div>
                 <button onClick={() => { setBankMatchPayment(null); setBankMatchResults([]); }}
                   style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8", fontSize: "16px" }}>x</button>
