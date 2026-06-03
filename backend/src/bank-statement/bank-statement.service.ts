@@ -45,6 +45,14 @@ function parseDate(raw: unknown): Date | null {
   return null;
 }
 
+function startOfIstDate(date: string): Date {
+  return new Date(`${date}T00:00:00+05:30`);
+}
+
+function endOfIstDate(date: string): Date {
+  return new Date(`${date}T23:59:59.999+05:30`);
+}
+
 function extractAccountNumber(sheet: XLSX.WorkSheet): string {
   for (let r = 0; r < 6; r++) {
     const cell = sheet[XLSX.utils.encode_cell({ r, c: 1 })];
@@ -297,8 +305,8 @@ export class BankStatementService {
     if (filters.crDr) where.crDr = filters.crDr;
     if (filters.fromDate || filters.toDate) {
       where.txnDate = {};
-      if (filters.fromDate) (where.txnDate as any).gte = new Date(filters.fromDate);
-      if (filters.toDate) (where.txnDate as any).lte = new Date(filters.toDate);
+      if (filters.fromDate) (where.txnDate as any).gte = startOfIstDate(filters.fromDate);
+      if (filters.toDate) (where.txnDate as any).lte = endOfIstDate(filters.toDate);
     }
     if (filters.amountMin !== undefined || filters.amountMax !== undefined) {
       where.amount = {};
@@ -375,8 +383,8 @@ export class BankStatementService {
     if (filters.accountNumber) where.accountNumber = filters.accountNumber;
     if (filters.fromDate || filters.toDate) {
       where.txnDate = {};
-      if (filters.fromDate) (where.txnDate as any).gte = new Date(filters.fromDate);
-      if (filters.toDate) (where.txnDate as any).lte = new Date(filters.toDate);
+      if (filters.fromDate) (where.txnDate as any).gte = startOfIstDate(filters.fromDate);
+      if (filters.toDate) (where.txnDate as any).lte = endOfIstDate(filters.toDate);
     }
 
     const [total, byCrDr, byStatus] = await Promise.all([
