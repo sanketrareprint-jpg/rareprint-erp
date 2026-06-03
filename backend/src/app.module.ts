@@ -31,6 +31,7 @@ import { StorefrontModule } from './storefront/storefront.module';
 import { CostTableModule } from './cost-table/cost-table.module';
 import { BankStatementModule } from './bank-statement/bank-statement.module';
 import { CarrierConfigModule } from './carrier-config/carrier-config.module';
+import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { CarrierConfigModule } from './carrier-config/carrier-config.module';
     CostTableModule,
     BankStatementModule,
     CarrierConfigModule,
+    VirtualCeoModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

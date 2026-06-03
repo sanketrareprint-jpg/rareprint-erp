@@ -351,4 +351,42 @@ export class WhatsAppService {
       }
     }
   }
+
+  // Plain text message (for Virtual CEO reports, internal alerts)
+  async sendTextMessage(phone: string, message: string): Promise<boolean> {
+    const normalizedPhone = this.normalizePhone(phone);
+    if (!normalizedPhone) {
+      this.logger.warn(`sendTextMessage: invalid phone ${phone}`);
+      return false;
+    }
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName: 'virtual_ceo_report',
+      destination: normalizedPhone,
+      userName: 'Manager',
+      templateParams: [message],
+      source: 'rareprint-erp',
+      media: {},
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+    try {
+      const res = await fetch(AISENSY_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        this.logger.log(`Virtual CEO report sent to ${normalizedPhone}`);
+        return true;
+      }
+      this.logger.error(`Virtual CEO report failed to ${normalizedPhone}: ${JSON.stringify(data)}`);
+      return false;
+    } catch (err) {
+      this.logger.error(`Virtual CEO report error: ${err}`);
+      return false;
+    }
+  }
 }

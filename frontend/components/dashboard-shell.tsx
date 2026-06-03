@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings,
+  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
@@ -40,6 +40,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Cost Table", href: "/cost-table", icon: Table2 },
     { label: "Bank Statement", href: "/bank-statement", icon: Landmark },
     { label: "Settings", href: "/settings", icon: Settings },
+    { label: "Virtual CEO", href: "/virtual-ceo", icon: Bot },
   ],
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
