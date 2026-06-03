@@ -67,12 +67,25 @@ export class ProductionService {
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, processingFollowUpDate: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
       },
     });
 
-    // Fetch designFiles separately since it's a JSON field not in TypeScript types
-    
+    // Fetch processingFollowUpDate via raw query (new column, safe fallback)
+    const allItemIds = orders.flatMap(o => o.items.map(i => i.id));
+    let followUpMap: Record<string, string | null> = {};
+    if (allItemIds.length > 0) {
+      try {
+        const placeholders = allItemIds.map((_: string, i: number) => `$${i + 1}`).join(',');
+        const rows = await this.prisma.$queryRawUnsafe<{ id: string; processingFollowUpDate: Date | null }[]>(
+          `SELECT id, "processingFollowUpDate" FROM "OrderItem" WHERE id IN (${placeholders})`,
+          ...allItemIds,
+        );
+        followUpMap = Object.fromEntries(rows.map(r => [r.id, r.processingFollowUpDate?.toISOString() ?? null]));
+      } catch {
+        // column may not exist yet — safe to ignore
+      }
+    }
 
     return orders.map((o) => ({
       id: o.id,
@@ -97,7 +110,7 @@ export class ProductionService {
           artworkNotes: i.artworkNotes,
           itemProductionStage: i.itemProductionStage,
           productionCategory: i.productionCategory ?? null,
-          processingFollowUpDate: i.processingFollowUpDate?.toISOString() ?? null,
+          processingFollowUpDate: followUpMap[i.id] ?? null,
           // Resolved product details (prefer notes, fall back to product table)
           size,
           gsm,
