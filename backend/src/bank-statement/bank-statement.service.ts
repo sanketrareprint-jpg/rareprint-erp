@@ -155,48 +155,17 @@ export class BankStatementService {
       select: { keyword: true, categoryId: true },
     });
 
-    // Load recent payments for matching (last 90 days, reference numbers)
-    const recentPayments = await this.prisma.payment.findMany({
-      where: {
-        paymentDate: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
-        referenceNumber: { not: null },
-      },
-      select: { id: true, referenceNumber: true, amount: true },
-    });
-
     let importedCount = 0;
     const toCreate: Prisma.BankTransactionCreateManyInput[] = [];
 
     for (const row of newRows) {
       const desc = row.description.toUpperCase();
 
-      // 1. Try to match payment by UPI ref / NEFT ref in description
-      let matchedPaymentId: string | undefined;
       let reconcileStatus: BankReconcileStatus = 'UNMATCHED';
 
-      if (row.crDr === 'CR') {
-        for (const pmt of recentPayments) {
-          if (pmt.referenceNumber && desc.includes(pmt.referenceNumber.toUpperCase())) {
-            matchedPaymentId = pmt.id;
-            reconcileStatus = 'MATCHED_PAYMENT';
-            break;
-          }
-        }
-        // Also match by amount+approximate date if ref not found
-        if (!matchedPaymentId) {
-          const amtMatch = recentPayments.find(
-            (p) => Math.abs(Number(p.amount) - row.amount) < 0.01,
-          );
-          if (amtMatch) {
-            matchedPaymentId = amtMatch.id;
-            reconcileStatus = 'MATCHED_PAYMENT';
-          }
-        }
-      }
-
-      // 2. Try vendor keyword match (DR transactions)
+      // 1. Try vendor keyword match (DR transactions)
       let matchedVendorId: string | undefined;
-      if (row.crDr === 'DR' && !matchedPaymentId) {
+      if (row.crDr === 'DR') {
         for (const vk of vendorKeywords) {
           if (desc.includes(vk.keyword.toUpperCase())) {
             matchedVendorId = vk.vendorId;
@@ -206,7 +175,7 @@ export class BankStatementService {
         }
       }
 
-      // 3. Try expense category match
+      // 2. Try expense category match
       let expenseCategoryId: string | undefined;
       if (row.crDr === 'DR' && !matchedVendorId) {
         for (const ek of expenseKeywords) {
@@ -236,7 +205,7 @@ export class BankStatementService {
         amount: row.amount,
         balance: row.balance,
         reconcileStatus,
-        matchedPaymentId: matchedPaymentId ?? null,
+        matchedPaymentId: null,
         matchedVendorId: matchedVendorId ?? null,
         expenseCategoryId: expenseCategoryId ?? null,
       });
@@ -474,30 +443,14 @@ export class BankStatementService {
     const txns = await this.prisma.bankTransaction.findMany({ where });
     const vendorKeywords = await this.prisma.vendorKeyword.findMany();
     const expenseKeywords = await this.prisma.expenseKeyword.findMany();
-    const recentPayments = await this.prisma.payment.findMany({
-      where: { referenceNumber: { not: null } },
-      select: { id: true, referenceNumber: true, amount: true },
-    });
-
     let updated = 0;
     for (const txn of txns) {
       const desc = txn.description.toUpperCase();
       let reconcileStatus: BankReconcileStatus = 'MANUAL_REVIEW';
-      let matchedPaymentId: string | null = null;
       let matchedVendorId: string | null = null;
       let expenseCategoryId: string | null = null;
 
-      if (txn.crDr === 'CR') {
-        for (const pmt of recentPayments) {
-          if (pmt.referenceNumber && desc.includes(pmt.referenceNumber.toUpperCase())) {
-            matchedPaymentId = pmt.id;
-            reconcileStatus = 'MATCHED_PAYMENT';
-            break;
-          }
-        }
-      }
-
-      if (!matchedPaymentId && txn.crDr === 'DR') {
+      if (txn.crDr === 'DR') {
         for (const vk of vendorKeywords) {
           if (desc.includes(vk.keyword.toUpperCase())) {
             matchedVendorId = vk.vendorId;
@@ -519,7 +472,7 @@ export class BankStatementService {
       if (reconcileStatus !== 'MANUAL_REVIEW' || txn.reconcileStatus !== reconcileStatus) {
         await this.prisma.bankTransaction.update({
           where: { id: txn.id },
-          data: { reconcileStatus, matchedPaymentId, matchedVendorId, expenseCategoryId },
+          data: { reconcileStatus, matchedPaymentId: null, matchedVendorId, expenseCategoryId },
         });
         updated++;
       }
