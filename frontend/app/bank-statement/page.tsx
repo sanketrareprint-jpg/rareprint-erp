@@ -203,9 +203,11 @@ export default function BankStatementPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      // Don't pass Content-Type here — browser must set it to multipart/form-data with boundary
+      const { "Content-Type": _ct, ...uploadHeaders } = getAuthHeaders();
       const res = await fetch(`${API_BASE_URL}/bank-statement/import`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: uploadHeaders,
         body: formData,
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Import failed"); }
