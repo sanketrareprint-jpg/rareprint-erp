@@ -59,6 +59,32 @@ function fmtAge(hours: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+
+// Returns true if date is today in IST, or if no date is set (always show)
+function isTodayIST(date: Date | null): boolean {
+  if (!date) return true; // no follow-up date set => always show
+  const IST_OFFSET = 330 * 60 * 1000;
+  const now = new Date(Date.now() + IST_OFFSET);
+  const d   = new Date(date.getTime() + IST_OFFSET);
+  return now.getUTCFullYear() === d.getUTCFullYear() &&
+         now.getUTCMonth()    === d.getUTCMonth() &&
+         now.getUTCDate()     === d.getUTCDate();
+}
+
+// Returns true if today >= follow-up date in IST (show on and after the date)
+function isDueOrOverdueIST(date: Date | null): boolean {
+  if (!date) return true;
+  const IST_OFFSET = 330 * 60 * 1000;
+  const nowIST = Date.now() + IST_OFFSET;
+  const dueIST = date.getTime() + IST_OFFSET;
+  // Compare date parts only
+  const nowD = new Date(nowIST);
+  const dueD = new Date(dueIST);
+  const nowDay = Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate());
+  const dueDay = Date.UTC(dueD.getUTCFullYear(), dueD.getUTCMonth(), dueD.getUTCDate());
+  return nowDay >= dueDay;
+}
+
 @Injectable()
 export class VirtualCeoService {
   private readonly logger = new Logger(VirtualCeoService.name);
@@ -302,6 +328,7 @@ export class VirtualCeoService {
     for (const o of delayedPrinting) {
       const days = ageDays(o.updatedAt);
       if (days < 2) continue;
+      // (No per-item follow-up date at order level — items checked separately below)
       items.push({
         id: `prod-delayed-printing-${o.id}`,
         department: 'PRODUCTION',
@@ -315,27 +342,32 @@ export class VirtualCeoService {
       });
     }
 
-    // 4. Orders in PROCESSING stage > 2 days
-    const delayedProcessing = await this.prisma.order.findMany({
+    // 4. Inhouse items in PROCESSING stage — respect processingFollowUpDate
+    const inhouseProcessingItems = await this.prisma.orderItem.findMany({
       where: {
-        status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] },
-        productionStage: OrderProductionStage.PROCESSING,
+        productionCategory: ProductionCategory.INHOUSE,
+        itemProductionStage: OrderProductionStage.PROCESSING,
+        order: { status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] } },
       },
-      include: { customer: { select: { businessName: true } } },
+      include: {
+        order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+      },
       orderBy: { updatedAt: 'asc' },
     });
 
-    for (const o of delayedProcessing) {
-      const days = ageDays(o.updatedAt);
-      if (days < 2) continue;
+    for (const item of inhouseProcessingItems) {
+      const followUpDate = (item as any).processingFollowUpDate as Date | null ?? null;
+      if (!isDueOrOverdueIST(followUpDate)) continue; // not today yet
+      const days = ageDays(item.updatedAt);
+      const dueDateStr = followUpDate ? ` · Follow-up: ${followUpDate.toLocaleDateString('en-IN')}` : ' · No follow-up date set';
       items.push({
-        id: `prod-delayed-proc-${o.id}`,
+        id: `prod-inhouse-proc-${item.id}`,
         department: 'PRODUCTION',
         priority: days > 3 ? 'HIGH' : 'MEDIUM',
-        category: 'Delayed Processing',
-        title: `Processing delayed — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — in processing for ${Math.round(days)} days`,
-        orderNo: o.orderNumber,
+        category: 'Inhouse Processing',
+        title: `Processing follow-up — ${item.order.orderNumber}`,
+        detail: `${item.order.customer.businessName} — in processing for ${Math.round(days)} days${dueDateStr}`,
+        orderNo: item.order.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/production',
       });
@@ -392,15 +424,19 @@ export class VirtualCeoService {
     });
 
     for (const jw of clubbingFollowUp) {
+      // Only show on the scheduled dueDate (or if no date set, always show after 1 day)
+      const dueDate = (jw as any).dueDate as Date | null ?? null;
+      if (!isDueOrOverdueIST(dueDate)) continue;
       const days = ageDays(jw.createdAt);
-      if (days < 1) continue;
+      if (!dueDate && days < 1) continue; // fallback: skip if < 1 day with no due date
+      const dueDateStr = dueDate ? ` · Follow-up: ${dueDate.toLocaleDateString('en-IN')}` : '';
       items.push({
         id: `prod-club-followup-${jw.id}`,
         department: 'PRODUCTION',
-        priority: days > 3 ? 'HIGH' : 'LOW',
+        priority: days > 3 ? 'HIGH' : 'MEDIUM',
         category: 'Clubbing — Vendor Follow-up',
         title: `Follow up: ${jw.vendor.name} — ${jw.orderItem.order.orderNumber}`,
-        detail: `${jw.orderItem.product.name} sent to ${jw.vendor.name} — ${Math.round(days)} days, status: ${jw.status}`,
+        detail: `${jw.orderItem.product.name} sent to ${jw.vendor.name} — ${Math.round(days)} days, status: ${jw.status}${dueDateStr}`,
         orderNo: jw.orderItem.order.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/production',
@@ -453,15 +489,18 @@ export class VirtualCeoService {
     });
 
     for (const s of sheetsInProcessing) {
+      // Respect processingFollowUpDate — only alert on/after the scheduled date
+      const followUpDate = (s as any).processingFollowUpDate as Date | null ?? null;
+      if (!isDueOrOverdueIST(followUpDate)) continue;
       const days = ageDays(s.updatedAt);
-      if (days < 2) continue;
+      const dueDateStr = followUpDate ? ` · Follow-up: ${followUpDate.toLocaleDateString('en-IN')}` : ' · No date set';
       items.push({
         id: `prod-sheet-proc-${s.id}`,
         department: 'PRODUCTION',
         priority: days > 4 ? 'HIGH' : 'MEDIUM',
         category: 'Sheet Processing Follow-up',
-        title: `Sheet ${s.sheetNo} in processing ${Math.round(days)} days`,
-        detail: `${s.gsm} GSM, ${s.sizeInches}" — follow up on processing stage`,
+        title: `Sheet ${s.sheetNo} — processing follow-up`,
+        detail: `${s.gsm} GSM, ${s.sizeInches}" — ${Math.round(days)} days in processing${dueDateStr}`,
         ageDays: Math.round(days),
         actionUrl: '/sheet-layout',
       });

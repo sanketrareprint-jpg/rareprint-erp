@@ -33,6 +33,7 @@ type OrderItem = {
   unitPrice: number; lineTotal: number; productionNotes?: string;
   artworkNotes?: string; itemProductionStage: ProductionStage;
   productionCategory: ProductionCategory | null;
+  processingFollowUpDate?: string | null;
   // Resolved by backend: prefers productionNotes, falls back to product table
   size?: string | null;
   gsm?: string | null;
@@ -46,12 +47,12 @@ type ProductionOrder = {
   orderDate: string; notes?: string; items: OrderItem[];
 };
 type Vendor = { id: string; name: string; phone?: string; };
-type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
+type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; dueDate?: string | null; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; size?: string | null; gsm?: string | null; sides?: string | null; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
 type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
-type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
+type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; processingFollowUpDate?: string | null; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
 
 function parseNotes(notes?: string) {
@@ -917,6 +918,27 @@ export default function ProductionPage() {
                           <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                         )}
                       </div>
+                      {item.itemProductionStage === "PROCESSING" && (
+                        <div className="mt-2 flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-200 px-3 py-2">
+                          <Clock className="h-3.5 w-3.5 text-yellow-600 shrink-0" />
+                          <label className="text-xs font-bold text-yellow-700 shrink-0">Follow-up date:</label>
+                          <input type="date" defaultValue={item.processingFollowUpDate ? item.processingFollowUpDate.slice(0,10) : ""}
+                            className="flex-1 rounded border border-yellow-300 bg-white px-2 py-1 text-xs outline-none"
+                            onChange={async (e) => {
+                              await fetch(`${API_BASE_URL}/production/items/${item.id}/followup-date`, {
+                                method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                                body: JSON.stringify({ date: e.target.value || null }),
+                              });
+                              await loadAll(true);
+                            }}
+                          />
+                          {item.processingFollowUpDate && (
+                            <span className="text-xs font-semibold text-yellow-700">
+                              {new Date(item.processingFollowUpDate).toLocaleDateString("en-IN")}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {sheetAssignments.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1">
                           {sheetAssignments.map((a, i) => <span key={i} className="rounded-full bg-cyan-50 border border-cyan-200 px-2 py-1 text-xs font-bold text-cyan-700">{a.no} · {a.qty}</span>)}
@@ -1131,6 +1153,22 @@ export default function ProductionPage() {
                                 <div className="flex justify-between gap-2"><span className="text-slate-500">Vendor</span><strong className="text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "—"}</strong></div>
                                 {clubSubTab === "in_progress" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Cost</span><strong>{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</strong></div>}
                                 {clubSubTab === "received" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Invoice</span><strong>{completedJw?.vendorInvoiceNo ?? "—"}</strong></div>}
+                                {clubSubTab === "in_progress" && activeJw && (
+                                  <div className="mt-2 flex items-center gap-1.5 border-t border-orange-200 pt-2">
+                                    <Clock className="h-3 w-3 text-yellow-600 shrink-0" />
+                                    <span className="text-slate-500 shrink-0">Follow-up:</span>
+                                    <input type="date" defaultValue={activeJw.dueDate ? activeJw.dueDate.slice(0,10) : ""}
+                                      className="flex-1 rounded border border-orange-200 bg-white px-1.5 py-0.5 text-xs outline-none"
+                                      onChange={async (e) => {
+                                        await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${activeJw.id}`, {
+                                          method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                                          body: JSON.stringify({ dueDate: e.target.value || null }),
+                                        });
+                                        await loadAll(true);
+                                      }}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             )}
                             <div className="mt-2 flex gap-2">
@@ -1739,6 +1777,20 @@ export default function ProductionPage() {
                                     className="mt-2 w-full rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white">
                                     Mark Ready
                                   </button>
+                                  <div className="mt-2 flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-200 px-2 py-1.5">
+                                    <Clock className="h-3 w-3 text-yellow-600 shrink-0" />
+                                    <span className="text-xs font-bold text-yellow-700 shrink-0">Follow-up:</span>
+                                    <input type="date" defaultValue={si.sheet.processingFollowUpDate ? si.sheet.processingFollowUpDate.slice(0,10) : ""}
+                                      className="flex-1 rounded border border-yellow-300 bg-white px-1.5 py-0.5 text-xs outline-none"
+                                      onChange={async (e) => {
+                                        await fetch(`${API_BASE_URL}/production/sheets/${si.sheet.id}/followup-date`, {
+                                          method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                                          body: JSON.stringify({ date: e.target.value || null }),
+                                        });
+                                        await loadAll(true);
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             ))}

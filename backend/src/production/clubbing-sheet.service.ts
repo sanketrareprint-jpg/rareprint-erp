@@ -315,14 +315,15 @@ export class ClubbingSheetService {
     return this.prisma.jobWork.findMany({ where: { orderItemId }, include: { vendor: true }, orderBy: { createdAt: 'asc' } });
   }
 
-  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }) {
+  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string; dueDate?: string | null }) {
     const item = await this.prisma.orderItem.findUnique({ where: { id: data.orderItemId } });
     if (!item) throw new NotFoundException('Order item not found');
-    return this.prisma.jobWork.create({ data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo }, include: { vendor: true } });
+    return this.prisma.jobWork.create({ data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null }, include: { vendor: true } });
   }
 
-  async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string }) {
-    return this.prisma.jobWork.update({ where: { id: jobWorkId }, data: { ...data, completedAt: data.status === JobWorkStatus.COMPLETED ? new Date() : undefined }, include: { vendor: true } });
+  async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null }) {
+    const { dueDate, ...rest } = data;
+    return this.prisma.jobWork.update({ where: { id: jobWorkId }, data: { ...rest, completedAt: data.status === JobWorkStatus.COMPLETED ? new Date() : undefined, dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : undefined }, include: { vendor: true } });
   }
 
   async deleteJobWork(jobWorkId: string) {
@@ -383,6 +384,7 @@ export class ClubbingSheetService {
         status: true,
         usedAreaSqInches: true,
         createdBySource: true,
+        processingFollowUpDate: true,
         createdAt: true,
         items: {
           orderBy: { createdAt: 'asc' },
@@ -765,5 +767,15 @@ export class ClubbingSheetService {
   async deleteSheetStageVendor(id: string) {
     await this.prisma.sheetStageVendor.delete({ where: { id } });
     return { success: true };
+  }
+
+  async setSheetFollowUpDate(sheetId: string, date: string | null) {
+    const sheet = await this.prisma.printSheet.findUnique({ where: { id: sheetId } });
+    if (!sheet) throw new NotFoundException('Sheet not found');
+    await this.prisma.printSheet.update({
+      where: { id: sheetId },
+      data: { processingFollowUpDate: date ? new Date(date) : null },
+    });
+    return { success: true, sheetId, processingFollowUpDate: date };
   }
 }

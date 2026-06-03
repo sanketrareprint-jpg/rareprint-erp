@@ -67,7 +67,7 @@ export class ProductionService {
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, processingFollowUpDate: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
       },
     });
 
@@ -97,6 +97,7 @@ export class ProductionService {
           artworkNotes: i.artworkNotes,
           itemProductionStage: i.itemProductionStage,
           productionCategory: i.productionCategory ?? null,
+          processingFollowUpDate: i.processingFollowUpDate?.toISOString() ?? null,
           // Resolved product details (prefer notes, fall back to product table)
           size,
           gsm,
@@ -287,5 +288,15 @@ export class ProductionService {
     }
 
     return { success: true, itemId, stage };
+  }
+
+  async setProcessingFollowUpDate(itemId: string, date: string | null) {
+    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Order item not found');
+    await this.prisma.orderItem.update({
+      where: { id: itemId },
+      data: { processingFollowUpDate: date ? new Date(date) : null },
+    });
+    return { success: true, itemId, processingFollowUpDate: date };
   }
 }
