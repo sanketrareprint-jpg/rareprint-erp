@@ -1315,7 +1315,7 @@ model BankTransaction {
   expenseCategory   ExpenseCategory?     @relation(fields: [expenseCategoryId], references: [id])
   reconciledBy      User?                @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
 
-  @@unique([accountNumber, txnDate, srl])
+  @@unique([accountNumber, balance])
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])
