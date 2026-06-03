@@ -60,14 +60,14 @@ export class ProductionController {
   getJobWorks(@Param('itemId') itemId: string) { return this.clubbingSheetService.getJobWorks(itemId); }
 
   @Post('clubbing/jobworks')
-  addJobWork(@Body() body: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string; dueDate?: string | null }) {
+  addJobWork(@Body() body: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }) {
     return this.clubbingSheetService.addJobWork(body);
   }
 
   @Patch('clubbing/jobworks/:id')
   updateJobWork(
     @Param('id') id: string,
-    @Body() body: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null },
+    @Body() body: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string },
   ) { return this.clubbingSheetService.updateJobWork(id, body); }
 
   @Delete('clubbing/jobworks/:id')
@@ -137,17 +137,4 @@ export class ProductionController {
     @Param('id') sheetId: string,
     @Body() body: { stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string },
   ) { return this.clubbingSheetService.addSheetStageVendor({ sheetId, ...body }); }
-
-  // ── Follow-up dates ──────────────────────────────────────────────────────
-  @Patch('items/:itemId/followup-date')
-  setItemFollowUpDate(
-    @Param('itemId') itemId: string,
-    @Body('date') date: string | null,
-  ) { return this.productionService.setProcessingFollowUpDate(itemId, date); }
-
-  @Patch('sheets/:id/followup-date')
-  setSheetFollowUpDate(
-    @Param('id') id: string,
-    @Body('date') date: string | null,
-  ) { return this.clubbingSheetService.setSheetFollowUpDate(id, date); }
 }

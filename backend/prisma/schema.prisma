@@ -197,13 +197,12 @@ model PrintSheet {
   areaSqInches  Float           // computed: width * height
   printing      ProductSides
   status        SheetStatus     @default(INCOMPLETE)
-  usedAreaSqInches       Float        @default(0)
-  createdBySource        String       @default("MANUAL")
-  processingFollowUpDate DateTime?    // Sheet processing: follow-up alert date
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
-  items                  PrintSheetItem[]
-  stageVendors           SheetStageVendor[]
+  usedAreaSqInches Float        @default(0)
+  createdBySource String        @default("MANUAL")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  items         PrintSheetItem[]
+  stageVendors  SheetStageVendor[]
 
   @@index([status, updatedAt])
   @@index([gsm, status])
@@ -329,10 +328,9 @@ model OrderItem {
   artworkNotes        String?
   productionNotes     String?
   designFiles         Json                 @default("[]")
-  productionCategory      ProductionCategory?  // INHOUSE | CLUBBING | SHEET_PRODUCTION
-  itemProductionStage     OrderProductionStage @default(NOT_PRINTED)
-  processingFollowUpDate  DateTime?            // Inhouse: follow-up alert date for processing stage
-  createdAt               DateTime             @default(now())
+  productionCategory  ProductionCategory?  // INHOUSE | CLUBBING | SHEET_PRODUCTION
+  itemProductionStage OrderProductionStage @default(NOT_PRINTED)
+  createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product             Product              @relation(fields: [productId], references: [id])

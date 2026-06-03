@@ -71,21 +71,8 @@ export class ProductionService {
       },
     });
 
-    // Fetch processingFollowUpDate via raw query (new column, safe fallback)
-    const allItemIds = orders.flatMap(o => o.items.map(i => i.id));
-    let followUpMap: Record<string, string | null> = {};
-    if (allItemIds.length > 0) {
-      try {
-        const placeholders = allItemIds.map((_: string, i: number) => `$${i + 1}`).join(',');
-        const rows = await this.prisma.$queryRawUnsafe<{ id: string; processingFollowUpDate: Date | null }[]>(
-          `SELECT id, "processingFollowUpDate" FROM "OrderItem" WHERE id IN (${placeholders})`,
-          ...allItemIds,
-        );
-        followUpMap = Object.fromEntries(rows.map(r => [r.id, r.processingFollowUpDate?.toISOString() ?? null]));
-      } catch {
-        // column may not exist yet — safe to ignore
-      }
-    }
+    // Fetch designFiles separately since it's a JSON field not in TypeScript types
+    
 
     return orders.map((o) => ({
       id: o.id,
@@ -110,7 +97,6 @@ export class ProductionService {
           artworkNotes: i.artworkNotes,
           itemProductionStage: i.itemProductionStage,
           productionCategory: i.productionCategory ?? null,
-          processingFollowUpDate: followUpMap[i.id] ?? null,
           // Resolved product details (prefer notes, fall back to product table)
           size,
           gsm,
@@ -301,15 +287,5 @@ export class ProductionService {
     }
 
     return { success: true, itemId, stage };
-  }
-
-  async setProcessingFollowUpDate(itemId: string, date: string | null) {
-    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId } });
-    if (!item) throw new NotFoundException('Order item not found');
-    await this.prisma.orderItem.update({
-      where: { id: itemId },
-      data: { processingFollowUpDate: date ? new Date(date) : null },
-    });
-    return { success: true, itemId, processingFollowUpDate: date };
   }
 }
