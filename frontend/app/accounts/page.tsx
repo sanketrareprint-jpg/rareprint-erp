@@ -100,6 +100,7 @@ type ReceiptHistory = {
 
 type BankTxn = {
   id: string;
+  accountNumber: string;
   txnDate: string;
   description: string;
   amount: number | string;
@@ -199,6 +200,7 @@ const orderStatusClass: Record<string, string> = {
 };
 
 const paymentMethods = ["CASH", "BANK_TRANSFER", "UPI", "CHEQUE", "CARD"];
+const GST_BANK_ACCOUNT = "0513102000013378";
 
 export default function AccountsPage() {
   const router = useRouter();
@@ -368,10 +370,18 @@ export default function AccountsPage() {
         toDate: paymentDate,
         limit: "50",
       });
+      if (payment.paymentAccountName.toUpperCase().includes("GST")) {
+        params.set("accountNumber", GST_BANK_ACCOUNT);
+      }
       const res = await fetch(`${API_BASE_URL}/bank-statement/transactions?${params}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setBankMatchResults(data.data ?? []);
+        const rows: BankTxn[] = data.data ?? [];
+        setBankMatchResults(
+          payment.paymentAccountName.toUpperCase().includes("CC")
+            ? rows.filter((txn) => txn.accountNumber !== GST_BANK_ACCOUNT)
+            : rows,
+        );
       }
     } finally { setBankMatchLoading(false); }
   }

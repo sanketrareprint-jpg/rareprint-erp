@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BankReconcileStatus, BankTxnType, Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 
+const GST_BANK_ACCOUNT = '0513102000013378';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawBankRow {
@@ -252,6 +254,33 @@ export class BankStatementService {
   }
 
   // ── 3. List Transactions ───────────────────────────────────────────────────
+
+  async listAccounts() {
+    const [txnAccounts, sessionAccounts] = await Promise.all([
+      this.prisma.bankTransaction.groupBy({
+        by: ['accountNumber'],
+        _count: { _all: true },
+        orderBy: { accountNumber: 'asc' },
+      }),
+      this.prisma.bankImportSession.groupBy({
+        by: ['accountNumber'],
+        _count: { _all: true },
+        orderBy: { accountNumber: 'asc' },
+      }),
+    ]);
+
+    const counts = new Map<string, number>();
+    for (const row of [...txnAccounts, ...sessionAccounts]) {
+      counts.set(row.accountNumber, (counts.get(row.accountNumber) ?? 0) + row._count._all);
+    }
+
+    return Array.from(counts.entries()).map(([accountNumber, count]) => ({
+      accountNumber,
+      label: accountNumber === GST_BANK_ACCOUNT ? 'GST Bank' : `CC Bank ${accountNumber.slice(-4)}`,
+      count,
+      isDefault: accountNumber === GST_BANK_ACCOUNT,
+    }));
+  }
 
   async listTransactions(filters: {
     accountNumber?: string;

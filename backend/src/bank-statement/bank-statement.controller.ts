@@ -30,6 +30,12 @@ export class BankStatementController {
 
   // ── Transactions ───────────────────────────────────────────────────────────
 
+  /** GET /bank-statement/accounts */
+  @Get('accounts')
+  listAccounts() {
+    return this.svc.listAccounts();
+  }
+
   /** GET /bank-statement/transactions?accountNumber=&reconcileStatus=&crDr=&fromDate=&toDate=&page=&limit= */
   @Get('transactions')
   listTransactions(

@@ -57,6 +57,13 @@ interface Summary {
   lastBalance: { balance: string; txnDate: string; txnDateTime?: string | null } | null;
 }
 
+interface BankAccountOption {
+  accountNumber: string;
+  label: string;
+  count: number;
+  isDefault?: boolean;
+}
+
 interface Vendor { id: string; name: string; }
 interface VendorKeyword { id: string; keyword: string; vendor: { id: string; name: string }; }
 interface ExpenseCategory { id: string; name: string; description?: string; keywords: { id: string; keyword: string }[]; }
@@ -73,6 +80,8 @@ const STATUS_META: Record<BankReconcileStatus, { label: string; color: string; i
 };
 
 type Tab = "ledger" | "review" | "vendor-mapping" | "expense-mapping" | "sessions";
+
+const GST_BANK_ACCOUNT = "0513102000013378";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -99,6 +108,10 @@ export default function BankStatementPage() {
   const [activeTab, setActiveTab] = useState<Tab>("ledger");
 
   // ── Ledger state ──
+  const [bankAccounts, setBankAccounts] = useState<BankAccountOption[]>([
+    { accountNumber: GST_BANK_ACCOUNT, label: "GST Bank", count: 0, isDefault: true },
+  ]);
+  const [selectedAccount, setSelectedAccount] = useState(GST_BANK_ACCOUNT);
   const [txns, setTxns] = useState<BankTransaction[]>([]);
   const [txnTotal, setTxnTotal] = useState(0);
   const [txnPage, setTxnPage] = useState(1);
@@ -153,19 +166,30 @@ export default function BankStatementPage() {
 
   // ─── Load data ────────────────────────────────────────────────────────────
 
+  const loadBankAccounts = useCallback(async () => {
+    const data = await apiFetch("/bank-statement/accounts").catch(() => []);
+    const accounts: BankAccountOption[] = data?.length ? data : [];
+    if (!accounts.some((a) => a.accountNumber === GST_BANK_ACCOUNT)) {
+      accounts.unshift({ accountNumber: GST_BANK_ACCOUNT, label: "GST Bank", count: 0, isDefault: true });
+    }
+    setBankAccounts(accounts);
+  }, [apiFetch]);
+
   const loadSummary = useCallback(async () => {
     const params = new URLSearchParams();
+    if (selectedAccount) params.set("accountNumber", selectedAccount);
     if (filterFromDate) params.set("fromDate", filterFromDate);
     if (filterToDate) params.set("toDate", filterToDate);
     const qs = params.toString();
     const data = await apiFetch(`/bank-statement/summary${qs ? `?${qs}` : ""}`).catch(() => null);
     if (data) setSummary(data);
-  }, [apiFetch, filterFromDate, filterToDate]);
+  }, [apiFetch, selectedAccount, filterFromDate, filterToDate]);
 
   const loadTxns = useCallback(async (page = 1) => {
     setLoadingTxns(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
+      if (selectedAccount) params.set("accountNumber", selectedAccount);
       if (filterStatus) params.set("reconcileStatus", filterStatus);
       if (filterCrDr) params.set("crDr", filterCrDr);
       if (filterFromDate) params.set("fromDate", filterFromDate);
@@ -173,7 +197,7 @@ export default function BankStatementPage() {
       const data = await apiFetch(`/bank-statement/transactions?${params}`);
       if (data) { setTxns(data.data); setTxnTotal(data.total); setTxnPage(page); }
     } finally { setLoadingTxns(false); }
-  }, [apiFetch, filterStatus, filterCrDr, filterFromDate, filterToDate]);
+  }, [apiFetch, selectedAccount, filterStatus, filterCrDr, filterFromDate, filterToDate]);
 
   const loadVendorKeywords = useCallback(async () => {
     const [vks, vs] = await Promise.all([
@@ -190,12 +214,16 @@ export default function BankStatementPage() {
   }, [apiFetch]);
 
   const loadSessions = useCallback(async () => {
-    const data = await apiFetch("/bank-statement/sessions").catch(() => []);
+    const params = new URLSearchParams();
+    if (selectedAccount) params.set("accountNumber", selectedAccount);
+    const qs = params.toString();
+    const data = await apiFetch(`/bank-statement/sessions${qs ? `?${qs}` : ""}`).catch(() => []);
     if (data) setSessions(data);
-  }, [apiFetch]);
+  }, [apiFetch, selectedAccount]);
 
+  useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  useEffect(() => { if (activeTab === "ledger" || activeTab === "review") loadTxns(1); }, [activeTab, filterStatus, filterCrDr, loadTxns]);
+  useEffect(() => { if (activeTab === "ledger" || activeTab === "review") loadTxns(1); }, [activeTab, selectedAccount, filterStatus, filterCrDr, loadTxns]);
   useEffect(() => { if (activeTab === "vendor-mapping") loadVendorKeywords(); }, [activeTab, loadVendorKeywords]);
   useEffect(() => { if (activeTab === "expense-mapping") loadExpenseCategories(); }, [activeTab, loadExpenseCategories]);
   useEffect(() => { if (activeTab === "sessions") loadSessions(); }, [activeTab, loadSessions]);
@@ -221,6 +249,8 @@ export default function BankStatementPage() {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Import failed"); }
       const result = await res.json();
       setImportResult(result);
+      if (result.accountNumber) setSelectedAccount(result.accountNumber);
+      loadBankAccounts();
       loadSummary();
       loadTxns(1);
     } catch (err: any) {
@@ -271,7 +301,10 @@ export default function BankStatementPage() {
   const handleRematch = async () => {
     setRematching(true);
     try {
-      const r = await apiFetch("/bank-statement/rematch", { method: "POST" });
+      const params = new URLSearchParams();
+      if (selectedAccount) params.set("accountNumber", selectedAccount);
+      const qs = params.toString();
+      const r = await apiFetch(`/bank-statement/rematch${qs ? `?${qs}` : ""}`, { method: "POST" });
       if (r) { alert(`Re-matched: ${r.updated} of ${r.processed} transactions updated.`); loadTxns(txnPage); loadSummary(); }
     } finally { setRematching(false); }
   };
@@ -341,6 +374,8 @@ export default function BankStatementPage() {
     : txns;
 
   const reviewTxns = txns.filter((t) => t.reconcileStatus === "MANUAL_REVIEW" || t.reconcileStatus === "UNMATCHED");
+  const selectedBank = bankAccounts.find((account) => account.accountNumber === selectedAccount)
+    ?? { accountNumber: selectedAccount, label: selectedAccount === GST_BANK_ACCOUNT ? "GST Bank" : `CC Bank ${selectedAccount.slice(-4)}` };
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -354,10 +389,21 @@ export default function BankStatementPage() {
             <Landmark className="w-7 h-7 text-blue-600" />
             <div>
               <h1 className="text-xl font-bold text-gray-900">Bank Statement</h1>
-              <p className="text-xs text-gray-500">IDBI · A/c 0513102000013378 · RAREPRINT IN</p>
+              <p className="text-xs text-gray-500">IDBI · {selectedBank.label} · A/c {selectedBank.accountNumber}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={selectedAccount}
+              onChange={(e) => { setSelectedAccount(e.target.value); setTxnPage(1); }}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none focus:border-blue-400"
+            >
+              {bankAccounts.map((account) => (
+                <option key={account.accountNumber} value={account.accountNumber}>
+                  {account.label} · {account.accountNumber}
+                </option>
+              ))}
+            </select>
             <button
               onClick={handleRematch}
               disabled={rematching}
