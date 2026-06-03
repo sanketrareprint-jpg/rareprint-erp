@@ -98,6 +98,17 @@ type ReceiptHistory = {
   verifiedAt?: string;
 };
 
+type BankTxn = {
+  id: string;
+  txnDate: string;
+  description: string;
+  amount: number | string;
+  balance: number | string;
+  crDr: string;
+  reconcileStatus: string;
+  chequeNo?: string;
+};
+
 type VendorEntry = {
   id: string;
   type: "JOBWORK" | "SHEET_STAGE";
@@ -125,8 +136,8 @@ type VendorEntry = {
   products?: { productName: string; orderNo: string; customerName: string; quantity: number }[];
 };
 
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
+function fmt(n: number | string) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(n));
 }
 function moneyColor(n: number) {
   if (n < 0) return "text-blue-700";
@@ -212,9 +223,12 @@ export default function AccountsPage() {
   const [receiptHistory, setReceiptHistory] = useState<ReceiptHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
-const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
+  const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
   const [utrDraft, setUtrDraft] = useState<Record<string, string>>({});
-const [verifyUtrValue, setVerifyUtrValue] = useState("");
+  const [verifyUtrValue, setVerifyUtrValue] = useState("");
+  const [bankMatchPayment, setBankMatchPayment] = useState<PendingPayment | null>(null);
+  const [bankMatchResults, setBankMatchResults] = useState<BankTxn[]>([]);
+  const [bankMatchLoading, setBankMatchLoading] = useState(false);
   const [rejectPaymentId, setRejectPaymentId] = useState<string | null>(null);
   const [rejectPaymentReason, setRejectPaymentReason] = useState("");
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
@@ -338,6 +352,55 @@ const [verifyUtrValue, setVerifyUtrValue] = useState("");
       await fetch(`${API_BASE_URL}/accounts/${id}/approve-dispatch`, { method: "PATCH", headers: getAuthHeaders() });
       await loadDispatch();
     } finally { setDispatchProcessing(null); }
+  }
+
+  async function openBankMatch(payment: PendingPayment) {
+    setBankMatchPayment(payment);
+    setBankMatchResults([]);
+    setBankMatchLoading(true);
+    try {
+      const payDate = new Date(payment.paymentDate);
+      const from = new Date(payDate); from.setDate(from.getDate() - 3);
+      const to = new Date(payDate); to.setDate(to.getDate() + 3);
+      const params = new URLSearchParams({
+        crDr: "CR",
+        amountMin: String(Math.floor(payment.amount * 0.95)),
+        amountMax: String(Math.ceil(payment.amount * 1.05)),
+        fromDate: from.toISOString().split("T")[0],
+        toDate: to.toISOString().split("T")[0],
+        limit: "50",
+      });
+      const res = await fetch(`${API_BASE_URL}/bank-statement/transactions?${params}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setBankMatchResults(data.data ?? []);
+      }
+    } finally { setBankMatchLoading(false); }
+  }
+
+  async function matchAndVerify(txn: BankTxn) {
+    if (!bankMatchPayment) return;
+    setVerifyingId(bankMatchPayment.id);
+    try {
+      const referenceNumber = txn.chequeNo || txn.description.slice(0, 50);
+      await fetch(`${API_BASE_URL}/accounts/payments/${bankMatchPayment.id}/verify`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ referenceNumber }),
+      });
+      await fetch(`${API_BASE_URL}/bank-statement/transactions/${txn.id}/reconcile`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reconcileStatus: "MATCHED_PAYMENT",
+          matchedPaymentId: bankMatchPayment.id,
+          reviewNote: `Matched from receipt checking for ${bankMatchPayment.orderNo}`,
+        }),
+      });
+      setBankMatchPayment(null);
+      setBankMatchResults([]);
+      await loadReceipts();
+    } finally { setVerifyingId(null); }
   }
 
   async function verifyPayment(id: string, utr?: string) {
@@ -949,10 +1012,10 @@ await loadHistory();
                                 <Pencil className="h-3 w-3" />
                                 Edit
                               </button>
-                              <button onClick={() => verifyPayment(p.id, utrDraft[p.id] ?? p.referenceNumber ?? "")} disabled={verifyingId === p.id}
+                              <button onClick={() => openBankMatch(p)} disabled={verifyingId === p.id}
                                   className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
                                   {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                  Verify
+                                  Match & Verify
                                 </button>
                               <button onClick={() => setRejectPaymentId(p.id)}
                                 className="px-2 py-1 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 font-semibold">
@@ -1264,6 +1327,83 @@ await loadHistory();
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
                 {savingPaymentId === editingPayment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bank Statement Match Popup */}
+      {bankMatchPayment && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", width: "100%", maxWidth: "620px", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <div style={{ padding: "0.875rem 1rem", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <h2 style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Match with Bank Statement</h2>
+                  <p style={{ fontSize: "11px", color: "#64748b", margin: "3px 0 0" }}>
+                    {bankMatchPayment.orderNo} · {bankMatchPayment.customerName} · <strong style={{ color: "#16a34a" }}>{fmt(bankMatchPayment.amount)}</strong> · {new Date(bankMatchPayment.paymentDate).toLocaleDateString("en-IN")}
+                  </p>
+                  <p style={{ fontSize: "10px", color: "#94a3b8", margin: "2px 0 0" }}>Showing credit entries within 5% amount and 3 days of payment date</p>
+                </div>
+                <button onClick={() => { setBankMatchPayment(null); setBankMatchResults([]); }}
+                  style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8", fontSize: "16px" }}>x</button>
+              </div>
+            </div>
+
+            <div style={{ overflowY: "auto", flex: 1, padding: "0.75rem 1rem" }}>
+              {bankMatchLoading ? (
+                <div style={{ display: "flex", justifyContent: "center", padding: "2rem", fontSize: "12px", color: "#64748b" }}>
+                  Searching bank statement...
+                </div>
+              ) : bankMatchResults.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem" }}>
+                  <p style={{ fontSize: "12px", color: "#94a3b8", margin: "0 0 8px" }}>No matching entries found in bank statement</p>
+                  <p style={{ fontSize: "11px", color: "#cbd5e1" }}>You can still verify manually using the UTR field.</p>
+                  <button onClick={() => { verifyPayment(bankMatchPayment.id, utrDraft[bankMatchPayment.id] ?? bankMatchPayment.referenceNumber ?? ""); setBankMatchPayment(null); }}
+                    style={{ marginTop: "12px", background: "#16a34a", color: "white", border: "none", borderRadius: "6px", padding: "6px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                    Verify Manually
+                  </button>
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Date</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Description</th>
+                      <th style={{ textAlign: "right", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Amount</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Status</th>
+                      <th style={{ padding: "4px 8px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bankMatchResults.map(txn => (
+                      <tr key={txn.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "6px 8px", color: "#475569", whiteSpace: "nowrap" }}>{new Date(txn.txnDate).toLocaleDateString("en-IN")}</td>
+                        <td style={{ padding: "6px 8px", color: "#334155", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{txn.description}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "#16a34a" }}>{fmt(txn.amount)}</td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "9999px", background: txn.reconcileStatus === "MATCHED_PAYMENT" ? "#dcfce7" : txn.reconcileStatus === "MANUAL_REVIEW" ? "#fef9c3" : "#f1f5f9", color: txn.reconcileStatus === "MATCHED_PAYMENT" ? "#15803d" : txn.reconcileStatus === "MANUAL_REVIEW" ? "#854d0e" : "#64748b", fontWeight: 600 }}>
+                            {txn.reconcileStatus === "MATCHED_PAYMENT" ? "Already Matched" : txn.reconcileStatus === "MANUAL_REVIEW" ? "Needs Review" : txn.reconcileStatus}
+                          </span>
+                        </td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <button onClick={() => matchAndVerify(txn)} disabled={verifyingId === bankMatchPayment.id}
+                            style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer", opacity: verifyingId === bankMatchPayment.id ? 0.6 : 1 }}>
+                            {verifyingId === bankMatchPayment.id ? "..." : "Match"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div style={{ padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => { setBankMatchPayment(null); setBankMatchResults([]); }}
+                style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "5px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
+                Close
               </button>
             </div>
           </div>

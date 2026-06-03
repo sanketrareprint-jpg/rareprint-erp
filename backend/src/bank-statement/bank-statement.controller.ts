@@ -38,6 +38,8 @@ export class BankStatementController {
     @Query('crDr') crDr?: BankTxnType,
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
+    @Query('amountMin') amountMin?: string,
+    @Query('amountMax') amountMax?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -47,6 +49,8 @@ export class BankStatementController {
       crDr,
       fromDate,
       toDate,
+      amountMin: amountMin ? parseFloat(amountMin) : undefined,
+      amountMax: amountMax ? parseFloat(amountMax) : undefined,
       page: page ? parseInt(page) : undefined,
       limit: limit ? parseInt(limit) : undefined,
     });
@@ -78,10 +82,14 @@ export class BankStatementController {
 
   // ── Summary ────────────────────────────────────────────────────────────────
 
-  /** GET /bank-statement/summary?accountNumber= */
+  /** GET /bank-statement/summary?accountNumber=&fromDate=&toDate= */
   @Get('summary')
-  getSummary(@Query('accountNumber') accountNumber?: string) {
-    return this.svc.getSummary(accountNumber);
+  getSummary(
+    @Query('accountNumber') accountNumber?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.svc.getSummary({ accountNumber, fromDate, toDate });
   }
 
   // ── Re-run matching ────────────────────────────────────────────────────────

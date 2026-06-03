@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 interface RawBankRow {
   srl: number;
   txnDate: Date;
+  txnDateTime: Date | null;
   valueDate: Date;
   description: string;
   chequeNo: string;
@@ -94,6 +95,7 @@ export class BankStatementService {
       const valueDate = parseDate(get(4));
       if (!txnDate || !valueDate) continue;
 
+      const txnDateTime = parseDate(get(0));
       const description = String(get(5) ?? '').trim();
       const chequeNo = String(get(6) ?? '').trim();
       const crDrRaw = String(get(7) ?? '').trim().toLowerCase();
@@ -103,7 +105,7 @@ export class BankStatementService {
 
       if (!description || amount <= 0) continue;
 
-      rows.push({ srl, txnDate, valueDate, description, chequeNo, crDr, amount, balance });
+      rows.push({ srl, txnDate, txnDateTime, valueDate, description, chequeNo, crDr, amount, balance });
     }
 
     return { accountNumber, rows };
@@ -218,6 +220,7 @@ export class BankStatementService {
         accountNumber,
         srl: row.srl,
         txnDate: row.txnDate,
+        txnDateTime: row.txnDateTime ?? null,
         valueDate: row.valueDate,
         description: row.description,
         chequeNo: row.chequeNo || null,
@@ -279,6 +282,8 @@ export class BankStatementService {
     crDr?: BankTxnType;
     fromDate?: string;
     toDate?: string;
+    amountMin?: number;
+    amountMax?: number;
     page?: number;
     limit?: number;
   }) {
@@ -295,12 +300,22 @@ export class BankStatementService {
       if (filters.fromDate) (where.txnDate as any).gte = new Date(filters.fromDate);
       if (filters.toDate) (where.txnDate as any).lte = new Date(filters.toDate);
     }
+    if (filters.amountMin !== undefined || filters.amountMax !== undefined) {
+      where.amount = {};
+      if (filters.amountMin !== undefined) (where.amount as any).gte = filters.amountMin;
+      if (filters.amountMax !== undefined) (where.amount as any).lte = filters.amountMax;
+    }
 
     const [total, data] = await Promise.all([
       this.prisma.bankTransaction.count({ where }),
       this.prisma.bankTransaction.findMany({
         where,
-        orderBy: { txnDate: 'desc' },
+        orderBy: [
+          { txnDateTime: { sort: 'desc', nulls: 'last' } },
+          { txnDate: 'desc' },
+          { srl: 'desc' },
+          { createdAt: 'desc' },
+        ],
         skip,
         take: limit,
         include: {
@@ -355,8 +370,14 @@ export class BankStatementService {
 
   // ── 6. Summary / Dashboard ─────────────────────────────────────────────────
 
-  async getSummary(accountNumber?: string) {
-    const where: Prisma.BankTransactionWhereInput = accountNumber ? { accountNumber } : {};
+  async getSummary(filters: { accountNumber?: string; fromDate?: string; toDate?: string } = {}) {
+    const where: Prisma.BankTransactionWhereInput = {};
+    if (filters.accountNumber) where.accountNumber = filters.accountNumber;
+    if (filters.fromDate || filters.toDate) {
+      where.txnDate = {};
+      if (filters.fromDate) (where.txnDate as any).gte = new Date(filters.fromDate);
+      if (filters.toDate) (where.txnDate as any).lte = new Date(filters.toDate);
+    }
 
     const [total, byCrDr, byStatus] = await Promise.all([
       this.prisma.bankTransaction.count({ where }),
@@ -375,8 +396,13 @@ export class BankStatementService {
 
     const lastBalance = await this.prisma.bankTransaction.findFirst({
       where,
-      orderBy: { srl: 'desc' },
-      select: { balance: true, txnDate: true },
+      orderBy: [
+        { txnDateTime: { sort: 'desc', nulls: 'last' } },
+        { txnDate: 'desc' },
+        { srl: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      select: { balance: true, txnDate: true, txnDateTime: true },
     });
 
     return { total, byCrDr, byStatus, lastBalance };

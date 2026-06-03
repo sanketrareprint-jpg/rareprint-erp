@@ -1294,6 +1294,7 @@ model BankTransaction {
   accountNumber     String
   srl               Int
   txnDate           DateTime
+  txnDateTime       DateTime?
   valueDate         DateTime
   description       String
   chequeNo          String?
@@ -1315,7 +1316,7 @@ model BankTransaction {
   expenseCategory   ExpenseCategory?     @relation(fields: [expenseCategoryId], references: [id])
   reconciledBy      User?                @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
 
-  @@unique([accountNumber, balance])
+  @@unique([accountNumber, txnDate, srl])
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])

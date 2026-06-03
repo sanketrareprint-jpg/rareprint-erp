@@ -54,7 +54,7 @@ interface Summary {
   total: number;
   byCrDr: { crDr: BankTxnType; _sum: { amount: string }; _count: number }[];
   byStatus: { reconcileStatus: BankReconcileStatus; _count: number }[];
-  lastBalance: { balance: string; txnDate: string } | null;
+  lastBalance: { balance: string; txnDate: string; txnDateTime?: string | null } | null;
 }
 
 interface Vendor { id: string; name: string; }
@@ -106,6 +106,8 @@ export default function BankStatementPage() {
   const [filterStatus, setFilterStatus] = useState<BankReconcileStatus | "">("");
   const [filterCrDr, setFilterCrDr] = useState<BankTxnType | "">("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [filterFromDate, setFilterFromDate] = useState("2026-04-01");
+  const [filterToDate, setFilterToDate] = useState("");
   const [expandedTxn, setExpandedTxn] = useState<string | null>(null);
 
   // ── Summary state ──
@@ -152,9 +154,13 @@ export default function BankStatementPage() {
   // ─── Load data ────────────────────────────────────────────────────────────
 
   const loadSummary = useCallback(async () => {
-    const data = await apiFetch("/bank-statement/summary").catch(() => null);
+    const params = new URLSearchParams();
+    if (filterFromDate) params.set("fromDate", filterFromDate);
+    if (filterToDate) params.set("toDate", filterToDate);
+    const qs = params.toString();
+    const data = await apiFetch(`/bank-statement/summary${qs ? `?${qs}` : ""}`).catch(() => null);
     if (data) setSummary(data);
-  }, [apiFetch]);
+  }, [apiFetch, filterFromDate, filterToDate]);
 
   const loadTxns = useCallback(async (page = 1) => {
     setLoadingTxns(true);
@@ -162,10 +168,12 @@ export default function BankStatementPage() {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (filterStatus) params.set("reconcileStatus", filterStatus);
       if (filterCrDr) params.set("crDr", filterCrDr);
+      if (filterFromDate) params.set("fromDate", filterFromDate);
+      if (filterToDate) params.set("toDate", filterToDate);
       const data = await apiFetch(`/bank-statement/transactions?${params}`);
       if (data) { setTxns(data.data); setTxnTotal(data.total); setTxnPage(page); }
     } finally { setLoadingTxns(false); }
-  }, [apiFetch, filterStatus, filterCrDr]);
+  }, [apiFetch, filterStatus, filterCrDr, filterFromDate, filterToDate]);
 
   const loadVendorKeywords = useCallback(async () => {
     const [vks, vs] = await Promise.all([
@@ -472,6 +480,32 @@ export default function BankStatementPage() {
                 <option value="CR">Credits only</option>
                 <option value="DR">Debits only</option>
               </select>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                From
+                <input
+                  type="date"
+                  value={filterFromDate}
+                  onChange={(e) => setFilterFromDate(e.target.value)}
+                  className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 text-gray-700"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                To
+                <input
+                  type="date"
+                  value={filterToDate}
+                  onChange={(e) => setFilterToDate(e.target.value)}
+                  className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 text-gray-700"
+                />
+              </label>
+              {(filterFromDate !== "2026-04-01" || filterToDate) && (
+                <button
+                  onClick={() => { setFilterFromDate("2026-04-01"); setFilterToDate(""); }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Reset dates
+                </button>
+              )}
               <button onClick={() => loadTxns(txnPage)} className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100">
                 <RefreshCw className="w-4 h-4 text-gray-500" />
               </button>
