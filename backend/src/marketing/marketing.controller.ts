@@ -128,4 +128,15 @@ export class MarketingController {
   syncCrmLeads() {
     return this.marketing.syncCrmLeadsToMarketing();
   }
+
+  // ─── BROADCAST SETTINGS ──────────────────────────────────────────────────
+  @Get('settings')
+  getSettings() {
+    return this.marketing.getMarketingSettings();
+  }
+
+  @Patch('settings')
+  updateSettings(@Body() body: any) {
+    return this.marketing.updateMarketingSettings(body);
+  }
 }

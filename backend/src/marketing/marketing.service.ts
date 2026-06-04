@@ -5,11 +5,73 @@ import { PrismaService } from '../prisma/prisma.service';
 const AISENSY_API_URL = process.env.AISENSY_API_URL ?? 'https://backend.aisensy.com/campaign/t1/api/v2';
 const DAILY_DEFAULT_LIMIT = 10000;
 
+// ─── SystemConfig keys for marketing settings ───────────────────────────────
+const CFG = {
+  DAILY_LIMIT:      'marketing_daily_limit',
+  DAILY_RUN_HOUR:   'marketing_daily_run_hour',
+  SEND_START_HOUR:  'marketing_send_start_hour',
+  SEND_END_HOUR:    'marketing_send_end_hour',
+  BATCH_SIZE:       'marketing_batch_size',
+  BATCH_INTERVAL_S: 'marketing_batch_interval_sec',
+};
+
 @Injectable()
 export class MarketingService {
   private readonly logger = new Logger(MarketingService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
+  async getMarketingSettings() {
+    const rows = await (this.prisma as any).systemConfig.findMany({
+      where: { key: { in: Object.values(CFG) } },
+    });
+    const map = Object.fromEntries(rows.map((r: any) => [r.key, r.value]));
+    return {
+      dailyLimit:       Number(map[CFG.DAILY_LIMIT]      ?? process.env.MARKETING_DAILY_LIMIT        ?? DAILY_DEFAULT_LIMIT),
+      dailyRunHour:     Number(map[CFG.DAILY_RUN_HOUR]   ?? process.env.MARKETING_DAILY_RUN_HOUR     ?? 10),
+      sendStartHour:    Number(map[CFG.SEND_START_HOUR]  ?? process.env.MARKETING_SEND_START_HOUR    ?? 10),
+      sendEndHour:      Number(map[CFG.SEND_END_HOUR]    ?? process.env.MARKETING_SEND_END_HOUR      ?? 18),
+      batchSize:        Number(map[CFG.BATCH_SIZE]       ?? process.env.MARKETING_SEND_BATCH_SIZE    ?? 200),
+      batchIntervalSec: Number(map[CFG.BATCH_INTERVAL_S] ?? Math.round(Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 120000) / 1000)),
+    };
+  }
+
+  async updateMarketingSettings(body: {
+    dailyLimit?: number;
+    dailyRunHour?: number;
+    sendStartHour?: number;
+    sendEndHour?: number;
+    batchSize?: number;
+    batchIntervalSec?: number;
+  }) {
+    const pairs: [string, string][] = [];
+    if (body.dailyLimit       != null) pairs.push([CFG.DAILY_LIMIT,      String(body.dailyLimit)]);
+    if (body.dailyRunHour     != null) pairs.push([CFG.DAILY_RUN_HOUR,   String(body.dailyRunHour)]);
+    if (body.sendStartHour    != null) pairs.push([CFG.SEND_START_HOUR,  String(body.sendStartHour)]);
+    if (body.sendEndHour      != null) pairs.push([CFG.SEND_END_HOUR,    String(body.sendEndHour)]);
+    if (body.batchSize        != null) pairs.push([CFG.BATCH_SIZE,       String(body.batchSize)]);
+    if (body.batchIntervalSec != null) pairs.push([CFG.BATCH_INTERVAL_S, String(body.batchIntervalSec)]);
+
+    await Promise.all(
+      pairs.map(([key, value]) =>
+        (this.prisma as any).systemConfig.upsert({
+          where: { key },
+          create: { key, value },
+          update: { value },
+        }),
+      ),
+    );
+    return this.getMarketingSettings();
+  }
+
+  // ─── Read a single setting from DB (with env + hardcoded fallback) ─────────
+  private async readSettingNum(cfgKey: string, envKey: string, fallback: number): Promise<number> {
+    const row = await (this.prisma as any).systemConfig.findUnique({ where: { key: cfgKey } });
+    if (row) return Number(row.value);
+    if (process.env[envKey]) return Number(process.env[envKey]);
+    return fallback;
+  }
 
   async getOverview(userId: string, role: string) {
     const contactWhere = role === 'SALES_AGENT' ? { assignedAgentId: userId } : {};
@@ -337,19 +399,23 @@ export class MarketingService {
     return this.processBroadcastBatches(1, 1);
   }
 
-  @Cron('0 10 * * *', { timeZone: 'Asia/Kolkata' })
+  @Cron('0 * * * *', { timeZone: 'Asia/Kolkata' })
   async processDailyBroadcastQueue() {
+    const configuredHour = await this.readSettingNum(CFG.DAILY_RUN_HOUR, 'MARKETING_DAILY_RUN_HOUR', 10);
+    const parts = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }).formatToParts(new Date());
+    const currentHour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+    if (currentHour !== configuredHour) return;
     const synced = await this.syncCrmLeadsToMarketing();
     const prepared = await this.prepareDailyCampaignQueue();
     const result = await this.processBroadcastBatches(1);
     const combined = { synced, prepared, ...result };
-    this.logger.log(`Daily 10:00 AM marketing queue run: ${JSON.stringify(combined)}`);
+    this.logger.log(`Daily ${configuredHour}:00 marketing queue run: ${JSON.stringify(combined)}`);
     return combined;
   }
 
   @Cron('*/2 * * * *', { timeZone: 'Asia/Kolkata' })
   async processBroadcastQueueTick() {
-    if (!this.isMarketingSendWindow()) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
+    if (!await this.isMarketingSendWindow()) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
     const result = await this.processBroadcastBatches(1);
     if (result.processed > 0) {
       this.logger.log(`Marketing 2-minute batch tick: ${JSON.stringify(result)}`);
@@ -358,7 +424,7 @@ export class MarketingService {
   }
 
   private async prepareDailyCampaignQueue() {
-    const globalDailyLimit = Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT);
+    const globalDailyLimit = await this.readSettingNum(CFG.DAILY_LIMIT, 'MARKETING_DAILY_LIMIT', DAILY_DEFAULT_LIMIT);
     const alreadyQueued = await (this.prisma as any).marketingBroadcastJob.count({
       where: {
         status: { in: ['QUEUED', 'FAILED'] },
@@ -484,11 +550,11 @@ export class MarketingService {
         updatedAt: job.updatedAt,
       })),
       aisensyApiKeyConfigured: Boolean(process.env.AISENSY_API_KEY),
-      sendBatchSize: Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200),
-      batchIntervalMs: Number(process.env.MARKETING_BATCH_INTERVAL_MS ?? 120000),
-      dailyRun: '10:00 AM IST',
+      sendBatchSize: await this.readSettingNum(CFG.BATCH_SIZE, 'MARKETING_SEND_BATCH_SIZE', 200),
+      batchIntervalMs: (await this.readSettingNum(CFG.BATCH_INTERVAL_S, '', 120)) * 1000,
+      dailyRun: `${await this.readSettingNum(CFG.DAILY_RUN_HOUR, 'MARKETING_DAILY_RUN_HOUR', 10)}:00 IST`,
       batchRunner: 'Every 2 minutes during sending window',
-      dailyLimit: Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT),
+      dailyLimit: await this.readSettingNum(CFG.DAILY_LIMIT, 'MARKETING_DAILY_LIMIT', DAILY_DEFAULT_LIMIT),
       todayAttempts,
     };
   }
@@ -498,8 +564,8 @@ export class MarketingService {
     let sent = 0;
     let failed = 0;
     let skipped = 0;
-    const batchSize = batchSizeOverride ?? Number(process.env.MARKETING_SEND_BATCH_SIZE ?? 200);
-    const dailyLimit = Number(process.env.MARKETING_DAILY_LIMIT ?? DAILY_DEFAULT_LIMIT);
+    const batchSize = batchSizeOverride ?? await this.readSettingNum(CFG.BATCH_SIZE, 'MARKETING_SEND_BATCH_SIZE', 200);
+    const dailyLimit = await this.readSettingNum(CFG.DAILY_LIMIT, 'MARKETING_DAILY_LIMIT', DAILY_DEFAULT_LIMIT);
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const remainingToday = dailyLimit - (await this.countTodayBroadcastAttempts());
@@ -586,9 +652,9 @@ export class MarketingService {
     });
   }
 
-  private isMarketingSendWindow() {
-    const startHour = Number(process.env.MARKETING_SEND_START_HOUR ?? 10);
-    const endHour = Number(process.env.MARKETING_SEND_END_HOUR ?? 18);
+  private async isMarketingSendWindow(): Promise<boolean> {
+    const startHour = await this.readSettingNum(CFG.SEND_START_HOUR, 'MARKETING_SEND_START_HOUR', 10);
+    const endHour   = await this.readSettingNum(CFG.SEND_END_HOUR,   'MARKETING_SEND_END_HOUR',   18);
     const parts = new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata',
       hour: 'numeric',

@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Settings,
   Users,
 } from "lucide-react";
 
@@ -60,6 +61,15 @@ type Overview = {
   sentToday: number;
   repliesToday: number;
   hotLeads: number;
+};
+
+type MarketingSettings = {
+  dailyLimit: number;
+  dailyRunHour: number;
+  sendStartHour: number;
+  sendEndHour: number;
+  batchSize: number;
+  batchIntervalSec: number;
 };
 
 const emptyTemplate = {
@@ -123,7 +133,11 @@ function MarketingPageContent() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [diagnostics, setDiagnostics] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"campaigns" | "contacts" | "templates" | "analytics">("campaigns");
+  const [activeTab, setActiveTab] = useState<"campaigns" | "contacts" | "templates" | "analytics" | "settings">("campaigns");
+  const [broadcastSettings, setBroadcastSettings] = useState<MarketingSettings | null>(null);
+  const [settingsForm, setSettingsForm] = useState<MarketingSettings>({ dailyLimit: 10000, dailyRunHour: 10, sendStartHour: 10, sendEndHour: 18, batchSize: 200, batchIntervalSec: 120 });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -155,13 +169,14 @@ function MarketingPageContent() {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("search", search);
-    const [overviewRes, campaignsRes, templatesRes, contactsRes, analyticsRes, diagnosticsRes] = await Promise.all([
+    const [overviewRes, campaignsRes, templatesRes, contactsRes, analyticsRes, diagnosticsRes, settingsRes] = await Promise.all([
       fetch(`${API_BASE_URL}/marketing/overview`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/campaigns`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/templates`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/contacts?${params}`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/analytics`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/broadcasts/diagnostics`, { headers: getAuthHeaders() }),
+      fetch(`${API_BASE_URL}/marketing/settings`, { headers: getAuthHeaders() }),
     ]);
     if (overviewRes.ok) setOverview(await overviewRes.json());
     if (campaignsRes.ok) setCampaigns(await campaignsRes.json());
@@ -169,6 +184,11 @@ function MarketingPageContent() {
     if (contactsRes.ok) setContacts((await contactsRes.json()).items ?? []);
     if (analyticsRes.ok) setAnalytics(await analyticsRes.json());
     if (diagnosticsRes.ok) setDiagnostics(await diagnosticsRes.json());
+    if (settingsRes.ok) {
+      const s = await settingsRes.json();
+      setBroadcastSettings(s);
+      setSettingsForm(s);
+    }
     setLoading(false);
   }, [search]);
 
@@ -389,6 +409,27 @@ function MarketingPageContent() {
     }
   };
 
+  const saveSettings = async () => {
+    setSettingsMessage(null);
+    setSavingSettings(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/marketing/settings`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify(settingsForm),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.message || "Save failed");
+      setBroadcastSettings(data);
+      setSettingsForm(data);
+      setSettingsMessage({ type: "success", message: "Settings saved. Changes take effect on the next run." });
+    } catch (error) {
+      setSettingsMessage({ type: "error", message: error instanceof Error ? error.message : "Save failed." });
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const runQueue = async (endpoint: "process" | "test-one") => {
     setQueueMessage(null);
     setProcessingQueue(true);
@@ -482,6 +523,7 @@ function MarketingPageContent() {
             ["contacts", "Contacts"],
             ["templates", "Templates"],
             ["analytics", "Analytics"],
+            ["settings", "Settings"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -691,6 +733,131 @@ function MarketingPageContent() {
                   <p className="mt-3 text-sm text-slate-700">{template.body}</p>
                 </div>
               ))}
+            </section>
+          </div>
+        ) : activeTab === "settings" ? (
+          <div className="mt-5 max-w-xl">
+            <section className="rounded-lg border border-slate-200 bg-white p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <Settings size={18} className="text-blue-600" />
+                <h2 className="font-bold text-lg">Broadcast Settings</h2>
+              </div>
+              {settingsMessage && (
+                <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-semibold ${settingsMessage.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                  {settingsMessage.message}
+                </div>
+              )}
+              <div className="space-y-5">
+                {/* Daily limit */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Daily broadcast limit</label>
+                  <p className="text-xs text-slate-500 mb-2">Max contacts to queue per day across all campaigns.</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100000}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={settingsForm.dailyLimit}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, dailyLimit: Number(e.target.value) })}
+                  />
+                </div>
+
+                {/* Daily run hour */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Daily queue fill time (IST)</label>
+                  <p className="text-xs text-slate-500 mb-2">Hour when the system fills the broadcast queue daily and kicks off first batch.</p>
+                  <select
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={settingsForm.dailyRunHour}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, dailyRunHour: Number(e.target.value) })}
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>{String(h).padStart(2, "0")}:00 IST ({h < 12 ? `${h === 0 ? 12 : h} AM` : `${h === 12 ? 12 : h - 12} PM`})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Send window */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Sending window (IST)</label>
+                  <p className="text-xs text-slate-500 mb-2">The 2-minute batch runner only sends within this window.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">Start hour</label>
+                      <select
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        value={settingsForm.sendStartHour}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, sendStartHour: Number(e.target.value) })}
+                      >
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">End hour</label>
+                      <select
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        value={settingsForm.sendEndHour}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, sendEndHour: Number(e.target.value) })}
+                      >
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Batch size */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Batch size</label>
+                  <p className="text-xs text-slate-500 mb-2">Number of messages sent per 2-minute batch tick.</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={settingsForm.batchSize}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, batchSize: Number(e.target.value) })}
+                  />
+                </div>
+
+                {/* Batch interval */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Batch interval (seconds)</label>
+                  <p className="text-xs text-slate-500 mb-2">How often the server sends a batch. Default: 120s (2 min). Lower = faster sending.</p>
+                  <input
+                    type="number"
+                    min={30}
+                    max={3600}
+                    step={10}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={settingsForm.batchIntervalSec}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, batchIntervalSec: Number(e.target.value) })}
+                  />
+                  <p className="mt-1 text-xs text-slate-400">Note: the server cron always runs every 2 min; this sets how many messages each tick processes.</p>
+                </div>
+
+                {/* Current effective settings summary */}
+                {broadcastSettings && (
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-xs text-slate-600 space-y-1">
+                    <p className="font-bold text-slate-700 mb-2">Currently active</p>
+                    <p>Daily limit: <strong>{broadcastSettings.dailyLimit.toLocaleString("en-IN")} contacts/day</strong></p>
+                    <p>Queue fills at: <strong>{String(broadcastSettings.dailyRunHour).padStart(2,"0")}:00 IST</strong></p>
+                    <p>Send window: <strong>{String(broadcastSettings.sendStartHour).padStart(2,"0")}:00 – {String(broadcastSettings.sendEndHour).padStart(2,"0")}:00 IST</strong></p>
+                    <p>Batch: <strong>{broadcastSettings.batchSize} msgs every {broadcastSettings.batchIntervalSec}s</strong></p>
+                  </div>
+                )}
+
+                <button
+                  onClick={saveSettings}
+                  disabled={savingSettings}
+                  className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+                >
+                  {savingSettings ? "Saving..." : "Save Settings"}
+                </button>
+              </div>
             </section>
           </div>
         ) : (
