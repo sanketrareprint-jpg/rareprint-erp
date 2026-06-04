@@ -413,16 +413,37 @@ export class VirtualCeoService {
       take: 30,
     });
 
+    // Group by order+vendor to avoid duplicate cards when an order has multiple items at the same vendor
+    const clubbingByKey = new Map<string, typeof clubbingFollowUp[0] & { itemCount: number; productNames: string[] }>();
     for (const jw of clubbingFollowUp) {
+      const dueDate = (jw as any).dueDate as Date | null ?? null;
+      if (!isDueOrOverdueIST(dueDate)) continue;
       const days = ageDays(jw.createdAt);
-      if (days < 1) continue;
+      if (!dueDate && days < 1) continue;
+      const key = `${jw.orderItem.order.orderNumber}__${jw.vendor.name}`;
+      if (clubbingByKey.has(key)) {
+        const existing = clubbingByKey.get(key)!;
+        existing.itemCount++;
+        if (!existing.productNames.includes(jw.orderItem.product.name)) {
+          existing.productNames.push(jw.orderItem.product.name);
+        }
+      } else {
+        clubbingByKey.set(key, { ...jw, itemCount: 1, productNames: [jw.orderItem.product.name] });
+      }
+    }
+
+    for (const [, jw] of clubbingByKey) {
+      const days = ageDays(jw.createdAt);
+      const dueDate = (jw as any).dueDate as Date | null ?? null;
+      const dueDateStr = dueDate ? ` · Follow-up: ${dueDate.toLocaleDateString('en-IN')}` : '';
+      const productStr = jw.itemCount > 1 ? `${jw.productNames[0]} +${jw.itemCount - 1} more` : jw.productNames[0];
       items.push({
-        id: `prod-club-followup-${jw.id}`,
+        id: `prod-club-followup-${jw.orderItem.order.orderNumber}-${jw.vendor.name}`,
         department: 'PRODUCTION',
-        priority: days > 3 ? 'HIGH' : 'LOW',
+        priority: days > 3 ? 'HIGH' : 'MEDIUM',
         category: 'Clubbing — Vendor Follow-up',
         title: `Follow up: ${jw.vendor.name} — ${jw.orderItem.order.orderNumber}`,
-        detail: `${jw.orderItem.product.name} sent to ${jw.vendor.name} — ${Math.round(days)} days, status: ${jw.status}`,
+        detail: `${jw.orderItem.order.customer.businessName} · ${productStr} · ${Math.round(days)}d with vendor${dueDateStr}`,
         orderNo: jw.orderItem.order.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/production',
