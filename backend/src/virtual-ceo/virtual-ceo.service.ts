@@ -59,6 +59,18 @@ function fmtAge(hours: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+
+// Returns true if today >= follow-up date in IST (show on and after the scheduled date)
+function isDueOrOverdueIST(date: Date | null): boolean {
+  if (!date) return true; // no date set => always show
+  const IST_OFFSET = 330 * 60 * 1000;
+  const nowD = new Date(Date.now() + IST_OFFSET);
+  const dueD = new Date(date.getTime() + IST_OFFSET);
+  const nowDay = Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate());
+  const dueDay = Date.UTC(dueD.getUTCFullYear(), dueD.getUTCMonth(), dueD.getUTCDate());
+  return nowDay >= dueDay;
+}
+
 @Injectable()
 export class VirtualCeoService {
   private readonly logger = new Logger(VirtualCeoService.name);
