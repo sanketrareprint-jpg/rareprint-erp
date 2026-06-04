@@ -122,4 +122,10 @@ export class MarketingController {
   agentDashboard(@Req() req: Request & { user: JwtUser }) {
     return this.marketing.getAgentDashboard(req.user.id, req.user.role);
   }
+
+  // ─── MANUAL TRIGGER: Sync CRM leads (last 7 days) → MarketingContact ──────
+  @Post('sync-crm-leads')
+  syncCrmLeads() {
+    return this.marketing.syncCrmLeadsToMarketing();
+  }
 }

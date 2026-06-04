@@ -339,9 +339,10 @@ export class MarketingService {
 
   @Cron('0 10 * * *', { timeZone: 'Asia/Kolkata' })
   async processDailyBroadcastQueue() {
+    const synced = await this.syncCrmLeadsToMarketing();
     const prepared = await this.prepareDailyCampaignQueue();
     const result = await this.processBroadcastBatches(1);
-    const combined = { prepared, ...result };
+    const combined = { synced, prepared, ...result };
     this.logger.log(`Daily 10:00 AM marketing queue run: ${JSON.stringify(combined)}`);
     return combined;
   }
@@ -860,6 +861,63 @@ export class MarketingService {
     const month = Number(parts.find((part) => part.type === 'month')?.value);
     const day = Number(parts.find((part) => part.type === 'day')?.value);
     return new Date(Date.UTC(year, month - 1, day, -5, -30, 0, 0));
+  }
+
+  // ─── SYNC CRM LEADS (last 7 days) → MarketingContact ─────────────────────
+  async syncCrmLeadsToMarketing(): Promise<{ synced: number; updated: number; total: number }> {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const leads = await (this.prisma as any).lead.findMany({
+      where: { createdAt: { gte: since } },
+      select: {
+        phone: true,
+        name: true,
+        businessName: true,
+        city: true,
+        productInterest: true,
+        source: true,
+        createdAt: true,
+      },
+    });
+
+    let synced = 0;
+    let updated = 0;
+
+    for (const lead of leads) {
+      const digits = String(lead.phone).replace(/\D/g, '');
+      const mobile = digits.length === 10 ? `91${digits}` : digits;
+      if (!mobile || mobile.length < 12) continue;
+
+      const existing = await (this.prisma as any).marketingContact.findUnique({
+        where: { mobile },
+        select: { id: true, tags: true },
+      });
+
+      const tags = this.mergeTags(existing?.tags ?? [], ['crm-lead', 'new-7day']);
+
+      if (existing) {
+        await (this.prisma as any).marketingContact.update({
+          where: { mobile },
+          data: { tags },
+        });
+        updated++;
+      } else {
+        await (this.prisma as any).marketingContact.create({
+          data: {
+            mobile,
+            ownerName: lead.name ?? undefined,
+            shopName: lead.businessName ?? undefined,
+            city: lead.city ?? undefined,
+            productCategory: lead.productInterest ?? undefined,
+            tags,
+          },
+        });
+        synced++;
+      }
+    }
+
+    this.logger.log(`CRM→Marketing sync: ${synced} created, ${updated} updated from ${leads.length} leads (last 7 days)`);
+    return { synced, updated, total: leads.length };
   }
 
   private startOfWeek() {
