@@ -22,6 +22,7 @@ type Task = {
 };
 type TaskView = "assigned" | "created" | "all";
 type TaskFilter = "ACTIVE" | "ALL" | Task["status"];
+type QuadrantFilter = "ALL" | Task["priority"];
 type FormState = {
   title: string;
   description: string;
@@ -76,6 +77,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<TaskView>("assigned");
   const [status, setStatus] = useState<TaskFilter>("ACTIVE");
+  const [quadrantFilter, setQuadrantFilter] = useState<QuadrantFilter>("ALL");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -138,6 +140,11 @@ export default function TasksPage() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     })
   ), [tasks]);
+  const visibleTasks = useMemo(() => (
+    quadrantFilter === "ALL"
+      ? sortedTasks
+      : sortedTasks.filter(task => task.priority === quadrantFilter)
+  ), [quadrantFilter, sortedTasks]);
   const quadrantCounts = useMemo(() => (
     quadrantOrder.reduce((acc, priority) => {
       acc[priority] = tasks.filter(task => task.priority === priority && task.status !== "DONE").length;
@@ -278,13 +285,25 @@ export default function TasksPage() {
           <div className="flex min-h-0 flex-col gap-3">
             <div className="grid flex-none gap-2 md:grid-cols-4">
               {quadrantOrder.map(priority => (
-                <div key={priority} className={`rounded-lg border px-3 py-2 ${priority === "HIGH" ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}>
+                <button
+                  key={priority}
+                  type="button"
+                  onClick={() => setQuadrantFilter(prev => prev === priority ? "ALL" : priority)}
+                  className={`rounded-lg border px-3 py-2 text-left transition hover:border-blue-300 hover:shadow-sm ${
+                    quadrantFilter === priority
+                      ? "border-blue-500 bg-blue-50 ring-1 ring-blue-200"
+                      : priority === "HIGH"
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-slate-200 bg-white"
+                  }`}
+                  title={`Show ${priorityLabels[priority]} tasks`}
+                >
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-bold text-slate-900">{priorityLabels[priority]}</p>
                     <span className="text-sm font-bold text-slate-900">{quadrantCounts[priority] ?? 0}</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">{priorityHelp[priority]}</p>
-                </div>
+                </button>
               ))}
             </div>
             <div className="flex flex-none flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -303,15 +322,20 @@ export default function TasksPage() {
                   .filter(([value]) => value !== "DONE")
                   .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
+              {quadrantFilter !== "ALL" && (
+                <button onClick={() => setQuadrantFilter("ALL")} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                  Clear {priorityLabels[quadrantFilter]}
+                </button>
+              )}
             </div>
 
             {loading ? (
               <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
-            ) : tasks.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">{status === "DONE" ? "No completed tasks in history." : "No tasks found."}</div>
+            ) : visibleTasks.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">{quadrantFilter !== "ALL" ? `No ${priorityLabels[quadrantFilter]} tasks found.` : status === "DONE" ? "No completed tasks in history." : "No tasks found."}</div>
             ) : (
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-4">
-                {sortedTasks.map(task => (
+                {visibleTasks.map(task => (
                   <div key={task.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
                     {editingId === task.id ? (
                       <div className="space-y-2">

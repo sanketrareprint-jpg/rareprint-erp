@@ -1,6 +1,13 @@
 import {
-  Controller, Get, Post, Query, Param, Res,
-  UploadedFiles, UseInterceptors, BadRequestException,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Param,
+  Res,
+  UploadedFiles,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -25,10 +32,12 @@ export class SheetLayoutController {
   /**
    * POST /api/sheet-layout/assemble?patternId=18x23_4L&gapMm=2
    * Body: multipart/form-data — field name "slots", one file per slot in order
-   * Returns: JPEG (300 DPI, no cut lines)
+   * Returns: JPEG (600 DPI, no cut lines)
    */
   @Post('assemble')
-  @UseInterceptors(FilesInterceptor('slots', 20, { limits: { fileSize: 40 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FilesInterceptor('slots', 20, { limits: { fileSize: 40 * 1024 * 1024 } }),
+  )
   async assembleSheet(
     @Query('patternId') patternId: string,
     @Query('gapMm') gapMmStr: string,
@@ -37,7 +46,8 @@ export class SheetLayoutController {
   ) {
     if (!patternId) throw new BadRequestException('patternId is required');
     const pattern = this.svc.getPattern(patternId);
-    if (!pattern) throw new BadRequestException(`Unknown pattern: ${patternId}`);
+    if (!pattern)
+      throw new BadRequestException(`Unknown pattern: ${patternId}`);
 
     const gapMm = Math.max(0, Math.min(20, parseFloat(gapMmStr ?? '0') || 0));
 
@@ -45,16 +55,22 @@ export class SheetLayoutController {
     const slotImages = new Map<number, Buffer>();
     if (files?.length) {
       files.forEach((file, idx) => {
-        const match = file.fieldname.match(/slot[_-]?(\d+)/i);
+        const match = `${file.fieldname} ${file.originalname}`.match(
+          /slot[_-]?(\d+)/i,
+        );
         slotImages.set(match ? parseInt(match[1], 10) : idx, file.buffer);
       });
     }
 
-    const jpegBuffer = await this.svc.assembleSheet(patternId, slotImages, gapMm);
+    const jpegBuffer = await this.svc.assembleSheet(
+      patternId,
+      slotImages,
+      gapMm,
+    );
 
     res.set({
       'Content-Type': 'image/jpeg',
-      'Content-Disposition': `attachment; filename="sheet-${patternId}-300dpi.jpg"`,
+      'Content-Disposition': `attachment; filename="sheet-${patternId}-600dpi.jpg"`,
       'Content-Length': String(jpegBuffer.length),
     });
     res.end(jpegBuffer);

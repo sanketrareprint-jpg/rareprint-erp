@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
+import { API_BASE_URL } from '@/lib/api';
 
 type SheetSize = '18x23' | '19x25';
 type SlotType = 'SMALL_5_5x8_5' | 'MEDIUM_7_5x8_5' | 'LARGE_8_5x11' | 'XL_11x17';
@@ -251,12 +252,11 @@ function SheetLayoutContent() {
         const blob = await rotateBlob(f, rotations[i] ?? 0);
         fd.append('slots', blob, `slot_${i}.jpg`);
       }
-      const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-      const res = await fetch(`${API}/sheet-layout/assemble?patternId=${pattern.id}&gapMm=${gapMm}`, { method: 'POST', body: fd });
+      const res = await fetch(`${API_BASE_URL}/sheet-layout/assemble?patternId=${pattern.id}&gapMm=${gapMm}`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `Sheet-${pattern.id}-300dpi.jpg`; a.click();
+      a.download = `Sheet-${pattern.id}-600dpi.jpg`; a.click();
     } catch (err) { alert(err instanceof Error ? err.message : String(err)); }
     finally { setIsGenerating(false); }
   };
@@ -270,7 +270,7 @@ function SheetLayoutContent() {
       <div style={{ background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'8px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
         <div>
           <span style={{ fontSize:13, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'#111' }}>Sheet Layout Composer</span>
-          <span style={{ fontSize:11, color:'#9ca3af', marginLeft:10 }}>300 DPI · JPG · PRINT-READY</span>
+          <span style={{ fontSize:11, color:'#9ca3af', marginLeft:10 }}>600 DPI · JPG · TARGET ~25MB</span>
         </div>
         {pattern && (
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -280,7 +280,7 @@ function SheetLayoutContent() {
             </div>
             <button onClick={handleDownload} disabled={!slotFiles.some(Boolean)||isGenerating}
               style={{ fontSize:11, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', padding:'6px 16px', borderRadius:6, border:'none', cursor:slotFiles.some(Boolean)&&!isGenerating?'pointer':'not-allowed', background:slotFiles.some(Boolean)&&!isGenerating?'#111':'#e5e7eb', color:slotFiles.some(Boolean)&&!isGenerating?'#fff':'#9ca3af' }}>
-              {isGenerating ? '⏳ Building…' : '⬇ Download JPG'}
+              {isGenerating ? '⏳ Building…' : '⬇ Download 600 DPI JPG'}
             </button>
           </div>
         )}
@@ -399,7 +399,7 @@ function SheetLayoutContent() {
               {[
                 [`${sheet.widthIn}"×${sheet.heightIn}"`, `Usable ${sheet.usableW}"×${sheet.usableH}"`],
                 [`${pattern.totalSlots} slots`, `Gap: ${gapMm}mm · Margin: 0.5"`],
-                ['300 DPI', 'JPG · print-ready'],
+                ['600 DPI', 'JPG · target ~25MB'],
               ].map(([k,v]) => (
                 <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:2 }}>
                   <span style={{ fontSize:10, fontWeight:700, color:'#374151' }}>{k}</span>
