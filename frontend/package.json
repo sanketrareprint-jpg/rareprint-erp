@@ -6,7 +6,7 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/check-playwright-base-url.js && playwright test",
     "test:e2e:headed": "playwright test --headed",
     "lint": "eslint",
     "build:android": "CAPACITOR_BUILD=1 next build && npx cap sync android",

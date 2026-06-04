@@ -262,80 +262,90 @@ export class VirtualCeoService {
       });
     }
 
-    // 2. Inhouse items in NOT_PRINTED stage > 1 day
-    const inhouseNotPrinted = await this.prisma.order.findMany({
+    // 2. Inhouse items NOT yet printed — query at ITEM level (matches production page exactly)
+    const inhouseNotPrintedItems = await this.prisma.orderItem.findMany({
       where: {
-        status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] },
-        productionStage: OrderProductionStage.NOT_PRINTED,
-        items: { some: { productionCategory: ProductionCategory.INHOUSE } },
+        productionCategory: ProductionCategory.INHOUSE,
+        itemProductionStage: OrderProductionStage.NOT_PRINTED,
+        order: { status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] } },
       },
-      include: { customer: { select: { businessName: true } } },
+      include: {
+        order: { select: { orderNumber: true, customer: { select: { businessName: true } }, updatedAt: true } },
+      },
       orderBy: { updatedAt: 'asc' },
     });
 
-    for (const o of inhouseNotPrinted) {
-      const hours = ageHours(o.updatedAt);
+    for (const item of inhouseNotPrintedItems) {
+      const hours = ageHours(item.updatedAt);
       if (hours < 4) continue;
       items.push({
-        id: `prod-inhouse-np-${o.id}`,
+        id: `prod-inhouse-np-${item.id}`,
         department: 'PRODUCTION',
         priority: hours > 24 ? 'HIGH' : 'MEDIUM',
         category: 'Inhouse Printing',
-        title: `Start printing — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — inhouse job not started, ${fmtAge(hours)}`,
-        orderNo: o.orderNumber,
+        title: `Start printing — ${item.order.orderNumber}`,
+        detail: `${item.order.customer.businessName} — inhouse job not started, ${fmtAge(hours)}`,
+        orderNo: item.order.orderNumber,
         ageHours: Math.round(hours),
         actionUrl: '/production',
       });
     }
 
-    // 3. Orders in PRINTING stage > 2 days (delayed)
-    const delayedPrinting = await this.prisma.order.findMany({
+    // 3. Inhouse items in PRINTING > 2 days — query at ITEM level
+    const inhousePrintingItems = await this.prisma.orderItem.findMany({
       where: {
-        status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] },
-        productionStage: OrderProductionStage.PRINTING,
+        productionCategory: ProductionCategory.INHOUSE,
+        itemProductionStage: OrderProductionStage.PRINTING,
+        order: { status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] } },
       },
-      include: { customer: { select: { businessName: true } } },
+      include: {
+        order: { select: { orderNumber: true, customer: { select: { businessName: true } }, updatedAt: true } },
+      },
       orderBy: { updatedAt: 'asc' },
     });
 
-    for (const o of delayedPrinting) {
-      const days = ageDays(o.updatedAt);
+    for (const item of inhousePrintingItems) {
+      const days = ageDays(item.updatedAt);
       if (days < 2) continue;
       items.push({
-        id: `prod-delayed-printing-${o.id}`,
+        id: `prod-delayed-printing-${item.id}`,
         department: 'PRODUCTION',
         priority: days > 3 ? 'HIGH' : 'MEDIUM',
         category: 'Delayed Printing',
-        title: `Printing delayed — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — stuck in printing for ${Math.round(days)} days`,
-        orderNo: o.orderNumber,
+        title: `Printing delayed — ${item.order.orderNumber}`,
+        detail: `${item.order.customer.businessName} — stuck in printing for ${Math.round(days)} days`,
+        orderNo: item.order.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/production',
       });
     }
 
-    // 4. Orders in PROCESSING stage > 2 days
-    const delayedProcessing = await this.prisma.order.findMany({
+    // 4. Inhouse items in PROCESSING — query at ITEM level, respect processingFollowUpDate
+    const inhouseProcessingItems = await this.prisma.orderItem.findMany({
       where: {
-        status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] },
-        productionStage: OrderProductionStage.PROCESSING,
+        productionCategory: ProductionCategory.INHOUSE,
+        itemProductionStage: OrderProductionStage.PROCESSING,
+        order: { status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] } },
       },
-      include: { customer: { select: { businessName: true } } },
+      include: {
+        order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+      },
       orderBy: { updatedAt: 'asc' },
     });
 
-    for (const o of delayedProcessing) {
-      const days = ageDays(o.updatedAt);
-      if (days < 2) continue;
+    for (const item of inhouseProcessingItems) {
+      const followUpDate = (item as any).processingFollowUpDate as Date | null ?? null;
+      if (!isDueOrOverdueIST(followUpDate)) continue;
+      const days = ageDays(item.updatedAt);
+      const dueDateStr = followUpDate ? ` · Follow-up: ${followUpDate.toLocaleDateString('en-IN')}` : ' · No follow-up date set';
       items.push({
-        id: `prod-delayed-proc-${o.id}`,
+        id: `prod-inhouse-proc-${item.id}`,
         department: 'PRODUCTION',
         priority: days > 3 ? 'HIGH' : 'MEDIUM',
-        category: 'Delayed Processing',
-        title: `Processing delayed — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — in processing for ${Math.round(days)} days`,
-        orderNo: o.orderNumber,
+        category: 'Inhouse Processing',
+        title: `Processing follow-up — ${item.order.orderNumber}`,
+        detail: `${item.order.customer.businessName} — in processing for ${Math.round(days)} days${dueDateStr}`,
+        orderNo: item.order.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/production',
       });
