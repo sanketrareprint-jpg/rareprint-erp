@@ -14,6 +14,7 @@ type Task = {
   description?: string | null;
   status: "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELLED";
   priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+  goalHorizon: "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
   dueDate?: string | null;
   createdAt: string;
   completedAt?: string | null;
@@ -23,11 +24,13 @@ type Task = {
 type TaskView = "assigned" | "created" | "all";
 type TaskFilter = "ACTIVE" | "ALL" | Task["status"];
 type QuadrantFilter = "ALL" | Task["priority"];
+type GoalHorizonFilter = "ALL" | Task["goalHorizon"];
 type FormState = {
   title: string;
   description: string;
   assignedToId: string;
   priority: Task["priority"];
+  goalHorizon: Task["goalHorizon"];
   dueDate: string;
 };
 
@@ -63,6 +66,19 @@ const priorityRank: Record<Task["priority"], number> = {
   LOW: 3,
 };
 const quadrantOrder: Task["priority"][] = ["URGENT", "HIGH", "NORMAL", "LOW"];
+const goalHorizonOrder: Task["goalHorizon"][] = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"];
+const goalHorizonLabels: Record<Task["goalHorizon"], string> = {
+  WEEKLY: "Weekly Goal",
+  MONTHLY: "Monthly Goal",
+  QUARTERLY: "Quarterly Goal",
+  YEARLY: "Yearly Goal",
+};
+const goalHorizonHelp: Record<Task["goalHorizon"], string> = {
+  WEEKLY: "This week execution",
+  MONTHLY: "Monthly outcomes",
+  QUARTERLY: "90-day priorities",
+  YEARLY: "Annual direction",
+};
 const lifeGoals = [
   { label: "Live", helper: "Health, energy, cash flow, production basics", icon: Target, color: "text-blue-700 bg-blue-50" },
   { label: "Love", helper: "Team trust, customer care, family commitments", icon: Heart, color: "text-rose-700 bg-rose-50" },
@@ -78,6 +94,7 @@ export default function TasksPage() {
   const [view, setView] = useState<TaskView>("assigned");
   const [status, setStatus] = useState<TaskFilter>("ACTIVE");
   const [quadrantFilter, setQuadrantFilter] = useState<QuadrantFilter>("ALL");
+  const [goalHorizonFilter, setGoalHorizonFilter] = useState<GoalHorizonFilter>("ALL");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -87,6 +104,7 @@ export default function TasksPage() {
     description: "",
     assignedToId: "",
     priority: "NORMAL",
+    goalHorizon: "WEEKLY",
     dueDate: "",
   });
   const [form, setForm] = useState<FormState>({
@@ -94,6 +112,7 @@ export default function TasksPage() {
     description: "",
     assignedToId: currentUser?.id ?? "",
     priority: "NORMAL",
+    goalHorizon: "WEEKLY",
     dueDate: "",
   });
 
@@ -141,15 +160,23 @@ export default function TasksPage() {
     })
   ), [tasks]);
   const visibleTasks = useMemo(() => (
-    quadrantFilter === "ALL"
-      ? sortedTasks
-      : sortedTasks.filter(task => task.priority === quadrantFilter)
-  ), [quadrantFilter, sortedTasks]);
+    sortedTasks.filter(task => {
+      const matchesQuadrant = quadrantFilter === "ALL" || task.priority === quadrantFilter;
+      const matchesGoalHorizon = goalHorizonFilter === "ALL" || task.goalHorizon === goalHorizonFilter;
+      return matchesQuadrant && matchesGoalHorizon;
+    })
+  ), [goalHorizonFilter, quadrantFilter, sortedTasks]);
   const quadrantCounts = useMemo(() => (
     quadrantOrder.reduce((acc, priority) => {
       acc[priority] = tasks.filter(task => task.priority === priority && task.status !== "DONE").length;
       return acc;
     }, {} as Record<Task["priority"], number>)
+  ), [tasks]);
+  const goalHorizonCounts = useMemo(() => (
+    goalHorizonOrder.reduce((acc, goalHorizon) => {
+      acc[goalHorizon] = tasks.filter(task => task.goalHorizon === goalHorizon && task.status !== "DONE").length;
+      return acc;
+    }, {} as Record<Task["goalHorizon"], number>)
   ), [tasks]);
 
   async function createTask() {
@@ -164,11 +191,12 @@ export default function TasksPage() {
           description: form.description || undefined,
           assignedToId: form.assignedToId || currentUser?.id,
           priority: form.priority,
+          goalHorizon: form.goalHorizon,
           dueDate: form.dueDate || undefined,
         }),
       });
       if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message || "Could not create task"); return; }
-      setForm({ title: "", description: "", assignedToId: currentUser?.id ?? "", priority: "NORMAL", dueDate: "" });
+      setForm({ title: "", description: "", assignedToId: currentUser?.id ?? "", priority: "NORMAL", goalHorizon: "WEEKLY", dueDate: "" });
       await load();
     } finally {
       setSaving(false);
@@ -196,6 +224,7 @@ export default function TasksPage() {
       description: task.description ?? "",
       assignedToId: task.assignedTo.id,
       priority: task.priority,
+      goalHorizon: task.goalHorizon,
       dueDate: task.dueDate ? task.dueDate.slice(0, 10) : "",
     });
   }
@@ -209,6 +238,7 @@ export default function TasksPage() {
         description: editForm.description.trim(),
         assignedToId: editForm.assignedToId,
         priority: editForm.priority,
+        goalHorizon: editForm.goalHorizon,
         dueDate: editForm.dueDate,
       } as Partial<Task>);
       setEditingId(null);
@@ -252,6 +282,11 @@ export default function TasksPage() {
                 <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
                   {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
                 </select>
+                <select value={form.goalHorizon} onChange={e => setForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                  {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+              <div>
                 <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
               </div>
               <button onClick={createTask} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
@@ -283,6 +318,25 @@ export default function TasksPage() {
           </div>
 
           <div className="flex min-h-0 flex-col gap-3">
+            <div className="grid flex-none gap-2 md:grid-cols-4">
+              {goalHorizonOrder.map(goalHorizon => (
+                <button
+                  key={goalHorizon}
+                  type="button"
+                  onClick={() => setGoalHorizonFilter(prev => prev === goalHorizon ? "ALL" : goalHorizon)}
+                  className={`rounded-lg border px-3 py-2 text-left transition hover:border-blue-300 hover:shadow-sm ${
+                    goalHorizonFilter === goalHorizon ? "border-blue-500 bg-blue-50 ring-1 ring-blue-200" : "border-slate-200 bg-white"
+                  }`}
+                  title={`Show ${goalHorizonLabels[goalHorizon]} tasks`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-slate-900">{goalHorizonLabels[goalHorizon]}</p>
+                    <span className="text-sm font-bold text-slate-900">{goalHorizonCounts[goalHorizon] ?? 0}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{goalHorizonHelp[goalHorizon]}</p>
+                </button>
+              ))}
+            </div>
             <div className="grid flex-none gap-2 md:grid-cols-4">
               {quadrantOrder.map(priority => (
                 <button
@@ -327,6 +381,11 @@ export default function TasksPage() {
                   Clear {priorityLabels[quadrantFilter]}
                 </button>
               )}
+              {goalHorizonFilter !== "ALL" && (
+                <button onClick={() => setGoalHorizonFilter("ALL")} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                  Clear {goalHorizonLabels[goalHorizonFilter]}
+                </button>
+              )}
             </div>
 
             {loading ? (
@@ -346,9 +405,12 @@ export default function TasksPage() {
                           </select>
                         </div>
                         <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                        <div className="grid gap-2 md:grid-cols-[1fr_160px]">
+                        <div className="grid gap-2 md:grid-cols-[1fr_160px_160px]">
                           <select value={editForm.assignedToId} onChange={e => setEditForm(p => ({ ...p, assignedToId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
                             {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
+                          </select>
+                          <select value={editForm.goalHorizon} onChange={e => setEditForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
+                            {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                           </select>
                           <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none" />
                         </div>
@@ -364,6 +426,7 @@ export default function TasksPage() {
                     ) : (
                       <div className="flex items-center gap-2 min-w-0">
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
+                        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{goalHorizonLabels[task.goalHorizon]}</span>
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-semibold text-slate-900 truncate">{task.title}</span>
                           <span className="ml-2 text-xs text-slate-400 truncate hidden md:inline">

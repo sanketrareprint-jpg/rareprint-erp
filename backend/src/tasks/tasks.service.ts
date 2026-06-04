@@ -1,5 +1,15 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TaskPriority, TaskStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  Prisma,
+  TaskGoalHorizon,
+  TaskPriority,
+  TaskStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 type JwtUser = { id: string; role: string };
@@ -17,6 +27,7 @@ export class TasksService {
       description: true,
       status: true,
       priority: true,
+      goalHorizon: true,
       dueDate: true,
       createdAt: true,
       updatedAt: true,
@@ -26,7 +37,11 @@ export class TasksService {
     } satisfies Prisma.TaskSelect;
   }
 
-  async list(user: JwtUser, view: string, status?: TaskStatus | 'ALL' | 'ACTIVE') {
+  async list(
+    user: JwtUser,
+    view: string,
+    status?: TaskStatus | 'ALL' | 'ACTIVE',
+  ) {
     const where: Prisma.TaskWhereInput = {};
     if (!status || status === 'ACTIVE') {
       where.status = { not: TaskStatus.DONE };
@@ -44,7 +59,11 @@ export class TasksService {
 
     return this.prisma.task.findMany({
       where,
-      orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { priority: 'desc' },
+        { dueDate: 'asc' },
+        { createdAt: 'desc' },
+      ],
       select: this.taskSelect(),
       take: 300,
     });
@@ -58,18 +77,24 @@ export class TasksService {
     });
   }
 
-  async create(createdById: string, body: {
-    title: string;
-    description?: string;
-    assignedToId?: string;
-    dueDate?: string;
-    priority?: TaskPriority;
-  }) {
+  async create(
+    createdById: string,
+    body: {
+      title: string;
+      description?: string;
+      assignedToId?: string;
+      dueDate?: string;
+      priority?: TaskPriority;
+      goalHorizon?: TaskGoalHorizon;
+    },
+  ) {
     const title = body.title?.trim();
     if (!title) throw new BadRequestException('Task title is required');
 
     const assignedToId = body.assignedToId || createdById;
-    const assignee = await this.prisma.user.findFirst({ where: { id: assignedToId, isActive: true } });
+    const assignee = await this.prisma.user.findFirst({
+      where: { id: assignedToId, isActive: true },
+    });
     if (!assignee) throw new BadRequestException('Assigned user not found');
 
     return this.prisma.task.create({
@@ -79,24 +104,36 @@ export class TasksService {
         assignedToId,
         createdById,
         priority: body.priority ?? TaskPriority.NORMAL,
+        goalHorizon: body.goalHorizon ?? TaskGoalHorizon.WEEKLY,
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
       },
       select: this.taskSelect(),
     });
   }
 
-  async update(id: string, user: JwtUser, body: {
-    title?: string;
-    description?: string | null;
-    assignedToId?: string;
-    dueDate?: string | null;
-    priority?: TaskPriority;
-    status?: TaskStatus;
-  }) {
+  async update(
+    id: string,
+    user: JwtUser,
+    body: {
+      title?: string;
+      description?: string | null;
+      assignedToId?: string;
+      dueDate?: string | null;
+      priority?: TaskPriority;
+      goalHorizon?: TaskGoalHorizon;
+      status?: TaskStatus;
+    },
+  ) {
     const task = await this.prisma.task.findUnique({ where: { id } });
     if (!task) throw new NotFoundException('Task not found');
-    if (!ADMIN_ROLES.has(user.role) && task.createdById !== user.id && task.assignedToId !== user.id) {
-      throw new ForbiddenException('You can update only your assigned or created tasks');
+    if (
+      !ADMIN_ROLES.has(user.role) &&
+      task.createdById !== user.id &&
+      task.assignedToId !== user.id
+    ) {
+      throw new ForbiddenException(
+        'You can update only your assigned or created tasks',
+      );
     }
 
     const data: Prisma.TaskUpdateInput = {};
@@ -105,11 +142,16 @@ export class TasksService {
       if (!title) throw new BadRequestException('Task title is required');
       data.title = title;
     }
-    if (body.description !== undefined) data.description = body.description?.trim() || null;
+    if (body.description !== undefined)
+      data.description = body.description?.trim() || null;
     if (body.priority !== undefined) data.priority = body.priority;
-    if (body.dueDate !== undefined) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+    if (body.goalHorizon !== undefined) data.goalHorizon = body.goalHorizon;
+    if (body.dueDate !== undefined)
+      data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
     if (body.assignedToId !== undefined) {
-      const assignee = await this.prisma.user.findFirst({ where: { id: body.assignedToId, isActive: true } });
+      const assignee = await this.prisma.user.findFirst({
+        where: { id: body.assignedToId, isActive: true },
+      });
       if (!assignee) throw new BadRequestException('Assigned user not found');
       data.assignedTo = { connect: { id: body.assignedToId } };
     }

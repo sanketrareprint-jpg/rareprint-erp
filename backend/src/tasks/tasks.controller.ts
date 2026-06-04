@@ -1,6 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { TaskPriority, TaskStatus } from '@prisma/client';
+import { TaskGoalHorizon, TaskPriority, TaskStatus } from '@prisma/client';
 import type { Request } from 'express';
 import { TasksService } from './tasks.service';
 
@@ -28,12 +38,14 @@ export class TasksController {
   @Post()
   create(
     @Req() req: Request & { user: JwtUser },
-    @Body() body: {
+    @Body()
+    body: {
       title: string;
       description?: string;
       assignedToId?: string;
       dueDate?: string;
       priority?: TaskPriority;
+      goalHorizon?: TaskGoalHorizon;
     },
   ) {
     return this.tasksService.create(req.user.id, body);
@@ -43,12 +55,14 @@ export class TasksController {
   update(
     @Param('id') id: string,
     @Req() req: Request & { user: JwtUser },
-    @Body() body: {
+    @Body()
+    body: {
       title?: string;
       description?: string | null;
       assignedToId?: string;
       dueDate?: string | null;
       priority?: TaskPriority;
+      goalHorizon?: TaskGoalHorizon;
       status?: TaskStatus;
     },
   ) {

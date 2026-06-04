@@ -8,36 +8,36 @@ datasource db {
 }
 
 model User {
-  id                String          @id @default(cuid())
-  fullName          String
-  email             String          @unique
-  phone             String?
-  passwordHash      String
-  role              UserRole
-  isActive          Boolean         @default(true)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  commissions       Commission[]    @relation("CommissionSalesAgent")
-  ordersAsAgent     Order[]         @relation("OrderSalesAgent")
-  paymentsReceived  Payment[]       @relation("PaymentReceivedBy")
-  paymentsVerified  Payment[]       @relation("PaymentVerifiedBy")
-  productionJobs    ProductionJob[] @relation("ProductionAssignedTo")
-  shipmentsHandled  Shipment[]      @relation("ShipmentHandledBy")
-  statusLogsCreated StatusLog[]     @relation("StatusChangedBy")
-  itemStageLogs     ItemStageLog[]  @relation("ItemStageChangedBy")
-  tasksCreated      Task[]          @relation("TaskCreatedBy")
-  tasksAssigned     Task[]          @relation("TaskAssignedTo")
-  agentLeads     Lead[]         @relation("AgentLeads")
-  leadActivities LeadActivity[] @relation("ActivityCreator")
+  id                 String                @id @default(cuid())
+  fullName           String
+  email              String                @unique
+  phone              String?
+  passwordHash       String
+  role               UserRole
+  isActive           Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  commissions        Commission[]          @relation("CommissionSalesAgent")
+  ordersAsAgent      Order[]               @relation("OrderSalesAgent")
+  paymentsReceived   Payment[]             @relation("PaymentReceivedBy")
+  paymentsVerified   Payment[]             @relation("PaymentVerifiedBy")
+  productionJobs     ProductionJob[]       @relation("ProductionAssignedTo")
+  shipmentsHandled   Shipment[]            @relation("ShipmentHandledBy")
+  statusLogsCreated  StatusLog[]           @relation("StatusChangedBy")
+  itemStageLogs      ItemStageLog[]        @relation("ItemStageChangedBy")
+  tasksCreated       Task[]                @relation("TaskCreatedBy")
+  tasksAssigned      Task[]                @relation("TaskAssignedTo")
+  agentLeads         Lead[]                @relation("AgentLeads")
+  leadActivities     LeadActivity[]        @relation("ActivityCreator")
   learningProgress   UserTopicProgress[]   @relation("UserLearning")
   quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
   milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
-  learningStreaks     DailyLearningStreak[] @relation("UserStreak")
-  callAnalyses       CallAnalysis[]         @relation("UserCallAnalyses")
-  marketingContacts  MarketingContact[]     @relation("MarketingContactAgent")
-  marketingCampaigns MarketingCampaign[]    @relation("MarketingCampaignCreator")
-  bankImports        BankImportSession[]    @relation("BankImports")
-  bankTxnReconciled  BankTransaction[]      @relation("BankTxnReconciledBy")
+  learningStreaks    DailyLearningStreak[] @relation("UserStreak")
+  callAnalyses       CallAnalysis[]        @relation("UserCallAnalyses")
+  marketingContacts  MarketingContact[]    @relation("MarketingContactAgent")
+  marketingCampaigns MarketingCampaign[]   @relation("MarketingCampaignCreator")
+  bankImports        BankImportSession[]   @relation("BankImports")
+  bankTxnReconciled  BankTransaction[]     @relation("BankTxnReconciledBy")
 }
 
 model Customer {
@@ -79,7 +79,7 @@ model Product {
   categoryId         String
   gsm                Int
   sizeInches         String
-  openSizeInches     String?           // e.g. "4x5" open flat size for sheet calc
+  openSizeInches     String? // e.g. "4x5" open flat size for sheet calc
   printingType       PrintingType
   sides              ProductSides
   weightPerUnitGrams Decimal?          @db.Decimal(10, 3)
@@ -146,21 +146,21 @@ model PaymentAccount {
 
 // ── Vendor model for Clubbing / jobwork ──────────────────────────────────────
 model Vendor {
-  id           String        @id @default(cuid())
-  name         String
-  phone        String?
-  email        String?
-  address      String?
-  gstNumber    String?
-  isActive     Boolean       @default(true)
-  isPress      Boolean       @default(false)  // true = this vendor is a printing press
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  jobWorks     JobWork[]
-  sheetStages  SheetStageVendor[]
-  paperPurchaseItems PaperPurchaseItem[]  @relation("PaperItemPress")
-  paperInventory     PaperInventory[]    @relation("PressInventory")
-  paperTransactions  PaperTransaction[]  @relation("PressTransactions")
+  id                  String               @id @default(cuid())
+  name                String
+  phone               String?
+  email               String?
+  address             String?
+  gstNumber           String?
+  isActive            Boolean              @default(true)
+  isPress             Boolean              @default(false) // true = this vendor is a printing press
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  jobWorks            JobWork[]
+  sheetStages         SheetStageVendor[]
+  paperPurchaseItems  PaperPurchaseItem[]  @relation("PaperItemPress")
+  paperInventory      PaperInventory[]     @relation("PressInventory")
+  paperTransactions   PaperTransaction[]   @relation("PressTransactions")
   paperPurchaseOrders PaperPurchaseOrder[] @relation("POSupplier")
   bankTransactions    BankTransaction[]    @relation("BankTxnVendor")
   vendorKeywords      VendorKeyword[]      @relation("VendorKeywords")
@@ -168,41 +168,41 @@ model Vendor {
 
 // ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
 model JobWork {
-  id            String      @id @default(cuid())
-  orderItemId   String
-  vendorId      String
-  description   String
-  cost          Decimal     @db.Decimal(12, 2)
+  id              String        @id @default(cuid())
+  orderItemId     String
+  vendorId        String
+  description     String
+  cost            Decimal       @db.Decimal(12, 2)
   vendorInvoiceNo String?
-  status        JobWorkStatus @default(PENDING)
-  isPaid        Boolean     @default(false)
-  paidAt        DateTime?
-  completedAt   DateTime?
-  dueDate       DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  orderItem     OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  vendor        Vendor      @relation(fields: [vendorId], references: [id])
+  status          JobWorkStatus @default(PENDING)
+  isPaid          Boolean       @default(false)
+  paidAt          DateTime?
+  completedAt     DateTime?
+  dueDate         DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  vendor          Vendor        @relation(fields: [vendorId], references: [id])
 }
 
 // ── PrintSheet: Sheet Production ────────────────────────────────────────────
 model PrintSheet {
-  id            String          @id @default(cuid())
-  sheetNo       String          @unique  // auto-generated e.g. SHT-2024-001
+  id                    String             @id @default(cuid())
+  sheetNo               String             @unique // auto-generated e.g. SHT-2024-001
   gsm                   Int
   quality               SheetQuality
   quantity              Int
   actualPrintedQuantity Int?
-  sizeInches            String          // e.g. "18x23"
-  areaSqInches  Float           // computed: width * height
-  printing      ProductSides
-  status        SheetStatus     @default(INCOMPLETE)
-  usedAreaSqInches Float        @default(0)
-  createdBySource String        @default("MANUAL")
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  items         PrintSheetItem[]
-  stageVendors  SheetStageVendor[]
+  sizeInches            String // e.g. "18x23"
+  areaSqInches          Float // computed: width * height
+  printing              ProductSides
+  status                SheetStatus        @default(INCOMPLETE)
+  usedAreaSqInches      Float              @default(0)
+  createdBySource       String             @default("MANUAL")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  items                 PrintSheetItem[]
+  stageVendors          SheetStageVendor[]
 
   @@index([status, updatedAt])
   @@index([gsm, status])
@@ -210,19 +210,19 @@ model PrintSheet {
 
 // ── Items placed on a sheet ──────────────────────────────────────────────────
 model PrintSheetItem {
-  id            String     @id @default(cuid())
-  sheetId       String
-  orderItemId   String
-  productId     String
-  multiple      Int        // how many times this item fits on sheet
-  quantityOnSheet Int      // quantity covered by this sheet placement
-  areaSqInches  Float      // open size area * multiple
-  dueDate              DateTime?       
-  processingVendorName String?        
-  createdAt     DateTime   @default(now())
-  sheet         PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
-  orderItem     OrderItem  @relation(fields: [orderItemId], references: [id])
-  product       Product    @relation(fields: [productId], references: [id])
+  id                   String     @id @default(cuid())
+  sheetId              String
+  orderItemId          String
+  productId            String
+  multiple             Int // how many times this item fits on sheet
+  quantityOnSheet      Int // quantity covered by this sheet placement
+  areaSqInches         Float // open size area * multiple
+  dueDate              DateTime?
+  processingVendorName String?
+  createdAt            DateTime   @default(now())
+  sheet                PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  orderItem            OrderItem  @relation(fields: [orderItemId], references: [id])
+  product              Product    @relation(fields: [productId], references: [id])
 
   @@index([sheetId])
   @@index([orderItemId])
@@ -231,31 +231,31 @@ model PrintSheetItem {
 
 // ── Stage-wise vendors for sheet production ──────────────────────────────────
 model SheetStageVendor {
-  id            String      @id @default(cuid())
-  sheetId       String
-  stage         SheetProductionStage
-  vendorId      String
-  description   String?
-  cost          Decimal     @db.Decimal(12, 2)
+  id              String               @id @default(cuid())
+  sheetId         String
+  stage           SheetProductionStage
+  vendorId        String
+  description     String?
+  cost            Decimal              @db.Decimal(12, 2)
   vendorInvoiceNo String?
-  isPaid        Boolean     @default(false)
-  paidAt        DateTime?
-  createdAt     DateTime    @default(now())
-  sheet         PrintSheet  @relation(fields: [sheetId], references: [id], onDelete: Cascade)
-  vendor        Vendor      @relation(fields: [vendorId], references: [id])
+  isPaid          Boolean              @default(false)
+  paidAt          DateTime?
+  createdAt       DateTime             @default(now())
+  sheet           PrintSheet           @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  vendor          Vendor               @relation(fields: [vendorId], references: [id])
 }
 
 // ── ItemStageLog: full history of each item's stage changes ─────────────────
 model ItemStageLog {
-  id          String               @id @default(cuid())
+  id          String                @id @default(cuid())
   orderItemId String
   fromStage   OrderProductionStage?
   toStage     OrderProductionStage
   changedById String?
   note        String?
-  createdAt   DateTime             @default(now())
-  orderItem   OrderItem            @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  changedBy   User?                @relation("ItemStageChangedBy", fields: [changedById], references: [id])
+  createdAt   DateTime              @default(now())
+  orderItem   OrderItem             @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  changedBy   User?                 @relation("ItemStageChangedBy", fields: [changedById], references: [id])
 
   @@index([orderItemId, createdAt])
 }
@@ -278,29 +278,29 @@ model Godown {
 }
 
 model Order {
-  id               String               @id @default(cuid())
-  orderNumber      String               @unique
+  id               String                @id @default(cuid())
+  orderNumber      String                @unique
   customerId       String
   salesAgentId     String?
-  orderDate        DateTime             @default(now())
+  orderDate        DateTime              @default(now())
   expectedDelivery DateTime?
-  status           OrderStatus          @default(DRAFT)
-  paymentStatus    PaymentStatus        @default(PENDING)
-  subtotal         Decimal              @db.Decimal(14, 2)
-  discount         Decimal              @default(0) @db.Decimal(14, 2)
-  taxAmount        Decimal              @default(0) @db.Decimal(14, 2)
-  shippingCharge   Decimal              @default(0) @db.Decimal(14, 2)
-  grandTotal       Decimal              @db.Decimal(14, 2)
+  status           OrderStatus           @default(DRAFT)
+  paymentStatus    PaymentStatus         @default(PENDING)
+  subtotal         Decimal               @db.Decimal(14, 2)
+  discount         Decimal               @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal               @default(0) @db.Decimal(14, 2)
+  shippingCharge   Decimal               @default(0) @db.Decimal(14, 2)
+  grandTotal       Decimal               @db.Decimal(14, 2)
   notes            String?
-  leadSource       String?              // e.g. "WALK_IN", "FB_AD_Jan_2025"
-  isTest           Boolean              @default(false)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  productionStage  OrderProductionStage @default(NOT_PRINTED)
+  leadSource       String? // e.g. "WALK_IN", "FB_AD_Jan_2025"
+  isTest           Boolean               @default(false)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  productionStage  OrderProductionStage  @default(NOT_PRINTED)
   commissions      Commission[]
   invoice          Invoice?
-  customer         Customer             @relation(fields: [customerId], references: [id])
-  salesAgent       User?                @relation("OrderSalesAgent", fields: [salesAgentId], references: [id])
+  customer         Customer              @relation(fields: [customerId], references: [id])
+  salesAgent       User?                 @relation("OrderSalesAgent", fields: [salesAgentId], references: [id])
   items            OrderItem[]
   payments         Payment[]
   productionJobs   ProductionJob[]
@@ -328,7 +328,7 @@ model OrderItem {
   artworkNotes        String?
   productionNotes     String?
   designFiles         Json                 @default("[]")
-  productionCategory  ProductionCategory?  // INHOUSE | CLUBBING | SHEET_PRODUCTION
+  productionCategory  ProductionCategory? // INHOUSE | CLUBBING | SHEET_PRODUCTION
   itemProductionStage OrderProductionStage @default(NOT_PRINTED)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -344,26 +344,26 @@ model OrderItem {
 }
 
 model Payment {
-  id               String         @id @default(cuid())
-  orderId          String
-  paymentAccountId String
-  receivedById     String?
-  paymentDate      DateTime       @default(now())
-  amount           Decimal        @db.Decimal(14, 2)
-  method           PaymentMethod
-  referenceNumber  String?
-  notes            String?
+  id                 String                    @id @default(cuid())
+  orderId            String
+  paymentAccountId   String
+  receivedById       String?
+  paymentDate        DateTime                  @default(now())
+  amount             Decimal                   @db.Decimal(14, 2)
+  method             PaymentMethod
+  referenceNumber    String?
+  notes              String?
   verificationStatus PaymentVerificationStatus @default(PENDING_VERIFICATION)
-  verifiedById     String?
-  verifiedAt       DateTime?
-  rejectionReason  String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  verifiedBy       User?          @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
-  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id])
-  receivedBy       User?          @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
-  bankTransactions BankTransaction[] @relation("BankTxnPayment")
+  verifiedById       String?
+  verifiedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  verifiedBy         User?                     @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
+  order              Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAccount     PaymentAccount            @relation(fields: [paymentAccountId], references: [id])
+  receivedBy         User?                     @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  bankTransactions   BankTransaction[]         @relation("BankTxnPayment")
 
   @@index([orderId, verificationStatus])
   @@index([paymentDate])
@@ -422,33 +422,33 @@ model ProductionJob {
 }
 
 model Shipment {
-  id               String         @id @default(cuid())
-  orderId          String
-  godownId         String?
-  handledById      String?
-  shipmentNumber   String         @unique
-  dispatchDate     DateTime?
-  expectedDelivery DateTime?
-  deliveredAt      DateTime?
-  carrierName      String?
-  vehicleNumber    String?
-  trackingNumber   String?
-  status           ShipmentStatus @default(PENDING)
-  notes            String?
-  dispatchType     String?
-  transportName    String?
-  lrNumber         String?
+  id                   String         @id @default(cuid())
+  orderId              String
+  godownId             String?
+  handledById          String?
+  shipmentNumber       String         @unique
+  dispatchDate         DateTime?
+  expectedDelivery     DateTime?
+  deliveredAt          DateTime?
+  carrierName          String?
+  vehicleNumber        String?
+  trackingNumber       String?
+  status               ShipmentStatus @default(PENDING)
+  notes                String?
+  dispatchType         String?
+  transportName        String?
+  lrNumber             String?
   transportChargesType String?
-  transportBy      String?
-  awbNumber        String?
-  deliveryBoyName  String?
-  collectedByName  String?
-  collectedByPhone String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  godown           Godown?        @relation(fields: [godownId], references: [id])
-  handledBy        User?          @relation("ShipmentHandledBy", fields: [handledById], references: [id])
-  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  transportBy          String?
+  awbNumber            String?
+  deliveryBoyName      String?
+  collectedByName      String?
+  collectedByPhone     String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  godown               Godown?        @relation(fields: [godownId], references: [id])
+  handledBy            User?          @relation("ShipmentHandledBy", fields: [handledById], references: [id])
+  order                Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model StatusLog {
@@ -619,7 +619,6 @@ enum SheetProductionStage {
   EXTRA_PROCESSING
 }
 
-
 enum LeadStatus {
   NEW
   CONTACTED
@@ -724,58 +723,58 @@ enum DifficultyLevel {
 }
 
 model SalesTopic {
-  id              String          @id @default(cuid())
-  orderIndex      Int             @unique  // 1, 2, 3... controls unlock order
-  groupNumber     Int             // every 5 topics = 1 milestone group (1,1,1,1,1, 2,2,2,2,2...)
-  titleEn         String
-  titleHi         String
-  sourceBook      String          // e.g. "SPIN Selling by Neil Rackham"
-  contentEn       String          @db.Text  // full topic explanation in English
-  contentHi       String          @db.Text  // full topic explanation in Hindi
-  scriptEn        String          @db.Text  // medicine pouch sales script EN
-  scriptHi        String          @db.Text  // medicine pouch sales script HI
-  keyPoints       String[]        // bullet points for quick recap
-  difficulty      DifficultyLevel @default(BEGINNER)
-  estimatedMins   Int             @default(10)
-  isActive        Boolean         @default(true)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id            String          @id @default(cuid())
+  orderIndex    Int             @unique // 1, 2, 3... controls unlock order
+  groupNumber   Int // every 5 topics = 1 milestone group (1,1,1,1,1, 2,2,2,2,2...)
+  titleEn       String
+  titleHi       String
+  sourceBook    String // e.g. "SPIN Selling by Neil Rackham"
+  contentEn     String          @db.Text // full topic explanation in English
+  contentHi     String          @db.Text // full topic explanation in Hindi
+  scriptEn      String          @db.Text // medicine pouch sales script EN
+  scriptHi      String          @db.Text // medicine pouch sales script HI
+  keyPoints     String[] // bullet points for quick recap
+  difficulty    DifficultyLevel @default(BEGINNER)
+  estimatedMins Int             @default(10)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
-  questions       TopicQuestion[]
-  userProgress    UserTopicProgress[]
-  quizAttempts    QuizAttempt[]
+  questions    TopicQuestion[]
+  userProgress UserTopicProgress[]
+  quizAttempts QuizAttempt[]
 }
 
 model TopicQuestion {
-  id            String      @id @default(cuid())
+  id            String     @id @default(cuid())
   topicId       String
-  topic         SalesTopic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topic         SalesTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
   questionEn    String
   questionHi    String
-  options       Json        // { en: [opt1,opt2,opt3,opt4], hi: [opt1,opt2,opt3,opt4] }
-  correctIndex  Int         // 0-3
-  explanationEn String?     // shown after answering
+  options       Json // { en: [opt1,opt2,opt3,opt4], hi: [opt1,opt2,opt3,opt4] }
+  correctIndex  Int // 0-3
+  explanationEn String? // shown after answering
   explanationHi String?
-  orderIndex    Int         @default(0)
-  createdAt     DateTime    @default(now())
+  orderIndex    Int        @default(0)
+  createdAt     DateTime   @default(now())
 }
 
 model UserTopicProgress {
-  id              String      @id @default(cuid())
-  userId          String
-  user            User        @relation("UserLearning", fields: [userId], references: [id])
-  topicId         String
-  topic           SalesTopic  @relation(fields: [topicId], references: [id])
-  topicRead       Boolean     @default(false)
-  topicReadAt     DateTime?
-  quizPassed      Boolean     @default(false)
-  quizPassedAt    DateTime?
-  quizAttempts    Int         @default(0)
-  bestScore       Int         @default(0)  // out of 5
-  isUnlocked      Boolean     @default(false)
-  completedAt     DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation("UserLearning", fields: [userId], references: [id])
+  topicId      String
+  topic        SalesTopic @relation(fields: [topicId], references: [id])
+  topicRead    Boolean    @default(false)
+  topicReadAt  DateTime?
+  quizPassed   Boolean    @default(false)
+  quizPassedAt DateTime?
+  quizAttempts Int        @default(0)
+  bestScore    Int        @default(0) // out of 5
+  isUnlocked   Boolean    @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@unique([userId, topicId])
   @@index([userId])
@@ -783,30 +782,30 @@ model UserTopicProgress {
 }
 
 model QuizAttempt {
-  id            String      @id @default(cuid())
+  id            String     @id @default(cuid())
   userId        String
-  user          User        @relation("UserQuizAttempts", fields: [userId], references: [id])
+  user          User       @relation("UserQuizAttempts", fields: [userId], references: [id])
   topicId       String
-  topic         SalesTopic  @relation(fields: [topicId], references: [id])
-  answers       Int[]       // index of chosen answers per question
-  score         Int         // 0-5
+  topic         SalesTopic @relation(fields: [topicId], references: [id])
+  answers       Int[] // index of chosen answers per question
+  score         Int // 0-5
   passed        Boolean
   timeTakenSecs Int?
-  attemptedAt   DateTime    @default(now())
+  attemptedAt   DateTime   @default(now())
 
   @@index([userId, topicId])
 }
 
 model MilestoneTest {
-  id            String              @id @default(cuid())
-  groupNumber   Int                 @unique  // matches SalesTopic.groupNumber
-  titleEn       String
-  titleHi       String
-  totalMarks    Int                 @default(200)  // 10 questions × 20 marks
-  isActive      Boolean             @default(true)
-  createdAt     DateTime            @default(now())
-  questions     MilestoneQuestion[]
-  attempts      MilestoneAttempt[]
+  id          String              @id @default(cuid())
+  groupNumber Int                 @unique // matches SalesTopic.groupNumber
+  titleEn     String
+  titleHi     String
+  totalMarks  Int                 @default(200) // 10 questions × 20 marks
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  questions   MilestoneQuestion[]
+  attempts    MilestoneAttempt[]
 }
 
 model MilestoneQuestion {
@@ -815,11 +814,11 @@ model MilestoneQuestion {
   test          MilestoneTest @relation(fields: [testId], references: [id], onDelete: Cascade)
   questionEn    String
   questionHi    String
-  options       Json          // { en: [...], hi: [...] }
+  options       Json // { en: [...], hi: [...] }
   correctIndex  Int
   marksPerQ     Int           @default(20)
   orderIndex    Int           @default(0)
-  sourceTopicId String?       // which topic this came from
+  sourceTopicId String? // which topic this came from
   createdAt     DateTime      @default(now())
 }
 
@@ -830,9 +829,9 @@ model MilestoneAttempt {
   testId        String
   test          MilestoneTest @relation(fields: [testId], references: [id])
   answers       Int[]
-  score         Int           // 0-200
+  score         Int // 0-200
   percentage    Float
-  passed        Boolean       // >= 60% to pass
+  passed        Boolean // >= 60% to pass
   timeTakenSecs Int?
   attemptedAt   DateTime      @default(now())
 
@@ -840,35 +839,37 @@ model MilestoneAttempt {
 }
 
 model DailyLearningStreak {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation("UserStreak", fields: [userId], references: [id])
-  date        DateTime  @db.Date
-  topicsRead  Int       @default(0)
-  quizzesDone Int       @default(0)
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation("UserStreak", fields: [userId], references: [id])
+  date         DateTime @db.Date
+  topicsRead   Int      @default(0)
+  quizzesDone  Int      @default(0)
   pointsEarned Int      @default(0)
-  createdAt   DateTime  @default(now())
+  createdAt    DateTime @default(now())
 
   @@unique([userId, date])
   @@index([userId])
 }
 
 model Task {
-  id           String      @id @default(cuid())
+  id           String          @id @default(cuid())
   title        String
   description  String?
-  status       TaskStatus  @default(OPEN)
-  priority     TaskPriority @default(NORMAL)
+  status       TaskStatus      @default(OPEN)
+  priority     TaskPriority    @default(NORMAL)
+  goalHorizon  TaskGoalHorizon @default(WEEKLY)
   dueDate      DateTime?
   createdById  String
   assignedToId String
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
   completedAt  DateTime?
-  createdBy    User        @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  assignedTo   User        @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+  createdBy    User            @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User            @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
 
   @@index([assignedToId, status, dueDate])
+  @@index([assignedToId, goalHorizon, status])
   @@index([createdById, createdAt])
   @@index([status, dueDate])
 }
@@ -887,28 +888,35 @@ enum TaskPriority {
   URGENT
 }
 
+enum TaskGoalHorizon {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
 model CallAnalysis {
-  id                 String   @id @default(cuid())
-  agentId            String
-  agent              User     @relation("UserCallAnalyses", fields: [agentId], references: [id])
-  agentName          String
-  customerName       String
-  callType           String
-  duration           String?
-  overallScore       Int
-  grade              String
-  sentiment          String?
-  language           String?
-  transcript         String?  @db.Text
-  transcriptSummary  String?  @db.Text
-  strengthsList      Json
-  improvementsList   Json
-  categoryScores     Json
-  coachFeedback      String?  @db.Text
-  actionItems        Json
-  hasRealTranscript  Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String   @id @default(cuid())
+  agentId           String
+  agent             User     @relation("UserCallAnalyses", fields: [agentId], references: [id])
+  agentName         String
+  customerName      String
+  callType          String
+  duration          String?
+  overallScore      Int
+  grade             String
+  sentiment         String?
+  language          String?
+  transcript        String?  @db.Text
+  transcriptSummary String?  @db.Text
+  strengthsList     Json
+  improvementsList  Json
+  categoryScores    Json
+  coachFeedback     String?  @db.Text
+  actionItems       Json
+  hasRealTranscript Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([agentId])
   @@index([createdAt])
@@ -931,7 +939,7 @@ model SystemConfig {
 // ── Rate Calculator: Quote History ───────────────────────────────────────────
 model QuoteHistory {
   id          String   @id @default(cuid())
-  calcType    String   // "forward" | "reverse" | "sticker"
+  calcType    String // "forward" | "reverse" | "sticker"
   customer    String?
   job         String?
   product     String?
@@ -941,7 +949,7 @@ model QuoteHistory {
   total       Float
   perPiece    Float?
   multiplier  Float    @default(1.67)
-  inputParams Json     // full input DTO for reference
+  inputParams Json // full input DTO for reference
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
@@ -1009,10 +1017,10 @@ model Notification {
 /// A paper purchase order — can be created from an uploaded invoice image (AI-extracted)
 model PaperPurchaseOrder {
   id               String              @id @default(cuid())
-  poNumber         String              @unique   // auto e.g. PPO-2025-001
-  invoiceNumber    String?             // read from invoice image
-  invoiceImagePath String?             // stored file path
-  supplierId       String?             // optional paper supplier (Vendor)
+  poNumber         String              @unique // auto e.g. PPO-2025-001
+  invoiceNumber    String? // read from invoice image
+  invoiceImagePath String? // stored file path
+  supplierId       String? // optional paper supplier (Vendor)
   status           PaperPOStatus       @default(DRAFT)
   notes            String?
   createdAt        DateTime            @default(now())
@@ -1025,15 +1033,15 @@ model PaperPurchaseOrder {
 model PaperPurchaseItem {
   id            String             @id @default(cuid())
   poId          String
-  paperName     String             // e.g. "Maplitho 70 GSM 18x23"
+  paperName     String // e.g. "Maplitho 70 GSM 18x23"
   gsm           Int
   quality       SheetQuality
   sizeInches    String?
-  unit          PaperUnit          // REAM or PACKET
-  unitQuantity  Float              // number of reams or packets purchased
-  sheetsPerUnit Int                // 500 for REAM; user-entered for PACKET (100/125/250)
-  totalSheets   Int                // computed: unitQuantity * sheetsPerUnit
-  pressId       String             // which press this paper is allocated to
+  unit          PaperUnit // REAM or PACKET
+  unitQuantity  Float // number of reams or packets purchased
+  sheetsPerUnit Int // 500 for REAM; user-entered for PACKET (100/125/250)
+  totalSheets   Int // computed: unitQuantity * sheetsPerUnit
+  pressId       String // which press this paper is allocated to
   createdAt     DateTime           @default(now())
   po            PaperPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
   press         Vendor             @relation("PaperItemPress", fields: [pressId], references: [id])
@@ -1049,7 +1057,7 @@ model PaperInventory {
   pressId       String
   gsm           Int
   quality       SheetQuality
-  balanceSheets Int          @default(0)  // always in individual sheet count
+  balanceSheets Int          @default(0) // always in individual sheet count
   updatedAt     DateTime     @updatedAt
   press         Vendor       @relation("PressInventory", fields: [pressId], references: [id])
 
@@ -1059,20 +1067,20 @@ model PaperInventory {
 
 /// Full ledger of all paper movements (purchases IN, printing deductions OUT)
 model PaperTransaction {
-  id               String               @id @default(cuid())
-  pressId          String
-  gsm              Int
-  quality          SheetQuality
-  transactionType  PaperTransactionType
-  sheets           Int                  // positive = IN (purchase), negative = OUT (consumed)
-  balanceAfter     Int                  // snapshot of balance after this transaction
-  referenceId      String?              // sheetId or poItemId
-  referenceType    String?              // 'PURCHASE' | 'PRINT_SHEET'
-  notes            String?
-  purchaseItemId   String?
-  createdAt        DateTime             @default(now())
-  purchaseItem     PaperPurchaseItem?   @relation(fields: [purchaseItemId], references: [id])
-  press            Vendor               @relation("PressTransactions", fields: [pressId], references: [id])
+  id              String               @id @default(cuid())
+  pressId         String
+  gsm             Int
+  quality         SheetQuality
+  transactionType PaperTransactionType
+  sheets          Int // positive = IN (purchase), negative = OUT (consumed)
+  balanceAfter    Int // snapshot of balance after this transaction
+  referenceId     String? // sheetId or poItemId
+  referenceType   String? // 'PURCHASE' | 'PRINT_SHEET'
+  notes           String?
+  purchaseItemId  String?
+  createdAt       DateTime             @default(now())
+  purchaseItem    PaperPurchaseItem?   @relation(fields: [purchaseItemId], references: [id])
+  press           Vendor               @relation("PressTransactions", fields: [pressId], references: [id])
 
   @@index([pressId, gsm, quality, createdAt])
   @@index([referenceId])
@@ -1163,18 +1171,18 @@ model MarketingContact {
 }
 
 model MarketingTemplate {
-  id                  String                @id @default(cuid())
+  id                  String                  @id @default(cuid())
   name                String
   aisensyCampaignName String
-  templateType        MarketingTemplateType @default(TEXT)
-  language            String                @default("en")
+  templateType        MarketingTemplateType   @default(TEXT)
+  language            String                  @default("en")
   body                String
   mediaUrl            String?
-  variables           Json                  @default("[]")
-  ctaButtons          Json                  @default("[]")
-  isActive            Boolean               @default(true)
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  variables           Json                    @default("[]")
+  ctaButtons          Json                    @default("[]")
+  isActive            Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
   campaignSteps       MarketingCampaignStep[]
 
   @@index([isActive, language])
@@ -1190,58 +1198,58 @@ model MarketingSegment {
 }
 
 model MarketingCampaign {
-  id             String                  @id @default(cuid())
-  name           String
-  status         MarketingCampaignStatus @default(DRAFT)
-  segmentId      String?
-  dailyLimit     Int                     @default(10000)
-  cooldownDays   Int                     @default(30)
-  priority       Int                     @default(0)
-  startsAt       DateTime?
-  endsAt         DateTime?
-  lastRotatedAt  DateTime?
-  createdById    String?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  createdBy      User?                   @relation("MarketingCampaignCreator", fields: [createdById], references: [id])
-  steps          MarketingCampaignStep[]
-  jobs           MarketingBroadcastJob[]
-  events         MarketingMessageEvent[]
+  id            String                  @id @default(cuid())
+  name          String
+  status        MarketingCampaignStatus @default(DRAFT)
+  segmentId     String?
+  dailyLimit    Int                     @default(10000)
+  cooldownDays  Int                     @default(30)
+  priority      Int                     @default(0)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  lastRotatedAt DateTime?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  createdBy     User?                   @relation("MarketingCampaignCreator", fields: [createdById], references: [id])
+  steps         MarketingCampaignStep[]
+  jobs          MarketingBroadcastJob[]
+  events        MarketingMessageEvent[]
 
   @@index([status, startsAt, priority])
 }
 
 model MarketingCampaignStep {
-  id          String            @id @default(cuid())
-  campaignId  String
-  templateId  String
-  stepOrder   Int
-  delayHours  Int               @default(0)
-  filters     Json              @default("{}")
-  campaign    MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  template    MarketingTemplate @relation(fields: [templateId], references: [id])
-  jobs        MarketingBroadcastJob[]
+  id         String                  @id @default(cuid())
+  campaignId String
+  templateId String
+  stepOrder  Int
+  delayHours Int                     @default(0)
+  filters    Json                    @default("{}")
+  campaign   MarketingCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  template   MarketingTemplate       @relation(fields: [templateId], references: [id])
+  jobs       MarketingBroadcastJob[]
 
   @@unique([campaignId, stepOrder])
   @@index([campaignId])
 }
 
 model MarketingBroadcastJob {
-  id                String             @id @default(cuid())
+  id                String                @id @default(cuid())
   campaignId        String
   stepId            String
   contactId         String
-  status            MarketingJobStatus @default(QUEUED)
-  scheduledAt       DateTime           @default(now())
+  status            MarketingJobStatus    @default(QUEUED)
+  scheduledAt       DateTime              @default(now())
   sentAt            DateTime?
   providerMessageId String?
-  retryCount        Int                @default(0)
+  retryCount        Int                   @default(0)
   errorMessage      String?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  campaign          MarketingCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  campaign          MarketingCampaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   step              MarketingCampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  contact           MarketingContact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact           MarketingContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, stepId, contactId])
   @@index([status, scheduledAt])
@@ -1264,32 +1272,31 @@ model MarketingMessageEvent {
   @@index([providerMessageId])
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════
 // BANK STATEMENT MODULE
 // ══════════════════════════════════════════════════════════════════════════════
 
 model BankImportSession {
-  id              String             @id @default(cuid())
+  id              String            @id @default(cuid())
   accountNumber   String
   fileName        String
   importedById    String
-  rowsFound       Int                @default(0)
-  rowsImported    Int                @default(0)
-  rowsSkipped     Int                @default(0)
+  rowsFound       Int               @default(0)
+  rowsImported    Int               @default(0)
+  rowsSkipped     Int               @default(0)
   lastSrlImported Int?
-  lastBalance     Decimal?           @db.Decimal(14, 2)
-  status          BankImportStatus   @default(PROCESSING)
+  lastBalance     Decimal?          @db.Decimal(14, 2)
+  status          BankImportStatus  @default(PROCESSING)
   errorMessage    String?
-  createdAt       DateTime           @default(now())
-  importedBy      User               @relation("BankImports", fields: [importedById], references: [id])
+  createdAt       DateTime          @default(now())
+  importedBy      User              @relation("BankImports", fields: [importedById], references: [id])
   transactions    BankTransaction[]
 
   @@index([accountNumber, createdAt])
 }
 
 model BankTransaction {
-  id                String               @id @default(cuid())
+  id                String              @id @default(cuid())
   sessionId         String
   accountNumber     String
   srl               Int
@@ -1299,22 +1306,22 @@ model BankTransaction {
   description       String
   chequeNo          String?
   crDr              BankTxnType
-  amount            Decimal              @db.Decimal(14, 2)
-  balance           Decimal              @db.Decimal(14, 2)
-  reconcileStatus   BankReconcileStatus  @default(UNMATCHED)
+  amount            Decimal             @db.Decimal(14, 2)
+  balance           Decimal             @db.Decimal(14, 2)
+  reconcileStatus   BankReconcileStatus @default(UNMATCHED)
   matchedPaymentId  String?
   matchedVendorId   String?
   expenseCategoryId String?
   reviewNote        String?
   reconciledAt      DateTime?
   reconciledById    String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  session           BankImportSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  matchedPayment    Payment?             @relation("BankTxnPayment", fields: [matchedPaymentId], references: [id])
-  matchedVendor     Vendor?              @relation("BankTxnVendor", fields: [matchedVendorId], references: [id])
-  expenseCategory   ExpenseCategory?     @relation(fields: [expenseCategoryId], references: [id])
-  reconciledBy      User?                @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           BankImportSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matchedPayment    Payment?            @relation("BankTxnPayment", fields: [matchedPaymentId], references: [id])
+  matchedVendor     Vendor?             @relation("BankTxnVendor", fields: [matchedVendorId], references: [id])
+  expenseCategory   ExpenseCategory?    @relation(fields: [expenseCategoryId], references: [id])
+  reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
 
   @@unique([accountNumber, txnDate, srl])
   @@index([accountNumber, txnDate])
