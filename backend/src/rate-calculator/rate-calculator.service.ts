@@ -72,6 +72,15 @@ const DEFAULT_RATES: any = {
       'double-double-350': { 1000: 18.18, 2000: 15.36, 3000: 14.29, 4000: 13.65, 5000: 12.99, 6000: 12.82, 7000: 12.69, 8000: 12.20, 9000: 12.13, 10000: 12.07 },
     },
   },
+  diagnosticBags: {
+    gstPct: 18,
+    multiplier: 1.67,
+    tiers: [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000],
+    baseCosts: {
+      small: { 1000: 10.65, 2000: 9.4, 3000: 8.9833, 4000: 8.775, 5000: 8.65, 6000: 8.5666, 7000: 8.50714, 8000: 8.4625, 9000: 8.42777, 10000: 8.4 },
+      big: { 1000: 19, 2000: 16.5, 3000: 15.666, 4000: 15.25, 5000: 15, 6000: 14.833, 7000: 14.7142, 8000: 14.625, 9000: 14.5555, 10000: 14.5 },
+    },
+  },
   multiplier: 1.67,
 };
 
@@ -258,6 +267,15 @@ export class RateCalculatorService {
     return { rate, tier, key };
   }
 
+  private getDiagnosticBagBaseRate(rates: any, bagSize: string, qty: number): { rate: number; tier: number; key: string } {
+    const bag = rates.diagnosticBags ?? DEFAULT_RATES.diagnosticBags;
+    const tiers = (bag.tiers ?? DEFAULT_RATES.diagnosticBags.tiers).map(Number).sort((a: number, b: number) => b - a);
+    const tier = tiers.find((t: number) => qty >= t) ?? tiers[tiers.length - 1] ?? 1000;
+    const key = bagSize === 'big' ? 'big' : 'small';
+    const rate = bag.baseCosts?.[key]?.[tier] ?? DEFAULT_RATES.diagnosticBags.baseCosts[key]?.[tier] ?? 0;
+    return { rate, tier, key };
+  }
+
   // ── Clubbing vendor cost lookup ──────────────────────────────────────────
   private getClubbingCost(clubbing: any, fsize: string, sides: string, qty: number): number | null {
     const sizeRates = clubbing?.rates?.[fsize];
@@ -370,6 +388,33 @@ export class RateCalculatorService {
         perPiece: fileQty > 0 ? total / fileQty : 0,
         totalPieces: fileQty,
         description: `${fileQty.toLocaleString()} PP files | ${micron} micron | ${printSide === 'double' ? 'double side' : 'single side'} | ${creasing === 'double' ? 'double creasing' : 'single creasing'} | ${clipSelected ? 'clip' : 'no clip'} | ${pocketSides === 0 ? 'no pocket' : pocketSides + ' side pocket'}`,
+        multiplier,
+        customer,
+      };
+    }
+
+    if (product === 'diagnosticbag') {
+      const bag = rates.diagnosticBags ?? DEFAULT_RATES.diagnosticBags;
+      const bagQty = Number(qty ?? 0);
+      const { rate: baseRate, tier, key } = this.getDiagnosticBagBaseRate(rates, dto.bagSize, bagQty);
+      const baseCost = baseRate * bagQty;
+      const gstPct = Number(bag.gstPct ?? DEFAULT_RATES.diagnosticBags.gstPct);
+      const gstAmount = baseCost * gstPct / 100;
+      const subtotal = baseCost + gstAmount;
+      const multiplier = dtoMult ?? bag.multiplier ?? DEFAULT_RATES.diagnosticBags.multiplier;
+      const total = subtotal * multiplier;
+      const bagLabel = key === 'big' ? 'CT Scan Bag (16x21 inch)' : 'X-ray Bag (10.5x16 inch)';
+      const breakdown: any[] = [
+        { label: `${bagLabel} Base (tier ${tier}, Rs.${baseRate}/bag)`, amount: baseCost },
+        { label: `GST (${gstPct}%)`, amount: gstAmount },
+      ];
+      return {
+        breakdown,
+        subtotal,
+        total,
+        perPiece: bagQty > 0 ? total / bagQty : 0,
+        totalPieces: bagQty,
+        description: `${bagQty.toLocaleString()} ${bagLabel}s | tier ${tier}`,
         multiplier,
         customer,
       };

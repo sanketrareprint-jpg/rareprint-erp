@@ -81,6 +81,8 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
                 } },
   ppfile:     { label: "PP Files with Punching",
                 fixedInfo: "PP file pricing uses quantity tiers, GST, clip and pocket options." },
+  diagnosticbag: { label: "X-ray / CT Scan Bags",
+                fixedInfo: "Small = X-ray bag 10.5x16 inch. Big = CT scan bag 16x21 inch." },
   file:       { label: "Files with Punching",
                 fixedSize: "file", fixedParent: "1925",
                 fixedInfo: "Fixed: 12×18 inch size | 19×25\" parent sheet | 2 per sheet" },
@@ -568,6 +570,7 @@ export default function RateCalculatorPage() {
   const [rPpCreasing, setRPpCreasing] = useState("single");
   const [rPpClip, setRPpClip] = useState(true);
   const [rPpPocketSides, setRPpPocketSides] = useState(0);
+  const [rBagSize, setRBagSize] = useState("small");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
   // Auto-set size/parent when product changes
@@ -579,6 +582,11 @@ export default function RateCalculatorPage() {
       setRPpCreasing("single");
       setRPpClip(true);
       setRPpPocketSides(0);
+      return;
+    }
+    if (rProduct === "diagnosticbag") {
+      setRQty(1000);
+      setRBagSize("small");
       return;
     }
     if (cfg?.fixedSize)   setRSize(cfg.fixedSize);
@@ -745,6 +753,7 @@ export default function RateCalculatorPage() {
       colors: rColors, sides: rSides, lam: rLam,
       micron: rPpMicron, creasing: rPpCreasing, printSide: rSides,
       clip: rPpClip, pocketSides: rPpPocketSides,
+      bagSize: rBagSize,
       multiplier: rMult !== "" ? rMult : undefined,
       customer: rCustomer,
     };
@@ -851,6 +860,13 @@ export default function RateCalculatorPage() {
   const ppGstPct = ppRates?.gstPct ?? 18;
   const ppMult = rMult !== "" ? rMult : (ppRates?.multiplier ?? 1.67);
   const ppPreviewPerFile = (ppBaseRate + ppClipRate + ppPocketRate) * (1 + ppGstPct / 100) * ppMult;
+  const bagRates = rates?.diagnosticBags;
+  const bagTiers = (bagRates?.tiers ?? [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]).map(Number).sort((a: number, b: number) => b - a);
+  const bagTier = bagTiers.find((t: number) => rQty >= t) ?? bagTiers[bagTiers.length - 1] ?? 1000;
+  const bagBaseRate = bagRates?.baseCosts?.[rBagSize]?.[bagTier] ?? 0;
+  const bagGstPct = bagRates?.gstPct ?? 18;
+  const bagMult = rMult !== "" ? rMult : (bagRates?.multiplier ?? 1.67);
+  const bagPreviewPerPiece = bagBaseRate * (1 + bagGstPct / 100) * bagMult;
 
   return (
     <DashboardShell>
@@ -1052,6 +1068,24 @@ export default function RateCalculatorPage() {
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                       <strong>{rQty.toLocaleString()} PP files</strong> → tier <strong>{ppTier.toLocaleString()}</strong> → base <strong>{fmt(ppBaseRate)}</strong>/file
                       {" + "}GST {ppGstPct}% × multiplier {ppMult} → approx <strong>{fmt(ppPreviewPerFile)}</strong>/file
+                    </div>
+                  </>
+                ) : rProduct === "diagnosticbag" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Bag Type">
+                        <Select value={rBagSize} onChange={e => setRBagSize(e.target.value)}>
+                          <option value="small">Small X-ray Bag (10.5x16 inch)</option>
+                          <option value="big">Big CT Scan Bag (16x21 inch)</option>
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} {rBagSize === "big" ? "CT scan bags" : "X-ray bags"}</strong> → tier <strong>{bagTier.toLocaleString()}</strong> → base <strong>{fmt(bagBaseRate)}</strong>/bag
+                      {" + "}GST {bagGstPct}% × multiplier {bagMult} → approx <strong>{fmt(bagPreviewPerPiece)}</strong>/bag
                     </div>
                   </>
                 ) : (
@@ -1336,6 +1370,20 @@ export default function RateCalculatorPage() {
                   </Field>
                   <Field label="PP File Multiplier (×)">
                     <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
+                  </Field>
+                </div>
+              </Card>
+
+              <Card title="X-ray / CT Scan Bags">
+                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
+                  Small bag is 10.5x16 inch X-ray bag. Big bag is 16x21 inch CT scan bag. Base costs are stored by quantity tier.
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Field label="GST Extra (%)">
+                    <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? 18} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
+                  </Field>
+                  <Field label="Bag Multiplier (×)">
+                    <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
                   </Field>
                 </div>
               </Card>
