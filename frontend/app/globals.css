@@ -61,11 +61,12 @@ textarea {
 
   html,
   body {
-    height: 100%;
-    overflow: hidden;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
     background: #f8fafc;
     color: #0f172a;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: auto;
   }
 
   .erp-shell {
