@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
-import { CheckCircle2, Clock, Loader2, Pencil, Plus, Save, UserCheck, X } from "lucide-react";
+import { CheckCircle2, Clock, Heart, Loader2, Pencil, Plus, Save, Sprout, Target, UserCheck, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type UserOption = { id: string; fullName: string; email: string; role: string };
@@ -39,15 +39,21 @@ const statusLabels: Record<Task["status"], string> = {
 
 const priorityClass: Record<Task["priority"], string> = {
   LOW: "bg-slate-100 text-slate-600",
-  NORMAL: "bg-blue-50 text-blue-700",
-  HIGH: "bg-orange-50 text-orange-700",
+  NORMAL: "bg-amber-50 text-amber-700",
+  HIGH: "bg-emerald-50 text-emerald-700",
   URGENT: "bg-red-50 text-red-700",
 };
 const priorityLabels: Record<Task["priority"], string> = {
-  LOW: "Low",
-  NORMAL: "Normal",
-  HIGH: "Medium Important",
-  URGENT: "Urgent",
+  LOW: "Q4: Waste",
+  NORMAL: "Q3: Interruptions",
+  HIGH: "Q2: Growth",
+  URGENT: "Q1: Crisis",
+};
+const priorityHelp: Record<Task["priority"], string> = {
+  URGENT: "Urgent and important",
+  HIGH: "Important, not urgent",
+  NORMAL: "Urgent, not important",
+  LOW: "Not urgent, not important",
 };
 const priorityRank: Record<Task["priority"], number> = {
   URGENT: 0,
@@ -55,6 +61,13 @@ const priorityRank: Record<Task["priority"], number> = {
   NORMAL: 2,
   LOW: 3,
 };
+const quadrantOrder: Task["priority"][] = ["URGENT", "HIGH", "NORMAL", "LOW"];
+const lifeGoals = [
+  { label: "Live", helper: "Health, energy, cash flow, production basics", icon: Target, color: "text-blue-700 bg-blue-50" },
+  { label: "Love", helper: "Team trust, customer care, family commitments", icon: Heart, color: "text-rose-700 bg-rose-50" },
+  { label: "Learn", helper: "Training, systems, experiments, better process", icon: Sprout, color: "text-emerald-700 bg-emerald-50" },
+  { label: "Legacy", helper: "Brand, culture, SOPs, long-term capability", icon: CheckCircle2, color: "text-violet-700 bg-violet-50" },
+];
 
 export default function TasksPage() {
   const router = useRouter();
@@ -124,6 +137,12 @@ export default function TasksPage() {
       if (dueA !== dueB) return dueA - dueB;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     })
+  ), [tasks]);
+  const quadrantCounts = useMemo(() => (
+    quadrantOrder.reduce((acc, priority) => {
+      acc[priority] = tasks.filter(task => task.priority === priority && task.status !== "DONE").length;
+      return acc;
+    }, {} as Record<Task["priority"], number>)
   ), [tasks]);
 
   async function createTask() {
@@ -214,7 +233,7 @@ export default function TasksPage() {
             </div>
             <div className="space-y-3">
               <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Task title" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
-              <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Details" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Details, role, outcome, or weekly goal" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Assigned To</label>
                 <select value={form.assignedToId} onChange={e => setForm(p => ({ ...p, assignedToId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
@@ -224,7 +243,7 @@ export default function TasksPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                  {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
                 </select>
                 <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
               </div>
@@ -233,9 +252,41 @@ export default function TasksPage() {
                 Create Task
               </button>
             </div>
+
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Target className="h-4 w-4 text-emerald-600" />
+                <h2 className="text-sm font-semibold text-slate-900">Habit 3 Focus</h2>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {lifeGoals.map(goal => {
+                  const Icon = goal.icon;
+                  return (
+                    <div key={goal.label} className="rounded-lg border border-slate-200 p-2">
+                      <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-800">
+                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${goal.color}`}><Icon className="h-3.5 w-3.5" /></span>
+                        {goal.label}
+                      </div>
+                      <p className="text-slate-500">{goal.helper}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <div className="flex min-h-0 flex-col gap-3">
+            <div className="grid flex-none gap-2 md:grid-cols-4">
+              {quadrantOrder.map(priority => (
+                <div key={priority} className={`rounded-lg border px-3 py-2 ${priority === "HIGH" ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-slate-900">{priorityLabels[priority]}</p>
+                    <span className="text-sm font-bold text-slate-900">{quadrantCounts[priority] ?? 0}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{priorityHelp[priority]}</p>
+                </div>
+              ))}
+            </div>
             <div className="flex flex-none flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               {[
                 ["assigned", "My Assigned"],
@@ -267,7 +318,7 @@ export default function TasksPage() {
                         <div className="grid gap-2 md:grid-cols-[1fr_160px]">
                           <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Task subject" className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-400" />
                           <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
-                            {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                            {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
                           </select>
                         </div>
                         <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
