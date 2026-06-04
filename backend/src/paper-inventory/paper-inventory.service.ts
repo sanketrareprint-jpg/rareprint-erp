@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaperPOStatus, PaperTransactionType, PaperUnit, SheetQuality } from '@prisma/client';
+import { InHouseStickerTxType, PaperPOStatus, PaperTransactionType, PaperUnit, SheetQuality } from '@prisma/client';
+
+const INHOUSE_STOCK_ID = 'inhouse-sticker-stock-singleton';
 
 // -- Constants -----------------------------------------------------------------
 const SHEETS_PER_REAM = 500;
@@ -563,5 +565,103 @@ Return ONLY valid JSON, no explanation:
         include: { items: { include: { press: true } }, supplier: true },
       });
     }, { timeout: 20000, maxWait: 10000 });
+  }
+
+  // ── In-House Sticker Stock (12x18 sheets) ──────────────────────────────────
+
+  // Get or create the singleton stock record
+  private async getOrCreateStickerStock() {
+    let stock = await this.prisma.inHouseStickerStock.findUnique({ where: { id: INHOUSE_STOCK_ID } });
+    if (!stock) {
+      stock = await this.prisma.inHouseStickerStock.create({ data: { id: INHOUSE_STOCK_ID, balanceSheets: 0 } });
+    }
+    return stock;
+  }
+
+  // Get current balance
+  async getStickerStockBalance() {
+    const stock = await this.getOrCreateStickerStock();
+    return { balanceSheets: stock.balanceSheets, updatedAt: stock.updatedAt };
+  }
+
+  // Add sheets to stock
+  async addStickerStock(sheets: number, notes?: string) {
+    if (sheets <= 0) throw new BadRequestException('Sheets must be a positive number');
+    return this.prisma.$transaction(async (tx) => {
+      const stock = await tx.inHouseStickerStock.upsert({
+        where: { id: INHOUSE_STOCK_ID },
+        update: { balanceSheets: { increment: sheets } },
+        create: { id: INHOUSE_STOCK_ID, balanceSheets: sheets },
+      });
+      await tx.inHouseStickerTransaction.create({
+        data: {
+          transactionType: 'STOCK_IN',
+          sheets,
+          balanceAfter: stock.balanceSheets,
+          notes: notes ?? `Added ${sheets} sticker sheets`,
+        },
+      });
+      return { balanceSheets: stock.balanceSheets };
+    });
+  }
+
+  // Use sheets from stock (deduct)
+  async useStickerStock(sheets: number, referenceId?: string, notes?: string) {
+    if (sheets <= 0) throw new BadRequestException('Sheets must be a positive number');
+    return this.prisma.$transaction(async (tx) => {
+      const stock = await tx.inHouseStickerStock.findUnique({ where: { id: INHOUSE_STOCK_ID } });
+      const current = stock?.balanceSheets ?? 0;
+      if (current < sheets) {
+        throw new BadRequestException(
+          `Insufficient sticker stock. Need ${sheets} sheets but only ${current} available.`
+        );
+      }
+      const updated = await tx.inHouseStickerStock.update({
+        where: { id: INHOUSE_STOCK_ID },
+        data: { balanceSheets: { decrement: sheets } },
+      });
+      await tx.inHouseStickerTransaction.create({
+        data: {
+          transactionType: 'USED',
+          sheets: -sheets,
+          balanceAfter: updated.balanceSheets,
+          referenceId: referenceId ?? null,
+          notes: notes ?? `Used ${sheets} sticker sheets`,
+        },
+      });
+      return { balanceSheets: updated.balanceSheets };
+    });
+  }
+
+  // Manual adjustment
+  async adjustStickerStock(newBalance: number, notes?: string) {
+    if (newBalance < 0) throw new BadRequestException('Balance cannot be negative');
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.inHouseStickerStock.findUnique({ where: { id: INHOUSE_STOCK_ID } });
+      const oldBalance = current?.balanceSheets ?? 0;
+      const diff = newBalance - oldBalance;
+      await tx.inHouseStickerStock.upsert({
+        where: { id: INHOUSE_STOCK_ID },
+        update: { balanceSheets: newBalance },
+        create: { id: INHOUSE_STOCK_ID, balanceSheets: newBalance },
+      });
+      await tx.inHouseStickerTransaction.create({
+        data: {
+          transactionType: 'ADJUSTMENT',
+          sheets: diff,
+          balanceAfter: newBalance,
+          notes: notes ?? `Manual adjustment: ${oldBalance} → ${newBalance} sheets`,
+        },
+      });
+      return { balanceSheets: newBalance };
+    });
+  }
+
+  // Transaction history
+  async getStickerTransactions(limit = 100) {
+    return this.prisma.inHouseStickerTransaction.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
   }
 }

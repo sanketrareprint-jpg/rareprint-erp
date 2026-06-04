@@ -391,7 +391,14 @@ export default function TasksPage() {
             {loading ? (
               <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : visibleTasks.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">{quadrantFilter !== "ALL" ? `No ${priorityLabels[quadrantFilter]} tasks found.` : status === "DONE" ? "No completed tasks in history." : "No tasks found."}</div>
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
+                <p>{quadrantFilter !== "ALL" ? `No ${priorityLabels[quadrantFilter]} tasks found.` : goalHorizonFilter !== "ALL" ? `No ${goalHorizonLabels[goalHorizonFilter]} tasks found.` : status === "DONE" ? "No completed tasks in history." : "No tasks found."}</p>
+                {(quadrantFilter !== "ALL" || goalHorizonFilter !== "ALL") && (
+                  <button onClick={() => { setQuadrantFilter("ALL"); setGoalHorizonFilter("ALL"); }} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                    Show All Tasks
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-4">
                 {visibleTasks.map(task => (

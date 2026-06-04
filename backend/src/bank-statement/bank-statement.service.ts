@@ -131,10 +131,20 @@ export class BankStatementService {
     const { accountNumber, rows } = this.parseXls(buffer);
     if (rows.length === 0) throw new BadRequestException('No valid transactions found in file');
 
-    // Dedup is handled at DB level via @@unique([accountNumber, txnDate, srl])
-    // and skipDuplicates:true below — no file-level anchor logic needed.
-    const newRows = rows;
-    let skipped = 0;
+    // Application-level dedup: fetch all balances already in DB for this account.
+    // Since each transaction produces a unique running balance, (accountNumber, balance)
+    // uniquely identifies a transaction.
+    const existing = await this.prisma.bankTransaction.findMany({
+      where: { accountNumber },
+      select: { balance: true },
+    });
+    const existingBalances = new Set(
+      existing.map((r) => Number(r.balance).toFixed(2)),
+    );
+    const newRows = rows.filter(
+      (r) => !existingBalances.has(r.balance.toFixed(2)),
+    );
+    let skipped = rows.length - newRows.length;
 
     // Create import session
     const session = await this.prisma.bankImportSession.create({

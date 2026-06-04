@@ -1374,3 +1374,28 @@ enum BankReconcileStatus {
   MANUAL_REVIEW
   IGNORED
 }
+
+// ── In-House Sticker Stock (12×18 sheets printed in office) ─────────────────
+model InHouseStickerStock {
+  id            String   @id @default(cuid())
+  balanceSheets Int      @default(0) // current balance of 12x18 sticker sheets
+  updatedAt     DateTime @updatedAt
+}
+
+model InHouseStickerTransaction {
+  id              String               @id @default(cuid())
+  transactionType InHouseStickerTxType
+  sheets          Int                  // positive = IN, negative = OUT
+  balanceAfter    Int
+  referenceId     String?              // e.g. job/order ID when used
+  notes           String?
+  createdAt       DateTime             @default(now())
+
+  @@index([createdAt])
+}
+
+enum InHouseStickerTxType {
+  STOCK_IN    // sheets added to stock
+  USED        // sheets consumed for in-house jobs
+  ADJUSTMENT  // manual correction
+}

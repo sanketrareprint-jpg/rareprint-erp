@@ -8,6 +8,7 @@ import {
   Upload, Plus, Trash2, Loader2, FileText, RefreshCw,
   Package, BarChart3, History, CheckCircle, AlertCircle,
   ChevronDown, ChevronUp, X, Image as ImageIcon, Pencil,
+  Layers, ArrowDownCircle, ArrowUpCircle, SlidersHorizontal,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -78,6 +79,16 @@ interface Transaction {
   press: { name: string };
 }
 
+interface StickerTransaction {
+  id: string;
+  transactionType: "STOCK_IN" | "USED" | "ADJUSTMENT";
+  sheets: number;
+  balanceAfter: number;
+  referenceId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 const QUALITY_LABELS: Record<SheetQuality, string> = {
   MAPLITHO: "Maplitho",
@@ -119,7 +130,7 @@ function emptyItem(): POItem {
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function PaperInventoryPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<"po" | "statement" | "history">("po");
+  const [tab, setTab] = useState<"po" | "statement" | "history" | "inhouse">("po");
 
   // PO state
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -137,6 +148,11 @@ export default function PaperInventoryPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
   const [filterTxPress, setFilterTxPress] = useState<string>("");
+
+  // In-house sticker stock
+  const [stickerBalance, setStickerBalance] = useState<number | null>(null);
+  const [stickerTxs, setStickerTxs] = useState<StickerTransaction[]>([]);
+  const [loadingSticker, setLoadingSticker] = useState(false);
 
   // ── API helpers ──────────────────────────────────────────────────────────
   const apiFetch = useCallback(async (path: string, opts?: RequestInit) => {
@@ -187,9 +203,22 @@ export default function PaperInventoryPage() {
     } finally { setLoadingTx(false); }
   }, [apiFetch]);
 
+  const loadStickerStock = useCallback(async () => {
+    setLoadingSticker(true);
+    try {
+      const [balRes, txRes] = await Promise.all([
+        apiFetch("/paper-inventory/inhouse-sticker/balance"),
+        apiFetch("/paper-inventory/inhouse-sticker/transactions"),
+      ]);
+      if (balRes) { const d = await balRes.json(); setStickerBalance(d.balanceSheets ?? 0); }
+      if (txRes) { const d = await txRes.json(); setStickerTxs(Array.isArray(d) ? d : []); }
+    } finally { setLoadingSticker(false); }
+  }, [apiFetch]);
+
   useEffect(() => { loadVendors(); loadPOs(); }, [loadVendors, loadPOs]);
   useEffect(() => { if (tab === "statement") loadStatement(filterPressId || undefined); }, [tab, filterPressId, loadStatement]);
   useEffect(() => { if (tab === "history") loadTransactions(filterTxPress || undefined); }, [tab, filterTxPress, loadTransactions]);
+  useEffect(() => { if (tab === "inhouse") loadStickerStock(); }, [tab, loadStickerStock]);
 
   const handleSaved = () => {
     setShowCreatePO(false);
@@ -220,6 +249,12 @@ export default function PaperInventoryPage() {
               <RefreshCw className="h-4 w-4" /> Refresh
             </button>
           )}
+          {tab === "inhouse" && (
+            <div className="flex items-center gap-2 text-sm text-gray-500 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
+              <Layers className="h-4 w-4 text-yellow-600" />
+              <span className="font-medium text-yellow-700">12×18 Sticker Sheets</span>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -228,6 +263,7 @@ export default function PaperInventoryPage() {
             { key: "po", label: "Purchase Orders", icon: Package },
             { key: "statement", label: "Press Statement", icon: BarChart3 },
             { key: "history", label: "Transaction History", icon: History },
+            { key: "inhouse", label: "In-House Stock", icon: Layers },
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -265,6 +301,15 @@ export default function PaperInventoryPage() {
             vendors={vendors}
             filterPressId={filterTxPress}
             onFilterChange={(v) => setFilterTxPress(v)}
+          />
+        )}
+        {tab === "inhouse" && (
+          <InHouseStickerTab
+            balance={stickerBalance}
+            transactions={stickerTxs}
+            loading={loadingSticker}
+            apiFetch={apiFetch}
+            onRefresh={loadStickerStock}
           />
         )}
       </div>
@@ -584,6 +629,316 @@ function HistoryTab({ transactions, loading, vendors, filterPressId, onFilterCha
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// In-House Sticker Stock Tab (12×18 sticker sheets)
+// ═══════════════════════════════════════════════════════════════════════════
+function InHouseStickerTab({ balance, transactions, loading, apiFetch, onRefresh }: {
+  balance: number | null;
+  transactions: StickerTransaction[];
+  loading: boolean;
+  apiFetch: (path: string, opts?: RequestInit) => Promise<Response | null>;
+  onRefresh: () => void;
+}) {
+  const [addQty, setAddQty] = useState<string>("");
+  const [addNotes, setAddNotes] = useState<string>("");
+  const [useQty, setUseQty] = useState<string>("");
+  const [useRef_, setUseRef] = useState<string>("");
+  const [useNotes, setUseNotes] = useState<string>("");
+  const [adjQty, setAdjQty] = useState<string>("");
+  const [adjNotes, setAdjNotes] = useState<string>("");
+  const [saving, setSaving] = useState<"add" | "use" | "adj" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const showMsg = (msg: string) => {
+    setSuccess(msg);
+    setTimeout(() => setSuccess(null), 3000);
+  };
+
+  const doAdd = async () => {
+    const n = Number(addQty);
+    if (!n || n <= 0) { setError("Enter a valid quantity"); return; }
+    setError(null); setSaving("add");
+    try {
+      const res = await apiFetch("/paper-inventory/inhouse-sticker/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheets: n, notes: addNotes || undefined }),
+      });
+      if (!res || !res.ok) { setError("Failed to add stock"); return; }
+      setAddQty(""); setAddNotes("");
+      showMsg(`✓ Added ${n} sticker sheets to stock`);
+      onRefresh();
+    } finally { setSaving(null); }
+  };
+
+  const doUse = async () => {
+    const n = Number(useQty);
+    if (!n || n <= 0) { setError("Enter a valid quantity"); return; }
+    setError(null); setSaving("use");
+    try {
+      const res = await apiFetch("/paper-inventory/inhouse-sticker/use", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheets: n, referenceId: useRef_ || undefined, notes: useNotes || undefined }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.message || "Failed to deduct stock");
+        return;
+      }
+      setUseQty(""); setUseRef(""); setUseNotes("");
+      showMsg(`✓ Used ${n} sticker sheets`);
+      onRefresh();
+    } finally { setSaving(null); }
+  };
+
+  const doAdj = async () => {
+    const n = Number(adjQty);
+    if (adjQty === "" || isNaN(n) || n < 0) { setError("Enter a valid balance (0 or more)"); return; }
+    setError(null); setSaving("adj");
+    try {
+      const res = await apiFetch("/paper-inventory/inhouse-sticker/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newBalance: n, notes: adjNotes || undefined }),
+      });
+      if (!res || !res.ok) { setError("Failed to adjust stock"); return; }
+      setAdjQty(""); setAdjNotes("");
+      showMsg(`✓ Balance adjusted to ${n} sheets`);
+      onRefresh();
+    } finally { setSaving(null); }
+  };
+
+  function txColor(type: string) {
+    if (type === "STOCK_IN") return "text-green-600";
+    if (type === "USED") return "text-red-600";
+    return "text-yellow-600";
+  }
+  function txLabel(type: string) {
+    if (type === "STOCK_IN") return "Stock In";
+    if (type === "USED") return "Used";
+    return "Adjustment";
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-500" /></div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Balance card */}
+      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-2xl px-8 py-6 flex items-center justify-between shadow-sm">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Layers className="h-5 w-5 text-yellow-600" />
+            <span className="text-sm font-semibold text-yellow-800 uppercase tracking-wide">In-House Sticker Stock</span>
+          </div>
+          <p className="text-xs text-yellow-700 mt-0.5">12×18 inch sticker sheets — office print jobs</p>
+        </div>
+        <div className="text-right">
+          <div className="text-4xl font-bold text-yellow-700">{(balance ?? 0).toLocaleString("en-IN")}</div>
+          <div className="text-sm text-yellow-600 font-medium">sheets available</div>
+          {(balance !== null && balance < 50) && (
+            <div className="flex items-center justify-end gap-1 mt-1 text-red-600 text-xs font-semibold">
+              <AlertCircle className="h-3.5 w-3.5" /> Low stock — reorder soon
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Feedback messages */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+          <button onClick={() => setError(null)} className="ml-auto"><X className="h-4 w-4" /></button>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
+          <CheckCircle className="h-4 w-4 shrink-0" /> {success}
+        </div>
+      )}
+
+      {/* Action cards */}
+      <div className="grid grid-cols-3 gap-4">
+        {/* Add Stock */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-1.5 bg-green-100 rounded-lg"><ArrowDownCircle className="h-4 w-4 text-green-600" /></div>
+            <h3 className="font-semibold text-gray-800 text-sm">Add Stock</h3>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Sheets to Add</label>
+              <input
+                type="number"
+                value={addQty}
+                onChange={(e) => setAddQty(e.target.value)}
+                placeholder="e.g. 100"
+                min="1"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <input
+                type="text"
+                value={addNotes}
+                onChange={(e) => setAddNotes(e.target.value)}
+                placeholder="e.g. Purchased from supplier"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+            </div>
+            <button
+              onClick={doAdd}
+              disabled={saving === "add"}
+              className="w-full bg-green-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {saving === "add" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Add to Stock
+            </button>
+          </div>
+        </div>
+
+        {/* Use / Deduct */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-1.5 bg-red-100 rounded-lg"><ArrowUpCircle className="h-4 w-4 text-red-500" /></div>
+            <h3 className="font-semibold text-gray-800 text-sm">Use for Job</h3>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Sheets Used</label>
+              <input
+                type="number"
+                value={useQty}
+                onChange={(e) => setUseQty(e.target.value)}
+                placeholder="e.g. 25"
+                min="1"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Job / Order Ref (optional)</label>
+              <input
+                type="text"
+                value={useRef_}
+                onChange={(e) => setUseRef(e.target.value)}
+                placeholder="e.g. ORD-2026-0042"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <input
+                type="text"
+                value={useNotes}
+                onChange={(e) => setUseNotes(e.target.value)}
+                placeholder="e.g. Sticker job for client"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+            <button
+              onClick={doUse}
+              disabled={saving === "use"}
+              className="w-full bg-red-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-red-600 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {saving === "use" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpCircle className="h-4 w-4" />}
+              Deduct from Stock
+            </button>
+          </div>
+        </div>
+
+        {/* Manual Adjustment */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-1.5 bg-yellow-100 rounded-lg"><SlidersHorizontal className="h-4 w-4 text-yellow-600" /></div>
+            <h3 className="font-semibold text-gray-800 text-sm">Manual Adjustment</h3>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Set New Balance</label>
+              <input
+                type="number"
+                value={adjQty}
+                onChange={(e) => setAdjQty(e.target.value)}
+                placeholder={`Current: ${balance ?? 0}`}
+                min="0"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+              <input
+                type="text"
+                value={adjNotes}
+                onChange={(e) => setAdjNotes(e.target.value)}
+                placeholder="e.g. Physical count correction"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              />
+            </div>
+            <button
+              onClick={doAdj}
+              disabled={saving === "adj"}
+              className="w-full bg-yellow-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-yellow-600 disabled:opacity-60 flex items-center justify-center gap-2 mt-8"
+            >
+              {saving === "adj" ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
+              Apply Adjustment
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Transaction history */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-800">Transaction History</h3>
+          <button onClick={onRefresh} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700">
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+        </div>
+        {transactions.length === 0 ? (
+          <div className="text-center py-10 text-gray-400 text-sm">No transactions yet</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Type</th>
+                <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Sheets</th>
+                <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Balance After</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Ref / Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((tx) => (
+                <tr key={tx.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                  <td className="px-5 py-3 text-gray-500 text-xs">
+                    {new Date(tx.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`text-xs font-semibold ${txColor(tx.transactionType)}`}>
+                      {txLabel(tx.transactionType)}
+                    </span>
+                  </td>
+                  <td className={`px-5 py-3 text-right font-mono font-bold ${tx.sheets > 0 ? "text-green-600" : tx.sheets < 0 ? "text-red-600" : "text-yellow-600"}`}>
+                    {tx.sheets > 0 ? "+" : ""}{tx.sheets.toLocaleString("en-IN")}
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono text-gray-700">{tx.balanceAfter.toLocaleString("en-IN")}</td>
+                  <td className="px-5 py-3 text-xs text-gray-500 max-w-xs truncate">
+                    {tx.referenceId && <span className="font-medium text-blue-600 mr-2">{tx.referenceId}</span>}
+                    {tx.notes ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PO Modal — handles both Create and Edit
 // ═══════════════════════════════════════════════════════════════════════════
 function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSaved }: {
@@ -696,7 +1051,7 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      if (!it.paperName) { setError(`Row ${i + 1}: Paper name is required`); return; }
+       if (!it.paperName) { setError(`Row ${i + 1}: Paper name is required`); return; }
       if (!it.gsm || isNaN(Number(it.gsm))) { setError(`Row ${i + 1}: Valid GSM is required`); return; }
       if (!it.quality) { setError(`Row ${i + 1}: Quality is required`); return; }
       if (!it.unitQuantity || isNaN(Number(it.unitQuantity))) { setError(`Row ${i + 1}: Valid quantity is required`); return; }
@@ -993,7 +1348,7 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
           <div className="text-sm text-gray-500">
-            {items.length} item{items.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
+            {items.length} item{items.length !== 1 ? "s" : ""}  · 
             Total: <strong className="text-gray-900">
               {items.reduce((sum, it) => {
                 const s = (!isNaN(Number(it.unitQuantity)) && Number(it.unitQuantity) > 0)

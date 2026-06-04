@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Send,
-  DollarSign, Factory, Truck, Package, BarChart2, ChevronDown, ChevronUp,
+  DollarSign, Factory, Truck, Package, BarChart2,
   Zap,
 } from "lucide-react";
 
@@ -78,53 +78,56 @@ function PriorityBadge({ priority }: { priority: ActionItem["priority"] }) {
 }
 
 function ActionCard({ item, onNavigate }: { item: ActionItem; onNavigate: (url: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
   const cfg = PRIORITY_CONFIG[item.priority];
+  const ageLabel = item.ageDays != null ? `${item.ageDays}d` : item.ageHours != null ? `${item.ageHours}h` : null;
 
   return (
-    <div
-      style={{
-        background: cfg.bg,
-        border: `1px solid ${cfg.color}33`,
-        borderLeft: `4px solid ${cfg.color}`,
-        borderRadius: 10,
-        padding: "12px 14px",
-        marginBottom: 8,
-        cursor: "pointer",
-      }}
-      onClick={() => setExpanded(e => !e)}
-    >
+    <div style={{
+      background: cfg.bg,
+      border: `1px solid ${cfg.color}33`,
+      borderLeft: `4px solid ${cfg.color}`,
+      borderRadius: 10,
+      padding: "12px 14px",
+      marginBottom: 8,
+    }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+          {/* Row 1: badges + age */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
             <PriorityBadge priority={item.priority} />
             <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>{item.category}</span>
+            {ageLabel && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99,
+                background: item.ageDays != null && item.ageDays > 3 ? "#fee2e2" : "#f1f5f9",
+                color: item.ageDays != null && item.ageDays > 3 ? "#dc2626" : "#64748b" }}>
+                {ageLabel} old
+              </span>
+            )}
+            {item.orderNo && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99,
+                background: "#e0e7ff", color: "#4338ca" }}>
+                #{item.orderNo}
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", lineHeight: 1.4 }}>{item.title}</div>
-          {expanded && (
-            <div style={{ fontSize: 12, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>{item.detail}</div>
-          )}
+          {/* Row 2: title */}
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", lineHeight: 1.4, marginBottom: 3 }}>{item.title}</div>
+          {/* Row 3: detail — always visible */}
+          <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>{item.detail}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          {item.actionUrl && (
-            <button
-              onClick={e => { e.stopPropagation(); onNavigate(item.actionUrl!); }}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "none",
-                background: "#1e293b",
-                color: "#fff",
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              Go →
-            </button>
-          )}
-          {expanded ? <ChevronUp size={14} color="#94a3b8" /> : <ChevronDown size={14} color="#94a3b8" />}
-        </div>
+        {item.actionUrl && (
+          <button
+            onClick={() => onNavigate(item.actionUrl!)}
+            style={{
+              padding: "6px 12px", borderRadius: 6, border: "none",
+              background: "#1e293b", color: "#fff", fontSize: 12,
+              fontWeight: 700, cursor: "pointer", flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Go →
+          </button>
+        )}
       </div>
     </div>
   );

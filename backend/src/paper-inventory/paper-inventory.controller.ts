@@ -133,4 +133,37 @@ export class PaperInventoryController {
   ) {
     return this.service.markVendorAsPress(id, isPress);
   }
+
+  // ── In-House Sticker Stock (12x18) ──────────────────────────────────────────
+
+  @Get('inhouse-sticker/balance')
+  getStickerBalance() {
+    return this.service.getStickerStockBalance();
+  }
+
+  @Post('inhouse-sticker/add')
+  addStickerStock(
+    @Body() body: { sheets: number; notes?: string },
+  ) {
+    return this.service.addStickerStock(body.sheets, body.notes);
+  }
+
+  @Post('inhouse-sticker/use')
+  useStickerStock(
+    @Body() body: { sheets: number; referenceId?: string; notes?: string },
+  ) {
+    return this.service.useStickerStock(body.sheets, body.referenceId, body.notes);
+  }
+
+  @Post('inhouse-sticker/adjust')
+  adjustStickerStock(
+    @Body() body: { newBalance: number; notes?: string },
+  ) {
+    return this.service.adjustStickerStock(body.newBalance, body.notes);
+  }
+
+  @Get('inhouse-sticker/transactions')
+  getStickerTransactions(@Query('limit') limit?: string) {
+    return this.service.getStickerTransactions(limit ? parseInt(limit, 10) : 100);
+  }
 }

@@ -1,12 +1,12 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Settings, Plus, Trash2, Edit2, Check, X, ChevronDown, ChevronUp,
   AlertTriangle, CheckCircle, XCircle, IndianRupee, Percent, Save,
-  Search, RefreshCw, TrendingUp,
+  Search, RefreshCw, TrendingUp, Download, Upload,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -54,11 +54,71 @@ type MarginResult = {
   settings: { minApprovalMarginPct: number; warningMarginPct: number };
 };
 
+type ImportResult = {
+  imported: number;
+  skipped: string[];
+  errors: string[];
+};
+
+const SAMPLE_QUANTITY_TIERS = [
+  700, 1000, 1500, 2000, 3000, 3500, 4000, 5000, 6000,
+  8000, 9500, 10000, 12000, 15000, 20000, 30000, 40000, 50000,
+];
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined) {
   if (n === null || n === undefined) return "—";
   return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") i++;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function cleanCost(value: string) {
+  const numeric = value.replace(/[₹,\s]/g, "").replace(/\/-$/, "");
+  const parsed = Number(numeric);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -80,6 +140,9 @@ export default function CostTablePage() {
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings">("table");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   // Slab editing state
   const [editingSlabId, setEditingSlabId] = useState<string | null>(null);
@@ -118,6 +181,100 @@ export default function CostTablePage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  function downloadSampleCsv() {
+    const headers = ["PRODUCT CODE", "DESCRIPTION", ...SAMPLE_QUANTITY_TIERS.map(String)];
+    const exampleRows = products.slice(0, 3).map((p, index) => {
+      const sampleRates = SAMPLE_QUANTITY_TIERS.map((_, tierIndex) =>
+        tierIndex < 4 ? (12 - index - tierIndex * 0.35).toFixed(2) : ""
+      );
+      return [p.sku, p.name, ...sampleRates];
+    });
+    const rows = [headers, ...exampleRows];
+    const csv = rows
+      .map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "cost-table-sample.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importCsv(file: File) {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      const header = rows[0] || [];
+      const codeIndex = header.findIndex(h => h.trim().toLowerCase().replace(/[_-]/g, " ") === "product code");
+      const skuIndex = codeIndex >= 0 ? codeIndex : header.findIndex(h => h.trim().toLowerCase() === "sku");
+      const quantityColumns = header
+        .map((h, index) => ({ quantity: Number(String(h).replace(/[^\d]/g, "")), index }))
+        .filter(col => Number.isFinite(col.quantity) && col.quantity > 0)
+        .sort((a, b) => a.quantity - b.quantity);
+
+      if (skuIndex < 0 || quantityColumns.length === 0) {
+        setImportResult({
+          imported: 0,
+          skipped: [],
+          errors: ["CSV must include PRODUCT CODE and at least one quantity column like 1000 or 5000."],
+        });
+        return;
+      }
+
+      const productBySku = new Map(products.map(p => [p.sku.trim().toUpperCase(), p]));
+      const skipped: string[] = [];
+      const errors: string[] = [];
+      let imported = 0;
+
+      for (const row of rows.slice(1)) {
+        const sku = String(row[skuIndex] || "").trim();
+        if (!sku) continue;
+        const product = productBySku.get(sku.toUpperCase());
+        if (!product) {
+          skipped.push(`${sku}: product SKU not found`);
+          continue;
+        }
+
+        const pricedTiers = quantityColumns
+          .map(col => ({ minQuantity: col.quantity, unitPrice: cleanCost(String(row[col.index] || "")) }))
+          .filter((tier): tier is { minQuantity: number; unitPrice: number } => tier.unitPrice !== null);
+
+        if (pricedTiers.length === 0) {
+          skipped.push(`${sku}: no valid cost values`);
+          continue;
+        }
+
+        const slabs = pricedTiers.map((tier, index) => ({
+          minQuantity: tier.minQuantity,
+          maxQuantity: pricedTiers[index + 1] ? pricedTiers[index + 1].minQuantity - 1 : null,
+          unitPrice: tier.unitPrice,
+          setupCost: null,
+        }));
+
+        const res = await fetch(`${API_BASE_URL}/cost-table/products/${product.id}/slabs/bulk`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ slabs }),
+        });
+
+        if (res.ok) imported++;
+        else errors.push(`${sku}: import failed`);
+      }
+
+      setImportResult({ imported, skipped, errors });
+      await load();
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   const filtered = products.filter(p =>
     p.sku.toLowerCase().includes(search.toLowerCase()) ||
@@ -203,9 +360,31 @@ export default function CostTablePage() {
             <h1 className="text-2xl font-bold text-gray-900">Cost Table</h1>
             <p className="text-sm text-gray-500 mt-0.5">Manage product cost slabs, margin rules &amp; agent commission</p>
           </div>
-          <button onClick={load} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
-            <RefreshCw size={14} /> Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={downloadSampleCsv} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+              <Download size={14} /> Sample CSV
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing || products.length === 0}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Upload size={14} /> {importing ? "Importing..." : "Import CSV"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) importCsv(file);
+              }}
+            />
+            <button onClick={load} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+              <RefreshCw size={14} /> Refresh
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -232,6 +411,29 @@ export default function CostTablePage() {
         {/* ── TAB: Cost Slabs ───────────────────────────────────────────── */}
         {activeTab === "table" && (
           <div className="space-y-3">
+            {importResult && (
+              <div className={`rounded-lg border px-4 py-3 text-sm ${
+                importResult.errors.length > 0
+                  ? "bg-red-50 border-red-200 text-red-700"
+                  : "bg-green-50 border-green-200 text-green-700"
+              }`}>
+                <div className="font-semibold">
+                  Imported {importResult.imported} product{importResult.imported !== 1 ? "s" : ""}.
+                  {importResult.skipped.length > 0 && ` Skipped ${importResult.skipped.length}.`}
+                </div>
+                {(importResult.skipped.length > 0 || importResult.errors.length > 0) && (
+                  <div className="mt-2 max-h-28 overflow-auto text-xs space-y-1">
+                    {[...importResult.errors, ...importResult.skipped].slice(0, 30).map((message, index) => (
+                      <div key={`${message}-${index}`}>{message}</div>
+                    ))}
+                    {[...importResult.errors, ...importResult.skipped].length > 30 && (
+                      <div>Showing first 30 messages only.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Search */}
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
