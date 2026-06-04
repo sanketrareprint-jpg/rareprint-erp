@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Breadcrumb } from "../../components/Breadcrumb";
 import { ProductCard } from "../../components/ProductCard";
+import { ProductImage } from "../../components/ProductImage";
 import { getAllProducts, getGsmFromName, getProductBySlug, parseSpecLines } from "../../catalog";
 import { ProductPageClient } from "./ProductPageClient";
 
@@ -60,15 +60,12 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                       key={`${image}-${index}`}
                       className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
                     >
-                      <Image
+                      <ProductImage
                         src={image}
                         alt={`${product.name} preview ${index + 1}`}
-                        fill
+                        label={product.name}
                         sizes="64px"
                         className="object-contain p-1"
-                        loading="lazy"
-                        unoptimized
-                        referrerPolicy="no-referrer"
                       />
                     </div>
                   ))}
@@ -81,15 +78,13 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                     Click to enlarge
                   </span>
                   {product.image ? (
-                    <Image
+                    <ProductImage
                       src={product.image}
                       alt={product.name}
-                      fill
+                      label={product.name}
                       sizes="(max-width: 1024px) 100vw, 640px"
                       className="object-contain p-6"
                       priority
-                      unoptimized
-                      referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-6xl font-black text-slate-300">

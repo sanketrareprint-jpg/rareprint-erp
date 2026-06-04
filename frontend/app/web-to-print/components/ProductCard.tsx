@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { formatMoney, getGsmFromName, type Product } from "../catalog";
+import { ProductImage } from "./ProductImage";
 
 function lowestPrice(product: Product) {
   return product.rates.length ? Math.min(...product.rates.map((rate) => rate.price)) : null;
@@ -19,20 +19,13 @@ export function ProductCard({ product }: { product: Product }) {
     >
       <div className="relative aspect-[4/3] w-full bg-white p-2">
         <span className="absolute left-2 top-2 z-10 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{product.category}</span>
-        {product.image ? (
-          <Image
-            src={product.image}
-            alt={product.name}
-            fill
-            sizes="(max-width: 768px) 50vw, 280px"
-            className="object-contain p-2"
-            loading="lazy"
-            unoptimized
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="grid h-full place-items-center rounded-lg bg-slate-50 text-2xl font-black text-slate-300">RP</div>
-        )}
+        <ProductImage
+          src={product.image}
+          alt={product.name}
+          label={product.name}
+          sizes="(max-width: 768px) 50vw, 280px"
+          className="object-contain p-2"
+        />
       </div>
       <div className="flex flex-1 flex-col p-3">
         <h3 className="line-clamp-2 min-h-12 text-sm font-black leading-6 text-slate-950">{product.name}</h3>

@@ -6,6 +6,8 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "lint": "eslint",
     "build:android": "CAPACITOR_BUILD=1 next build && npx cap sync android",
     "android:open": "npx cap open android",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
