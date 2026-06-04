@@ -79,6 +79,8 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
                   env9x12:  true,   // MUST use 15×20
                   env11x17: true,   // MUST use 18×23
                 } },
+  ppfile:     { label: "PP Files with Punching",
+                fixedInfo: "PP file pricing uses quantity tiers, GST, clip and pocket options." },
   file:       { label: "Files with Punching",
                 fixedSize: "file", fixedParent: "1925",
                 fixedInfo: "Fixed: 12×18 inch size | 19×25\" parent sheet | 2 per sheet" },
@@ -562,11 +564,23 @@ export default function RateCalculatorPage() {
   const [rColors, setRColors] = useState(4);
   const [rSides, setRSides] = useState("single");
   const [rLam, setRLam] = useState<LamOption>("none");
+  const [rPpMicron, setRPpMicron] = useState(300);
+  const [rPpCreasing, setRPpCreasing] = useState("single");
+  const [rPpClip, setRPpClip] = useState(true);
+  const [rPpPocketSides, setRPpPocketSides] = useState(0);
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
   // Auto-set size/parent when product changes
   useEffect(() => {
     const cfg = PRODUCT_CONFIG[rProduct];
+    if (rProduct === "ppfile") {
+      setRQty(1000);
+      setRSides("single");
+      setRPpCreasing("single");
+      setRPpClip(true);
+      setRPpPocketSides(0);
+      return;
+    }
     if (cfg?.fixedSize)   setRSize(cfg.fixedSize);
     if (cfg?.fixedParent) setRParent(cfg.fixedParent);
     if (!cfg?.fixedSize && cfg?.sizes?.[0]) setRSize(cfg.sizes[0].value);
@@ -729,6 +743,8 @@ export default function RateCalculatorPage() {
       product: rProduct, qty: rQty, sheetsPerUnit: rSheets,
       fsize: rSize, paper: rPaper, parent: rParent,
       colors: rColors, sides: rSides, lam: rLam,
+      micron: rPpMicron, creasing: rPpCreasing, printSide: rSides,
+      clip: rPpClip, pocketSides: rPpPocketSides,
       multiplier: rMult !== "" ? rMult : undefined,
       customer: rCustomer,
     };
@@ -825,6 +841,16 @@ export default function RateCalculatorPage() {
   const reverseParentSheets = Math.ceil(reversePieces / reverseCuts);
   const parentLabel = rParent === "1520" ? "15×20\"" : rParent === "1823" ? "18×23\"" : "19×25\"";
   const rSizeParentLocked = !!(PRODUCT_CONFIG[rProduct]?.sizeParentLocked?.[rSize]);
+  const ppRates = rates?.ppFiles;
+  const ppTiers = (ppRates?.tiers ?? [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]).map(Number).sort((a: number, b: number) => b - a);
+  const ppTier = ppTiers.find((t: number) => rQty >= t) ?? ppTiers[ppTiers.length - 1] ?? 1000;
+  const ppRateKey = `${rPpCreasing === "double" ? "double" : "single"}-${rSides === "double" ? "double" : "single"}-${rPpMicron === 350 ? 350 : 300}`;
+  const ppBaseRate = ppRates?.baseCosts?.[ppRateKey]?.[ppTier] ?? 0;
+  const ppClipRate = rPpClip ? (ppRates?.clip ?? 1.25) : 0;
+  const ppPocketRate = rPpPocketSides * (ppRates?.pocketOneSide ?? 2.5);
+  const ppGstPct = ppRates?.gstPct ?? 18;
+  const ppMult = rMult !== "" ? rMult : (ppRates?.multiplier ?? 1.67);
+  const ppPreviewPerFile = (ppBaseRate + ppClipRate + ppPocketRate) * (1 + ppGstPct / 100) * ppMult;
 
   return (
     <DashboardShell>
@@ -985,75 +1011,122 @@ export default function RateCalculatorPage() {
                     📐 {PRODUCT_CONFIG[rProduct].fixedInfo}
                   </div>
                 )}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  <Field label={PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit ? "No. of Pads / Books" : "Quantity"}>
-                    <Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} />
-                  </Field>
-                  {PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit && (
-                    <Field label="Pages per Pad / Book">
-                      <Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} />
-                    </Field>
-                  )}
-                  {!PRODUCT_CONFIG[rProduct]?.fixedSize && PRODUCT_CONFIG[rProduct]?.sizes && (
-                    <Field label="Final Size">
-                      <Select value={rSize} onChange={e => setRSize(e.target.value)}>
-                        {PRODUCT_CONFIG[rProduct].sizes!.map(s => (
-                          <option key={s.value} value={s.value}>{s.label}</option>
-                        ))}
-                      </Select>
-                    </Field>
-                  )}
-                  <Field label="Paper Type">
-                    <Select value={rPaper} onChange={e => setRPaper(e.target.value)}>
-                      {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </Select>
-                  </Field>
-                  <div className="col-span-1">
-                    <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Parent Sheet Size</label>
-                    <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs text-amber-800 font-medium">
-                      🔒 Auto: {parentLabel}
+                {rProduct === "ppfile" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Micron">
+                        <Select value={rPpMicron} onChange={e => setRPpMicron(+e.target.value)}>
+                          <option value={300}>300 micron</option>
+                          <option value={350}>350 micron</option>
+                        </Select>
+                      </Field>
+                      <Field label="Printing Side">
+                        <Select value={rSides} onChange={e => setRSides(e.target.value)}>
+                          <option value="single">Single Side</option>
+                          <option value="double">Double Side</option>
+                        </Select>
+                      </Field>
+                      <Field label="Creasing">
+                        <Select value={rPpCreasing} onChange={e => setRPpCreasing(e.target.value)}>
+                          <option value="single">Single Creasing</option>
+                          <option value="double">Double Creasing</option>
+                        </Select>
+                      </Field>
+                      <Field label="Clip">
+                        <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
+                          <input type="checkbox" checked={rPpClip} onChange={e => setRPpClip(e.target.checked)} />
+                          Add clip (+Rs.{(ppRates?.clip ?? 1.25).toFixed(2)})
+                        </label>
+                      </Field>
+                      <Field label="Pocket">
+                        <Select value={rPpPocketSides} onChange={e => setRPpPocketSides(+e.target.value)}>
+                          <option value={0}>No Pocket</option>
+                          <option value={1}>Yes - 1 Side (+Rs.2.50)</option>
+                          <option value={2}>Yes - 2 Side (+Rs.5.00)</option>
+                        </Select>
+                      </Field>
                     </div>
-                  </div>
-                  <Field label="No. of Colors">
-                    <Select value={rColors} onChange={e => setRColors(+e.target.value)}>
-                      <option value={1}>1 Color</option>
-                      <option value={2}>2 Color</option>
-                      <option value={4}>4 Colors (CMYK)</option>
-                    </Select>
-                  </Field>
-                  <Field label="Printing Side">
-                    <Select value={rSides} onChange={e => setRSides(e.target.value)}>
-                      <option value="single">Single Side</option>
-                      <option value="double">Double Side</option>
-                    </Select>
-                  </Field>
-                  {["letterhead","pamphlet","visiting","file"].includes(rProduct) && (
-                    <Field label="Lamination">
-                      <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
-                        <option value="none">None</option>
-                        <option value="gloss-single">Gloss Single</option>
-                        <option value="gloss-double">Gloss Double</option>
-                        <option value="matt-single">Matt Single</option>
-                        <option value="matt-double">Matt Double</option>
-                      </Select>
-                    </Field>
-                  )}
-                </div>
-                <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                  {rProduct === "pads" || rProduct === "billbook"
-                    ? <>{rQty} × {rSheets} pages = <strong>{reversePieces.toLocaleString()} pieces</strong></>
-                    : <strong>{reversePieces.toLocaleString()} pieces</strong>
-                  }
-                  {reverseCuts > 0
-                    ? <> → {reverseCuts} cuts → <strong>{reverseParentSheets.toLocaleString()} sheets of {parentLabel}</strong>
-                        {rColors === 4
-                          ? <> → 4-color on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
-                          : <> → billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
-                        }
-                      </>
-                    : <span className="text-amber-600"> → ⚠ Size not available on {parentLabel}</span>
-                  }
-                </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} PP files</strong> → tier <strong>{ppTier.toLocaleString()}</strong> → base <strong>{fmt(ppBaseRate)}</strong>/file
+                      {" + "}GST {ppGstPct}% × multiplier {ppMult} → approx <strong>{fmt(ppPreviewPerFile)}</strong>/file
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label={PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit ? "No. of Pads / Books" : "Quantity"}>
+                        <Input type="number" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      {PRODUCT_CONFIG[rProduct]?.hasSheetsPerUnit && (
+                        <Field label="Pages per Pad / Book">
+                          <Input type="number" value={rSheets} onChange={e => setRSheets(+e.target.value)} />
+                        </Field>
+                      )}
+                      {!PRODUCT_CONFIG[rProduct]?.fixedSize && PRODUCT_CONFIG[rProduct]?.sizes && (
+                        <Field label="Final Size">
+                          <Select value={rSize} onChange={e => setRSize(e.target.value)}>
+                            {PRODUCT_CONFIG[rProduct].sizes!.map(s => (
+                              <option key={s.value} value={s.value}>{s.label}</option>
+                            ))}
+                          </Select>
+                        </Field>
+                      )}
+                      <Field label="Paper Type">
+                        <Select value={rPaper} onChange={e => setRPaper(e.target.value)}>
+                          {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                        </Select>
+                      </Field>
+                      <div className="col-span-1">
+                        <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Parent Sheet Size</label>
+                        <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs text-amber-800 font-medium">
+                          🔒 Auto: {parentLabel}
+                        </div>
+                      </div>
+                      <Field label="No. of Colors">
+                        <Select value={rColors} onChange={e => setRColors(+e.target.value)}>
+                          <option value={1}>1 Color</option>
+                          <option value={2}>2 Color</option>
+                          <option value={4}>4 Colors (CMYK)</option>
+                        </Select>
+                      </Field>
+                      <Field label="Printing Side">
+                        <Select value={rSides} onChange={e => setRSides(e.target.value)}>
+                          <option value="single">Single Side</option>
+                          <option value="double">Double Side</option>
+                        </Select>
+                      </Field>
+                      {["letterhead","pamphlet","visiting","file"].includes(rProduct) && (
+                        <Field label="Lamination">
+                          <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
+                            <option value="none">None</option>
+                            <option value="gloss-single">Gloss Single</option>
+                            <option value="gloss-double">Gloss Double</option>
+                            <option value="matt-single">Matt Single</option>
+                            <option value="matt-double">Matt Double</option>
+                          </Select>
+                        </Field>
+                      )}
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      {rProduct === "pads" || rProduct === "billbook"
+                        ? <>{rQty} × {rSheets} pages = <strong>{reversePieces.toLocaleString()} pieces</strong></>
+                        : <strong>{reversePieces.toLocaleString()} pieces</strong>
+                      }
+                      {reverseCuts > 0
+                        ? <> → {reverseCuts} cuts → <strong>{reverseParentSheets.toLocaleString()} sheets of {parentLabel}</strong>
+                            {rColors === 4
+                              ? <> → 4-color on <strong>{reverseParentSheets.toLocaleString()} parent sheets</strong></>
+                              : <> → billed on <strong>{(reverseParentSheets * reverseCuts).toLocaleString()} pieces</strong></>
+                            }
+                          </>
+                        : <span className="text-amber-600"> → ⚠ Size not available on {parentLabel}</span>
+                      }
+                    </div>
+                  </>
+                )}
               </Card>
 
               <Card title="💰 Multiplier">
@@ -1243,6 +1316,26 @@ export default function RateCalculatorPage() {
                   </Field>
                   <Field label="File Punching (₹/piece)">
                     <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
+                  </Field>
+                </div>
+              </Card>
+
+              <Card title="PP Files">
+                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
+                  Base costs are stored by quantity tier for single/double side, 300/350 micron and single/double creasing. These extras are applied per file before the selling multiplier.
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Field label="GST Extra (%)">
+                    <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? 18} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
+                  </Field>
+                  <Field label="Clip Extra (₹/file)">
+                    <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? 1.25} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
+                  </Field>
+                  <Field label="Pocket Extra (₹/side)">
+                    <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? 2.5} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
+                  </Field>
+                  <Field label="PP File Multiplier (×)">
+                    <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
                   </Field>
                 </div>
               </Card>

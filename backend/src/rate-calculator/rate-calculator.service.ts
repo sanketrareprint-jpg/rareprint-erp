@@ -55,6 +55,23 @@ const DEFAULT_RATES: any = {
     env11x17:   6,    // 11x17 large
   },
   sticker: { vendorRate: 0.035, minQty: 1000, transport: 100, halfCutPct: 30 },
+  ppFiles: {
+    gstPct: 18,
+    clip: 1.25,
+    pocketOneSide: 2.5,
+    multiplier: 1.67,
+    tiers: [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000],
+    baseCosts: {
+      'single-single-300': { 1000: 12.91, 2000: 11.40, 3000: 10.77, 4000: 10.35, 5000: 9.82, 6000: 9.73, 7000: 9.67, 8000: 9.23, 9000: 9.19, 10000: 9.16 },
+      'single-double-300': { 1000: 15.98, 2000: 13.19, 3000: 12.13, 4000: 11.49, 5000: 10.84, 6000: 10.66, 7000: 10.54, 8000: 10.05, 9000: 9.98, 10000: 9.92 },
+      'single-single-350': { 1000: 14.10, 2000: 12.59, 3000: 11.95, 4000: 11.53, 5000: 11.00, 6000: 10.91, 7000: 10.85, 8000: 10.40, 9000: 10.37, 10000: 10.34 },
+      'single-double-350': { 1000: 17.18, 2000: 14.38, 3000: 13.31, 4000: 12.68, 5000: 12.02, 6000: 11.84, 7000: 11.72, 8000: 11.23, 9000: 11.15, 10000: 11.10 },
+      'double-single-300': { 1000: 13.75, 2000: 12.24, 3000: 11.60, 4000: 11.19, 5000: 10.66, 6000: 10.57, 7000: 10.51, 8000: 10.06, 9000: 10.02, 10000: 9.99 },
+      'double-double-300': { 1000: 16.83, 2000: 14.03, 3000: 12.96, 4000: 12.33, 5000: 11.67, 6000: 11.50, 7000: 11.37, 8000: 10.88, 9000: 10.81, 10000: 10.75 },
+      'double-single-350': { 1000: 15.08, 2000: 13.56, 3000: 12.93, 4000: 12.51, 5000: 11.97, 6000: 11.89, 7000: 11.82, 8000: 11.38, 9000: 11.34, 10000: 11.31 },
+      'double-double-350': { 1000: 18.18, 2000: 15.36, 3000: 14.29, 4000: 13.65, 5000: 12.99, 6000: 12.82, 7000: 12.69, 8000: 12.20, 9000: 12.13, 10000: 12.07 },
+    },
+  },
   multiplier: 1.67,
 };
 
@@ -75,6 +92,17 @@ function writeRatesFile(rates: any): void {
   } catch {}
 }
 
+function mergeRates(defaults: any, saved: any): any {
+  if (!saved || typeof saved !== 'object') return defaults;
+  const merged: any = { ...defaults, ...saved };
+  for (const key of Object.keys(defaults)) {
+    if (defaults[key] && typeof defaults[key] === 'object' && !Array.isArray(defaults[key])) {
+      merged[key] = mergeRates(defaults[key], saved[key]);
+    }
+  }
+  return merged;
+}
+
 @Injectable()
 export class RateCalculatorService {
   constructor(private readonly prisma: PrismaService) {}
@@ -84,10 +112,10 @@ export class RateCalculatorService {
       const rows = await (this.prisma as any).$queryRawUnsafe(
         `SELECT value FROM "SystemConfig" WHERE key = 'rate_calculator_rates' LIMIT 1`
       );
-      if (rows && rows[0]?.value) return JSON.parse(rows[0].value);
+      if (rows && rows[0]?.value) return mergeRates(DEFAULT_RATES, JSON.parse(rows[0].value));
     } catch {}
     const fromFile = readRatesFile();
-    if (fromFile) return fromFile;
+    if (fromFile) return mergeRates(DEFAULT_RATES, fromFile);
     return DEFAULT_RATES;
   }
 
@@ -221,6 +249,15 @@ export class RateCalculatorService {
     return (sqIn / 100) * ratePer100 * sheets * sideMul;
   }
 
+  private getPpFileBaseRate(rates: any, creasing: string, sides: string, micron: number, qty: number): { rate: number; tier: number; key: string } {
+    const pp = rates.ppFiles ?? DEFAULT_RATES.ppFiles;
+    const tiers = (pp.tiers ?? DEFAULT_RATES.ppFiles.tiers).map(Number).sort((a: number, b: number) => b - a);
+    const tier = tiers.find((t: number) => qty >= t) ?? tiers[tiers.length - 1] ?? 1000;
+    const key = `${creasing === 'double' ? 'double' : 'single'}-${sides === 'double' ? 'double' : 'single'}-${micron === 350 ? 350 : 300}`;
+    const rate = pp.baseCosts?.[key]?.[tier] ?? DEFAULT_RATES.ppFiles.baseCosts[key]?.[tier] ?? 0;
+    return { rate, tier, key };
+  }
+
   // ── Clubbing vendor cost lookup ──────────────────────────────────────────
   private getClubbingCost(clubbing: any, fsize: string, sides: string, qty: number): number | null {
     const sizeRates = clubbing?.rates?.[fsize];
@@ -298,6 +335,46 @@ export class RateCalculatorService {
   async calcReverse(dto: any) {
     const rates = await this.getRates();
     const { product, qty, sheetsPerUnit = 100, fsize, paper, parent: psize = '1823', colors, sides, lam = 'none', multiplier: dtoMult, customer } = dto;
+
+    if (product === 'ppfile') {
+      const pp = rates.ppFiles ?? DEFAULT_RATES.ppFiles;
+      const fileQty = Number(qty ?? 0);
+      const creasing = dto.creasing === 'double' ? 'double' : 'single';
+      const printSide = dto.printSide === 'double' || sides === 'double' ? 'double' : 'single';
+      const micron = Number(dto.micron) === 350 ? 350 : 300;
+      const pocketSides = dto.pocketSides === 2 ? 2 : dto.pocketSides === 1 ? 1 : 0;
+      const clipSelected = dto.clip !== false;
+      const { rate: baseRate, tier } = this.getPpFileBaseRate(rates, creasing, printSide, micron, fileQty);
+      const clipRate = clipSelected ? Number(pp.clip ?? DEFAULT_RATES.ppFiles.clip) : 0;
+      const pocketRate = pocketSides * Number(pp.pocketOneSide ?? DEFAULT_RATES.ppFiles.pocketOneSide);
+      const perFileBeforeGst = baseRate + clipRate + pocketRate;
+      const baseCost = baseRate * fileQty;
+      const clipCost = clipRate * fileQty;
+      const pocketCost = pocketRate * fileQty;
+      const beforeGst = perFileBeforeGst * fileQty;
+      const gstPct = Number(pp.gstPct ?? DEFAULT_RATES.ppFiles.gstPct);
+      const gstAmount = beforeGst * gstPct / 100;
+      const subtotal = beforeGst + gstAmount;
+      const multiplier = dtoMult ?? pp.multiplier ?? DEFAULT_RATES.ppFiles.multiplier;
+      const total = subtotal * multiplier;
+      const breakdown: any[] = [
+        { label: `PP File Base (${micron} micron, ${printSide === 'double' ? 'double side' : 'single side'}, ${creasing === 'double' ? 'double creasing' : 'single creasing'}, tier ${tier})`, amount: baseCost },
+      ];
+      if (clipSelected) breakdown.push({ label: `Clip (${fileQty.toLocaleString()} files x Rs.${clipRate.toFixed(2)})`, amount: clipCost });
+      if (pocketSides > 0) breakdown.push({ label: `Pocket (${pocketSides === 2 ? '2 side' : '1 side'}, ${fileQty.toLocaleString()} files x Rs.${pocketRate.toFixed(2)})`, amount: pocketCost });
+      breakdown.push({ label: `GST (${gstPct}%)`, amount: gstAmount });
+      return {
+        breakdown,
+        subtotal,
+        total,
+        perPiece: fileQty > 0 ? total / fileQty : 0,
+        totalPieces: fileQty,
+        description: `${fileQty.toLocaleString()} PP files | ${micron} micron | ${printSide === 'double' ? 'double side' : 'single side'} | ${creasing === 'double' ? 'double creasing' : 'single creasing'} | ${clipSelected ? 'clip' : 'no clip'} | ${pocketSides === 0 ? 'no pocket' : pocketSides + ' side pocket'}`,
+        multiplier,
+        customer,
+      };
+    }
+
     const multiplier = dtoMult ?? rates.multiplier ?? DEFAULT_RATES.multiplier;
     const cutsPerSheet = CUTS[psize]?.[fsize] ?? 4;
     const sidesMult = sides === 'double' ? 2 : 1;
