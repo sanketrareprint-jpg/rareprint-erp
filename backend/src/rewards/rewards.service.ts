@@ -40,6 +40,7 @@ export class RewardsService {
     // 2. Find Prajakta
     const prajakta = await this.prisma.user.findFirst({
       where: { fullName: { equals: 'PRAJAKTA DALAL', mode: 'insensitive' } },
+      select: { id: true },
     });
     if (!prajakta || notif.toUserId !== prajakta.id) return;
 

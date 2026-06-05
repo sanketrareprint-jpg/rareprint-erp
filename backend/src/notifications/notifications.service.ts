@@ -26,7 +26,10 @@ export class NotificationsService {
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   private async findUser(fullName: string) {
-    return this.prisma.user.findFirst({ where: { fullName: { equals: fullName, mode: 'insensitive' } } });
+    return this.prisma.user.findFirst({
+      where: { fullName: { equals: fullName, mode: 'insensitive' } },
+      select: { id: true, fullName: true, email: true, role: true, isActive: true },
+    });
   }
 
   private hoursAgo(hours: number): Date {
@@ -929,7 +932,10 @@ export class NotificationsService {
   }
 
   async getUserNotificationsByEmail(email: string) {
-    const user = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true },
+    });
     if (!user) return [];
     const notifications = await this.prisma.notification.findMany({
       where: { toUserId: user.id },

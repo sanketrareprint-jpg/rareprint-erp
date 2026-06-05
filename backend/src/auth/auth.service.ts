@@ -1,6 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -10,6 +9,15 @@ type JwtUserPayload = {
   role: string;
 };
 
+type AuthUser = {
+  id: string;
+  fullName: string;
+  email: string;
+  passwordHash: string;
+  role: string;
+  isActive: boolean;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -17,9 +25,17 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async validateUser(email: string, password: string): Promise<User> {
+  async validateUser(email: string, password: string): Promise<AuthUser> {
     const user = await this.prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        isActive: true,
+      },
     });
 
     if (!user || !user.isActive) {

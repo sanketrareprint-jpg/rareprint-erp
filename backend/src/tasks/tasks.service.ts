@@ -94,6 +94,7 @@ export class TasksService {
     const assignedToId = body.assignedToId || createdById;
     const assignee = await this.prisma.user.findFirst({
       where: { id: assignedToId, isActive: true },
+      select: { id: true },
     });
     if (!assignee) throw new BadRequestException('Assigned user not found');
 
@@ -151,6 +152,7 @@ export class TasksService {
     if (body.assignedToId !== undefined) {
       const assignee = await this.prisma.user.findFirst({
         where: { id: body.assignedToId, isActive: true },
+        select: { id: true },
       });
       if (!assignee) throw new BadRequestException('Assigned user not found');
       data.assignedTo = { connect: { id: body.assignedToId } };
