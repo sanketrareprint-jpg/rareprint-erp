@@ -316,12 +316,27 @@ class SalesAgent:
 
         state = self.store.get_state(phone)
 
-        # ── Payment screenshot received → ask for design matter ───────────────
+        # ── Payment confirmation — image OR Paytm/UPI auto-text ──────────────
         media_type = msg.get("media_type", "").lower()
-        if state == "payment_sent" and media_type in ["image", "photo"]:
+        PAYMENT_TEXT_SIGNALS = [
+            "money sent", "paid", "payment done", "payment sent", "transfer done",
+            "payment successful", "transaction successful", "sent successfully",
+            "paytm", "gpay", "google pay", "phonepe", "phone pe", "bhim",
+            "upi ref", "utr", "transaction id", "txn id", "ref no",
+            "rs. ", "₹", "amount deducted", "debited",
+        ]
+        text_lower_pay = text.lower()
+        is_payment_text = any(sig in text_lower_pay for sig in PAYMENT_TEXT_SIGNALS)
+        is_payment_image = media_type in ["image", "photo"]
+
+        if is_payment_text or (state == "payment_sent" and is_payment_image):
             lead = self.store.get_lead(phone)
             p_name = lead.get("product", "")
-            await self.client.send_text(phone, "✅ Payment screenshot mil gaya! Ab design matter bhejein.")
+            self.store.set_state(phone, "payment_sent")
+            if is_payment_image:
+                await self.client.send_text(phone, "✅ Payment screenshot mil gaya! Bahut shukriya.")
+            else:
+                await self.client.send_text(phone, "✅ Payment confirm ho gaya! Bahut shukriya.")
             matter_prompt = get_design_matter_prompt(p_name, phone=phone, app_url=APP_URL)
             await self.client.send_text(phone, matter_prompt)
             self.store.add_message(phone, "assistant", matter_prompt)
@@ -344,14 +359,77 @@ class SalesAgent:
             return
 
         # ── Detect product interest ───────────────────────────────────────────
-        product = get_product_by_keyword(text)
+        # Normalize common typing variants before any matching
+        text_lower = text.lower().replace("*", "x").replace("×", "x")
+
+        product = get_product_by_keyword(text_lower)
         template_sent = False
 
         # ── Generic pouch keyword → ask size first ────────────────────────────
-        GENERIC_POUCH_WORDS = ["pouch", "medicine pouch", "lifafa", "pouches"]
-        SIZE_WORDS = ["small", "medium", "large", "extra large", "xl", "chota", "bada",
-                      "4x5", "4x7", "5.5x8", "8.5x11"]
-        text_lower = text.lower()
+        GENERIC_POUCH_WORDS = [
+            "pouch", "pouches", "medicine pouch", "lifafa", "lifafe",
+            "pauch", "pauche", "dawai", "dawa ki potli", "medicine bag",
+            "medecine pouch", "medicin pouch", "medisine pouch",
+        ]
+        SIZE_WORDS = [
+            "small", "medium", "large", "extra large", "xl", "chota", "bada",
+            "4x5", "4x7", "5.5x8", "8.5x11",
+        ]
+
+        # ── Size-after-question handler ───────────────────────────────────────
+        # When bot already asked "Konsa size?", map any size-related reply to the product
+        flags = self.store.get_conversation_flags(phone)
+        last_q = flags.get("last_question_key", "")
+        SIZE_MAP = {
+            "small":       ("small", "Medicine Pouch – Small Size"),
+            "4x5":         ("small", "Medicine Pouch – Small Size"),
+            "chota":       ("small", "Medicine Pouch – Small Size"),
+            "chhota":      ("small", "Medicine Pouch – Small Size"),
+            "medium":      ("medium", "Medicine Pouch – Medium Size"),
+            "4x7":         ("medium", "Medicine Pouch – Medium Size"),
+            "large":       ("large", "Medicine Pouch – Large Size"),
+            "5.5x8":       ("large", "Medicine Pouch – Large Size"),
+            "bada":        ("large", "Medicine Pouch – Large Size"),
+            "extra large": ("xl",    "Medicine Pouch – Extra Large Size"),
+            "xl":          ("xl",    "Medicine Pouch – Extra Large Size"),
+            "8.5x11":      ("xl",    "Medicine Pouch – Extra Large Size"),
+        }
+        VAGUE_CONFIRMATIONS = [
+            "ye size", "yahi", "ye wala", "yeh wala", "isi ka", "iska",
+            "this one", "this", "same", "usi", "wahi", "woh wala",
+            "ye hi", "yahi chahiye", "ye chahiye", "ye saiz", "yeh saiz",
+        ]
+
+        if last_q == "size" and not self.store.get_lead(phone).get("product"):
+            # Check if customer typed a recognizable size
+            matched_product_name = None
+            for size_key, (_, prod_name) in SIZE_MAP.items():
+                if size_key in text_lower:
+                    matched_product_name = prod_name
+                    break
+
+            if matched_product_name:
+                # Treat as size selection → find product and send template
+                size_product = next(
+                    (p for p in PRODUCTS.values() if p["name"] == matched_product_name), None
+                )
+                if size_product:
+                    await self.client.send_product_template(phone, size_product)
+                    self.store.update_lead(phone, product=size_product["name"])
+                    self.store.set_state(phone, "product_sent")
+                    template_sent = True
+                    product = size_product
+            elif any(v in text_lower for v in VAGUE_CONFIRMATIONS):
+                # Vague answer — re-show size buttons
+                await self.client.send_buttons(
+                    phone,
+                    "Konsa size select karna hai? Please ek choose karein:",
+                    ["Small (4×5 inch)", "Medium (4×7 inch)", "Large (5.5×8 inch)"]
+                )
+                await self.client.send_text(phone, "Ya Extra Large (8.5×11 inch) type karein.")
+                self.store.add_message(phone, "assistant", "Konsa size select karna hai?")
+                return
+
         is_generic_pouch = (
             any(w in text_lower for w in GENERIC_POUCH_WORDS)
             and not any(w in text_lower for w in SIZE_WORDS)
@@ -365,6 +443,7 @@ class SalesAgent:
                 ["Small (4×5 inch)", "Medium (4×7 inch)", "Large (5.5×8 inch)"]
             )
             self.store.add_message(phone, "assistant", "Konsa size chahiye aapko?")
+            self.store.mark_question_asked(phone, "size")  # track that size was asked
             # Also send extra large as text since max 3 buttons
             await self.client.send_text(phone, "Extra Large (8.5×11 inch) bhi available hai — bas batao!")
             return
@@ -1233,88 +1312,4 @@ class SalesAgent:
             p = PRODUCTS.get(key)
             if not p: continue
             img = p.get("photo_url") or p.get("media_url", "")
-            if not img or p.get("media_type") == "video": continue
-            cards.append({"image_url": img, "title": display_name, "body": price_hint, "buttons": ["Get Rates", "Place Order 🛒"]})
-        if cards:
-            await self.client.send_carousel(phone, cards)
-        else:
-            await self.client.send_text(phone, "Rareprint products: Medicine Pouches, Visiting Cards, Stickers, Bill Books, Letterpads, Bags, Keychains, Pens\n\nwww.rareprint.in")
-
-    async def _send_city_references(self, phone, city):
-        customers = get_customers_by_city(city)
-        if not customers: return
-        shown = customers[:5]
-        names_text = "\n".join(f"• {n}" for n in shown)
-        more = len(customers) - len(shown)
-        more_text = f"\n_{more} aur customers hain {city} mein._" if more > 0 else ""
-        msg = (f"✅ *Rareprint ke {city} ke customers:*\n\n{names_text}{more_text}\n\n"
-               f"Ye sab already Rareprint se print karwa chuke hain. Aap bhi inke jaise apni shop promote kar sakte hain! 😊")
-        await asyncio.sleep(2)
-        await self.client.send_text(phone, msg)
-
-    def _extract_qty_from_text(self, text):
-        t = text.lower().replace(",", "")
-        lakh = re.search(r"(\d+\.?\d*)\s*(lakh|lac)", t)
-        if lakh: return int(float(lakh.group(1)) * 100000)
-        k = re.search(r"(\d+)\s*k\b", t)
-        if k: return int(k.group(1)) * 1000
-        qty = re.search(r"(\d{3,})\s*(pcs?|pieces?|nos?\.?|qty|pouches?|stickers?|cards?)?", t)
-        if qty: return int(qty.group(1))
-        return None
-
-    def _detect_language_hint(self, text):
-        if not text.strip(): return "same as customer"
-        ranges = [
-            ("Devanagari Hindi/Marathi", "ऀ", "ॿ"),
-            ("Bengali", "ঀ", "৿"),
-            ("Gujarati", "઀", "૿"),
-            ("Tamil", "஀", "௿"),
-            ("Telugu", "ఀ", "౿"),
-            ("Malayalam", "ഀ", "ൿ"),
-            ("Arabic/Urdu", "؀", "ۿ"),
-        ]
-        hits = []
-        for name, start, end in ranges:
-            count = sum(1 for c in text if start <= c <= end)
-            if count: hits.append((name, count))
-        latin = sum(1 for c in text if c.isalpha() and ord(c) < 128)
-        if latin: hits.append(("Latin English/Hinglish/transliteration", latin))
-        if not hits: return "same as customer"
-        hits.sort(key=lambda x: x[1], reverse=True)
-        if len(hits) >= 2 and hits[1][1] >= max(2, hits[0][1] * 0.25):
-            return f"mixed {hits[0][0]} + {hits[1][0]}"
-        return hits[0][0]
-
-    def _describe_image(self, image_url):
-        if not self.ai: return ""
-        try:
-            import httpx
-            resp = httpx.get(image_url, timeout=12)
-            resp.raise_for_status()
-            media_type = resp.headers.get("content-type", "").split(";")[0].strip()
-            if not media_type.startswith("image/"):
-                media_type = mimetypes.guess_type(image_url)[0] or "image/jpeg"
-            vision_model = genai.GenerativeModel(
-                model_name="models/gemini-2.5-flash",
-                generation_config=genai.types.GenerationConfig(max_output_tokens=300),
-                safety_settings=_SAFETY_SETTINGS,
-            )
-            response = vision_model.generate_content([
-                {"mime_type": media_type, "data": resp.content},
-                ("Extract useful sales/order details from this image for a printing shop. "
-                 "Mention product type, text, size, quantity, colors, contact details, or design notes. "
-                 "If it looks like a payment screenshot, say 'Payment screenshot received'. Keep it concise."),
-            ])
-            return response.text.strip()
-        except Exception as e:
-            logger.warning(f"Image reading failed: {e}")
-            return ""
-
-    def _capture_answer_to_last_question(self, phone, text):
-        flags = self.store.get_conversation_flags(phone)
-        last_q = flags.get("last_question_key")
-        value = text.strip()
-        if not last_q or not value: return
-        if last_q == "city" and not self.store.get_lead(phone).get("city"):
-            if not re.search(r"\d", value) and len(value.split()) <= 4:
-                self.store.update_lead(pho
+    
