@@ -28,7 +28,6 @@ type AvgProd       = { category: string; avgHours: number; avgDays: number; samp
 type LeadSource    = { source: string; count: number; revenue: number };
 type LeadAnalytics = { allTime: LeadSource[]; thisMonth: LeadSource[] };
 type AcademyRow    = { id: string; name: string; completedTopics: number; lastActiveDate: string | null; streak: number };
-type AgentCommission = { month: string; commissionTotal: number; grossProfit: number; netGrossProfit: number; orderCount: number };
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -56,19 +55,15 @@ export default function DashboardPage() {
   const [avgProd,   setAvgProd]   = useState<AvgProd[]>([]);
   const [leadData,  setLeadData]  = useState<LeadAnalytics | null>(null);
   const [academy,   setAcademy]   = useState<AcademyRow[]>([]);
-  const [agentCommission, setAgentCommission] = useState<AgentCommission | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const rawUser = typeof window !== "undefined" ? localStorage.getItem("rareprint_user") : null;
-      const currentUser = rawUser ? JSON.parse(rawUser) : null;
-      const [res, academyRes, commissionRes] = await Promise.all([
+      const [res, academyRes] = await Promise.all([
         fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: getAuthHeaders() }),
-        currentUser?.id ? fetch(`${API_BASE_URL}/cost-table/sales-agents/${currentUser.id}/month-commission`, { headers: getAuthHeaders() }) : Promise.resolve(null),
       ]);
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
@@ -77,7 +72,6 @@ export default function DashboardPage() {
         const academyData = await academyRes.json();
         setAcademy(academyData.leaderboard ?? []);
       }
-      if (commissionRes && commissionRes.ok) setAgentCommission(await commissionRes.json());
       setStats(data.stats);
       setAgents(data.agents ?? []);
       setCatStages(data.catStages ?? []);
@@ -123,7 +117,6 @@ export default function DashboardPage() {
             { label: "Monthly Run Rate",  value: fmt(stats.revenue.monthlyRunRate ?? 0),    sub: `Avg × ${stats.revenue.daysInMonth ?? 0} days`, color: "text-purple-600" },
             { label: "Outstanding",       value: fmt(stats.finance.totalOutstanding),       sub: `Billed: ${fmt(stats.finance.totalOrderValue)}`, color: "text-red-600" },
             { label: "Needs Attention",   value: String(stats.pending.approval + stats.pending.dispatchApproval), sub: `${stats.pending.approval} approvals`, color: "text-orange-600" },
-            ...(agentCommission ? [{ label: "My Commission", value: fmt(agentCommission.commissionTotal), sub: `${agentCommission.orderCount} orders this month`, color: "text-purple-600" }] : []),
           ].map((card, i) => (
             <div key={i} className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
               <p className="text-xs text-slate-500 font-medium truncate">{card.label}</p>
