@@ -259,7 +259,7 @@ export class OrdersService {
         isTest: true,
         grandTotal: true,
         customer: true,
-        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
+        salesAgent: { select: { id: true, fullName: true } },
         items: {
           select: {
             id: true,
@@ -276,7 +276,6 @@ export class OrdersService {
                 gsm: true,
                 sides: true,
                 category: true,
-                rateSlabs: true,
               }
             }
           }
@@ -928,7 +927,7 @@ export class OrdersService {
         isTest: true,
         grandTotal: true,
         customer: true,
-        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
+        salesAgent: { select: { id: true, fullName: true } },
         items: {
           select: {
             id: true,
@@ -945,7 +944,6 @@ export class OrdersService {
                 gsm: true,
                 sides: true,
                 category: true,
-                rateSlabs: true,
               }
             }
           }
