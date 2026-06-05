@@ -841,7 +841,10 @@ await loadHistory();
                           const n = parseNotes(item.productionNotes);
                           return (
                             <tr key={i}>
-                              <td className="py-1.5 font-medium text-slate-800">{item.productName}</td>
+                              <td className="py-1.5 font-medium text-slate-800">
+                                {item.productName}
+                                <div className="text-[11px] font-mono text-blue-600">{item.sku}</div>
+                              </td>
                               <td className="py-1.5 text-slate-500 text-xs">{n.size || "—"}</td>
                               <td className="py-1.5 text-slate-500 text-xs">{n.gsm || "—"}</td>
                               <td className="py-1.5 text-slate-500 text-xs">{n.sides || "—"}</td>
