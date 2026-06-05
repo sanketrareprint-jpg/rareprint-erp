@@ -60,6 +60,17 @@ type ImportResult = {
   errors: string[];
 };
 
+type ImportJob = {
+  sku: string;
+  productId: string;
+  slabs: Array<{
+    minQuantity: number;
+    maxQuantity: number | null;
+    unitPrice: number;
+    setupCost: number | null;
+  }>;
+};
+
 const SAMPLE_QUANTITY_TIERS = [
   700, 1000, 1500, 2000, 3000, 3500, 4000, 5000, 6000,
   8000, 9500, 10000, 12000, 15000, 20000, 30000, 40000, 50000,
@@ -142,6 +153,7 @@ export default function CostTablePage() {
   const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings">("table");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   // Slab editing state
@@ -207,6 +219,7 @@ export default function CostTablePage() {
 
   async function importCsv(file: File) {
     setImporting(true);
+    setImportProgress(null);
     setImportResult(null);
     try {
       const text = await file.text();
@@ -231,6 +244,7 @@ export default function CostTablePage() {
       const productBySku = new Map(products.map(p => [p.sku.trim().toUpperCase(), p]));
       const skipped: string[] = [];
       const errors: string[] = [];
+      const jobs: ImportJob[] = [];
       let imported = 0;
 
       for (const row of rows.slice(1)) {
@@ -251,27 +265,51 @@ export default function CostTablePage() {
           continue;
         }
 
-        const slabs = pricedTiers.map((tier, index) => ({
-          minQuantity: tier.minQuantity,
-          maxQuantity: pricedTiers[index + 1] ? pricedTiers[index + 1].minQuantity - 1 : null,
-          unitPrice: tier.unitPrice,
-          setupCost: null,
-        }));
-
-        const res = await fetch(`${API_BASE_URL}/cost-table/products/${product.id}/slabs/bulk`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ slabs }),
+        jobs.push({
+          sku,
+          productId: product.id,
+          slabs: pricedTiers.map((tier, index) => ({
+            minQuantity: tier.minQuantity,
+            maxQuantity: pricedTiers[index + 1] ? pricedTiers[index + 1].minQuantity - 1 : null,
+            unitPrice: tier.unitPrice,
+            setupCost: null,
+          })),
         });
-
-        if (res.ok) imported++;
-        else errors.push(`${sku}: import failed`);
       }
+
+      setImportProgress({ done: 0, total: jobs.length });
+      const concurrency = 8;
+      let cursor = 0;
+      let done = 0;
+
+      async function worker() {
+        while (cursor < jobs.length) {
+          const job = jobs[cursor++];
+          try {
+            const res = await fetch(`${API_BASE_URL}/cost-table/products/${job.productId}/slabs/bulk`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ slabs: job.slabs }),
+            });
+
+            if (res.ok) imported++;
+            else errors.push(`${job.sku}: import failed`);
+          } catch {
+            errors.push(`${job.sku}: import failed`);
+          } finally {
+            done++;
+            setImportProgress({ done, total: jobs.length });
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, () => worker()));
 
       setImportResult({ imported, skipped, errors });
       await load();
     } finally {
       setImporting(false);
+      setImportProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -369,7 +407,7 @@ export default function CostTablePage() {
               disabled={importing || products.length === 0}
               className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Upload size={14} /> {importing ? "Importing..." : "Import CSV"}
+              <Upload size={14} /> {importing ? `Importing ${importProgress?.done ?? 0}/${importProgress?.total ?? 0}` : "Import CSV"}
             </button>
             <input
               ref={fileInputRef}
