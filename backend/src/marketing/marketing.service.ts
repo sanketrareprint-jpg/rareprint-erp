@@ -375,6 +375,8 @@ export class MarketingService {
   }
 
   async scheduleCampaign(id: string) {
+    await this.syncCrmLeadsToMarketing();
+
     const campaign = await (this.prisma as any).marketingCampaign.findUnique({
       where: { id },
       include: { steps: { orderBy: { stepOrder: 'asc' } } },
@@ -833,7 +835,12 @@ export class MarketingService {
     if (filters.temperature) where.leadTemperature = filters.temperature;
     if (filters.minScore) where.engagementScore = { gte: Number(filters.minScore) };
     if (filters.tag) where.tags = { has: filters.tag };
-    if (filters.createdThisWeek) where.createdAt = { gte: this.startOfWeek() };
+    if (filters.createdThisWeek) {
+      where.OR = [
+        { createdAt: { gte: this.startOfWeek() } },
+        { tags: { has: this.currentCrmWeekTag() } },
+      ];
+    }
     if (filters.createdSince) where.createdAt = { gte: new Date(filters.createdSince) };
     return where;
   }
@@ -959,7 +966,9 @@ export class MarketingService {
         select: { id: true, tags: true },
       });
 
-      const tags = this.mergeTags(existing?.tags ?? [], ['crm-lead', 'new-7day']);
+      const leadTags = ['crm-lead', 'new-7day'];
+      if (lead.createdAt >= this.startOfWeek()) leadTags.push(this.currentCrmWeekTag());
+      const tags = this.mergeTags(existing?.tags ?? [], leadTags);
 
       if (existing) {
         await (this.prisma as any).marketingContact.update({
@@ -999,5 +1008,10 @@ export class MarketingService {
     const localDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
     const mondayOffset = (localDate.getUTCDay() + 6) % 7;
     return new Date(Date.UTC(year, month - 1, day - mondayOffset, -5, -30, 0, 0));
+  }
+
+  private currentCrmWeekTag() {
+    const start = this.startOfWeek();
+    return `crm-week-${start.toISOString().slice(0, 10)}`;
   }
 }
