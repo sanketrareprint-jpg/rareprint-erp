@@ -217,6 +217,33 @@ export class WhatsAppService {
     });
   }
 
+  async sendInvoiceGenerated(params: {
+    customerName: string;
+    customerPhone: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+    totalAmount: number;
+    balanceAmount: number;
+    gstAmount: number;
+    agentName: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_INVOICE_CAMPAIGN ?? 'invoice_generated_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      orderNo: params.invoiceNumber,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.invoiceNumber,
+        params.invoiceDate,
+        params.totalAmount.toFixed(2),
+        params.gstAmount.toFixed(2),
+        params.balanceAmount.toFixed(2),
+        params.agentName || 'Rareprint Team',
+      ],
+    });
+  }
+
   async sendOrderReassurance(params: {
     campaignName: string;
     customerName: string;

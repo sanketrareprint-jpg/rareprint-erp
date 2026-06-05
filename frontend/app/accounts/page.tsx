@@ -7,7 +7,18 @@ import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pen
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
-type OrderItem = { productName: string; sku: string; quantity: number; unitPrice: number; lineTotal: number; productionNotes?: string; artworkNotes?: string; };
+type OrderItem = {
+  productName: string;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  productionNotes?: string;
+  artworkNotes?: string;
+  costPerUnit?: number | null;
+  marginPerUnit?: number | null;
+  marginPct?: number | null;
+};
 
 type PendingOrder = {
   id: string; orderNo: string; customerName: string;
@@ -137,6 +148,29 @@ type VendorEntry = {
   products?: { productName: string; orderNo: string; customerName: string; quantity: number }[];
 };
 
+type VendorMaster = { id: string; name: string; gstNumber?: string };
+type AccountingSummary = {
+  sales: { invoiceCount: number; total: number; paid: number; receivable: number; outputGst: number };
+  purchases: { billCount: number; total: number; paid: number; payable: number; inputGst: number };
+  notes: { creditNotes: number; debitNotes: number; creditAmount: number; debitAmount: number };
+  gst: { netPayableEstimate: number };
+  recentLedger: { id: string; entryDate: string; accountName: string; entryType: string; debitAmount: number; creditAmount: number; narration?: string }[];
+};
+type SalesInvoice = {
+  id: string; customerId: string; invoiceNumber: string; issueDate: string; customerName: string; gstNumber?: string;
+  gstTreatment: string; taxableAmount: number; taxAmount: number; totalAmount: number; paidAmount: number;
+  balanceAmount: number; whatsappStatus: string; status: string;
+};
+type PurchaseBill = {
+  id: string; vendorId: string; vendorName: string; billNumber: string; billDate: string; dueDate?: string;
+  taxableAmount: number; taxAmount: number; totalAmount: number; paidAmount: number; balanceAmount: number;
+  gstTreatment: string; status: string;
+};
+type AccountingNote = {
+  id: string; noteNumber: string; noteType: string; partyType: string; partyName: string; referenceNumber?: string;
+  noteDate: string; reason: string; taxableAmount: number; taxAmount: number; totalAmount: number; status: string;
+};
+
 function fmt(n: number | string) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(n));
 }
@@ -144,6 +178,12 @@ function moneyColor(n: number) {
   if (n < 0) return "text-blue-700";
   if (n > 0) return "text-red-500";
   return "text-emerald-600";
+}
+function marginClass(marginPct?: number | null) {
+  if (marginPct === null || marginPct === undefined) return "text-slate-400";
+  if (marginPct < 15) return "text-red-600";
+  if (marginPct < 20) return "text-amber-600";
+  return "text-green-700";
 }
 function parseNotes(notes?: string) {
   if (!notes) return {};
@@ -153,7 +193,7 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
-type Tab = "pending" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors";
+type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors";
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -263,6 +303,24 @@ export default function AccountsPage() {
   const [markingPaid, setMarkingPaid] = useState<string | null>(null);
   const [vendorSearch, setVendorSearch] = useState("");
 
+  // Billing and GST accounting
+  const [accountingLoading, setAccountingLoading] = useState(false);
+  const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
+  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
+  const [purchaseBills, setPurchaseBills] = useState<PurchaseBill[]>([]);
+  const [accountingNotes, setAccountingNotes] = useState<AccountingNote[]>([]);
+  const [vendors, setVendors] = useState<VendorMaster[]>([]);
+  const [purchaseForm, setPurchaseForm] = useState({
+    vendorId: "", billNumber: "", billDate: "", dueDate: "", subtotal: "", gstRatePct: "18", gstTreatment: "INTRA_STATE", notes: "",
+  });
+  const [vendorPaymentForm, setVendorPaymentForm] = useState({
+    vendorId: "", purchaseBillId: "", paymentAccountId: "", amount: "", method: "BANK_TRANSFER", referenceNumber: "",
+  });
+  const [noteForm, setNoteForm] = useState({
+    noteType: "CREDIT_NOTE", partyType: "CUSTOMER", invoiceId: "", purchaseBillId: "", reason: "", taxableAmount: "", gstRatePct: "18", gstTreatment: "INTRA_STATE",
+  });
+  const [savingAccounting, setSavingAccounting] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -314,7 +372,29 @@ export default function AccountsPage() {
     } finally { setOutstandingLoading(false); }
   }, []);
 
+  const loadAccounting = useCallback(async () => {
+    setAccountingLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const [summaryRes, invoiceRes, billRes, noteRes, vendorRes, accountRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/summary`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/invoices`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/purchase-bills`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/notes`, { headers }),
+        fetch(`${API_BASE_URL}/vendors`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers }),
+      ]);
+      if (summaryRes.ok) setAccountingSummary(await summaryRes.json());
+      if (invoiceRes.ok) setSalesInvoices(await invoiceRes.json());
+      if (billRes.ok) setPurchaseBills(await billRes.json());
+      if (noteRes.ok) setAccountingNotes(await noteRes.json());
+      if (vendorRes.ok) setVendors(await vendorRes.json());
+      if (accountRes.ok) setPaymentAccounts(await accountRes.json());
+    } finally { setAccountingLoading(false); }
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (tab === "accounting") void loadAccounting(); }, [tab, loadAccounting]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
   useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
   useEffect(() => { if (tab === "outstanding") void loadOutstanding(); }, [tab, loadOutstanding]);
@@ -550,6 +630,95 @@ await loadHistory();
     }
   }
 
+  async function createPurchaseBill() {
+    if (!purchaseForm.vendorId || !purchaseForm.billNumber || !purchaseForm.subtotal) {
+      alert("Select vendor, bill number, and amount");
+      return;
+    }
+    setSavingAccounting("purchase");
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/purchase-bills`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId: purchaseForm.vendorId,
+          billNumber: purchaseForm.billNumber,
+          billDate: purchaseForm.billDate || undefined,
+          dueDate: purchaseForm.dueDate || undefined,
+          subtotal: Number(purchaseForm.subtotal),
+          gstRatePct: Number(purchaseForm.gstRatePct || 0),
+          gstTreatment: purchaseForm.gstTreatment,
+          notes: purchaseForm.notes,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not add purchase bill");
+      setPurchaseForm({ vendorId: "", billNumber: "", billDate: "", dueDate: "", subtotal: "", gstRatePct: "18", gstTreatment: "INTRA_STATE", notes: "" });
+      await loadAccounting();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not add purchase bill");
+    } finally { setSavingAccounting(null); }
+  }
+
+  async function createVendorPayment() {
+    if (!vendorPaymentForm.vendorId || !vendorPaymentForm.paymentAccountId || !vendorPaymentForm.amount) {
+      alert("Select vendor, payment account, and amount");
+      return;
+    }
+    setSavingAccounting("vendor-payment");
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/vendor-payments`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId: vendorPaymentForm.vendorId,
+          purchaseBillId: vendorPaymentForm.purchaseBillId || undefined,
+          paymentAccountId: vendorPaymentForm.paymentAccountId,
+          amount: Number(vendorPaymentForm.amount),
+          method: vendorPaymentForm.method,
+          referenceNumber: vendorPaymentForm.referenceNumber,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not record payment");
+      setVendorPaymentForm({ vendorId: "", purchaseBillId: "", paymentAccountId: "", amount: "", method: "BANK_TRANSFER", referenceNumber: "" });
+      await loadAccounting();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not record payment");
+    } finally { setSavingAccounting(null); }
+  }
+
+  async function createAccountingNote() {
+    if (!noteForm.reason || !noteForm.taxableAmount) {
+      alert("Enter note reason and amount");
+      return;
+    }
+    const invoice = salesInvoices.find(inv => inv.id === noteForm.invoiceId);
+    const bill = purchaseBills.find(row => row.id === noteForm.purchaseBillId);
+    setSavingAccounting("note");
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/notes`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          noteType: noteForm.noteType,
+          partyType: noteForm.partyType,
+          invoiceId: noteForm.partyType === "CUSTOMER" ? noteForm.invoiceId || undefined : undefined,
+          purchaseBillId: noteForm.partyType === "VENDOR" ? noteForm.purchaseBillId || undefined : undefined,
+          customerId: noteForm.partyType === "CUSTOMER" ? invoice?.customerId : undefined,
+          vendorId: noteForm.partyType === "VENDOR" ? bill?.vendorId : undefined,
+          reason: noteForm.reason,
+          taxableAmount: Number(noteForm.taxableAmount),
+          gstRatePct: Number(noteForm.gstRatePct || 0),
+          gstTreatment: noteForm.gstTreatment,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not issue note");
+      setNoteForm({ noteType: "CREDIT_NOTE", partyType: "CUSTOMER", invoiceId: "", purchaseBillId: "", reason: "", taxableAmount: "", gstRatePct: "18", gstTreatment: "INTRA_STATE" });
+      await loadAccounting();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not issue note");
+    } finally { setSavingAccounting(null); }
+  }
+
   // Filtered vendor entries
   const uniqueVendors = useMemo(() => {
     const names = [...new Set(vendorEntries.map(e => e.vendorName))].sort();
@@ -607,9 +776,10 @@ await loadHistory();
 
           {/* Tabs */}
           <div className="border-b border-slate-200">
-            <div className="flex gap-0">
+            <div className="flex flex-wrap gap-0">
               {([
                 { key: "pending", label: "Order Approval", count: orders.length },
+                { key: "accounting", label: "Billing & GST", count: salesInvoices.length + purchaseBills.length },
                 { key: "outstanding", label: "Customer Outstanding", count: outstanding.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
                 { key: "receipts", label: "Receipts Pending", count: pendingPayments.length },
@@ -662,6 +832,8 @@ await loadHistory();
                         <th className="pb-1 text-left">Sides</th>
                         <th className="pb-1 text-right">Qty</th>
                         <th className="pb-1 text-right">Rate</th>
+                        <th className="pb-1 text-right">Cost</th>
+                        <th className="pb-1 text-right">Margin</th>
                         <th className="pb-1 text-right">Amount</th>
                       </tr></thead>
                       <tbody className="divide-y divide-slate-50">
@@ -675,6 +847,14 @@ await loadHistory();
                               <td className="py-1.5 text-slate-500 text-xs">{n.sides || "—"}</td>
                               <td className="py-1.5 text-right">{item.quantity}</td>
                               <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
+                              <td className="py-1.5 text-right text-xs">
+                                {item.costPerUnit == null ? (
+                                  <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">No cost</span>
+                                ) : fmt(item.costPerUnit)}
+                              </td>
+                              <td className={`py-1.5 text-right text-xs font-semibold ${marginClass(item.marginPct)}`}>
+                                {item.marginPct == null ? "—" : `${item.marginPct.toFixed(1)}%`}
+                              </td>
                               <td className="py-1.5 text-right font-semibold">{fmt(item.lineTotal)}</td>
                             </tr>
                           );
@@ -726,6 +906,183 @@ await loadHistory();
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {tab === "accounting" && (
+            <div className="space-y-4">
+              {accountingLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                      <p className="text-xs font-semibold text-blue-700">Sales Invoices</p>
+                      <p className="mt-1 text-xl font-bold text-blue-900">{fmt(accountingSummary?.sales.total ?? 0)}</p>
+                      <p className="text-[11px] text-blue-600">{accountingSummary?.sales.invoiceCount ?? 0} invoices</p>
+                    </div>
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                      <p className="text-xs font-semibold text-red-700">Receivable</p>
+                      <p className="mt-1 text-xl font-bold text-red-800">{fmt(accountingSummary?.sales.receivable ?? 0)}</p>
+                      <p className="text-[11px] text-red-600">customer balance</p>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-xs font-semibold text-amber-700">Payable</p>
+                      <p className="mt-1 text-xl font-bold text-amber-900">{fmt(accountingSummary?.purchases.payable ?? 0)}</p>
+                      <p className="text-[11px] text-amber-700">{accountingSummary?.purchases.billCount ?? 0} purchase bills</p>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-xs font-semibold text-emerald-700">Net GST Estimate</p>
+                      <p className="mt-1 text-xl font-bold text-emerald-900">{fmt(accountingSummary?.gst.netPayableEstimate ?? 0)}</p>
+                      <p className="text-[11px] text-emerald-700">output minus input</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <h2 className="text-sm font-bold text-slate-800">Add Purchase Bill</h2>
+                      <div className="mt-3 space-y-2">
+                        <select value={purchaseForm.vendorId} onChange={e => setPurchaseForm(f => ({ ...f, vendorId: e.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                          <option value="">Vendor</option>
+                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        </select>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input value={purchaseForm.billNumber} onChange={e => setPurchaseForm(f => ({ ...f, billNumber: e.target.value }))} placeholder="Bill no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <input type="number" value={purchaseForm.subtotal} onChange={e => setPurchaseForm(f => ({ ...f, subtotal: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <input type="date" value={purchaseForm.billDate} onChange={e => setPurchaseForm(f => ({ ...f, billDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <input type="date" value={purchaseForm.dueDate} onChange={e => setPurchaseForm(f => ({ ...f, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <input type="number" value={purchaseForm.gstRatePct} onChange={e => setPurchaseForm(f => ({ ...f, gstRatePct: e.target.value }))} placeholder="GST %" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <select value={purchaseForm.gstTreatment} onChange={e => setPurchaseForm(f => ({ ...f, gstTreatment: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            <option value="INTRA_STATE">CGST + SGST</option>
+                            <option value="INTER_STATE">IGST</option>
+                          </select>
+                        </div>
+                        <button onClick={createPurchaseBill} disabled={savingAccounting === "purchase"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          {savingAccounting === "purchase" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Add Bill
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <h2 className="text-sm font-bold text-slate-800">Vendor Payment Out</h2>
+                      <div className="mt-3 space-y-2">
+                        <select value={vendorPaymentForm.vendorId} onChange={e => setVendorPaymentForm(f => ({ ...f, vendorId: e.target.value, purchaseBillId: "" }))}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                          <option value="">Vendor</option>
+                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        </select>
+                        <select value={vendorPaymentForm.purchaseBillId} onChange={e => setVendorPaymentForm(f => ({ ...f, purchaseBillId: e.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                          <option value="">Against bill optional</option>
+                          {purchaseBills.filter(b => !vendorPaymentForm.vendorId || b.vendorId === vendorPaymentForm.vendorId).map(b => <option key={b.id} value={b.id}>{b.billNumber} · {fmt(b.balanceAmount)}</option>)}
+                        </select>
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={vendorPaymentForm.paymentAccountId} onChange={e => setVendorPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            <option value="">Account</option>
+                            {paymentAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                          <input type="number" value={vendorPaymentForm.amount} onChange={e => setVendorPaymentForm(f => ({ ...f, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <select value={vendorPaymentForm.method} onChange={e => setVendorPaymentForm(f => ({ ...f, method: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            {paymentMethods.map(m => <option key={m} value={m}>{m.replace("_", " ")}</option>)}
+                          </select>
+                          <input value={vendorPaymentForm.referenceNumber} onChange={e => setVendorPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))} placeholder="Ref no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                        </div>
+                        <button onClick={createVendorPayment} disabled={savingAccounting === "vendor-payment"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          {savingAccounting === "vendor-payment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Record Payment
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <h2 className="text-sm font-bold text-slate-800">Credit / Debit Note</h2>
+                      <div className="mt-3 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <select value={noteForm.noteType} onChange={e => setNoteForm(f => ({ ...f, noteType: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            <option value="CREDIT_NOTE">Credit Note</option>
+                            <option value="DEBIT_NOTE">Debit Note</option>
+                          </select>
+                          <select value={noteForm.partyType} onChange={e => setNoteForm(f => ({ ...f, partyType: e.target.value, invoiceId: "", purchaseBillId: "" }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            <option value="CUSTOMER">Customer</option>
+                            <option value="VENDOR">Vendor</option>
+                          </select>
+                        </div>
+                        {noteForm.partyType === "CUSTOMER" ? (
+                          <select value={noteForm.invoiceId} onChange={e => setNoteForm(f => ({ ...f, invoiceId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            <option value="">Invoice reference</option>
+                            {salesInvoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoiceNumber} · {inv.customerName}</option>)}
+                          </select>
+                        ) : (
+                          <select value={noteForm.purchaseBillId} onChange={e => setNoteForm(f => ({ ...f, purchaseBillId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                            <option value="">Purchase bill reference</option>
+                            {purchaseBills.map(b => <option key={b.id} value={b.id}>{b.billNumber} · {b.vendorName}</option>)}
+                          </select>
+                        )}
+                        <input value={noteForm.reason} onChange={e => setNoteForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="number" value={noteForm.taxableAmount} onChange={e => setNoteForm(f => ({ ...f, taxableAmount: e.target.value }))} placeholder="Taxable amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <input type="number" value={noteForm.gstRatePct} onChange={e => setNoteForm(f => ({ ...f, gstRatePct: e.target.value }))} placeholder="GST %" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                        </div>
+                        <button onClick={createAccountingNote} disabled={savingAccounting === "note"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          {savingAccounting === "note" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Issue Note
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Sales Invoices</div>
+                      <div className="max-h-80 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Invoice</th><th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2 text-center">WA</th></tr></thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {salesInvoices.map(inv => <tr key={inv.id}><td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}</td><td className="px-3 py-2">{inv.customerName}</td><td className="px-3 py-2 text-right">{fmt(inv.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(inv.totalAmount)}</td><td className="px-3 py-2 text-right text-red-600">{fmt(inv.balanceAmount)}</td><td className="px-3 py-2 text-center">{inv.whatsappStatus}</td></tr>)}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Purchase Bills</div>
+                      <div className="max-h-80 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Bill</th><th className="px-3 py-2 text-left">Vendor</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Payable</th><th className="px-3 py-2 text-center">Status</th></tr></thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {purchaseBills.map(b => <tr key={b.id}><td className="px-3 py-2 font-semibold text-slate-800">{b.billNumber}</td><td className="px-3 py-2">{b.vendorName}</td><td className="px-3 py-2 text-right">{fmt(b.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(b.totalAmount)}</td><td className="px-3 py-2 text-right text-amber-700">{fmt(b.balanceAmount)}</td><td className="px-3 py-2 text-center">{b.status.replace("_", " ")}</td></tr>)}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Credit / Debit Notes</div>
+                      <div className="max-h-72 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Note</th><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-left">Reason</th><th className="px-3 py-2 text-right">Amount</th></tr></thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {accountingNotes.map(n => <tr key={n.id}><td className="px-3 py-2 font-semibold">{n.noteNumber}<div className="text-[10px] text-slate-400">{n.noteType.replace("_", " ")}</div></td><td className="px-3 py-2">{n.partyName}</td><td className="px-3 py-2">{n.reason}</td><td className="px-3 py-2 text-right font-semibold">{fmt(n.totalAmount)}</td></tr>)}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Recent Ledger</div>
+                      <div className="max-h-72 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th></tr></thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {(accountingSummary?.recentLedger ?? []).map(row => <tr key={row.id}><td className="px-3 py-2 text-slate-500">{new Date(row.entryDate).toLocaleDateString("en-IN")}</td><td className="px-3 py-2">{row.accountName}<div className="text-[10px] text-slate-400">{row.narration}</div></td><td className="px-3 py-2 text-right">{row.debitAmount ? fmt(row.debitAmount) : "—"}</td><td className="px-3 py-2 text-right">{row.creditAmount ? fmt(row.creditAmount) : "—"}</td></tr>)}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

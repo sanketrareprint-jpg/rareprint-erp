@@ -6,7 +6,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
+import {
+  AccountingNoteType,
+  AccountingPartyType,
+  GstTreatment,
+  LedgerEntryType,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  PurchaseBillStatus,
+} from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 type AccountsUser = { id: string; role: string };
@@ -18,6 +27,43 @@ type UpdatePendingPaymentDto = {
   referenceNumber?: string | null;
   notes?: string | null;
   paymentDate?: string;
+};
+
+type CreatePurchaseBillDto = {
+  vendorId: string;
+  billNumber: string;
+  billDate?: string;
+  dueDate?: string;
+  subtotal: number;
+  taxableAmount?: number;
+  gstRatePct?: number;
+  gstTreatment?: GstTreatment;
+  notes?: string;
+};
+
+type CreateVendorPaymentDto = {
+  vendorId: string;
+  purchaseBillId?: string;
+  paymentAccountId: string;
+  amount: number;
+  method: PaymentMethod;
+  referenceNumber?: string;
+  notes?: string;
+  paymentDate?: string;
+};
+
+type CreateAccountingNoteDto = {
+  noteType: AccountingNoteType;
+  partyType: AccountingPartyType;
+  customerId?: string;
+  vendorId?: string;
+  invoiceId?: string;
+  purchaseBillId?: string;
+  reason: string;
+  taxableAmount: number;
+  gstRatePct?: number;
+  gstTreatment?: GstTreatment;
+  noteDate?: string;
 };
 
 function assertAccountsUser(user: AccountsUser) {
@@ -32,6 +78,144 @@ export class AccountsService {
     private prisma: PrismaService,
     private whatsapp: WhatsAppService,
   ) {}
+
+  private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
+
+  private money(value: unknown) {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) throw new BadRequestException('Invalid amount');
+    return Math.round(n * 100) / 100;
+  }
+
+  private parseDate(value?: string) {
+    if (!value) return undefined;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException('Invalid date');
+    return date;
+  }
+
+  private gstTreatmentForState(state?: string | null): GstTreatment {
+    if (!state) return GstTreatment.INTRA_STATE;
+    return state.trim().toLowerCase() === this.companyState
+      ? GstTreatment.INTRA_STATE
+      : GstTreatment.INTER_STATE;
+  }
+
+  private splitGst(taxableAmount: number, gstRatePct: number, gstTreatment: GstTreatment) {
+    const taxAmount = this.money((taxableAmount * gstRatePct) / 100);
+    if (gstTreatment === GstTreatment.INTER_STATE) {
+      return { cgstAmount: 0, sgstAmount: 0, igstAmount: taxAmount, taxAmount };
+    }
+    const half = this.money(taxAmount / 2);
+    return { cgstAmount: half, sgstAmount: this.money(taxAmount - half), igstAmount: 0, taxAmount };
+  }
+
+  private async createInvoiceAndLedger(tx: any, order: any) {
+    const existing = await tx.invoice.findUnique({ where: { orderId: order.id } });
+    if (existing) return existing;
+
+    const payments = order.payments ?? [];
+    const paidAmount = this.money(
+      payments
+        .filter((p: any) => p.verificationStatus === 'VERIFIED')
+        .reduce((sum: number, payment: any) => sum + Number(payment.amount), 0),
+    );
+    const gstTreatment = this.gstTreatmentForState(order.customer?.state);
+    const subtotal = this.money(order.subtotal);
+    const discountAmount = this.money(order.discount);
+    const taxableAmount = this.money(subtotal - discountAmount + Number(order.shippingCharge ?? 0));
+    const taxAmount = this.money(order.taxAmount);
+    const fallbackGst = taxableAmount > 0 ? (taxAmount / taxableAmount) * 100 : 0;
+    const invoiceSplit = taxAmount > 0
+      ? this.splitGst(taxableAmount, fallbackGst, gstTreatment)
+      : { cgstAmount: 0, sgstAmount: 0, igstAmount: 0, taxAmount: 0 };
+    const totalAmount = this.money(order.grandTotal);
+
+    const invoice = await tx.invoice.create({
+      data: {
+        orderId: order.id,
+        invoiceNumber: order.orderNumber,
+        subtotal,
+        discountAmount,
+        taxableAmount,
+        cgstAmount: invoiceSplit.cgstAmount,
+        sgstAmount: invoiceSplit.sgstAmount,
+        igstAmount: invoiceSplit.igstAmount,
+        taxAmount,
+        totalAmount,
+        paidAmount,
+        balanceAmount: this.money(totalAmount - paidAmount),
+        gstTreatment,
+        dueDate: order.expectedDelivery ?? null,
+        notes: 'Auto-generated from accounts approval. Invoice number follows order number.',
+      },
+    });
+
+    for (const item of order.items) {
+      const itemTaxable = this.money(Number(item.lineTotal) - Number(item.taxAmount ?? 0));
+      const itemGst = this.splitGst(itemTaxable, Number(item.taxRatePct ?? 0), gstTreatment);
+      await tx.invoiceItem.create({
+        data: {
+          invoiceId: invoice.id,
+          productName: item.product.name,
+          sku: item.product.sku,
+          hsnSac: null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountAmount: item.lineDiscount,
+          taxableAmount: itemTaxable,
+          gstRatePct: item.taxRatePct,
+          cgstAmount: itemGst.cgstAmount,
+          sgstAmount: itemGst.sgstAmount,
+          igstAmount: itemGst.igstAmount,
+          lineTotal: item.lineTotal,
+        },
+      });
+    }
+
+    await tx.accountingLedgerEntry.createMany({
+      data: [
+        {
+          entryType: LedgerEntryType.SALE,
+          accountName: 'Customer Receivable',
+          debitAmount: totalAmount,
+          creditAmount: 0,
+          narration: `Invoice ${order.orderNumber} raised to ${order.customer.businessName}`,
+          referenceType: 'INVOICE',
+          referenceId: invoice.id,
+          customerId: order.customerId,
+          orderId: order.id,
+          invoiceId: invoice.id,
+        },
+        {
+          entryType: LedgerEntryType.SALE,
+          accountName: 'Sales',
+          debitAmount: 0,
+          creditAmount: taxableAmount,
+          narration: `Sales booked for invoice ${order.orderNumber}`,
+          referenceType: 'INVOICE',
+          referenceId: invoice.id,
+          customerId: order.customerId,
+          orderId: order.id,
+          invoiceId: invoice.id,
+        },
+        ...(taxAmount > 0 ? [{
+          entryType: LedgerEntryType.GST,
+          accountName: 'Output GST',
+          debitAmount: 0,
+          creditAmount: taxAmount,
+          narration: `GST output booked for invoice ${order.orderNumber}`,
+          referenceType: 'INVOICE',
+          referenceId: invoice.id,
+          customerId: order.customerId,
+          orderId: order.id,
+          invoiceId: invoice.id,
+        }] : []),
+      ],
+    });
+
+    return invoice;
+  }
 
   private async refreshOrderPaymentStatus(orderId: string) {
     const order = await this.prisma.order.findUnique({
@@ -65,6 +249,20 @@ export class AccountsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const productIds = Array.from(new Set(
+      orders.flatMap((order) => order.items.map((item) => item.productId)),
+    ));
+    const slabs = await this.prisma.productCostSlab.findMany({
+      where: { productId: { in: productIds } },
+      orderBy: { minQuantity: 'asc' },
+    });
+    const slabsByProductId = slabs.reduce((map, slab) => {
+      const rows = map.get(slab.productId) ?? [];
+      rows.push(slab);
+      map.set(slab.productId, rows);
+      return map;
+    }, new Map<string, typeof slabs>());
+
     return orders.map((order) => {
       const totalPaid  = order.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const grandTotal = Number(order.grandTotal);
@@ -83,15 +281,33 @@ export class AccountsService {
           order.customer.shippingAddress,
         ].filter(Boolean).join(' | ') || null,
         products: order.items.map((i) => `${i.product.name} (×${i.quantity})`).join(', '),
-        items: order.items.map((i) => ({
-          productName:     i.product.name,
-          sku:             i.product.sku,
-          quantity:        i.quantity,
-          unitPrice:       Number(i.unitPrice),
-          lineTotal:       Number(i.lineTotal),
-          productionNotes: i.productionNotes,
-          artworkNotes:    i.artworkNotes,
-        })),
+        items: order.items.map((i) => {
+          const matchingSlab = (slabsByProductId.get(i.productId) ?? [])
+            .filter((slab) =>
+              slab.minQuantity <= i.quantity &&
+              (slab.maxQuantity == null || slab.maxQuantity >= i.quantity),
+            )
+            .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+          const unitPrice = Number(i.unitPrice);
+          const costPerUnit = matchingSlab ? Number(matchingSlab.unitPrice) : null;
+          const marginPerUnit = costPerUnit == null ? null : unitPrice - costPerUnit;
+          const marginPct = marginPerUnit == null || unitPrice <= 0
+            ? null
+            : (marginPerUnit / unitPrice) * 100;
+
+          return {
+            productName:     i.product.name,
+            sku:             i.product.sku,
+            quantity:        i.quantity,
+            unitPrice,
+            lineTotal:       Number(i.lineTotal),
+            productionNotes: i.productionNotes,
+            artworkNotes:    i.artworkNotes,
+            costPerUnit,
+            marginPerUnit: marginPerUnit == null ? null : Number(marginPerUnit.toFixed(2)),
+            marginPct: marginPct == null ? null : Number(marginPct.toFixed(2)),
+          };
+        }),
         totalAmount: grandTotal,
         totalPaid,
         balanceDue,
@@ -187,6 +403,7 @@ export class AccountsService {
         customer: true,
         salesAgent: { select: { fullName: true } },
         items: { include: { product: true } },
+        payments: true,
       },
     });
     if (!order) throw new NotFoundException('Order not found');
@@ -194,34 +411,44 @@ export class AccountsService {
       throw new BadRequestException('Only pending accounts approval orders can be approved');
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const approved = await tx.order.update({
         where: { id: orderId },
         data: { status: OrderStatus.APPROVED },
       });
+      const invoice = await this.createInvoiceAndLedger(tx, order);
       await tx.statusLog.create({
         data: {
           orderId,
           fromStatus: OrderStatus.PENDING_APPROVAL,
           toStatus: OrderStatus.APPROVED,
           changedById: user.id,
-          reason: 'Accounts approved order',
+          reason: 'Accounts approved order and generated invoice',
+          metadata: { invoiceNumber: order.orderNumber },
         },
       });
-      return approved;
+      return { approved, invoice };
     });
 
-    // Fire-and-forget WhatsApp
-    void this.whatsapp.sendOrderUpdate({
-      customerName:  order.customer.businessName,
+    void this.whatsapp.sendInvoiceGenerated({
+      customerName: order.customer.businessName,
       customerPhone: order.customer.phone ?? '',
-      orderNo:       order.orderNumber,
-      product:       order.items.map(i => i.product.name).join(', '),
-      status:        WhatsAppService.statusLabel(OrderStatus.APPROVED),
-      agentName:     order.salesAgent?.fullName ?? 'Rareprint Team',
-    });
+      invoiceNumber: result.invoice.invoiceNumber,
+      invoiceDate: result.invoice.issueDate.toISOString().slice(0, 10),
+      totalAmount: Number(result.invoice.totalAmount),
+      gstAmount: Number(result.invoice.taxAmount),
+      balanceAmount: Number(result.invoice.balanceAmount),
+      agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+    }).then((sent) => this.prisma.invoice.update({
+      where: { id: result.invoice.id },
+      data: {
+        whatsappStatus: sent ? 'SENT' : 'FAILED',
+        whatsappSentAt: sent ? new Date() : null,
+        whatsappError: sent ? null : 'AiSensy invoice message failed or customer phone missing',
+      },
+    }).catch(() => undefined));
 
-    return updated;
+    return result.approved;
   }
 
   async rejectOrder(orderId: string, reason: string) {
@@ -429,6 +656,398 @@ export class AccountsService {
     });
   }
 
+  async getAccountingSummary() {
+    const [invoices, purchaseBills, notes, ledger] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { status: 'ISSUED' },
+        select: { totalAmount: true, paidAmount: true, balanceAmount: true, taxAmount: true },
+      }),
+      this.prisma.purchaseBill.findMany({
+        where: { status: { not: PurchaseBillStatus.CANCELLED } },
+        select: { totalAmount: true, paidAmount: true, balanceAmount: true, taxAmount: true },
+      }),
+      this.prisma.accountingNote.findMany({
+        where: { status: 'ISSUED' },
+        select: { noteType: true, totalAmount: true, taxAmount: true },
+      }),
+      this.prisma.accountingLedgerEntry.findMany({
+        orderBy: { entryDate: 'desc' },
+        take: 50,
+      }),
+    ]);
+
+    const sum = (rows: { [key: string]: unknown }[], key: string) =>
+      rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+
+    return {
+      sales: {
+        invoiceCount: invoices.length,
+        total: sum(invoices, 'totalAmount'),
+        paid: sum(invoices, 'paidAmount'),
+        receivable: sum(invoices, 'balanceAmount'),
+        outputGst: sum(invoices, 'taxAmount'),
+      },
+      purchases: {
+        billCount: purchaseBills.length,
+        total: sum(purchaseBills, 'totalAmount'),
+        paid: sum(purchaseBills, 'paidAmount'),
+        payable: sum(purchaseBills, 'balanceAmount'),
+        inputGst: sum(purchaseBills, 'taxAmount'),
+      },
+      notes: {
+        creditNotes: notes.filter(n => n.noteType === AccountingNoteType.CREDIT_NOTE).length,
+        debitNotes: notes.filter(n => n.noteType === AccountingNoteType.DEBIT_NOTE).length,
+        creditAmount: sum(notes.filter(n => n.noteType === AccountingNoteType.CREDIT_NOTE), 'totalAmount'),
+        debitAmount: sum(notes.filter(n => n.noteType === AccountingNoteType.DEBIT_NOTE), 'totalAmount'),
+      },
+      gst: {
+        netPayableEstimate: sum(invoices, 'taxAmount') - sum(purchaseBills, 'taxAmount'),
+      },
+      recentLedger: ledger.map(row => ({
+        ...row,
+        debitAmount: Number(row.debitAmount),
+        creditAmount: Number(row.creditAmount),
+      })),
+    };
+  }
+
+  async getInvoices() {
+    const invoices = await this.prisma.invoice.findMany({
+      include: {
+        order: { include: { customer: true, salesAgent: { select: { fullName: true } } } },
+        items: true,
+      },
+      orderBy: { issueDate: 'desc' },
+      take: 200,
+    });
+    return invoices.map(inv => ({
+      id: inv.id,
+      customerId: inv.order.customer.id,
+      invoiceNumber: inv.invoiceNumber,
+      issueDate: inv.issueDate,
+      customerName: inv.order.customer.businessName,
+      customerPhone: inv.order.customer.phone,
+      gstNumber: inv.order.customer.gstNumber,
+      gstTreatment: inv.gstTreatment,
+      subtotal: Number(inv.subtotal),
+      taxableAmount: Number(inv.taxableAmount),
+      cgstAmount: Number(inv.cgstAmount),
+      sgstAmount: Number(inv.sgstAmount),
+      igstAmount: Number(inv.igstAmount),
+      taxAmount: Number(inv.taxAmount),
+      totalAmount: Number(inv.totalAmount),
+      paidAmount: Number(inv.paidAmount),
+      balanceAmount: Number(inv.balanceAmount),
+      status: inv.status,
+      whatsappStatus: inv.whatsappStatus,
+      whatsappSentAt: inv.whatsappSentAt,
+      salesAgentName: inv.order.salesAgent?.fullName ?? null,
+      items: inv.items.map(item => ({
+        productName: item.productName,
+        sku: item.sku,
+        hsnSac: item.hsnSac,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        gstRatePct: Number(item.gstRatePct),
+        lineTotal: Number(item.lineTotal),
+      })),
+    }));
+  }
+
+  async getPurchaseBills() {
+    const bills = await this.prisma.purchaseBill.findMany({
+      include: { vendor: true, payments: true },
+      orderBy: { billDate: 'desc' },
+      take: 200,
+    });
+    return bills.map(bill => ({
+      id: bill.id,
+      vendorId: bill.vendorId,
+      vendorName: bill.vendor.name,
+      billNumber: bill.billNumber,
+      billDate: bill.billDate,
+      dueDate: bill.dueDate,
+      subtotal: Number(bill.subtotal),
+      taxableAmount: Number(bill.taxableAmount),
+      cgstAmount: Number(bill.cgstAmount),
+      sgstAmount: Number(bill.sgstAmount),
+      igstAmount: Number(bill.igstAmount),
+      taxAmount: Number(bill.taxAmount),
+      totalAmount: Number(bill.totalAmount),
+      paidAmount: Number(bill.paidAmount),
+      balanceAmount: Number(bill.balanceAmount),
+      gstTreatment: bill.gstTreatment,
+      status: bill.status,
+      notes: bill.notes,
+      paymentCount: bill.payments.length,
+    }));
+  }
+
+  async createPurchaseBill(user: AccountsUser, data: CreatePurchaseBillDto) {
+    assertAccountsUser(user);
+    const subtotal = this.money(data.subtotal);
+    const taxableAmount = this.money(data.taxableAmount ?? subtotal);
+    const gstTreatment = data.gstTreatment ?? GstTreatment.INTRA_STATE;
+    const gst = this.splitGst(taxableAmount, Number(data.gstRatePct ?? 0), gstTreatment);
+    const totalAmount = this.money(taxableAmount + gst.taxAmount);
+
+    return this.prisma.$transaction(async (tx) => {
+      const bill = await tx.purchaseBill.create({
+        data: {
+          vendorId: data.vendorId,
+          billNumber: data.billNumber.trim(),
+          billDate: this.parseDate(data.billDate) ?? new Date(),
+          dueDate: this.parseDate(data.dueDate),
+          subtotal,
+          taxableAmount,
+          cgstAmount: gst.cgstAmount,
+          sgstAmount: gst.sgstAmount,
+          igstAmount: gst.igstAmount,
+          taxAmount: gst.taxAmount,
+          totalAmount,
+          balanceAmount: totalAmount,
+          gstTreatment,
+          notes: data.notes?.trim() || null,
+        },
+      });
+      await tx.accountingLedgerEntry.createMany({
+        data: [
+          {
+            entryType: LedgerEntryType.PURCHASE,
+            accountName: 'Purchases / Job Work',
+            debitAmount: taxableAmount,
+            creditAmount: 0,
+            narration: `Purchase bill ${bill.billNumber}`,
+            referenceType: 'PURCHASE_BILL',
+            referenceId: bill.id,
+            vendorId: bill.vendorId,
+            purchaseBillId: bill.id,
+          },
+          ...(gst.taxAmount > 0 ? [{
+            entryType: LedgerEntryType.GST,
+            accountName: 'Input GST',
+            debitAmount: gst.taxAmount,
+            creditAmount: 0,
+            narration: `Input GST for purchase bill ${bill.billNumber}`,
+            referenceType: 'PURCHASE_BILL',
+            referenceId: bill.id,
+            vendorId: bill.vendorId,
+            purchaseBillId: bill.id,
+          }] : []),
+          {
+            entryType: LedgerEntryType.PURCHASE,
+            accountName: 'Vendor Payable',
+            debitAmount: 0,
+            creditAmount: totalAmount,
+            narration: `Payable booked for purchase bill ${bill.billNumber}`,
+            referenceType: 'PURCHASE_BILL',
+            referenceId: bill.id,
+            vendorId: bill.vendorId,
+            purchaseBillId: bill.id,
+          },
+        ],
+      });
+      return bill;
+    });
+  }
+
+  async createVendorPayment(user: AccountsUser, data: CreateVendorPaymentDto) {
+    assertAccountsUser(user);
+    const amount = this.money(data.amount);
+    if (amount <= 0) throw new BadRequestException('Payment amount must be greater than zero');
+
+    return this.prisma.$transaction(async (tx) => {
+      const payment = await tx.vendorPayment.create({
+        data: {
+          vendorId: data.vendorId,
+          purchaseBillId: data.purchaseBillId || null,
+          paymentAccountId: data.paymentAccountId,
+          amount,
+          method: data.method,
+          referenceNumber: data.referenceNumber?.trim() || null,
+          notes: data.notes?.trim() || null,
+          paymentDate: this.parseDate(data.paymentDate) ?? new Date(),
+        },
+        include: { paymentAccount: true },
+      });
+
+      if (data.purchaseBillId) {
+        const payments = await tx.vendorPayment.findMany({ where: { purchaseBillId: data.purchaseBillId } });
+        const paidAmount = this.money(payments.reduce((sum, p) => sum + Number(p.amount), 0));
+        const bill = await tx.purchaseBill.findUnique({ where: { id: data.purchaseBillId } });
+        if (bill) {
+          const balance = this.money(Number(bill.totalAmount) - paidAmount);
+          await tx.purchaseBill.update({
+            where: { id: bill.id },
+            data: {
+              paidAmount,
+              balanceAmount: balance,
+              status: balance <= 0 ? PurchaseBillStatus.PAID : PurchaseBillStatus.PARTIALLY_PAID,
+            },
+          });
+        }
+      }
+
+      await tx.accountingLedgerEntry.createMany({
+        data: [
+          {
+            entryType: LedgerEntryType.PAYMENT_OUT,
+            accountName: 'Vendor Payable',
+            debitAmount: amount,
+            creditAmount: 0,
+            narration: `Vendor payment to ${data.vendorId}`,
+            referenceType: 'VENDOR_PAYMENT',
+            referenceId: payment.id,
+            vendorId: data.vendorId,
+            purchaseBillId: data.purchaseBillId || null,
+          },
+          {
+            entryType: LedgerEntryType.PAYMENT_OUT,
+            accountName: payment.paymentAccount.name,
+            debitAmount: 0,
+            creditAmount: amount,
+            narration: 'Vendor payment from bank/cash',
+            referenceType: 'VENDOR_PAYMENT',
+            referenceId: payment.id,
+            vendorId: data.vendorId,
+            purchaseBillId: data.purchaseBillId || null,
+          },
+        ],
+      });
+      return payment;
+    });
+  }
+
+  async getAccountingNotes() {
+    const notes = await this.prisma.accountingNote.findMany({
+      include: { customer: true, vendor: true, invoice: true, purchaseBill: true },
+      orderBy: { noteDate: 'desc' },
+      take: 200,
+    });
+    return notes.map(note => ({
+      id: note.id,
+      noteNumber: note.noteNumber,
+      noteType: note.noteType,
+      partyType: note.partyType,
+      partyName: note.customer?.businessName ?? note.vendor?.name ?? 'Unknown',
+      referenceNumber: note.invoice?.invoiceNumber ?? note.purchaseBill?.billNumber ?? null,
+      noteDate: note.noteDate,
+      reason: note.reason,
+      taxableAmount: Number(note.taxableAmount),
+      taxAmount: Number(note.taxAmount),
+      totalAmount: Number(note.totalAmount),
+      status: note.status,
+    }));
+  }
+
+  async createAccountingNote(user: AccountsUser, data: CreateAccountingNoteDto) {
+    assertAccountsUser(user);
+    if (data.partyType === AccountingPartyType.CUSTOMER && !data.customerId) {
+      throw new BadRequestException('Customer is required for customer note');
+    }
+    if (data.partyType === AccountingPartyType.VENDOR && !data.vendorId) {
+      throw new BadRequestException('Vendor is required for vendor note');
+    }
+    const taxableAmount = this.money(data.taxableAmount);
+    const gstTreatment = data.gstTreatment ?? GstTreatment.INTRA_STATE;
+    const gst = this.splitGst(taxableAmount, Number(data.gstRatePct ?? 0), gstTreatment);
+    const totalAmount = this.money(taxableAmount + gst.taxAmount);
+    const prefix = data.noteType === AccountingNoteType.CREDIT_NOTE ? 'CN' : 'DN';
+    const noteNumber = `${prefix}-${Date.now()}`;
+
+    return this.prisma.$transaction(async (tx) => {
+      const note = await tx.accountingNote.create({
+        data: {
+          noteNumber,
+          noteType: data.noteType,
+          partyType: data.partyType,
+          customerId: data.customerId || null,
+          vendorId: data.vendorId || null,
+          invoiceId: data.invoiceId || null,
+          purchaseBillId: data.purchaseBillId || null,
+          noteDate: this.parseDate(data.noteDate) ?? new Date(),
+          reason: data.reason.trim(),
+          taxableAmount,
+          cgstAmount: gst.cgstAmount,
+          sgstAmount: gst.sgstAmount,
+          igstAmount: gst.igstAmount,
+          taxAmount: gst.taxAmount,
+          totalAmount,
+        },
+      });
+
+      const entryType = data.noteType === AccountingNoteType.CREDIT_NOTE
+        ? LedgerEntryType.CREDIT_NOTE
+        : LedgerEntryType.DEBIT_NOTE;
+      const partyAccount = data.partyType === AccountingPartyType.CUSTOMER
+        ? 'Customer Receivable'
+        : 'Vendor Payable';
+      const isCreditForCustomer = data.noteType === AccountingNoteType.CREDIT_NOTE && data.partyType === AccountingPartyType.CUSTOMER;
+      await tx.accountingLedgerEntry.createMany({
+        data: [
+          {
+            entryType,
+            accountName: partyAccount,
+            debitAmount: isCreditForCustomer ? 0 : totalAmount,
+            creditAmount: isCreditForCustomer ? totalAmount : 0,
+            narration: `${data.noteType.replace('_', ' ')} ${noteNumber}: ${data.reason}`,
+            referenceType: 'ACCOUNTING_NOTE',
+            referenceId: note.id,
+            customerId: data.customerId || null,
+            vendorId: data.vendorId || null,
+            invoiceId: data.invoiceId || null,
+            purchaseBillId: data.purchaseBillId || null,
+          },
+          {
+            entryType,
+            accountName: data.noteType === AccountingNoteType.CREDIT_NOTE ? 'Sales Return / Adjustment' : 'Debit Note Income / Adjustment',
+            debitAmount: isCreditForCustomer ? totalAmount : 0,
+            creditAmount: isCreditForCustomer ? 0 : totalAmount,
+            narration: `${data.noteType.replace('_', ' ')} ${noteNumber}`,
+            referenceType: 'ACCOUNTING_NOTE',
+            referenceId: note.id,
+            customerId: data.customerId || null,
+            vendorId: data.vendorId || null,
+            invoiceId: data.invoiceId || null,
+            purchaseBillId: data.purchaseBillId || null,
+          },
+        ],
+      });
+
+      if (data.invoiceId) {
+        const invoice = await tx.invoice.findUnique({ where: { id: data.invoiceId } });
+        if (invoice) {
+          const currentBalance = Number(invoice.balanceAmount);
+          const nextBalance = data.noteType === AccountingNoteType.CREDIT_NOTE
+            ? Math.max(0, this.money(currentBalance - totalAmount))
+            : this.money(currentBalance + totalAmount);
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: { balanceAmount: nextBalance },
+          });
+        }
+      }
+
+      if (data.purchaseBillId) {
+        const bill = await tx.purchaseBill.findUnique({ where: { id: data.purchaseBillId } });
+        if (bill) {
+          const currentBalance = Number(bill.balanceAmount);
+          const nextBalance = data.noteType === AccountingNoteType.CREDIT_NOTE
+            ? this.money(currentBalance + totalAmount)
+            : Math.max(0, this.money(currentBalance - totalAmount));
+          await tx.purchaseBill.update({
+            where: { id: bill.id },
+            data: {
+              balanceAmount: nextBalance,
+              status: nextBalance <= 0 ? PurchaseBillStatus.PAID : bill.status,
+            },
+          });
+        }
+      }
+      return note;
+    });
+  }
+
   async getCustomerOutstanding() {
     const rows = await this.prisma.$queryRaw<any[]>`
       WITH order_paid AS (
@@ -618,14 +1237,72 @@ export class AccountsService {
       throw new BadRequestException('Only pending receipts can be verified');
     }
 
-    const updated = await this.prisma.payment.update({
-      where: { id },
-      data: {
-        verificationStatus: 'VERIFIED',
-        verifiedById,
-        verifiedAt: new Date(),
-        ...(referenceNumber !== undefined ? { referenceNumber: referenceNumber.trim() || null } : {}),
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const verified = await tx.payment.update({
+        where: { id },
+        data: {
+          verificationStatus: 'VERIFIED',
+          verifiedById,
+          verifiedAt: new Date(),
+          ...(referenceNumber !== undefined ? { referenceNumber: referenceNumber.trim() || null } : {}),
+        },
+      });
+
+      const verifiedPayments = await tx.payment.findMany({
+        where: { orderId: payment.orderId, verificationStatus: 'VERIFIED' },
+      });
+      const totalPaid = this.money(verifiedPayments.reduce((sum, p) => sum + Number(p.amount), 0));
+      const grandTotal = this.money((payment.order as any).grandTotal);
+      await tx.order.update({
+        where: { id: payment.orderId },
+        data: {
+          paymentStatus:
+            totalPaid >= grandTotal ? PaymentStatus.PAID :
+            totalPaid > 0 ? PaymentStatus.PARTIALLY_PAID :
+            PaymentStatus.PENDING,
+        },
+      });
+
+      const invoice = await tx.invoice.findUnique({ where: { orderId: payment.orderId } });
+      if (invoice) {
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            paidAmount: totalPaid,
+            balanceAmount: this.money(Number(invoice.totalAmount) - totalPaid),
+          },
+        });
+        await tx.accountingLedgerEntry.createMany({
+          data: [
+            {
+              entryType: LedgerEntryType.PAYMENT_IN,
+              accountName: payment.paymentAccount.name,
+              debitAmount: payment.amount,
+              creditAmount: 0,
+              narration: `Payment received for invoice ${invoice.invoiceNumber}`,
+              referenceType: 'PAYMENT',
+              referenceId: payment.id,
+              customerId: (payment.order as any).customerId,
+              orderId: payment.orderId,
+              invoiceId: invoice.id,
+            },
+            {
+              entryType: LedgerEntryType.PAYMENT_IN,
+              accountName: 'Customer Receivable',
+              debitAmount: 0,
+              creditAmount: payment.amount,
+              narration: `Receivable adjusted for invoice ${invoice.invoiceNumber}`,
+              referenceType: 'PAYMENT',
+              referenceId: payment.id,
+              customerId: (payment.order as any).customerId,
+              orderId: payment.orderId,
+              invoiceId: invoice.id,
+            },
+          ],
+        });
+      }
+
+      return verified;
     });
 
     return updated;

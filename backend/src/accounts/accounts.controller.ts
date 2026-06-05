@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Patch, Param, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Param, Post, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
-import { PaymentMethod } from '@prisma/client';
+import { AccountingNoteType, AccountingPartyType, GstTreatment, PaymentMethod } from '@prisma/client';
 
 type JwtUser = { id: string; role: string };
 
@@ -34,6 +34,81 @@ export class AccountsController {
   @Get('customer-outstanding')
   getCustomerOutstanding() {
     return this.accountsService.getCustomerOutstanding();
+  }
+
+  @Get('summary')
+  getAccountingSummary() {
+    return this.accountsService.getAccountingSummary();
+  }
+
+  @Get('invoices')
+  getInvoices() {
+    return this.accountsService.getInvoices();
+  }
+
+  @Get('purchase-bills')
+  getPurchaseBills() {
+    return this.accountsService.getPurchaseBills();
+  }
+
+  @Post('purchase-bills')
+  createPurchaseBill(
+    @Body() body: {
+      vendorId: string;
+      billNumber: string;
+      billDate?: string;
+      dueDate?: string;
+      subtotal: number;
+      taxableAmount?: number;
+      gstRatePct?: number;
+      gstTreatment?: GstTreatment;
+      notes?: string;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.createPurchaseBill(req.user, body);
+  }
+
+  @Post('vendor-payments')
+  createVendorPayment(
+    @Body() body: {
+      vendorId: string;
+      purchaseBillId?: string;
+      paymentAccountId: string;
+      amount: number;
+      method: PaymentMethod;
+      referenceNumber?: string;
+      notes?: string;
+      paymentDate?: string;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.createVendorPayment(req.user, body);
+  }
+
+  @Get('notes')
+  getAccountingNotes() {
+    return this.accountsService.getAccountingNotes();
+  }
+
+  @Post('notes')
+  createAccountingNote(
+    @Body() body: {
+      noteType: AccountingNoteType;
+      partyType: AccountingPartyType;
+      customerId?: string;
+      vendorId?: string;
+      invoiceId?: string;
+      purchaseBillId?: string;
+      reason: string;
+      taxableAmount: number;
+      gstRatePct?: number;
+      gstTreatment?: GstTreatment;
+      noteDate?: string;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.createAccountingNote(req.user, body);
   }
 
   @Patch('customers/:customerId/balance-reminder')
