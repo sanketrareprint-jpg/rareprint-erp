@@ -14,6 +14,7 @@ model User {
   phone              String?
   passwordHash       String
   role               UserRole
+  salesAgentCategory SalesAgentCategory?
   isActive           Boolean               @default(true)
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
@@ -92,6 +93,7 @@ model Product {
   orderItems         OrderItem[]
   category           ProductCategory   @relation(fields: [categoryId], references: [id])
   costSlabs          ProductCostSlab[]
+  rateSlabs          ProductRateSlab[]
   sheetItems         PrintSheetItem[]
 }
 
@@ -102,6 +104,21 @@ model ProductCostSlab {
   maxQuantity   Int?
   unitPrice     Decimal   @db.Decimal(12, 2)
   setupCost     Decimal?  @db.Decimal(12, 2)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, minQuantity, maxQuantity])
+}
+
+model ProductRateSlab {
+  id            String    @id @default(cuid())
+  productId     String
+  minQuantity   Int
+  maxQuantity   Int?
+  rateAmount    Decimal   @db.Decimal(12, 2) // total selling rate for this quantity tier
   effectiveFrom DateTime  @default(now())
   effectiveTo   DateTime?
   createdAt     DateTime  @default(now())
@@ -640,6 +657,13 @@ enum UserRole {
   PRODUCTION
   DISPATCH
   SALES_AGENT
+}
+
+enum SalesAgentCategory {
+  A
+  B
+  C
+  D
 }
 
 enum PrintingType {

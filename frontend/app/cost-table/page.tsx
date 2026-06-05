@@ -7,6 +7,7 @@ import {
   Settings, Plus, Trash2, Edit2, Check, X, ChevronDown, ChevronUp,
   AlertTriangle, CheckCircle, XCircle, IndianRupee, Percent, Save,
   Search, RefreshCw, TrendingUp, Download, Upload,
+  BarChart3, Users,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -71,6 +72,15 @@ type ImportJob = {
   }>;
 };
 
+type Profitability = {
+  month: string;
+  totals: { saleTotal: number; costTotal: number; grossProfit: number; commissionTotal: number; netGrossProfit: number };
+  missingCostOrderCount: number;
+  agents: Array<{ id: string; name: string; category: string | null; saleTotal: number; grossProfit: number; commissionTotal: number; netGrossProfit: number; orderCount: number }>;
+};
+type NoCostProduct = { id: string; sku: string; name: string; description?: string | null; category?: { name: string }; gsm: number; sizeInches: string; sides: string };
+type SalesAgent = { id: string; fullName: string; email: string; salesAgentCategory: "A" | "B" | "C" | "D" | null };
+
 const SAMPLE_QUANTITY_TIERS = [
   700, 1000, 1500, 2000, 3000, 3500, 4000, 5000, 6000,
   8000, 9500, 10000, 12000, 15000, 20000, 30000, 40000, 50000,
@@ -81,6 +91,11 @@ const SAMPLE_QUANTITY_TIERS = [
 function fmt(n: number | null | undefined) {
   if (n === null || n === undefined) return "—";
   return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function money(n: number | null | undefined) {
+  if (n === null || n === undefined) return "-";
+  return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
 function parseCsv(text: string): string[][] {
@@ -154,9 +169,11 @@ export default function CostTablePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit">("table");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const rateFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importingRates, setImportingRates] = useState(false);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
@@ -175,6 +192,10 @@ export default function CostTablePage() {
   const [checker, setChecker] = useState({ productId: "", quantity: "", salePrice: "" });
   const [checkerResult, setCheckerResult] = useState<MarginResult | null>(null);
   const [checkerLoading, setCheckerLoading] = useState(false);
+  const [profitability, setProfitability] = useState<Profitability | null>(null);
+  const [noCostProducts, setNoCostProducts] = useState<NoCostProduct[]>([]);
+  const [salesAgents, setSalesAgents] = useState<SalesAgent[]>([]);
+  const [profitLoading, setProfitLoading] = useState(false);
 
   const headers = getAuthHeaders();
 
@@ -197,6 +218,33 @@ export default function CostTablePage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadProfit = useCallback(async () => {
+    setProfitLoading(true);
+    try {
+      const [profitRes, noCostRes, agentsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/cost-table/profitability`, { headers }),
+        fetch(`${API_BASE_URL}/cost-table/products-without-cost`, { headers }),
+        fetch(`${API_BASE_URL}/cost-table/sales-agents`, { headers }),
+      ]);
+      if (profitRes.ok) setProfitability(await profitRes.json());
+      if (noCostRes.ok) setNoCostProducts(await noCostRes.json());
+      if (agentsRes.ok) setSalesAgents(await agentsRes.json());
+    } finally {
+      setProfitLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (activeTab === "profit") loadProfit(); }, [activeTab, loadProfit]);
+
+  async function updateAgentCategory(userId: string, category: "A" | "B" | "C" | "D" | "") {
+    await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/category`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ category: category || null }),
+    });
+    await loadProfit();
+  }
 
   function downloadSampleCsv() {
     const headers = ["PRODUCT CODE", "DESCRIPTION", ...SAMPLE_QUANTITY_TIERS.map(String)];
@@ -318,6 +366,92 @@ export default function CostTablePage() {
     }
   }
 
+  function downloadRateSampleCsv() {
+    const headers = ["PRODUCT CODE", "DESCRIPTION", ...SAMPLE_QUANTITY_TIERS.map(String)];
+    const rows = [
+      headers,
+      ...products.slice(0, 3).map((p) => [
+        p.sku,
+        p.name,
+        ...SAMPLE_QUANTITY_TIERS.map((qty, index) => index < 4 ? String(qty * 1.1) : ""),
+      ]),
+    ];
+    const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "rate-list-sample.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importRateCsv(file: File) {
+    setImportingRates(true);
+    setImportResult(null);
+    try {
+      const rows = parseCsv(await file.text());
+      const header = rows[0] || [];
+      const codeIndex = header.findIndex(h => h.trim().toLowerCase().replace(/[_-]/g, " ") === "product code");
+      const skuIndex = codeIndex >= 0 ? codeIndex : header.findIndex(h => h.trim().toLowerCase() === "sku");
+      const quantityColumns = header
+        .map((h, index) => ({ quantity: Number(String(h).replace(/[^\d]/g, "")), index }))
+        .filter(col => Number.isFinite(col.quantity) && col.quantity > 0)
+        .sort((a, b) => a.quantity - b.quantity);
+      if (skuIndex < 0 || quantityColumns.length === 0) {
+        setImportResult({ imported: 0, skipped: [], errors: ["Rate CSV must include PRODUCT CODE and quantity columns."] });
+        return;
+      }
+      const productBySku = new Map(products.map(p => [p.sku.trim().toUpperCase(), p]));
+      const skipped: string[] = [];
+      const errors: string[] = [];
+      let imported = 0;
+      const jobs = rows.slice(1).map(row => {
+        const sku = String(row[skuIndex] || "").trim();
+        const product = productBySku.get(sku.toUpperCase());
+        if (!sku) return null;
+        if (!product) { skipped.push(`${sku}: product SKU not found`); return null; }
+        const pricedTiers = quantityColumns
+          .map(col => ({ minQuantity: col.quantity, rateAmount: cleanCost(String(row[col.index] || "")) }))
+          .filter((tier): tier is { minQuantity: number; rateAmount: number } => tier.rateAmount !== null);
+        if (pricedTiers.length === 0) { skipped.push(`${sku}: no valid rate values`); return null; }
+        return {
+          sku,
+          productId: product.id,
+          slabs: pricedTiers.map((tier, index) => ({
+            minQuantity: tier.minQuantity,
+            maxQuantity: pricedTiers[index + 1] ? pricedTiers[index + 1].minQuantity - 1 : null,
+            rateAmount: tier.rateAmount,
+          })),
+        };
+      }).filter(Boolean) as Array<{ sku: string; productId: string; slabs: any[] }>;
+      let cursor = 0;
+      async function worker() {
+        while (cursor < jobs.length) {
+          const job = jobs[cursor++];
+          try {
+            const res = await fetch(`${API_BASE_URL}/cost-table/products/${job.productId}/rate-slabs/bulk`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ slabs: job.slabs }),
+            });
+            if (res.ok) imported++;
+            else errors.push(`${job.sku}: rate import failed`);
+          } catch {
+            errors.push(`${job.sku}: rate import failed`);
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, () => worker()));
+      setImportResult({ imported, skipped, errors });
+    } finally {
+      setImportingRates(false);
+      if (rateFileInputRef.current) rateFileInputRef.current.value = "";
+    }
+  }
+
   const filtered = products.filter(p =>
     p.sku.toLowerCase().includes(search.toLowerCase()) ||
     p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -406,12 +540,22 @@ export default function CostTablePage() {
             <button onClick={downloadSampleCsv} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
               <Download size={14} /> Sample CSV
             </button>
+            <button onClick={downloadRateSampleCsv} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-50">
+              <Download size={14} /> Rate CSV
+            </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={importing || products.length === 0}
               className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={14} /> {importing ? `Importing ${importProgress?.done ?? 0}/${importProgress?.total ?? 0}` : "Import CSV"}
+            </button>
+            <button
+              onClick={() => rateFileInputRef.current?.click()}
+              disabled={importingRates || products.length === 0}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Upload size={14} /> {importingRates ? "Importing rates..." : "Import Rates"}
             </button>
             <span className="text-xs text-gray-400">CSV rates are total slab amounts</span>
             <input
@@ -424,6 +568,16 @@ export default function CostTablePage() {
                 if (file) importCsv(file);
               }}
             />
+            <input
+              ref={rateFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) importRateCsv(file);
+              }}
+            />
             <button onClick={load} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
               <RefreshCw size={14} /> Refresh
             </button>
@@ -434,6 +588,7 @@ export default function CostTablePage() {
         <div className="flex border-b border-gray-200">
           {([
             { key: "table", label: "Cost Slabs", icon: IndianRupee },
+            { key: "profit", label: "Profit", icon: BarChart3 },
             { key: "checker", label: "Margin Checker", icon: TrendingUp },
             { key: "settings", label: "Settings", icon: Settings },
           ] as const).map(({ key, label, icon: Icon }) => (
@@ -655,6 +810,118 @@ export default function CostTablePage() {
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB: Profit ───────────────────────────────────────────────── */}
+        {activeTab === "profit" && (
+          <div className="space-y-4">
+            {profitLoading ? (
+              <div className="text-center py-16 text-gray-400">Loading profit data...</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  {[
+                    ["Sales", profitability?.totals.saleTotal, "text-slate-900"],
+                    ["Cost", profitability?.totals.costTotal, "text-blue-700"],
+                    ["Gross Profit", profitability?.totals.grossProfit, "text-green-700"],
+                    ["Commission", profitability?.totals.commissionTotal, "text-purple-700"],
+                    ["Gross to Gross", profitability?.totals.netGrossProfit, "text-emerald-700"],
+                  ].map(([label, value, color]) => (
+                    <div key={String(label)} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                      <p className="text-xs font-semibold text-gray-400">{label}</p>
+                      <p className={`mt-1 text-xl font-bold ${color}`}>{money(value as number)}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+                    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                      <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900"><AlertTriangle size={15} /> Products With No Cost</h2>
+                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">{noCostProducts.length}</span>
+                    </div>
+                    <div className="max-h-80 overflow-auto divide-y divide-gray-50">
+                      {noCostProducts.length === 0 ? (
+                        <p className="p-4 text-sm text-gray-400">All active products have cost slabs.</p>
+                      ) : noCostProducts.map(product => (
+                        <div key={product.id} className="flex items-center justify-between gap-3 px-4 py-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-blue-700">{product.sku}</span>
+                              <span className="truncate text-sm font-semibold text-gray-900">{product.name}</span>
+                            </div>
+                            <p className="text-xs text-gray-400">{product.category?.name} · {product.gsm}gsm · {product.sizeInches} · {product.sides}</p>
+                          </div>
+                          <button onClick={() => { setActiveTab("table"); setSearch(product.sku); }}
+                            className="rounded-lg border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                            Add Cost
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+                    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                      <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900"><Users size={15} /> Sales Agent Categories</h2>
+                    </div>
+                    <div className="max-h-80 overflow-auto divide-y divide-gray-50">
+                      {salesAgents.map(agent => (
+                        <div key={agent.id} className="flex items-center justify-between gap-3 px-4 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-900">{agent.fullName}</p>
+                            <p className="text-xs text-gray-400">{agent.email}</p>
+                          </div>
+                          <select value={agent.salesAgentCategory ?? ""} onChange={e => updateAgentCategory(agent.id, e.target.value as any)}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm">
+                            <option value="">No category</option>
+                            <option value="A">A - 10%, stickers 15%</option>
+                            <option value="B">B - 10%</option>
+                            <option value="C">C - 12%, stickers 17%</option>
+                            <option value="D">D - fixed rate upper</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <h2 className="text-sm font-bold text-gray-900">This Month Commission By Agent</h2>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Agent</th>
+                          <th className="px-3 py-2 text-left">Category</th>
+                          <th className="px-3 py-2 text-right">Orders</th>
+                          <th className="px-3 py-2 text-right">Sales</th>
+                          <th className="px-3 py-2 text-right">Gross Profit</th>
+                          <th className="px-3 py-2 text-right">Commission</th>
+                          <th className="px-3 py-2 text-right">Gross to Gross</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {(profitability?.agents ?? []).map(agent => (
+                          <tr key={agent.id}>
+                            <td className="px-3 py-2 font-semibold text-gray-900">{agent.name}</td>
+                            <td className="px-3 py-2 text-gray-500">{agent.category ?? "-"}</td>
+                            <td className="px-3 py-2 text-right">{agent.orderCount}</td>
+                            <td className="px-3 py-2 text-right">{money(agent.saleTotal)}</td>
+                            <td className="px-3 py-2 text-right text-green-700">{money(agent.grossProfit)}</td>
+                            <td className="px-3 py-2 text-right text-purple-700">{money(agent.commissionTotal)}</td>
+                            <td className="px-3 py-2 text-right font-bold text-emerald-700">{money(agent.netGrossProfit)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}

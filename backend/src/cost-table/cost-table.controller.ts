@@ -57,6 +57,45 @@ export class CostTableController {
     return this.svc.bulkUpsertSlabs(productId, dto.slabs);
   }
 
+  // ── Rate list slabs (total selling rate by quantity) ─────────────────────
+
+  @Get('products/:productId/rate-slabs')
+  getRateSlabsForProduct(@Param('productId') productId: string) {
+    return this.svc.getRateSlabsForProduct(productId);
+  }
+
+  @Post('products/:productId/rate-slabs/bulk')
+  bulkUpsertRateSlabs(@Param('productId') productId: string, @Body() dto: { slabs: any[] }) {
+    return this.svc.bulkUpsertRateSlabs(productId, dto.slabs);
+  }
+
+  // ── Profit and commission dashboard ──────────────────────────────────────
+
+  @Get('profitability')
+  getProfitabilitySummary() {
+    return this.svc.getProfitabilitySummary();
+  }
+
+  @Get('products-without-cost')
+  getProductsWithoutCost() {
+    return this.svc.getProductsWithoutCost();
+  }
+
+  @Get('sales-agents')
+  getSalesAgents() {
+    return this.svc.getSalesAgents();
+  }
+
+  @Put('sales-agents/:userId/category')
+  updateSalesAgentCategory(@Param('userId') userId: string, @Body() dto: { category: 'A' | 'B' | 'C' | 'D' | null }) {
+    return this.svc.updateSalesAgentCategory(userId, dto.category ?? null);
+  }
+
+  @Get('sales-agents/:userId/month-commission')
+  getAgentMonthCommission(@Param('userId') userId: string) {
+    return this.svc.getAgentMonthCommission(userId);
+  }
+
   // ── Margin & approval check ───────────────────────────────────────────────
 
   @Post('check-margin')

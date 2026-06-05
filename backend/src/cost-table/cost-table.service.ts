@@ -21,6 +21,119 @@ const DEFAULT_SETTINGS: CostSettings = {
 export class CostTableService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private getMonthRange() {
+    const now = new Date();
+    const istOffsetMs = 330 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    return {
+      start: new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - istOffsetMs),
+      end: new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 1) - istOffsetMs),
+    };
+  }
+
+  private matchingSlab(slabs: any[], quantity: number) {
+    return slabs
+      .filter((slab) => slab.minQuantity <= quantity && (slab.maxQuantity == null || slab.maxQuantity >= quantity))
+      .sort((a, b) => b.minQuantity - a.minQuantity)[0] ?? null;
+  }
+
+  private lineCostTotal(item: any) {
+    const slab = this.matchingSlab(item.product.costSlabs ?? [], item.quantity);
+    if (!slab) return null;
+    const raw = Number(slab.unitPrice);
+    const salePerUnit = Number(item.unitPrice);
+    const costPerUnit = raw > salePerUnit ? raw / slab.minQuantity : raw;
+    return costPerUnit * item.quantity;
+  }
+
+  private rateTotal(item: any) {
+    const slab = this.matchingSlab(item.product.rateSlabs ?? [], item.quantity);
+    return slab ? Number(slab.rateAmount) : Number(item.lineTotal);
+  }
+
+  private isSticker(item: any) {
+    const haystack = `${item.product.name} ${item.product.category?.name ?? ''}`.toLowerCase();
+    return haystack.includes('sticker');
+  }
+
+  private commissionForLine(order: any, item: any, costTotal: number) {
+    const agentCategory = order.salesAgent?.salesAgentCategory ?? 'B';
+    const saleTotal = Number(item.lineTotal);
+    const profit = saleTotal - costTotal;
+    if (profit <= 0) return 0;
+
+    const rateTotal = this.rateTotal(item);
+    const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - saleTotal) / rateTotal) * 100) : 0;
+
+    if (agentCategory === 'D') {
+      return Math.max(0, saleTotal - rateTotal);
+    }
+
+    if (discountPct > 5) {
+      return profit / (agentCategory === 'C' ? 3.75 : 4);
+    }
+
+    if (agentCategory === 'A') {
+      return rateTotal * (this.isSticker(item) ? 0.15 : 0.10);
+    }
+    if (agentCategory === 'C') {
+      return rateTotal * (this.isSticker(item) ? 0.17 : 0.12);
+    }
+    return rateTotal * 0.10;
+  }
+
+  private async profitRows(start: Date, end: Date) {
+    const orders = await this.prisma.order.findMany({
+      where: { orderDate: { gte: start, lt: end }, status: { not: 'CANCELLED' as any } },
+      include: {
+        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
+        items: {
+          include: {
+            product: {
+              include: {
+                category: true,
+                costSlabs: true,
+                rateSlabs: true,
+              } as any,
+            },
+          },
+        },
+      },
+      orderBy: { orderDate: 'desc' },
+    });
+
+    return orders.map((order: any) => {
+      let saleTotal = Number(order.grandTotal);
+      let costTotal = 0;
+      let commissionTotal = 0;
+      let hasMissingCost = false;
+      for (const item of order.items) {
+        const lineCost = this.lineCostTotal(item);
+        if (lineCost == null) {
+          hasMissingCost = true;
+          continue;
+        }
+        costTotal += lineCost;
+        commissionTotal += this.commissionForLine(order, item, lineCost);
+      }
+      const grossProfit = hasMissingCost ? null : saleTotal - costTotal;
+      return {
+        orderId: order.id,
+        orderNo: order.orderNumber,
+        orderDate: order.orderDate,
+        salesAgentId: order.salesAgentId,
+        salesAgentName: order.salesAgent?.fullName ?? null,
+        salesAgentCategory: order.salesAgent?.salesAgentCategory ?? null,
+        saleTotal,
+        costTotal: hasMissingCost ? null : Number(costTotal.toFixed(2)),
+        grossProfit: grossProfit == null ? null : Number(grossProfit.toFixed(2)),
+        commissionTotal: hasMissingCost ? null : Number(commissionTotal.toFixed(2)),
+        netGrossProfit: grossProfit == null ? null : Number((grossProfit - commissionTotal).toFixed(2)),
+        hasMissingCost,
+      };
+    });
+  }
+
   // ── Settings ─────────────────────────────────────────────────────────────
 
   getSettings(): CostSettings {
@@ -263,5 +376,124 @@ export class CostTableService {
       orderBy: { minQuantity: 'desc' },
     });
     return slab ? Number(slab.unitPrice) : null;
+  }
+
+  async getProfitabilitySummary() {
+    const { start, end } = this.getMonthRange();
+    const rows = await this.profitRows(start, end);
+    const completeRows = rows.filter((row) => !row.hasMissingCost);
+    const totals = completeRows.reduce((acc, row) => ({
+      saleTotal: acc.saleTotal + row.saleTotal,
+      costTotal: acc.costTotal + Number(row.costTotal ?? 0),
+      grossProfit: acc.grossProfit + Number(row.grossProfit ?? 0),
+      commissionTotal: acc.commissionTotal + Number(row.commissionTotal ?? 0),
+      netGrossProfit: acc.netGrossProfit + Number(row.netGrossProfit ?? 0),
+    }), { saleTotal: 0, costTotal: 0, grossProfit: 0, commissionTotal: 0, netGrossProfit: 0 });
+
+    const agentMap = new Map<string, any>();
+    for (const row of completeRows) {
+      const id = row.salesAgentId ?? 'NO_AGENT';
+      const current = agentMap.get(id) ?? {
+        id,
+        name: row.salesAgentName ?? 'No Agent',
+        category: row.salesAgentCategory,
+        saleTotal: 0,
+        grossProfit: 0,
+        commissionTotal: 0,
+        netGrossProfit: 0,
+        orderCount: 0,
+      };
+      current.saleTotal += row.saleTotal;
+      current.grossProfit += Number(row.grossProfit ?? 0);
+      current.commissionTotal += Number(row.commissionTotal ?? 0);
+      current.netGrossProfit += Number(row.netGrossProfit ?? 0);
+      current.orderCount++;
+      agentMap.set(id, current);
+    }
+
+    return {
+      month: start.toISOString().slice(0, 7),
+      totals: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value.toFixed(2))])),
+      missingCostOrderCount: rows.filter((row) => row.hasMissingCost).length,
+      rows,
+      agents: Array.from(agentMap.values()).map((row) => ({
+        ...row,
+        saleTotal: Number(row.saleTotal.toFixed(2)),
+        grossProfit: Number(row.grossProfit.toFixed(2)),
+        commissionTotal: Number(row.commissionTotal.toFixed(2)),
+        netGrossProfit: Number(row.netGrossProfit.toFixed(2)),
+      })),
+    };
+  }
+
+  async getProductsWithoutCost() {
+    return this.prisma.product.findMany({
+      where: { isActive: true, costSlabs: { none: {} } },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        description: true,
+        gsm: true,
+        sizeInches: true,
+        sides: true,
+        category: { select: { name: true } },
+      },
+    });
+  }
+
+  async getRateSlabsForProduct(productId: string) {
+    return (this.prisma as any).productRateSlab.findMany({
+      where: { productId },
+      orderBy: { minQuantity: 'asc' },
+    });
+  }
+
+  async bulkUpsertRateSlabs(
+    productId: string,
+    slabs: Array<{ minQuantity: number; maxQuantity?: number | null; rateAmount: number }>,
+  ) {
+    await (this.prisma as any).productRateSlab.deleteMany({ where: { productId } });
+    return Promise.all(
+      slabs.map((s) =>
+        (this.prisma as any).productRateSlab.create({
+          data: {
+            productId,
+            minQuantity: s.minQuantity,
+            maxQuantity: s.maxQuantity ?? null,
+            rateAmount: s.rateAmount,
+          },
+        }),
+      ),
+    );
+  }
+
+  async getSalesAgents() {
+    return this.prisma.user.findMany({
+      where: { isActive: true, role: 'SALES_AGENT' as any },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true, email: true, salesAgentCategory: true } as any,
+    });
+  }
+
+  async updateSalesAgentCategory(userId: string, category: 'A' | 'B' | 'C' | 'D' | null) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { salesAgentCategory: category } as any,
+      select: { id: true, fullName: true, email: true, salesAgentCategory: true } as any,
+    });
+  }
+
+  async getAgentMonthCommission(userId: string) {
+    const { start, end } = this.getMonthRange();
+    const rows = (await this.profitRows(start, end)).filter((row) => row.salesAgentId === userId && !row.hasMissingCost);
+    return {
+      month: start.toISOString().slice(0, 7),
+      commissionTotal: Number(rows.reduce((sum, row) => sum + Number(row.commissionTotal ?? 0), 0).toFixed(2)),
+      grossProfit: Number(rows.reduce((sum, row) => sum + Number(row.grossProfit ?? 0), 0).toFixed(2)),
+      netGrossProfit: Number(rows.reduce((sum, row) => sum + Number(row.netGrossProfit ?? 0), 0).toFixed(2)),
+      orderCount: rows.length,
+    };
   }
 }

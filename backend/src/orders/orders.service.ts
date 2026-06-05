@@ -141,6 +141,54 @@ export class OrdersService {
     };
   }
 
+  private matchingRateSlab(item: any) {
+    return (item.product?.rateSlabs ?? [])
+      .filter((slab: any) => slab.minQuantity <= item.quantity && (slab.maxQuantity == null || slab.maxQuantity >= item.quantity))
+      .sort((a: any, b: any) => b.minQuantity - a.minQuantity)[0] ?? null;
+  }
+
+  private isSticker(item: any) {
+    const haystack = `${item.product?.name ?? ''} ${item.product?.category?.name ?? ''}`.toLowerCase();
+    return haystack.includes('sticker');
+  }
+
+  private calculateOrderCommission(order: any) {
+    const category = order.salesAgent?.salesAgentCategory ?? 'B';
+    let commissionTotal = 0;
+    for (const item of order.items) {
+      const slab = item.matchingCostSlab;
+      if (!slab) return { commissionTotal: null, commissionPctOfSale: null };
+      const lineTotal = Number(item.lineTotal);
+      const unitPrice = Number(item.unitPrice);
+      const rawCost = Number(slab.unitPrice);
+      const costPerUnit = rawCost > unitPrice ? rawCost / slab.minQuantity : rawCost;
+      const costTotal = costPerUnit * item.quantity;
+      const profit = lineTotal - costTotal;
+      if (profit <= 0) continue;
+
+      const rateSlab = this.matchingRateSlab(item);
+      const rateTotal = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
+      const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
+
+      if (category === 'D') {
+        commissionTotal += Math.max(0, lineTotal - rateTotal);
+      } else if (discountPct > 5) {
+        commissionTotal += profit / (category === 'C' ? 3.75 : 4);
+      } else if (category === 'A') {
+        commissionTotal += rateTotal * (this.isSticker(item) ? 0.15 : 0.10);
+      } else if (category === 'C') {
+        commissionTotal += rateTotal * (this.isSticker(item) ? 0.17 : 0.12);
+      } else {
+        commissionTotal += rateTotal * 0.10;
+      }
+    }
+    const saleTotal = Number(order.grandTotal);
+    return {
+      commissionTotal: Number(commissionTotal.toFixed(2)),
+      commissionPctOfSale: saleTotal > 0 ? Number(((commissionTotal / saleTotal) * 100).toFixed(2)) : null,
+    };
+  }
+
   private attachCostSlabs<T extends { items: any[] }>(orders: T[], slabsByProductId: Map<string, any[]>) {
     return orders.map((order) => ({
       ...order,
@@ -211,7 +259,7 @@ export class OrdersService {
         isTest: true,
         grandTotal: true,
         customer: true,
-        salesAgent: { select: { id: true, fullName: true } },
+        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
         items: {
           select: {
             id: true,
@@ -227,6 +275,8 @@ export class OrdersService {
                 sizeInches: true,
                 gsm: true,
                 sides: true,
+                category: true,
+                rateSlabs: true,
               }
             }
           }
@@ -256,6 +306,7 @@ export class OrdersService {
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = total - advancePaid;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
+      const commission = includeMargin ? this.calculateOrderCommission(o) : null;
 
       return {
         id: o.id,
@@ -271,6 +322,8 @@ export class OrdersService {
           marginPct: margin.marginPct,
           marginTotal: margin.marginTotal,
           costTotal: margin.costTotal,
+          commissionTotal: commission?.commissionTotal ?? null,
+          commissionPctOfSale: commission?.commissionPctOfSale ?? null,
         } : {}),
         status: o.status,
         isTest: o.isTest,
@@ -875,7 +928,7 @@ export class OrdersService {
         isTest: true,
         grandTotal: true,
         customer: true,
-        salesAgent: { select: { id: true, fullName: true } },
+        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
         items: {
           select: {
             id: true,
@@ -891,6 +944,8 @@ export class OrdersService {
                 sizeInches: true,
                 gsm: true,
                 sides: true,
+                category: true,
+                rateSlabs: true,
               }
             }
           }
@@ -921,6 +976,7 @@ export class OrdersService {
       const balanceDue = total - advancePaid;
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
+      const commission = includeMargin ? this.calculateOrderCommission(o) : null;
 
       return {
         id: o.id,
@@ -936,6 +992,8 @@ export class OrdersService {
           marginPct: margin.marginPct,
           marginTotal: margin.marginTotal,
           costTotal: margin.costTotal,
+          commissionTotal: commission?.commissionTotal ?? null,
+          commissionPctOfSale: commission?.commissionPctOfSale ?? null,
         } : {}),
         status: o.status,
         isTest: o.isTest,

@@ -26,6 +26,7 @@ type Order = {
   products: string; totalAmount: number; advancePaid: number;
   balanceDue: number; status: string; date: string; isTest?: boolean;
   marginPct?: number | null; marginTotal?: number | null; costTotal?: number | null;
+  commissionTotal?: number | null; commissionPctOfSale?: number | null;
   readyItemsCount?: number; totalItemsCount?: number;
   itemDetails?: ItemDetail[];
   items?: OrderItemRef[];
@@ -513,7 +514,7 @@ export default function OrdersPage() {
   const canLoadMore = activeTab === "dispatch" ? readyHasMore : ordersHasMore;
   const loadedCount = activeTab === "dispatch" ? readyOrders.length : orders.length;
   const totalCount = activeTab === "dispatch" ? readyTotal : ordersTotal;
-  const tableColSpan = 11 + (canViewMargin ? 1 : 0) + (activeTab === "dispatch" ? 2 : 0);
+  const tableColSpan = 11 + (canViewMargin ? 2 : 0) + (activeTab === "dispatch" ? 2 : 0);
   const loadMore = () => {
     const nextPage = activeTab === "dispatch" ? readyPage + 1 : ordersPage + 1;
     void load(nextPage, true);
@@ -716,7 +717,7 @@ export default function OrdersPage() {
                         </div>
                       </div>
                     </div>
-                    <div className={`grid ${canViewMargin ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
+                    <div className={`grid ${canViewMargin ? "grid-cols-5" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
                       <div className="px-2 py-1.5">
                         <p className="text-[10px] font-semibold text-slate-400">Total</p>
                         <p className="text-xs font-bold text-slate-900">{fmt(o.totalAmount)}</p>
@@ -733,6 +734,12 @@ export default function OrdersPage() {
                         <div className="px-2 py-1.5">
                           <p className="text-[10px] font-semibold text-slate-400">Margin</p>
                           <p className={`text-xs font-bold ${marginColor(o.marginPct)}`}>{marginText(o.marginPct)}</p>
+                        </div>
+                      )}
+                      {canViewMargin && (
+                        <div className="px-2 py-1.5">
+                          <p className="text-[10px] font-semibold text-slate-400">Comm.</p>
+                          <p className="text-xs font-bold text-purple-700">{o.commissionTotal == null ? "—" : fmt(o.commissionTotal)}</p>
                         </div>
                       )}
                     </div>
@@ -810,6 +817,9 @@ export default function OrdersPage() {
                       {canViewMargin && (
                         <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Margin</th>
                       )}
+                      {canViewMargin && (
+                        <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Commission</th>
+                      )}
                       <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
                       {activeTab === "dispatch" && <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Ready</th>}
                     </tr>
@@ -854,6 +864,18 @@ export default function OrdersPage() {
                           {canViewMargin && (
                             <td className={`px-2 py-1.5 font-bold align-top whitespace-nowrap ${marginColor(o.marginPct)}`}>
                               {marginText(o.marginPct)}
+                            </td>
+                          )}
+                          {canViewMargin && (
+                            <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                              {o.commissionTotal == null ? (
+                                <span className="text-xs text-slate-400">No cost</span>
+                              ) : (
+                                <>
+                                  <div className="text-xs font-bold text-purple-700">{fmt(o.commissionTotal)}</div>
+                                  <div className="text-[10px] text-slate-400">{o.commissionPctOfSale?.toFixed(1)}%</div>
+                                </>
+                              )}
                             </td>
                           )}
                           <td className="px-2 py-1.5 align-top">
