@@ -208,4 +208,10 @@ class ConversationStore:
             "lead":       {},
             "state":      "greeting",
             "last_active": 0,
-            "last_custo
+            "last_customer_message_at": 0,
+            "last_bot_message_at": 0,
+            "followups_sent": {},
+            "asked_questions": [],
+            "last_question_key": "",
+            "seen_message_ids": [],
+        }

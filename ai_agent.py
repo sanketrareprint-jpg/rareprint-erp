@@ -1291,4 +1291,13 @@ class SalesAgent:
         asked = ", ".join(flags.get("asked_questions") or [])
         last_q = flags.get("last_question_key") or ""
         profile_note = ""
-        if profile a
+        if profile and (profile.get("city") or profile.get("name")):
+            profile_note = (f" RETURNING CUSTOMER: "
+                            f"{', '.join(f'{k}={v}' for k, v in profile.items() if v)}."
+                            f" Do NOT ask name/city again.")
+        return (
+            f"\n\n[SYSTEM MEMORY: Known: {known_text or 'none'}. "
+            f"Asked: {asked or 'none'}. Last Q: {last_q or 'none'}. "
+            f"Never repeat answered questions. Language: {language_hint}. "
+            f"Reply in same language.{profile_note}]"
+        )

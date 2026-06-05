@@ -394,4 +394,29 @@ class FollowUpScheduler:
     def _translate_message(self, message: str, language_hint: str) -> str:
         model = self.agent.ai
         response = model.generate_content(
-            f"Rewrite this WhatsApp f
+            f"Rewrite this WhatsApp follow-up message in {language_hint} script/language. "
+            f"Keep prices, product names, Rareprint, URLs unchanged. Short and respectful. "
+            f"Return only the rewritten message.\n\nMessage: {message}"
+        )
+        return response.text.strip()
+
+    def _time_greeting(self) -> str:
+        hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
+        if 5 <= hour < 12:
+            return "Good morning"
+        if 12 <= hour < 17:
+            return "Good afternoon"
+        return "Good evening"
+
+    def _parse_delays(self, raw: str) -> list[int]:
+        if not raw.strip():
+            return DEFAULT_DELAYS
+        delays = []
+        for item in raw.split(","):
+            try:
+                value = int(item.strip())
+            except ValueError:
+                continue
+            if 0 < value < CUSTOMER_WINDOW_SECONDS:
+                delays.append(value)
+        return sorted(set(delays)) or DEFAULT_DELAYS
