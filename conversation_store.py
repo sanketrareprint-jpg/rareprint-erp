@@ -21,7 +21,8 @@ except ImportError:
 
 
 MAX_HISTORY = 20
-SESSION_TTL = 60 * 60 * 30  # 30 hours — keeps the 24-hour WhatsApp follow-up window
+SESSION_TTL  = 60 * 60 * 30   # 30 hours — keeps the 24-hour WhatsApp follow-up window
+CUSTOMER_TTL = 60 * 60 * 24 * 365 * 5  # 5 years — lifetime customer profile
 
 
 class ConversationStore:
@@ -87,7 +88,8 @@ class ConversationStore:
         now = time.time()
         if role == "user":
             session["last_customer_message_at"] = now
-            session["followups_sent"] = {}
+            # NOTE: do NOT reset followups_sent here — delivery receipts or rapid
+            # back-to-back messages would wipe the sent log and cause duplicates.
         elif role == "assistant":
             session["last_bot_message_at"] = now
         # Keep only the last N messages
@@ -172,8 +174,28 @@ class ConversationStore:
                 if time.time() - session.get("last_active", 0) <= SESSION_TTL:
                     yield phone, session
 
+    # ── Lifetime customer profile (never expires) ────────────────────────────
+    def get_customer_profile(self, phone: str) -> dict:
+        """Permanent profile: name, city, language. Survives session resets."""
+        if self._redis:
+            raw = self._redis.get(f"customer:{phone}")
+            return json.loads(raw) if raw else {}
+        return self._memory.get(f"customer:{phone}", {})
+
+    def save_customer_profile(self, phone: str, data: dict):
+        if self._redis:
+            self._redis.setex(f"customer:{phone}", CUSTOMER_TTL, json.dumps(data))
+        else:
+            self._memory[f"customer:{phone}"] = data
+
+    def update_customer_profile(self, phone: str, **kwargs):
+        """Merge new facts into the permanent customer profile."""
+        profile = self.get_customer_profile(phone)
+        profile.update({k: v for k, v in kwargs.items() if v})
+        self.save_customer_profile(phone, profile)
+
     def reset(self, phone: str):
-        """Clear session for a user (fresh start)."""
+        """Clear session for a user (fresh start). Keeps customer profile."""
         if self._redis:
             self._redis.delete(f"session:{phone}")
         else:
