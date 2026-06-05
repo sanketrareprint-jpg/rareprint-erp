@@ -305,6 +305,9 @@ export class AccountsService {
           return {
             productName:     i.product.name,
             sku:             i.product.sku,
+            sizeInches:      i.product.sizeInches,
+            gsm:             i.product.gsm,
+            sides:           i.product.sides,
             quantity:        i.quantity,
             unitPrice,
             lineTotal,
@@ -373,6 +376,9 @@ export class AccountsService {
         items: order.items.map((i) => ({
           productName:     i.product.name,
           sku:             i.product.sku,
+          sizeInches:      i.product.sizeInches,
+          gsm:             i.product.gsm,
+          sides:           i.product.sides,
           quantity:        i.quantity,
           unitPrice:       Number(i.unitPrice),
           lineTotal:       Number(i.lineTotal),

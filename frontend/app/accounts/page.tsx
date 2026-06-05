@@ -10,6 +10,9 @@ type Payment = { id: string; date: string; amount: number; method: string; refer
 type OrderItem = {
   productName: string;
   sku: string;
+  sizeInches?: string | null;
+  gsm?: number | null;
+  sides?: string | null;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
@@ -840,15 +843,18 @@ await loadHistory();
                       <tbody className="divide-y divide-slate-50">
                         {order.items.map((item, i) => {
                           const n = parseNotes(item.productionNotes);
+                          const size = item.sizeInches || n.size || "—";
+                          const gsm = item.gsm ?? n.gsm ?? "—";
+                          const sides = item.sides || n.sides || "—";
                           return (
                             <tr key={i}>
                               <td className="py-1.5 font-medium text-slate-800">
                                 {item.productName}
                                 <div className="text-[11px] font-mono text-blue-600">{item.sku}</div>
                               </td>
-                              <td className="py-1.5 text-slate-500 text-xs">{n.size || "—"}</td>
-                              <td className="py-1.5 text-slate-500 text-xs">{n.gsm || "—"}</td>
-                              <td className="py-1.5 text-slate-500 text-xs">{n.sides || "—"}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{size}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{gsm}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{String(sides).replace(/_/g, " ")}</td>
                               <td className="py-1.5 text-right">{item.quantity}</td>
                               <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
                               <td className="py-1.5 text-right text-xs">
