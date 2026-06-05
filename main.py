@@ -112,19 +112,19 @@ async def chat_direct(request: Request):
     original_send_video   = client.send_video
     original_send_document = client.send_document
 
-    def cap_text(phone, msg):
+    async def cap_text(phone, msg):
         captured.append({"type": "text", "content": msg})
         return True
 
-    def cap_image(phone, url, caption=""):
+    async def cap_image(phone, url, caption=""):
         captured.append({"type": "image", "url": url, "caption": caption})
         return True
 
-    def cap_video(phone, url, caption=""):
+    async def cap_video(phone, url, caption=""):
         captured.append({"type": "video", "url": url, "caption": caption})
         return True
 
-    def cap_document(phone, url, filename="", caption=""):
+    async def cap_document(phone, url, filename="", caption=""):
         captured.append({"type": "document", "url": url, "filename": filename, "caption": caption})
         return True
 
@@ -250,7 +250,9 @@ def _extract_message(payload: dict) -> dict | None:
         # inject the ad product context so AI knows what they're asking about
         generic_greetings = [
             "hello! can i get more info on this?",
-            "hello", "hi", "hey", "hii", "hlo", "helo", "namaste", "hello."
+            "hello", "hi", "hey", "hii", "hlo", "helo", "namaste", "hello.",
+            "yes", "haan", "ha", "ji", "ji haan", "bilkul", "sure", "ok",
+            "interested", "info", "details", "batao", "bataiye", "chahiye",
         ]
         if ad_headline and text.strip().lower() in generic_greetings:
             text = f"[FROM AD: {ad_headline}] {text}".strip()
@@ -270,6 +272,143 @@ def _extract_message(payload: dict) -> dict | None:
     except Exception as e:
         logger.error(f"Failed to extract message: {e}")
         return None
+
+
+# ── Design Matter Form ───────────────────────────────────────────────────────
+@app.get("/design/{phone}", response_class=HTMLResponse)
+async def design_form(phone: str):
+    lead = store.get_lead(phone)
+    product = lead.get("product", "your product")
+    customer_name = lead.get("name") or store.get_customer_profile(phone).get("name") or ""
+    return HTMLResponse(content=_design_form_html(phone, product, customer_name))
+
+
+@app.post("/design/{phone}")
+async def design_form_submit(phone: str, request: Request):
+    form = await request.form()
+    data = dict(form)
+
+    # Save to conversation store
+    store.update_lead(phone, design_matter=json.dumps(data, ensure_ascii=False))
+    store.set_state(phone, "design_submitted")
+
+    # Save submitted files info (text only — actual files need separate handling)
+    logger.info(f"Design matter received for {phone}: {data}")
+
+    # Notify customer via WhatsApp
+    fields_text = "\n".join(f"• *{k}:* {v}" for k, v in data.items() if v and k != "logo_note")
+    confirmation = (
+        f"✅ *Design matter mil gaya!*\n\n"
+        f"{fields_text}\n\n"
+        f"Hum design bana ke aapko 24-48 ghante mein proof bhejenge. "
+        f"Logo/image file yahan WhatsApp par bhej dein. 🎨"
+    )
+    await client.send_text(phone, confirmation)
+
+    return HTMLResponse(content=_form_success_html(customer_name=data.get("shop_name", "")))
+
+
+def _design_form_html(phone: str, product: str, customer_name: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rareprint – Design Matter Form</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: 'Segoe UI', sans-serif; background: #f0f4f8; min-height: 100vh; padding: 20px; }}
+  .card {{ max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); overflow: hidden; }}
+  .header {{ background: #075e54; color: white; padding: 20px; text-align: center; }}
+  .header h1 {{ font-size: 20px; margin-bottom: 4px; }}
+  .header p {{ font-size: 13px; opacity: 0.85; }}
+  .body {{ padding: 24px; }}
+  label {{ display: block; font-size: 13px; font-weight: 600; color: #333; margin-bottom: 6px; margin-top: 16px; }}
+  label span {{ color: #e53e3e; }}
+  input, textarea, select {{ width: 100%; padding: 10px 14px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; transition: border 0.2s; }}
+  input:focus, textarea:focus {{ border-color: #075e54; }}
+  textarea {{ resize: vertical; min-height: 80px; }}
+  .hint {{ font-size: 11px; color: #888; margin-top: 4px; }}
+  .submit-btn {{ width: 100%; margin-top: 24px; padding: 14px; background: #25d366; border: none; border-radius: 10px; color: white; font-size: 16px; font-weight: 700; cursor: pointer; letter-spacing: 0.3px; }}
+  .submit-btn:hover {{ background: #1da851; }}
+  .footer {{ text-align: center; padding: 16px; font-size: 12px; color: #aaa; }}
+  .badge {{ display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 11px; padding: 3px 10px; border-radius: 20px; margin-top: 6px; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>🖨️ Rareprint</h1>
+    <p>Design Matter Form</p>
+    <div class="badge">📦 {product}</div>
+  </div>
+  <div class="body">
+    <p style="font-size:13px;color:#555;margin-bottom:8px;">
+      Neeche apni printing details bharein. Yeh information aapka design banane ke liye use hogi.
+    </p>
+
+    <form method="POST" action="/design/{phone}">
+      <label>Shop / Doctor / Business Name <span>*</span></label>
+      <input type="text" name="shop_name" required placeholder="e.g. Ravi Medical Store">
+
+      <label>Full Address <span>*</span></label>
+      <textarea name="address" required placeholder="Shop no., Street, Area, City, Pincode"></textarea>
+
+      <label>Phone Number (to print on design) <span>*</span></label>
+      <input type="tel" name="phone_on_design" placeholder="e.g. 9876543210">
+
+      <label>Email (optional)</label>
+      <input type="email" name="email" placeholder="yourname@email.com">
+
+      <label>Tagline / Slogan (optional)</label>
+      <input type="text" name="tagline" placeholder="e.g. 'Your Health, Our Priority'">
+
+      <label>Services you offer (optional)</label>
+      <input type="text" name="services" placeholder="e.g. Home delivery, Discounts, Doctor tie-up">
+
+      <label>Any specific text or instruction</label>
+      <textarea name="instructions" placeholder="Font preference, color, any special text..."></textarea>
+
+      <label>Logo / Image</label>
+      <p class="hint">⚠️ Please send your logo directly on WhatsApp after submitting this form (PDF, PNG, JPG, AI, CDR).</p>
+      <input type="text" name="logo_note" placeholder="Logo available? Yes/No/Will send on WhatsApp">
+
+      <button type="submit" class="submit-btn">✅ Submit Design Matter</button>
+    </form>
+  </div>
+  <div class="footer">Rareprint · Chandrapur, Maharashtra · www.rareprint.in</div>
+</div>
+</body>
+</html>"""
+
+
+def _form_success_html(customer_name: str = "") -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Submitted – Rareprint</title>
+<style>
+  body {{ font-family: 'Segoe UI', sans-serif; background: #f0f4f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }}
+  .card {{ max-width: 400px; background: white; border-radius: 16px; padding: 40px 30px; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }}
+  .icon {{ font-size: 56px; margin-bottom: 16px; }}
+  h2 {{ color: #075e54; margin-bottom: 10px; }}
+  p {{ color: #555; font-size: 14px; line-height: 1.6; }}
+  .btn {{ display: inline-block; margin-top: 20px; background: #25d366; color: white; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-weight: 700; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">✅</div>
+  <h2>Form Submitted!</h2>
+  <p>{"Shukriya " + customer_name + "!" if customer_name else "Thank you!"}<br><br>
+  Aapka design matter mil gaya. Hum 24-48 ghante mein design proof bhejenge WhatsApp par.<br><br>
+  <strong>Logo file WhatsApp par bhejein.</strong></p>
+  <a class="btn" href="https://wa.me/919699349563">📱 Open WhatsApp</a>
+</div>
+</body>
+</html>"""
 
 
 # ── Admin UI ─────────────────────────────────────────────────────────────────
@@ -415,7 +554,4 @@ async def debug_send():
     return JSONResponse(results)
 
 
-# ── Run locally ──────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+# ── Run locally ─────────────────────────────────────────────────────────�
