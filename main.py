@@ -544,14 +544,4 @@ async def debug_send():
         try:
             headers["Content-Type"] = "application/json"
             p = {**base_payload}
-            if name == "auth6_in_body":
-                p["apiKey"] = api_key
-            r = httpx.post(correct_url, json=p, headers=headers, timeout=10)
-            results[name] = {"status": r.status_code, "body": r.text[:300]}
-        except Exception as e:
-            results[name] = {"status": "error", "body": str(e)}
-
-    return JSONResponse(results)
-
-
-# ── Run locally ─────────────────────────────────────────────────────────�
+         

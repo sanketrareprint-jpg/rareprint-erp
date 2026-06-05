@@ -394,13 +394,4 @@ class FollowUpScheduler:
     def _translate_message(self, message: str, language_hint: str) -> str:
         model = self.agent.ai
         response = model.generate_content(
-            f"Rewrite this WhatsApp follow-up message in {language_hint} script/language. "
-            f"Keep prices, product names, Rareprint, URLs unchanged. Short and respectful. "
-            f"Return only the rewritten message.\n\nMessage: {message}"
-        )
-        return response.text.strip()
-
-    def _time_greeting(self) -> str:
-        hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
-        if 5 <= hour < 12:
-     
+            f"Rewrite this WhatsApp f

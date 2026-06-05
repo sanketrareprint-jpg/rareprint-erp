@@ -1291,25 +1291,4 @@ class SalesAgent:
         asked = ", ".join(flags.get("asked_questions") or [])
         last_q = flags.get("last_question_key") or ""
         profile_note = ""
-        if profile and (profile.get("city") or profile.get("name")):
-            profile_note = f" RETURNING CUSTOMER: {', '.join(f'{k}={v}' for k,v in profile.items() if v)}. Do NOT ask name/city again."
-        return (f"\n\n[SYSTEM MEMORY: Known: {known_text or 'none'}. Asked: {asked or 'none'}. Last Q: {last_q or 'none'}. "
-                f"Never repeat answered questions. Language: {language_hint}. Reply in same language.{profile_note}]")
-
-    def _is_all_products_request(self, text):
-        return any(t in text.lower() for t in ALL_PRODUCTS_TRIGGERS)
-
-    async def _send_product_carousel(self, phone):
-        carousel_products = [
-            ("Medicine Pouch – Small", "pouch_small", "5,000 pcs – ₹4,999/-"),
-            ("Medicine Pouch – Medium", "pouch_medium", "5,000 pcs – ₹5,499/-"),
-            ("Medicine Pouch – Large", "pouch_large", "5,000 pcs – ₹6,999/-"),
-            ("Visiting Cards 350 GSM", "visiting_card_350gsm", "2,000 cards – ₹999/-"),
-            ("Prescription Stickers", "prescription_stickers", "5,000 pcs – ₹1,699/-"),
-        ]
-        cards = []
-        for display_name, key, price_hint in carousel_products:
-            p = PRODUCTS.get(key)
-            if not p: continue
-            img = p.get("photo_url") or p.get("media_url", "")
-    
+        if profile a
