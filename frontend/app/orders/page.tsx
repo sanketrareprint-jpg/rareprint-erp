@@ -39,6 +39,7 @@ type PaymentAccount = { id: string; name: string; accountType: string; bankName?
 type Payment = {
   id: string; amount: number; method: string; referenceNumber?: string;
   notes?: string; paymentDate: string; paymentAccount: { name: string };
+  verificationStatus?: string;
 };
 type RateQuote = { carrierName: string; amount: number; estimatedDays: number; rateId?: string; };
 type PagedOrders = { data: Order[]; page: number; limit: number; total: number; hasMore: boolean };
@@ -865,10 +866,12 @@ export default function OrdersPage() {
                                           <td className="py-1 text-slate-400">{p.notes ?? "—"}</td>
                                           <td className="py-1">
                                             <div className="flex items-center gap-1">
+                                              {p.verificationStatus !== "VERIFIED" && (
                                               <button onClick={() => startEditPayment(p, o.id)}
                                                 className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                                                 ✏️ Edit
                                               </button>
+                                              )}
                                               <button onClick={() => deletePayment(p, o.id)} disabled={deletingPaymentId === p.id}
                                                 className="inline-flex items-center gap-1 rounded border border-red-200 bg-white px-2 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
                                                 {deletingPaymentId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
@@ -1467,13 +1470,4 @@ export default function OrdersPage() {
               <button onClick={savePaymentEdit} disabled={savingPaymentEdit}
                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
 
-                {savingPaymentEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+                {savingPaymentEdit ? <Loader2 className="
