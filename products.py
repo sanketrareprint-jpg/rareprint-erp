@@ -858,3 +858,55 @@ def get_product_by_name(name: str) -> dict | None:
         if name_lower in product["name"].lower():
             return product
     return None
+
+
+def get_rate_for_qty(product: dict, qty: int) -> str | None:
+    """Return a rate reply string for the requested quantity, or None if not in price list."""
+    price_list = product.get("price_list") or {}
+    if not price_list:
+        return None
+
+    min_qty = min(price_list.keys())
+
+    # Below MOQ
+    if qty < min_qty:
+        min_rate = price_list[min_qty]
+        return (
+            f"Minimum order quantity is {min_qty:,} pcs. "
+            f"{min_qty:,} pcs ke liye rate ₹{min_rate:,}/- hai."
+        )
+
+    # Find closest tier (round up to next available qty)
+    available = sorted(price_list.keys())
+    chosen_qty = None
+    for q in available:
+        if qty <= q:
+            chosen_qty = q
+            break
+    if chosen_qty is None:
+        chosen_qty = available[-1]
+
+    rate = price_list[chosen_qty]
+    if chosen_qty == qty:
+        return f"{qty:,} pcs ke liye rate ₹{rate:,}/- hai. (+ courier charges extra)"
+    else:
+        return f"{qty:,} pcs ke liye rate ₹{rate:,}/- hai (nearest slab: {chosen_qty:,} pcs). (+ courier charges extra)"
+
+
+def get_design_matter_prompt(product_name: str, phone: str = "", app_url: str = "") -> str:
+    """Return the prompt asking customer for design/matter details."""
+    base = (
+        f"✅ *Order Confirmed!*\n\n"
+        f"Ab design matter bhejein:\n\n"
+        f"📋 *Aapko share karna hai:*\n"
+        f"1️⃣ Shop/Clinic ka naam\n"
+        f"2️⃣ Address aur phone number\n"
+        f"3️⃣ Doctor/Owner ka naam (agar print karna hai)\n"
+        f"4️⃣ Logo ya design file (PDF/PNG/JPG/AI/CDR)\n"
+        f"5️⃣ Koi special instruction ho toh batayein\n\n"
+        f"_Design file yahan WhatsApp par bhej sakte hain, ya email karein: sanket.rareprint@gmail.com_\n\n"
+        f"Hum 24 ghante mein design proof bhejenge! 🎨"
+    )
+    if app_url and phone:
+        base += f"\n\n🔗 Ya online form fill karein: {app_url}/design?phone={phone}"
+    return base
