@@ -46,22 +46,51 @@ export class OrdersController {
   @Get()
   @UseGuards(AuthGuard('jwt'))
   findAll(
+    @Req() req: Request & { user: JwtUser },
     @Query('page') page = '1',
     @Query('limit') limit = '25',
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('marginMode') marginMode?: string,
+    @Query('marginThreshold') marginThreshold?: string,
   ) {
-    return this.ordersService.findAllForTable({ page, limit, status, search });
+    return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
+      .then((user) => {
+        const includeMargin = user?.fullName === 'Sanket Admin';
+        return this.ordersService.findAllForTable({
+          page,
+          limit,
+          status,
+          search,
+          marginMode: includeMargin ? marginMode : undefined,
+          marginThreshold: includeMargin ? marginThreshold : undefined,
+          includeMargin,
+        });
+      });
   }
 
   @Get('ready-for-dispatch')
   @UseGuards(AuthGuard('jwt'))
   getReadyForDispatch(
+    @Req() req: Request & { user: JwtUser },
     @Query('page') page = '1',
     @Query('limit') limit = '25',
     @Query('search') search?: string,
+    @Query('marginMode') marginMode?: string,
+    @Query('marginThreshold') marginThreshold?: string,
   ) {
-    return this.ordersService.getOrdersWithReadyItems({ page, limit, search });
+    return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
+      .then((user) => {
+        const includeMargin = user?.fullName === 'Sanket Admin';
+        return this.ordersService.getOrdersWithReadyItems({
+          page,
+          limit,
+          search,
+          marginMode: includeMargin ? marginMode : undefined,
+          marginThreshold: includeMargin ? marginThreshold : undefined,
+          includeMargin,
+        });
+      });
   }
 
   @Get('payment-accounts')

@@ -77,6 +77,9 @@ type OrderListQuery = {
   limit?: string | number;
   status?: string;
   search?: string;
+  marginMode?: string;
+  marginThreshold?: string | number;
+  includeMargin?: boolean;
 };
 
 function paging(query: OrderListQuery) {
@@ -85,12 +88,73 @@ function paging(query: OrderListQuery) {
   return { page, limit, skip: (page - 1) * limit };
 }
 
+function marginFilter(query: OrderListQuery) {
+  const threshold = Number(query.marginThreshold);
+  const mode = query.marginMode === 'above' ? 'above' : query.marginMode === 'below' ? 'below' : '';
+  return {
+    mode,
+    threshold,
+    active: Boolean(mode) && Number.isFinite(threshold),
+  };
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
   ) {}
+
+  private async getSlabsByProductId(productIds: string[]) {
+    if (productIds.length === 0) return new Map<string, any[]>();
+    const slabs = await this.prisma.productCostSlab.findMany({
+      where: { productId: { in: Array.from(new Set(productIds)) } },
+      orderBy: { minQuantity: 'asc' },
+    });
+    return slabs.reduce((map, slab) => {
+      const rows = map.get(slab.productId) ?? [];
+      rows.push(slab);
+      map.set(slab.productId, rows);
+      return map;
+    }, new Map<string, typeof slabs>());
+  }
+
+  private calculateOrderMargin(order: { items: any[] }) {
+    let saleTotal = 0;
+    let costTotal = 0;
+    for (const item of order.items) {
+      const lineTotal = Number(item.lineTotal);
+      const unitPrice = Number(item.unitPrice);
+      saleTotal += lineTotal;
+      const slab = item.matchingCostSlab;
+      if (!slab) return { marginPct: null, costTotal: null, marginTotal: null };
+      const rawCost = Number(slab.unitPrice);
+      const costPerUnit = rawCost > unitPrice ? rawCost / slab.minQuantity : rawCost;
+      costTotal += costPerUnit * item.quantity;
+    }
+    if (saleTotal <= 0) return { marginPct: null, costTotal: null, marginTotal: null };
+    const marginTotal = saleTotal - costTotal;
+    return {
+      marginPct: Number(((marginTotal / saleTotal) * 100).toFixed(2)),
+      costTotal: Number(costTotal.toFixed(2)),
+      marginTotal: Number(marginTotal.toFixed(2)),
+    };
+  }
+
+  private attachCostSlabs<T extends { items: any[] }>(orders: T[], slabsByProductId: Map<string, any[]>) {
+    return orders.map((order) => ({
+      ...order,
+      items: order.items.map((item) => ({
+        ...item,
+        matchingCostSlab: (slabsByProductId.get(item.productId) ?? [])
+          .filter((slab) =>
+            slab.minQuantity <= item.quantity &&
+            (slab.maxQuantity == null || slab.maxQuantity >= item.quantity),
+          )
+          .sort((a, b) => b.minQuantity - a.minQuantity)[0] ?? null,
+      })),
+    }));
+  }
 
   private async getDesignFileCounts(itemIds: string[]): Promise<Record<string, number>> {
     if (itemIds.length === 0) return {};
@@ -119,6 +183,8 @@ export class OrdersService {
 
   async findAllForTable(query: OrderListQuery = {}) {
     const { page, limit, skip } = paging(query);
+    const mf = marginFilter(query);
+    const includeMargin = query.includeMargin === true || mf.active;
     const where: Prisma.OrderWhereInput = {};
     if (query.status && query.status !== 'ALL') where.status = query.status as OrderStatus;
     const search = query.search?.trim();
@@ -132,12 +198,9 @@ export class OrdersService {
       ];
     }
 
-    const [orders, total] = await Promise.all([
-      this.prisma.order.findMany({
+    const orders = await this.prisma.order.findMany({
       where,
       orderBy: { orderDate: 'desc' },
-      skip,
-      take: limit,
       select: {
         id: true,
         orderNumber: true,
@@ -152,6 +215,7 @@ export class OrdersService {
         items: {
           select: {
             id: true,
+            productId: true,
             quantity: true,
             unitPrice: true,
             lineTotal: true,
@@ -169,17 +233,29 @@ export class OrdersService {
         },
         payments: true,
       },
-    }),
-      this.prisma.order.count({ where }),
-    ]);
+    });
+    const slabsByProductId = includeMargin
+      ? await this.getSlabsByProductId(orders.flatMap((o) => o.items.map((i) => i.productId)))
+      : new Map<string, any[]>();
+    const ordersWithSlabs = includeMargin ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
+    const marginFiltered = mf.active
+      ? ordersWithSlabs.filter((o) => {
+          const marginPct = this.calculateOrderMargin(o).marginPct;
+          if (marginPct == null) return false;
+          return mf.mode === 'above' ? marginPct >= mf.threshold : marginPct < mf.threshold;
+        })
+      : ordersWithSlabs;
+    const total = marginFiltered.length;
+    const pageOrders = marginFiltered.slice(skip, skip + limit);
     const designFileCounts = await this.getDesignFileCounts(
-      orders.flatMap((o) => o.items.map((i) => i.id)),
+      pageOrders.flatMap((o) => o.items.map((i) => i.id)),
     );
 
-    const data = orders.map((o) => {
+    const data = pageOrders.map((o) => {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = total - advancePaid;
+      const margin = includeMargin ? this.calculateOrderMargin(o) : null;
 
       return {
         id: o.id,
@@ -191,6 +267,11 @@ export class OrdersService {
         totalAmount: total,
         advancePaid,
         balanceDue,
+        ...(includeMargin && margin ? {
+          marginPct: margin.marginPct,
+          marginTotal: margin.marginTotal,
+          costTotal: margin.costTotal,
+        } : {}),
         status: o.status,
         isTest: o.isTest,
         date: o.orderDate.toISOString(),
@@ -757,6 +838,8 @@ export class OrdersService {
 
   async getOrdersWithReadyItems(query: OrderListQuery = {}) {
     const { page, limit, skip } = paging(query);
+    const mf = marginFilter(query);
+    const includeMargin = query.includeMargin === true || mf.active;
     const EXCLUDED_STATUSES = [
       OrderStatus.PENDING_DISPATCH_APPROVAL,
       OrderStatus.DISPATCHED,
@@ -779,12 +862,9 @@ export class OrdersService {
       ];
     }
 
-    const [orders, total] = await Promise.all([
-      this.prisma.order.findMany({
+    const orders = await this.prisma.order.findMany({
       where,
       orderBy: { orderDate: 'desc' },
-      skip,
-      take: limit,
       select: {
         id: true,
         orderNumber: true,
@@ -799,6 +879,7 @@ export class OrdersService {
         items: {
           select: {
             id: true,
+            productId: true,
             quantity: true,
             unitPrice: true,
             lineTotal: true,
@@ -816,18 +897,30 @@ export class OrdersService {
         },
         payments: true,
       },
-    }),
-      this.prisma.order.count({ where }),
-    ]);
+    });
+    const slabsByProductId = includeMargin
+      ? await this.getSlabsByProductId(orders.flatMap((o) => o.items.map((i) => i.productId)))
+      : new Map<string, any[]>();
+    const ordersWithSlabs = includeMargin ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
+    const marginFiltered = mf.active
+      ? ordersWithSlabs.filter((o) => {
+          const marginPct = this.calculateOrderMargin(o).marginPct;
+          if (marginPct == null) return false;
+          return mf.mode === 'above' ? marginPct >= mf.threshold : marginPct < mf.threshold;
+        })
+      : ordersWithSlabs;
+    const total = marginFiltered.length;
+    const pageOrders = marginFiltered.slice(skip, skip + limit);
     const designFileCounts = await this.getDesignFileCounts(
-      orders.flatMap((o) => o.items.map((i) => i.id)),
+      pageOrders.flatMap((o) => o.items.map((i) => i.id)),
     );
 
-    const data = orders.map((o) => {
+    const data = pageOrders.map((o) => {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = total - advancePaid;
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
+      const margin = includeMargin ? this.calculateOrderMargin(o) : null;
 
       return {
         id: o.id,
@@ -839,6 +932,11 @@ export class OrdersService {
         totalAmount: total,
         advancePaid,
         balanceDue,
+        ...(includeMargin && margin ? {
+          marginPct: margin.marginPct,
+          marginTotal: margin.marginTotal,
+          costTotal: margin.costTotal,
+        } : {}),
         status: o.status,
         isTest: o.isTest,
         date: o.orderDate.toISOString(),

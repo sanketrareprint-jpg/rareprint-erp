@@ -25,6 +25,7 @@ type Order = {
   salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
   balanceDue: number; status: string; date: string; isTest?: boolean;
+  marginPct?: number | null; marginTotal?: number | null; costTotal?: number | null;
   readyItemsCount?: number; totalItemsCount?: number;
   itemDetails?: ItemDetail[];
   items?: OrderItemRef[];
@@ -95,6 +96,16 @@ function ageColor(dateStr: string): string {
   if (days <= 3) return 'bg-green-50 text-green-700';
   if (days <= 7) return 'bg-yellow-50 text-yellow-700';
   return 'bg-red-50 text-red-700';
+}
+
+function marginText(value?: number | null) {
+  return value === null || value === undefined ? "No cost" : `${value.toFixed(1)}%`;
+}
+function marginColor(value?: number | null) {
+  if (value === null || value === undefined) return "text-slate-400";
+  if (value < 15) return "text-red-600";
+  if (value < 25) return "text-amber-600";
+  return "text-emerald-700";
 }
 
 export default function OrdersPage() {
@@ -187,6 +198,13 @@ export default function OrdersPage() {
   // Search + filter
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [marginMode, setMarginMode] = useState<"" | "below" | "above">("");
+  const [marginThreshold, setMarginThreshold] = useState("15");
+  const currentUser = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; }
+  }, []);
+  const canViewMargin = currentUser?.fullName === "Sanket Admin";
 
   // File upload
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
@@ -239,6 +257,10 @@ export default function OrdersPage() {
       status: statusFilter,
     });
     if (search.trim()) params.set("search", search.trim());
+    if (canViewMargin && marginMode && marginThreshold) {
+      params.set("marginMode", marginMode);
+      params.set("marginThreshold", marginThreshold);
+    }
     const oRes = await fetch(`${API_BASE_URL}/orders?${params}`, { headers });
     if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
     const ordersPayload: PagedOrders = await oRes.json();
@@ -265,7 +287,7 @@ export default function OrdersPage() {
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
     append ? setLoadingMore(false) : setLoading(false);
-  }, [router, search, statusFilter]);
+  }, [router, search, statusFilter, canViewMargin, marginMode, marginThreshold]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -461,10 +483,6 @@ export default function OrdersPage() {
   }
 
   // ── Filtered orders ────────────────────────────────────────────────────────
-  // Get current user for agent filtering
-  const currentUser = (() => {
-    try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; }
-  })();
   const agentOrders = currentUser?.role === "SALES_AGENT"
     ? orders.filter(o => o.salesAgentName === currentUser.fullName)
     : orders;
@@ -495,6 +513,7 @@ export default function OrdersPage() {
   const canLoadMore = activeTab === "dispatch" ? readyHasMore : ordersHasMore;
   const loadedCount = activeTab === "dispatch" ? readyOrders.length : orders.length;
   const totalCount = activeTab === "dispatch" ? readyTotal : ordersTotal;
+  const tableColSpan = 11 + (canViewMargin ? 1 : 0) + (activeTab === "dispatch" ? 2 : 0);
   const loadMore = () => {
     const nextPage = activeTab === "dispatch" ? readyPage + 1 : ordersPage + 1;
     void load(nextPage, true);
@@ -575,8 +594,48 @@ export default function OrdersPage() {
                   <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
                 ))}
               </select>
-              {(search || statusFilter !== "ALL") && (
-                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); }}
+              {canViewMargin && (
+                <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1">
+                  <select
+                    value={marginMode ? `${marginMode}:${marginThreshold}` : ""}
+                    onChange={e => {
+                      const [mode, threshold] = e.target.value.split(":");
+                      setMarginMode((mode as "below" | "above") || "");
+                      if (threshold) setMarginThreshold(threshold);
+                    }}
+                    className="bg-white text-xs outline-none"
+                  >
+                    <option value="">All margins</option>
+                    <option value="below:15">Below 15%</option>
+                    <option value="below:20">Below 20%</option>
+                    <option value="below:25">Below 25%</option>
+                    <option value="above:15">Above 15%</option>
+                    <option value="above:20">Above 20%</option>
+                    <option value="above:25">Above 25%</option>
+                  </select>
+                  <select
+                    value={marginMode}
+                    onChange={e => setMarginMode(e.target.value as "" | "below" | "above")}
+                    className="bg-white text-xs outline-none"
+                  >
+                    <option value="">Mode</option>
+                    <option value="below">Below</option>
+                    <option value="above">Above</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={marginThreshold}
+                    onChange={e => setMarginThreshold(e.target.value)}
+                    className="w-14 rounded border border-slate-200 px-1.5 py-0.5 text-xs outline-none focus:border-blue-400"
+                  />
+                  <span className="text-xs text-slate-400">%</span>
+                </div>
+              )}
+              {(search || statusFilter !== "ALL" || (canViewMargin && marginMode)) && (
+                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setMarginMode(""); setMarginThreshold("15"); }}
                   className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
                   <X className="h-3 w-3" /> Clear
                 </button>
@@ -657,7 +716,7 @@ export default function OrdersPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100 text-center">
+                    <div className={`grid ${canViewMargin ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
                       <div className="px-2 py-1.5">
                         <p className="text-[10px] font-semibold text-slate-400">Total</p>
                         <p className="text-xs font-bold text-slate-900">{fmt(o.totalAmount)}</p>
@@ -670,6 +729,12 @@ export default function OrdersPage() {
                         <p className="text-[10px] font-semibold text-slate-400">Ready</p>
                         <p className="text-xs font-bold text-indigo-700">{o.readyItemsCount ?? 0}/{o.totalItemsCount ?? o.itemDetails?.length ?? 0}</p>
                       </div>
+                      {canViewMargin && (
+                        <div className="px-2 py-1.5">
+                          <p className="text-[10px] font-semibold text-slate-400">Margin</p>
+                          <p className={`text-xs font-bold ${marginColor(o.marginPct)}`}>{marginText(o.marginPct)}</p>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2 p-3">
                       {o.salesAgentName && <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">{o.salesAgentName}</span>}
@@ -742,13 +807,16 @@ export default function OrdersPage() {
                       <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Total</th>
                       <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Paid</th>
                       <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Balance</th>
+                      {canViewMargin && (
+                        <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Margin</th>
+                      )}
                       <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
                       {activeTab === "dispatch" && <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Ready</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-400 text-sm">No orders found.</td></tr>
+                      <tr><td colSpan={tableColSpan} className="px-4 py-10 text-center text-slate-400 text-sm">No orders found.</td></tr>
                     ) : filteredOrders.map((o) => (
                       <React.Fragment key={o.id}>
                         <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
@@ -783,6 +851,11 @@ export default function OrdersPage() {
                           <td className="px-2 py-1.5 font-medium align-top whitespace-nowrap">{fmt(o.totalAmount)}</td>
                           <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
                           <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
+                          {canViewMargin && (
+                            <td className={`px-2 py-1.5 font-bold align-top whitespace-nowrap ${marginColor(o.marginPct)}`}>
+                              {marginText(o.marginPct)}
+                            </td>
+                          )}
                           <td className="px-2 py-1.5 align-top">
                             <div className="flex flex-row gap-1 items-center">
                               {/* Pay */}
@@ -843,7 +916,7 @@ export default function OrdersPage() {
                         {/* Payment history row */}
                         {expandedPayments === o.id && (
                           <tr>
-                            <td colSpan={12} className="bg-slate-50 px-6 py-3">
+                            <td colSpan={tableColSpan} className="bg-slate-50 px-6 py-3">
                               {!orderPayments[o.id] ? <Loader2 className="h-4 w-4 animate-spin" />
                                 : orderPayments[o.id].length === 0 ? <p className="text-xs text-slate-400">No payments recorded yet.</p>
                                 : (
@@ -893,7 +966,7 @@ export default function OrdersPage() {
                         {/* Order Journey row */}
                         {expandedJourney === o.id && (
                           <tr>
-                            <td colSpan={13} className="bg-slate-50 px-6 py-4 border-t border-slate-100">
+                            <td colSpan={tableColSpan} className="bg-slate-50 px-6 py-4 border-t border-slate-100">
                               <p className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Order Journey</p>
                               {!orderJourneys[o.id] ? (
                                 <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
