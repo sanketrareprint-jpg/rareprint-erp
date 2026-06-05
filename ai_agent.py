@@ -1254,15 +1254,20 @@ class SalesAgent:
         lowered = text.lower()
         if any(w in lowered for w in ["stop", "unsubscribe"]): return "[UNSUBSCRIBE]"
         if any(w in lowered for w in ["pay", "payment", "upi"]): return "Order confirm karne ke liye payment details bhej raha hoon. [SEND_PAYMENT_LINK]"
-        if any(w in lowered for w in ["high", "mahanga", "expensive", "rate", "jada", "zyada", "km kro", "kam karo"]):
-            prod_name = product['name'] if product else "product"
-            return f"{prod_name} ke rates fixed hain — quality aur service ke liye best value. Kitni quantity chahiye?"
+        if any(w in lowered for w in ["high", "mahanga", "expensive", "jada", "zyada", "km kro", "kam karo"]):
+            prod_name = product['name'] if product else "hamare products"
+            return f"{prod_name} ke rates fixed hain — quality aur service ke liye best value hai. Koi aur sawaal?"
         if any(w in lowered for w in ["trust", "gst", "fake"]): return "GST: 27GEKPP2259Q1ZI — portal par verify karein. Amazon, IndiaMART par bhi listed hain."
         if template_just_sent and product: return f"{product['name']} ke rates share kar diye. Kitni quantity — 5,000 / 10,000 / 20,000?"
         if product:
-            lead_qty = None  # quantity may already be known; keep reply contextual
-            return f"{product['name']} ke baare mein baat kar rahe hain. Koi sawaal hai ya order confirm karna hai?"
-        return "Kaunsa product chahiye? Pouch, sticker, visiting card, bill book, keychain ya kuch aur? Bata dijiye."
+            return f"{product['name']} ke baare mein baat kar rahe hain. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
+        # Generic fallback — don't repeat the same product question, give contact info
+        return (
+            f"Hi {name}! Rareprint mein aapka swagat hai. 😊\n\n"
+            f"Hum print karte hain: Medicine Pouches, Visiting Cards, Prescription Stickers, "
+            f"Bill Books, Carry Bags, Keychains, Pens aur zyada.\n\n"
+            f"Kaunsa product chahiye? Ya seedha call karein: *{BUSINESS_PHONE}*"
+        )
 
     def _build_known_context(self, lead, flags, language_hint, profile=None):
         known = {
