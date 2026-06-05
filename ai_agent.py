@@ -319,11 +319,10 @@ class SalesAgent:
         # ── Payment confirmation — image OR Paytm/UPI auto-text ──────────────
         media_type = msg.get("media_type", "").lower()
         PAYMENT_TEXT_SIGNALS = [
-            "money sent", "paid", "payment done", "payment sent", "transfer done",
+            "money sent", "payment done", "payment sent", "transfer done",
             "payment successful", "transaction successful", "sent successfully",
-            "paytm", "gpay", "google pay", "phonepe", "phone pe", "bhim",
-            "upi ref", "utr", "transaction id", "txn id", "ref no",
-            "rs. ", "₹", "amount deducted", "debited",
+            "upi ref", "utr no", "transaction id", "txn id", "ref no",
+            "amount deducted", "debited",
         ]
         text_lower_pay = text.lower()
         is_payment_text = any(sig in text_lower_pay for sig in PAYMENT_TEXT_SIGNALS)
@@ -1205,17 +1204,6 @@ class SalesAgent:
         pin_match = re.search(r"\b([1-9][0-9]{5})\b", text)
         if pin_match:
             self.store.update_lead(phone, pincode=pin_match.group())
-
-        if template_just_sent and product:
-            return ["Place Order 🛒", "Ask a Question", "See Other Products"]
-        if history_len <= 2 and not product:
-            return ["Medicine Pouches", "Visiting Cards", "Stickers & Labels"]
-        if product and not lead.get("quantity"):
-            if any(w in ai_reply.lower() for w in ["quantity", "kitni", "qty", "5,000", "10,000"]):
-                return ["5,000 pcs", "10,000 pcs", "20,000 pcs"]
-        if state == "product_sent" and lead.get("city") and lead.get("quantity"):
-            return ["Place Order 🛒", "Need More Info", "Call Me"]
-        return []
 
     async def _get_ai_reply(self, phone, name, text, product, template_just_sent, ad_headline="", language_hint="same as customer"):
         if not self.ai:
