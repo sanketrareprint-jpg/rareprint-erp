@@ -289,22 +289,30 @@ export class AccountsService {
             )
             .sort((a, b) => b.minQuantity - a.minQuantity)[0];
           const unitPrice = Number(i.unitPrice);
-          const costPerUnit = matchingSlab ? Number(matchingSlab.unitPrice) : null;
-          const marginPerUnit = costPerUnit == null ? null : unitPrice - costPerUnit;
-          const marginPct = marginPerUnit == null || unitPrice <= 0
+          const lineTotal = Number(i.lineTotal);
+          const rawSlabCost = matchingSlab ? Number(matchingSlab.unitPrice) : null;
+          const costPerUnit = rawSlabCost == null
             ? null
-            : (marginPerUnit / unitPrice) * 100;
+            : rawSlabCost > unitPrice
+              ? rawSlabCost / matchingSlab.minQuantity
+              : rawSlabCost;
+          const costTotal = costPerUnit == null ? null : costPerUnit * i.quantity;
+          const marginTotal = costTotal == null ? null : lineTotal - costTotal;
+          const marginPct = marginTotal == null || lineTotal <= 0
+            ? null
+            : (marginTotal / lineTotal) * 100;
 
           return {
             productName:     i.product.name,
             sku:             i.product.sku,
             quantity:        i.quantity,
             unitPrice,
-            lineTotal:       Number(i.lineTotal),
+            lineTotal,
             productionNotes: i.productionNotes,
             artworkNotes:    i.artworkNotes,
-            costPerUnit,
-            marginPerUnit: marginPerUnit == null ? null : Number(marginPerUnit.toFixed(2)),
+            costPerUnit: costPerUnit == null ? null : Number(costPerUnit.toFixed(4)),
+            costTotal: costTotal == null ? null : Number(costTotal.toFixed(2)),
+            marginTotal: marginTotal == null ? null : Number(marginTotal.toFixed(2)),
             marginPct: marginPct == null ? null : Number(marginPct.toFixed(2)),
           };
         }),

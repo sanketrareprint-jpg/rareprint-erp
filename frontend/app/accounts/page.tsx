@@ -16,7 +16,8 @@ type OrderItem = {
   productionNotes?: string;
   artworkNotes?: string;
   costPerUnit?: number | null;
-  marginPerUnit?: number | null;
+  costTotal?: number | null;
+  marginTotal?: number | null;
   marginPct?: number | null;
 };
 
@@ -851,9 +852,16 @@ await loadHistory();
                               <td className="py-1.5 text-right">{item.quantity}</td>
                               <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
                               <td className="py-1.5 text-right text-xs">
-                                {item.costPerUnit == null ? (
+                                {item.costTotal == null ? (
                                   <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">No cost</span>
-                                ) : fmt(item.costPerUnit)}
+                                ) : (
+                                  <>
+                                    {fmt(item.costTotal)}
+                                    {item.costPerUnit != null && (
+                                      <div className="text-[10px] text-slate-400">{fmt(item.costPerUnit)}/pc</div>
+                                    )}
+                                  </>
+                                )}
                               </td>
                               <td className={`py-1.5 text-right text-xs font-semibold ${marginClass(item.marginPct)}`}>
                                 {item.marginPct == null ? "—" : `${item.marginPct.toFixed(1)}%`}
