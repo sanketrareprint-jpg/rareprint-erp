@@ -132,6 +132,10 @@ function cleanCost(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function totalTierCostToUnitCost(totalCost: number, quantity: number) {
+  return Number((totalCost / quantity).toFixed(4));
+}
+
 function StatusBadge({ status }: { status: string }) {
   if (status === "APPROVED")
     return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800"><CheckCircle size={12} />Approved</span>;
@@ -198,7 +202,7 @@ export default function CostTablePage() {
     const headers = ["PRODUCT CODE", "DESCRIPTION", ...SAMPLE_QUANTITY_TIERS.map(String)];
     const exampleRows = products.slice(0, 3).map((p, index) => {
       const sampleRates = SAMPLE_QUANTITY_TIERS.map((_, tierIndex) =>
-        tierIndex < 4 ? (12 - index - tierIndex * 0.35).toFixed(2) : ""
+        tierIndex < 4 ? (SAMPLE_QUANTITY_TIERS[tierIndex] * (0.7 + index * 0.05)).toFixed(2) : ""
       );
       return [p.sku, p.name, ...sampleRates];
     });
@@ -257,8 +261,8 @@ export default function CostTablePage() {
         }
 
         const pricedTiers = quantityColumns
-          .map(col => ({ minQuantity: col.quantity, unitPrice: cleanCost(String(row[col.index] || "")) }))
-          .filter((tier): tier is { minQuantity: number; unitPrice: number } => tier.unitPrice !== null);
+          .map(col => ({ minQuantity: col.quantity, totalCost: cleanCost(String(row[col.index] || "")) }))
+          .filter((tier): tier is { minQuantity: number; totalCost: number } => tier.totalCost !== null);
 
         if (pricedTiers.length === 0) {
           skipped.push(`${sku}: no valid cost values`);
@@ -271,7 +275,7 @@ export default function CostTablePage() {
           slabs: pricedTiers.map((tier, index) => ({
             minQuantity: tier.minQuantity,
             maxQuantity: pricedTiers[index + 1] ? pricedTiers[index + 1].minQuantity - 1 : null,
-            unitPrice: tier.unitPrice,
+            unitPrice: totalTierCostToUnitCost(tier.totalCost, tier.minQuantity),
             setupCost: null,
           })),
         });
@@ -409,6 +413,7 @@ export default function CostTablePage() {
             >
               <Upload size={14} /> {importing ? `Importing ${importProgress?.done ?? 0}/${importProgress?.total ?? 0}` : "Import CSV"}
             </button>
+            <span className="text-xs text-gray-400">CSV rates are total slab amounts</span>
             <input
               ref={fileInputRef}
               type="file"
