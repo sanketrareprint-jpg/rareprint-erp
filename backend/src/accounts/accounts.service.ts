@@ -304,6 +304,7 @@ export class AccountsService {
 
           return {
             productName:     i.product.name,
+            productDescription: i.product.description,
             sku:             i.product.sku,
             sizeInches:      i.product.sizeInches,
             gsm:             i.product.gsm,
@@ -375,6 +376,7 @@ export class AccountsService {
         salesAgentName: order.salesAgent?.fullName ?? null,
         items: order.items.map((i) => ({
           productName:     i.product.name,
+          productDescription: i.product.description,
           sku:             i.product.sku,
           sizeInches:      i.product.sizeInches,
           gsm:             i.product.gsm,

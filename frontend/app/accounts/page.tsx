@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
 type OrderItem = {
   productName: string;
+  productDescription?: string | null;
   sku: string;
   sizeInches?: string | null;
   gsm?: number | null;
@@ -850,6 +851,11 @@ await loadHistory();
                             <tr key={i}>
                               <td className="py-1.5 font-medium text-slate-800">
                                 {item.productName}
+                                {item.productDescription && (
+                                  <div className="max-w-xs truncate text-[11px] font-normal text-slate-500">
+                                    {item.productDescription}
+                                  </div>
+                                )}
                                 <div className="text-[11px] font-mono text-blue-600">{item.sku}</div>
                               </td>
                               <td className="py-1.5 text-slate-500 text-xs">{size}</td>
