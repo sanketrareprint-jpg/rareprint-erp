@@ -643,6 +643,37 @@ class SalesAgent:
             self.store.add_message(phone, "assistant", "[Sent product carousel + PDF]")
             return
 
+        # ── Keychain enquiry (not in products.py, handle directly) ───────────
+        KEYCHAIN_WORDS = ["keychain", "key chain", "keychains", "kichein", "kichain"]
+        PEN_WORDS = ["pen ", "pens ", "ball pen", "gel pen", "pen chahiye", "pen order"]
+        text_l = text.lower()
+        if any(w in text_l for w in KEYCHAIN_WORDS) and not self.store.get_lead(phone).get("product"):
+            kc_msg = (
+                "Rareprint Custom Keychains available hain! 🔑\n\n"
+                "• PVC Keychain — MOQ 1,000 pcs\n"
+                "• Silicon Keychain — MOQ 2,000 pcs\n"
+                "• Metal / Acrylic Keychain — MOQ 500 pcs\n\n"
+                "Production ~15 days. Kitni quantity chahiye?"
+            )
+            await self.client.send_text(phone, kc_msg)
+            self.store.update_lead(phone, product="Custom Keychain")
+            self.store.add_message(phone, "assistant", kc_msg)
+            self.store.mark_question_asked(phone, "quantity")
+            return
+        if any(w in text_l for w in PEN_WORDS) and not self.store.get_lead(phone).get("product"):
+            pen_msg = (
+                "Rareprint Custom Printed Pens available hain! 🖊️\n\n"
+                "• Ball Pen / Gel Pen — MOQ 1,000 pcs\n"
+                "• Company logo + contact number print hoga\n"
+                "• Production ~15 days\n\n"
+                "Kitni quantity chahiye?"
+            )
+            await self.client.send_text(phone, pen_msg)
+            self.store.update_lead(phone, product="Custom Pen")
+            self.store.add_message(phone, "assistant", pen_msg)
+            self.store.mark_question_asked(phone, "quantity")
+            return
+
         # ── Generate AI reply ─────────────────────────────────────────────────
         ai_reply = await self._get_ai_reply(
             phone,
@@ -747,7 +778,7 @@ class SalesAgent:
         if not self.ai:
             return (
                 f"Hi {name}! Thank you for your message. "
-                f"Please contact us at {BUSINESS_PHONE} for more details."
+                f"Hamari team aapko jald reply karegi! 😊"
             )
 
         history = self.store.get_history(phone)
@@ -856,7 +887,7 @@ class SalesAgent:
             f"Hi {name}! Rareprint mein aapka swagat hai. 😊\n\n"
             f"Hum print karte hain: Medicine Pouches, Visiting Cards, Prescription Stickers, "
             f"Bill Books, Carry Bags, Keychains, Pens aur zyada.\n\n"
-            f"Kaunsa product chahiye? Ya seedha call karein: *{BUSINESS_PHONE}*"
+            f"Kaunsa product chahiye? Batayein — hum turant reply karenge! 😊"
         )
 
     def _build_known_context(self, lead: dict, flags: dict, language_hint: str, profile: dict = None) -> str:
