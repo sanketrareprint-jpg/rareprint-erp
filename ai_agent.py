@@ -582,6 +582,12 @@ class SalesAgent:
                 self.store.add_message(phone, "assistant", msg)
                 self.store.mark_question_asked(phone, "quantity")
                 return
+            else:
+                # No product selected yet — ask
+                msg = "Kaunsa product order karna hai? Medicine Pouch, Visiting Card, Sticker, Bill Book ya kuch aur?"
+                await self.client.send_buttons(phone, msg, ["Medicine Pouches", "Visiting Cards", "See Other Products"])
+                self.store.add_message(phone, "assistant", msg)
+                return
 
         # ── "Need More Info" / "Ask a Question" → invite specific question ────────
         if text.strip().lower() in ["need more info", "ask a question", "more info", "puchna hai"]:
