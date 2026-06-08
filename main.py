@@ -107,10 +107,12 @@ async def chat_direct(request: Request):
 
     # Capture bot messages instead of sending to WhatsApp
     captured = []
-    original_send_text    = client.send_text
-    original_send_image   = client.send_image
-    original_send_video   = client.send_video
+    original_send_text     = client.send_text
+    original_send_image    = client.send_image
+    original_send_video    = client.send_video
     original_send_document = client.send_document
+    original_send_buttons  = client.send_buttons
+    original_send_carousel = client.send_carousel
 
     async def cap_text(phone, msg):
         captured.append({"type": "text", "content": msg})
@@ -128,18 +130,30 @@ async def chat_direct(request: Request):
         captured.append({"type": "document", "url": url, "filename": filename, "caption": caption})
         return True
 
-    client.send_text  = cap_text
-    client.send_image = cap_image
-    client.send_video = cap_video
+    async def cap_buttons(phone, body_text, buttons):
+        captured.append({"type": "buttons", "content": body_text, "buttons": buttons})
+        return True
+
+    async def cap_carousel(phone, cards):
+        captured.append({"type": "carousel", "cards": cards})
+        return True
+
+    client.send_text     = cap_text
+    client.send_image    = cap_image
+    client.send_video    = cap_video
     client.send_document = cap_document
+    client.send_buttons  = cap_buttons
+    client.send_carousel = cap_carousel
 
     try:
         await agent.handle_message(msg_data)
     finally:
-        client.send_text  = original_send_text
-        client.send_image = original_send_image
-        client.send_video = original_send_video
+        client.send_text     = original_send_text
+        client.send_image    = original_send_image
+        client.send_video    = original_send_video
         client.send_document = original_send_document
+        client.send_buttons  = original_send_buttons
+        client.send_carousel = original_send_carousel
 
     return JSONResponse({"messages": captured})
 
@@ -462,21 +476,4 @@ async def get_products():
         prods = {k: {
             "name":         v["name"],
             "media_type":   v.get("media_type", "image"),
-            "media_url":    v.get("media_url", ""),
-            "rates":        v.get("rates", ""),
-            "keywords":     v.get("keywords", []),
-            "payment_link": v.get("payment_link", ""),
-        } for k, v in PRODUCTS.items()}
-    return JSONResponse(prods)
-
-
-@app.post("/admin/products")
-async def update_products(request: Request):
-    """Save product catalog from admin UI."""
-    data = await request.json()
-    save_runtime_config({"products": data})
-    RUNTIME_CONFIG["products"] = data
-    logger.info(f"Products updated via admin: {len(data)} products")
-    return JSONResponse({"status": "saved"})
-
-
+            "media_url":    v.get("m

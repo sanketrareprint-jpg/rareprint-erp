@@ -83,6 +83,14 @@ LANGUAGE & TONE:
 - Sound like a real person texting. Never robotic. Always finish your sentence completely.
 - Never say: "ek second", "rukiye", "check karta hoon", "let me check". Reply directly.
 
+MEMORY RULES — ABSOLUTE:
+- At the end of every message you receive, there is a [SYSTEM MEMORY] block listing ALREADY CAPTURED data.
+- NEVER ask for any field listed in ALREADY CAPTURED. Not even to "confirm" it. Not even once.
+- If customer already gave their city → do NOT ask city again. Use it directly.
+- If customer already gave quantity → do NOT ask quantity again. Move to next step.
+- If customer already gave name → address them by that name, do NOT ask again.
+- Read ALREADY CAPTURED before every reply and skip those fields completely.
+
 ═══════════════════════════════════════════
 SALES PSYCHOLOGY ARSENAL — USE ALL OF THESE
 ═══════════════════════════════════════════
@@ -478,6 +486,7 @@ class SalesAgent:
                         await self.client.send_buttons(phone, confirm_msg, ["Yes, Confirm ✅", "Need More Info"])
                         self.store.add_message(phone, "assistant", confirm_msg)
                         self.store.update_lead(phone, quantity=str(qty))
+                        self.store.clear_last_question(phone)  # qty answered — don't re-ask
                         return
 
         # ── Order confirmation → collect design matter ────────────────────────
@@ -603,6 +612,13 @@ class SalesAgent:
         flags = self.store.get_conversation_flags(phone)
         profile = self.store.get_customer_profile(phone)
 
+        # Use saved product from lead if current message didn't contain a product keyword
+        effective_product = product
+        if not effective_product and lead.get("product"):
+            effective_product = next(
+                (p for p in PRODUCTS.values() if p["name"] == lead.get("product")), None
+            )
+
         context_note = self._build_known_context(lead, flags, language_hint, profile)
 
         if ad_headline and not template_just_sent:
@@ -610,14 +626,15 @@ class SalesAgent:
                 f"\n\n[SYSTEM NOTE: Customer clicked Facebook/Instagram ad: '{ad_headline}'. "
                 f"Greet them and directly ask about their requirement for that product. 1-2 lines max.]"
             )
-        elif template_just_sent and product:
+        elif template_just_sent and effective_product:
             context_note += (
-                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' just sent. Don't repeat prices. "
+                f"\n\n[SYSTEM NOTE: Rates for '{effective_product['name']}' just sent. Don't repeat prices. "
                 f"Ask quantity only if not already known; otherwise ask next unanswered SPIN question.]"
             )
-        elif product:
+        elif effective_product:
             context_note += (
-                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' already sent. Help them order.]"
+                f"\n\n[SYSTEM NOTE: Customer is asking about '{effective_product['name']}'. "
+                f"Rates already sent. Help them move toward ordering.]"
             )
 
         gemini_history = []
@@ -644,7 +661,7 @@ class SalesAgent:
             return reply
         except Exception as e:
             logger.error(f"Gemini API error FULL: {type(e).__name__}: {e}")
-            return self._fallback_reply(name, text, product, template_just_sent)
+            return self._fallback_reply(name, text, effective_product, template_just_sent)
 
     def _fallback_reply(self, name: str, text: str, product: dict | None, template_just_sent: bool) -> str:
         lowered = text.lower()
@@ -652,18 +669,25 @@ class SalesAgent:
             return "[UNSUBSCRIBE]"
         if any(w in lowered for w in ["pay", "payment", "upi", "advance", "order confirm"]):
             return "Order confirm karne ke liye payment details bhej raha hoon. [SEND_PAYMENT_LINK]"
-        if any(w in lowered for w in ["high", "mahanga", "mehnga", "expensive"]):
-            return "70 GSM multicolor printing hai — quality different hai. 10,000 par better rate aur 10,000 prescription stickers free milenge."
+        if any(w in lowered for w in ["high", "mahanga", "mehnga", "expensive", "zyada", "km kro", "kam karo"]):
+            prod_name = product["name"] if product else "hamare products"
+            return f"{prod_name} ke rates fixed hain — quality aur service ke liye best value hai. Koi aur sawaal?"
         if any(w in lowered for w in ["trust", "gst", "fake"]):
             return "GST: 27GEKPP2259Q1ZI — portal par verify karein. Amazon, IndiaMART par bhi listed hain."
         if template_just_sent and product:
-            return f"{product['name']} ke rates share kar diye. Aap kitni quantity soch rahe hain — 5,000 / 10,000 / 20,000?"
+            return f"{product['name']} ke rates share kar diye. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
         if product:
-            return f"{product['name']} ke liye aapka city batao — wahan ke references share karta hoon."
-        return "Aapko kya chahiye — bag, pouch, sticker, visiting card, bill book, letterpad, keychain, ya pen? Bata dijiye, main rate aur photo share karta hoon."
+            return f"{product['name']} ke baare mein baat kar rahe hain. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
+        return (
+            f"Hi {name}! Rareprint mein aapka swagat hai. 😊\n\n"
+            f"Hum print karte hain: Medicine Pouches, Visiting Cards, Prescription Stickers, "
+            f"Bill Books, Carry Bags, Keychains, Pens aur zyada.\n\n"
+            f"Kaunsa product chahiye? Ya seedha call karein: *{BUSINESS_PHONE}*"
+        )
 
     def _build_known_context(self, lead: dict, flags: dict, language_hint: str, profile: dict = None) -> str:
-        known = {
+        # Fields that are already captured — AI must NOT ask for these again
+        known_raw = {
             "name":            lead.get("name") or (profile or {}).get("name"),
             "product":         lead.get("product"),
             "quantity":        lead.get("quantity"),
@@ -673,21 +697,24 @@ class SalesAgent:
             "services":        lead.get("services"),
             "email":           lead.get("email"),
         }
-        known_text = ", ".join(f"{k}={v}" for k, v in known.items() if v)
-        asked = ", ".join(flags.get("asked_questions") or [])
+        captured = {k: v for k, v in known_raw.items() if v}
+        missing  = [k for k, v in known_raw.items() if not v]
+
+        captured_text = ", ".join(f"{k}={v}" for k, v in captured.items()) or "nothing yet"
+
         last_q = flags.get("last_question_key") or ""
+        # Only show last_q if NOT already captured (i.e., still unanswered)
+        pending_note = f"Waiting for answer to: {last_q}. " if last_q and last_q not in captured else ""
+
         profile_note = ""
         if profile and (profile.get("city") or profile.get("name")):
-            profile_note = (
-                f" RETURNING CUSTOMER PROFILE: {', '.join(f'{k}={v}' for k, v in profile.items() if v)}."
-                " Do NOT ask for name or city again — you already know them."
-            )
+            profile_note = " RETURNING CUSTOMER — do NOT ask name or city again."
+
         return (
-            "\n\n[SYSTEM MEMORY: "
-            f"Known: {known_text or 'none'}. "
-            f"Already asked: {asked or 'none'}. Last question: {last_q or 'none'}. "
-            "Never repeat an already-answered question. Ask only the next unanswered one. "
-            f"Language hint: {language_hint}. Reply in same language/script.{profile_note}]"
+            "\n\n[SYSTEM MEMORY — STRICT RULES: "
+            f"ALREADY CAPTURED (NEVER ASK FOR THESE AGAIN): {captured_text}. "
+            f"{pending_note}"
+            f"Language: {language_hint}. Reply in exact same language/script as customer.{profile_note}]"
         )
 
     def _is_all_products_request(self, text: str) -> bool:
@@ -762,9 +789,12 @@ class SalesAgent:
         ranges = [
             ("Devanagari Hindi/Marathi", "ऀ", "ॿ"),
             ("Bengali", "ঀ", "৿"),
+            ("Gurmukhi Punjabi", "਀", "੿"),
             ("Gujarati", "઀", "૿"),
+            ("Odia", "଀", "୿"),
             ("Tamil", "஀", "௿"),
             ("Telugu", "ఀ", "౿"),
+            ("Kannada", "ಀ", "೿"),
             ("Malayalam", "ഀ", "ൿ"),
             ("Arabic/Urdu", "؀", "ۿ"),
         ]
@@ -819,13 +849,21 @@ class SalesAgent:
         value = text.strip()
         if not last_q or not value:
             return
+        captured = False
+
         if last_q == "city" and not self.store.get_lead(phone).get("city"):
-            if not re.search(r"\d", value) and len(value.split()) <= 4:
+            # Accept city if no digits and reasonably short (avoid capturing "nahi" etc.)
+            reject_words = {"nahi", "no", "na", "nope", "stop", "baad", "later", "thik", "ok", "okay", "haan", "yes"}
+            if not re.search(r"\d", value) and len(value.split()) <= 4 and value.lower() not in reject_words:
                 self.store.update_lead(phone, city=value)
                 self.store.update_customer_profile(phone, city=value)
                 asyncio.create_task(self._send_city_references(phone, value))
+                captured = True
+
         elif last_q == "current_pouches":
             self.store.update_lead(phone, current_pouches=value)
+            captured = True
+
         elif last_q == "printed_status":
             lowered = value.lower()
             if any(w in lowered for w in ["plain", "normal", "simple", "without", "no print", "not printed"]):
@@ -834,21 +872,55 @@ class SalesAgent:
                 self.store.update_lead(phone, printed_status="printed")
             else:
                 self.store.update_lead(phone, printed_status=value)
+            captured = True
+
         elif last_q == "services":
             self.store.update_lead(phone, services=value)
+            captured = True
+
+        elif last_q == "quantity":
+            qty = self._extract_qty_from_text(value)
+            if qty:
+                self.store.update_lead(phone, quantity=str(qty))
+                captured = True
+
+        elif last_q == "name" and not self.store.get_lead(phone).get("name"):
+            if len(value.split()) <= 5 and not re.search(r"\d", value):
+                self.store.update_lead(phone, name=value)
+                captured = True
+
+        # Clear last_question_key so the AI doesn't re-ask this question
+        if captured:
+            self.store.clear_last_question(phone)
 
     def _remember_question_from_reply(self, phone: str, reply: str):
+        """
+        Detect which question the bot just asked and track it.
+        Only marks questions NOT already answered in the lead.
+        """
         text = reply.lower()
-        if "city" in text or "kahan" in text or "shehar" in text:
+        lead = self.store.get_lead(phone)
+
+        # Only track if the reply is actually asking something
+        is_question = "?" in reply or any(w in text for w in [
+            "batao", "bataiye", "kya hai", "kahan", "kitni", "kitna",
+            "kaun", "kaunsa", "share karo", "share karein",
+        ])
+        if not is_question:
+            return
+
+        if not lead.get("city") and any(w in text for w in ["city", "kahan", "shehar", "location", "kaha"]):
             self.store.mark_question_asked(phone, "city")
-        elif "currently" in text and ("pouch" in text or "using" in text):
+        elif not lead.get("current_pouches") and "currently" in text and ("pouch" in text or "using" in text):
             self.store.mark_question_asked(phone, "current_pouches")
-        elif "printed" in text or "plain" in text:
+        elif not lead.get("printed_status") and ("printed" in text or "plain" in text) and "?" in reply:
             self.store.mark_question_asked(phone, "printed_status")
-        elif any(w in text for w in ["home delivery", "discount", "doctor", "services"]):
+        elif not lead.get("services") and any(w in text for w in ["home delivery", "discount", "doctor", "services"]):
             self.store.mark_question_asked(phone, "services")
-        elif any(w in text for w in ["quantity", "qty", "kitni", "kitna"]):
+        elif not lead.get("quantity") and any(w in text for w in ["quantity", "qty", "kitni", "kitna", "kitne"]):
             self.store.mark_question_asked(phone, "quantity")
+        elif not lead.get("name") and any(w in text for w in ["aapka naam", "your name", "naam kya", "naam batao"]):
+            self.store.mark_question_asked(phone, "name")
 
     def _extract_lead_data(self, phone: str, text: str):
         email_match = re.search(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", text)
@@ -860,437 +932,3 @@ class SalesAgent:
         pin_match = re.search(r"\b([1-9][0-9]{5})\b", text)
         if pin_match:
             self.store.update_lead(phone, pincode=pin_match.group())
-
-        # After product rates sent → order / question / other
-        if template_just_sent and product:
-            return ["Place Order 🛒", "Ask a Question", "See Other Products"]
-
-        # First 2 messages with no product detected → show product menu
-        if history_len <= 2 and not product:
-            return ["Medicine Pouches", "Visiting Cards", "Stickers & Labels"]
-
-        # Customer has product but hasn't given quantity yet
-        if product and not lead.get("quantity"):
-            if "quantity" in ai_reply.lower() or "kitni" in ai_reply.lower() or "qty" in ai_reply.lower():
-                return ["5,000 pcs", "10,000 pcs", "20,000 pcs"]
-
-        # Payment stage
-        if state == "product_sent" and lead.get("city") and lead.get("quantity"):
-            return ["Place Order 🛒", "Need More Info", "Call Me"]
-
-        return []
-
-    async def _get_ai_reply(
-        self,
-        phone: str,
-        name: str,
-        text: str,
-        product: dict | None,
-        template_just_sent: bool,
-        ad_headline: str = "",
-        language_hint: str = "same as customer",
-    ) -> str:
-        if not self.ai:
-            # Fallback if no API key
-            return (
-                f"Hi {name}! 👋 Thank you for your message. "
-                f"Please contact us at {BUSINESS_PHONE} for more details."
-            )
-
-        history = self.store.get_history(phone)
-        lead = self.store.get_lead(phone)
-        flags = self.store.get_conversation_flags(phone)
-        profile = self.store.get_customer_profile(phone)
-
-        # Build context note for AI
-        context_note = self._build_known_context(lead, flags, language_hint, profile)
-
-        if ad_headline and not template_just_sent:
-            context_note += (
-                f"\n\n[SYSTEM NOTE: Customer clicked your Facebook/Instagram ad: '{ad_headline}'. "
-                f"They sent a generic greeting. DON'T ask 'what do you want to print?' — "
-                f"you already know they're interested in '{ad_headline}'. "
-                f"Greet them and directly ask about their requirement for that product. "
-                f"Keep it short — 1-2 lines max.]"
-            )
-        elif template_just_sent and product:
-            context_note += (
-                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' just sent. Don't repeat prices. "
-                f"Ask quantity only if quantity is not already known; otherwise ask the next unanswered SPIN question.]"
-            )
-        elif product:
-            context_note += (
-                f"\n\n[SYSTEM NOTE: Rates for '{product['name']}' already sent earlier. Just help them order.]"
-            )
-
-        # Build Gemini chat history (alternating user/model)
-        gemini_history = []
-        for m in history[:-1]:   # exclude the just-added current message
-            role = "user" if m["role"] == "user" else "model"
-            gemini_history.append({"role": role, "parts": [m["content"]]})
-
-        try:
-            system = CUSTOM_SYSTEM_PROMPT if CUSTOM_SYSTEM_PROMPT else build_system_prompt()
-            model = genai.GenerativeModel(
-                model_name="models/gemini-2.5-flash",
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=8192,
-                    temperature=0.7,
-                ),
-                safety_settings=_SAFETY_SETTINGS,
-                system_instruction=system,
-            )
-            chat = model.start_chat(history=gemini_history)
-            async with _GEMINI_SEMAPHORE:
-                response = await chat.send_message_async(text + context_note)
-            reply = response.text.strip()
-            logger.info(f"🤖 AI reply to {phone}: {reply[:80]}")
-            return reply
-        except Exception as e:
-            logger.error(f"Gemini API error FULL: {type(e).__name__}: {e}")
-            return self._fallback_reply(name, text, product, template_just_sent)
-
-    def _fallback_reply(
-        self,
-        name: str,
-        text: str,
-        product: dict | None,
-        template_just_sent: bool,
-    ) -> str:
-        lowered = text.lower()
-        if any(word in lowered for word in ["stop", "unsubscribe", "opt out"]):
-            return "[UNSUBSCRIBE]"
-        if any(word in lowered for word in ["pay", "payment", "upi", "advance", "order confirm", "book order"]):
-            return "Order confirm karne ke liye payment details bhej raha hoon. [SEND_PAYMENT_LINK]"
-        if any(word in lowered for word in ["high", "mahanga", "mehnga", "zyada", "expensive", "rate issue"]):
-            return (
-                "Sir/Madam, medicine pouch mein hum 70 GSM white paper aur multicolor printing use karte hain, raddi/single color nahi. "
-                "10,000 qty par better rate hota hai aur 10,000 prescription stickers bhi saath milte hain."
-            )
-        if any(word in lowered for word in ["trust", "bharosa", "fake", "gst", "proof"]):
-            return (
-                "Sir/Madam, Rareprint ka GST 27GEKPP2259Q1ZI hai, aap GST portal par verify kar sakte hain. "
-                "Hum Amazon, IndiaMART aur TradeIndia par bhi listed hain. Aapka city bata dijiye, nearby reference share karenge."
-            )
-        if template_just_sent and product:
-            return f"Sir/Madam, {product['name']} ke rates/details share kar diye. Aap kitni quantity plan kar rahe hain?"
-        if product:
-            return f"Sir/Madam, {product['name']} ke liye aapka city bata dijiye, main requirement ke hisab se guide karta hoon."
-        return "Sir/Madam, aapko kaunsa product print karwana hai? Medicine pouch, stickers, bill book, letterpad, bag, file ya visiting card?"
-
-    def _build_known_context(self, lead: dict, flags: dict, language_hint: str, profile: dict = None) -> str:
-        known = {
-            "name":           lead.get("name") or (profile or {}).get("name"),
-            "product":        lead.get("product"),
-            "quantity":       lead.get("quantity"),
-            "city":           lead.get("city") or lead.get("pincode") or (profile or {}).get("city"),
-            "current_pouches": lead.get("current_pouches"),
-            "printed_status": lead.get("printed_status"),
-            "services":       lead.get("services"),
-            "email":          lead.get("email"),
-        }
-        known_text = ", ".join(f"{k}={v}" for k, v in known.items() if v)
-        asked = ", ".join(flags.get("asked_questions") or [])
-        last_q = flags.get("last_question_key") or ""
-        profile_note = ""
-        if profile and (profile.get("city") or profile.get("name")):
-            profile_note = (
-                f" RETURNING CUSTOMER PROFILE: {', '.join(f'{k}={v}' for k, v in profile.items() if v)}."
-                " Do NOT ask for name or city again — you already know them."
-            )
-        return (
-            "\n\n[SYSTEM MEMORY: "
-            f"Known details: {known_text or 'none yet'}. "
-            f"Already asked: {asked or 'none'}. Last question: {last_q or 'none'}. "
-            "If the customer's latest message answers the last question, do not ask it again. "
-            "Ask only the next unanswered question. Never repeat quantity, city, current pouch, printed/plain, or services questions once known. "
-            f"Language/script hint: {language_hint}. Reply in this same language/script unless the customer changes language."
-            f"{profile_note}]"
-        )
-
-    async def _send_product_carousel(self, phone: str):
-        """Send a carousel of top products with images and Get Rates button."""
-        # Pick products that have a photo_url or media_url (images only for carousel)
-        carousel_products = [
-            ("Medicine Pouch – Small", "pouch_small",    "5,000 pcs – ₹4,999/-"),
-            ("Medicine Pouch – Medium","pouch_medium",   "5,000 pcs – ₹5,499/-"),
-            ("Medicine Pouch – Large", "pouch_large",    "5,000 pcs – ₹6,999/-"),
-            ("Visiting Cards 350 GSM", "visiting_card_350gsm", "2,000 cards – ₹999/-"),
-            ("Prescription Stickers",  "prescription_sticker", "5,000 pcs – ₹1,699/-"),
-        ]
-        cards = []
-        for display_name, key, price_hint in carousel_products:
-            p = PRODUCTS.get(key)
-            if not p:
-                continue
-            img = p.get("photo_url") or p.get("media_url", "")
-            if not img or p.get("media_type") == "video":
-                continue
-            cards.append({
-                "image_url": img,
-                "title":     display_name,
-                "body":      price_hint,
-                "buttons":   ["Get Rates", "Place Order 🛒"],
-            })
-
-        if cards:
-            self.client.send_carousel(phone, cards)
-        else:
-            # Fallback to text list if no images available
-            await self.client.send_text(
-                phone,
-                "Rareprint products:\n• Medicine Pouches\n• Visiting Cards\n• Stickers\n• Bill Books\n• Letterpads\n• Carry Bags\n• Keychains\n\nWebsite: www.rareprint.in"
-            )
-
-    def _is_all_products_request(self, text: str) -> bool:
-        text_lower = text.lower()
-        return any(trigger in text_lower for trigger in ALL_PRODUCTS_TRIGGERS)
-
-    def _detect_language_hint(self, text: str) -> str:
-        if not text.strip():
-            return "same as customer"
-        ranges = [
-            ("Devanagari Hindi/Marathi", "\u0900", "\u097f"),
-            ("Bengali", "\u0980", "\u09ff"),
-            ("Gurmukhi Punjabi", "\u0a00", "\u0a7f"),
-            ("Gujarati", "\u0a80", "\u0aff"),
-            ("Odia", "\u0b00", "\u0b7f"),
-            ("Tamil", "\u0b80", "\u0bff"),
-            ("Telugu", "\u0c00", "\u0c7f"),
-            ("Kannada", "\u0c80", "\u0cff"),
-            ("Malayalam", "\u0d00", "\u0d7f"),
-            ("Arabic/Urdu", "\u0600", "\u06ff"),
-        ]
-        hits = []
-        for name, start, end in ranges:
-            count = sum(1 for char in text if start <= char <= end)
-            if count:
-                hits.append((name, count))
-        latin = sum(1 for char in text if char.isalpha() and ord(char) < 128)
-        if latin:
-            hits.append(("Latin English/Hinglish/transliteration", latin))
-        if not hits:
-            return "same as customer"
-        hits.sort(key=lambda item: item[1], reverse=True)
-        if len(hits) >= 2 and hits[1][1] >= max(2, hits[0][1] * 0.25):
-            return f"mixed {hits[0][0]} + {hits[1][0]}"
-        return hits[0][0]
-
-    def _describe_image(self, image_url: str) -> str:
-        if not self.ai:
-            return ""
-        try:
-            import httpx
-
-            resp = httpx.get(image_url, timeout=12)
-            resp.raise_for_status()
-            media_type = resp.headers.get("content-type", "").split(";")[0].strip()
-            if not media_type.startswith("image/"):
-                media_type = mimetypes.guess_type(image_url)[0] or "image/jpeg"
-            image_data = resp.content
-
-            vision_model = genai.GenerativeModel(
-                model_name="models/gemini-2.5-flash",
-                generation_config=genai.types.GenerationConfig(max_output_tokens=250),
-                safety_settings=_SAFETY_SETTINGS,
-            )
-            response = vision_model.generate_content([
-                {
-                    "mime_type": media_type,
-                    "data": image_data,
-                },
-                (
-                    "Extract useful sales/order details from this customer image for a printing shop. "
-                    "Mention visible product type, text, size, quantity, colors, contact details, or design notes. "
-                    "If unclear, say what is unclear. Keep it concise."
-                ),
-            ])
-            return response.text.strip()
-        except Exception as e:
-            logger.warning(f"Image reading failed: {e}")
-            return ""
-
-    def _capture_answer_to_last_question(self, phone: str, text: str):
-        flags = self.store.get_conversation_flags(phone)
-        last_q = flags.get("last_question_key")
-        value = text.strip()
-        if not last_q or not value:
-            return
-
-        if last_q == "city" and not self.store.get_lead(phone).get("city"):
-            if not re.search(r"\d", value) and len(value.split()) <= 4:
-                self.store.update_lead(phone, city=value)
-                self.store.update_customer_profile(phone, city=value)
-                # Send nearby customer references
-                asyncio.create_task(self._send_city_references(phone, value))
-        elif last_q == "current_pouches":
-            self.store.update_lead(phone, current_pouches=value)
-        elif last_q == "printed_status":
-            lowered = value.lower()
-            if any(word in lowered for word in ["plain", "normal", "simple", "without", "no print", "not printed"]):
-                self.store.update_lead(phone, printed_status="plain/unprinted")
-            elif any(word in lowered for word in ["printed", "print", "color", "colour"]):
-                self.store.update_lead(phone, printed_status="printed")
-            else:
-                self.store.update_lead(phone, printed_status=value)
-        elif last_q == "services":
-            self.store.update_lead(phone, services=value)
-
-    def _remember_question_from_reply(self, phone: str, reply: str):
-        text = reply.lower()
-        if "city" in text or "which city" in text or "aap kaha" in text or "kahan" in text or "shehar" in text:
-            self.store.mark_question_asked(phone, "city")
-        elif "currently" in text and ("pouch" in text or "using" in text):
-            self.store.mark_question_asked(phone, "current_pouches")
-        elif "printed" in text or "plain" in text:
-            self.store.mark_question_asked(phone, "printed_status")
-        elif any(word in text for word in ["home delivery", "discount", "doctor", "path lab", "cosmetic", "cold drink", "nutrition", "surgical", "veterinary", "pet food", "services"]):
-            self.store.mark_question_asked(phone, "services")
-        elif any(word in text for word in ["quantity", "qty", "kitni", "kitna"]):
-            self.store.mark_question_asked(phone, "quantity")
-
-    async def _send_city_references(self, phone: str, city: str):
-        """Send nearby customer names as social proof after city is shared."""
-        customers = get_customers_by_city(city)
-        if not customers:
-            return
-        # Show max 5 names to keep it concise
-        shown = customers[:5]
-        names_text = "\n".join(f"• {n}" for n in shown)
-        more = len(customers) - len(shown)
-        more_text = f"\n_...aur {more} aur customers hain {city} mein._" if more > 0 else ""
-        msg = (
-            f"✅ *Rareprint ke {city} ke customers:*\n\n"
-            f"{names_text}{more_text}\n\n"
-            f"Ye sab already Rareprint se print karwa chuke hain. "
-            f"Aap bhi inke jaise apni shop promote kar sakte hain! 😊"
-        )
-        await asyncio.sleep(2)  # slight delay so it comes after main reply
-        await self.client.send_text(phone, msg)
-
-    def _extract_qty_from_text(self, text: str) -> int | None:
-        """Extract a numeric quantity from customer message."""
-        import re
-        # Match patterns like "5000", "5,000", "10k", "1 lakh", "1 lac"
-        text = text.lower().replace(",", "")
-        lakh = re.search(r"(\d+\.?\d*)\s*(lakh|lac|lakh)", text)
-        if lakh:
-            return int(float(lakh.group(1)) * 100000)
-        k = re.search(r"(\d+)\s*k\b", text)
-        if k:
-            return int(k.group(1)) * 1000
-        # Plain number followed by qty words
-        qty = re.search(r"(\d{3,})\s*(pcs?|pieces?|nos?\.?|qty|quantity|pouches?|stickers?|cards?)?", text)
-        if qty:
-            return int(qty.group(1))
-        return None
-
-    def _extract_lead_data(self, phone: str, text: str):
-        """
-        Simple regex extraction of structured data from customer messages.
-        Supplements AI collection.
-        """
-        # Email
-        email_match = re.search(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", text)
-        if email_match:
-            self.store.update_lead(phone, email=email_match.group())
-
-        # Quantity patterns: "500 pcs", "1000 copies", "2000 qty"
-        qty_match = re.search(r"(\d+)\s*(pcs?|pieces?|copies|qty|nos?\.?)", text, re.I)
-        if qty_match:
-            self.store.update_lead(phone, quantity=qty_match.group())
-
-        # City / pincode
-        pin_match = re.search(r"\b([1-9][0-9]{5})\b", text)
-        if pin_match:
-            self.store.update_lead(phone, pincode=pin_match.group())
-
-    async def _get_ai_reply(self, phone, name, text, product, template_just_sent, ad_headline="", language_hint="same as customer"):
-        if not self.ai:
-            return f"Hi {name}! Thank you for your message. Please contact us at {BUSINESS_PHONE} for more details."
-        history = self.store.get_history(phone)
-        lead = self.store.get_lead(phone)
-        flags = self.store.get_conversation_flags(phone)
-        profile = self.store.get_customer_profile(phone)
-
-        # If current text didn't contain a product keyword, look up the saved product from lead
-        # This ensures fallback has product context for messages like "Noida", "10,000" etc.
-        effective_product = product
-        if not effective_product and lead.get("product"):
-            effective_product = next(
-                (p for p in PRODUCTS.values() if p["name"] == lead.get("product")), None
-            )
-
-        context_note = self._build_known_context(lead, flags, language_hint, profile)
-        if ad_headline and not template_just_sent:
-            context_note += f"\n\n[SYSTEM NOTE: Customer clicked ad: '{ad_headline}'. Greet and ask about their requirement. 1-2 lines max.]"
-        elif template_just_sent and effective_product:
-            context_note += f"\n\n[SYSTEM NOTE: Rates for '{effective_product['name']}' just sent. Don't repeat prices. Ask next SPIN question.]"
-        elif effective_product:
-            context_note += f"\n\n[SYSTEM NOTE: Customer is asking about '{effective_product['name']}'. Rates already sent. Help them move toward ordering.]"
-        gemini_history = []
-        for m in history[:-1]:
-            role = "user" if m["role"] == "user" else "model"
-            gemini_history.append({"role": role, "parts": [m["content"]]})
-        try:
-            system = CUSTOM_SYSTEM_PROMPT if CUSTOM_SYSTEM_PROMPT else build_system_prompt()
-            model = genai.GenerativeModel(
-                model_name="models/gemini-2.5-flash",
-                generation_config=genai.types.GenerationConfig(max_output_tokens=8192, temperature=0.7),
-                safety_settings=_SAFETY_SETTINGS,
-                system_instruction=system,
-            )
-            chat = model.start_chat(history=gemini_history)
-            async with _GEMINI_SEMAPHORE:
-                response = await chat.send_message_async(text + context_note)
-            reply = response.text.strip()
-            logger.info(f"🤖 AI reply to {phone}: {reply[:80]}")
-            return reply
-        except Exception as e:
-            logger.error(f"Gemini API error FULL: {type(e).__name__}: {e}")
-            return self._fallback_reply(name, text, effective_product, template_just_sent)
-
-    def _fallback_reply(self, name, text, product, template_just_sent):
-        lowered = text.lower()
-        if any(w in lowered for w in ["stop", "unsubscribe"]): return "[UNSUBSCRIBE]"
-        if any(w in lowered for w in ["pay", "payment", "upi"]): return "Order confirm karne ke liye payment details bhej raha hoon. [SEND_PAYMENT_LINK]"
-        if any(w in lowered for w in ["high", "mahanga", "expensive", "jada", "zyada", "km kro", "kam karo"]):
-            prod_name = product['name'] if product else "hamare products"
-            return f"{prod_name} ke rates fixed hain — quality aur service ke liye best value hai. Koi aur sawaal?"
-        if any(w in lowered for w in ["trust", "gst", "fake"]): return "GST: 27GEKPP2259Q1ZI — portal par verify karein. Amazon, IndiaMART par bhi listed hain."
-        if template_just_sent and product: return f"{product['name']} ke rates share kar diye. Kitni quantity — 5,000 / 10,000 / 20,000?"
-        if product:
-            return f"{product['name']} ke baare mein baat kar rahe hain. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
-        # Generic fallback — don't repeat the same product question, give contact info
-        return (
-            f"Hi {name}! Rareprint mein aapka swagat hai. 😊\n\n"
-            f"Hum print karte hain: Medicine Pouches, Visiting Cards, Prescription Stickers, "
-            f"Bill Books, Carry Bags, Keychains, Pens aur zyada.\n\n"
-            f"Kaunsa product chahiye? Ya seedha call karein: *{BUSINESS_PHONE}*"
-        )
-
-    def _build_known_context(self, lead, flags, language_hint, profile=None):
-        known = {
-            "name": lead.get("name") or (profile or {}).get("name"),
-            "product": lead.get("product"),
-            "quantity": lead.get("quantity"),
-            "city": lead.get("city") or lead.get("pincode") or (profile or {}).get("city"),
-            "current_pouches": lead.get("current_pouches"),
-            "printed_status": lead.get("printed_status"),
-            "services": lead.get("services"),
-            "email": lead.get("email"),
-        }
-        known_text = ", ".join(f"{k}={v}" for k, v in known.items() if v)
-        asked = ", ".join(flags.get("asked_questions") or [])
-        last_q = flags.get("last_question_key") or ""
-        profile_note = ""
-        if profile and (profile.get("city") or profile.get("name")):
-            profile_note = (f" RETURNING CUSTOMER: "
-                            f"{', '.join(f'{k}={v}' for k, v in profile.items() if v)}."
-                            f" Do NOT ask name/city again.")
-        return (
-            f"\n\n[SYSTEM MEMORY: Known: {known_text or 'none'}. "
-            f"Asked: {asked or 'none'}. Last Q: {last_q or 'none'}. "
-            f"Never repeat answered questions. Language: {language_hint}. "
-            f"Reply in same language.{profile_note}]"
-        )

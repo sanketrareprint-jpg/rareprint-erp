@@ -139,6 +139,12 @@ class ConversationStore:
         session["last_question_key"] = question_key
         self.save_session(phone, session)
 
+    def clear_last_question(self, phone: str):
+        """Call this when the customer has answered the last question, so the bot doesn't re-ask it."""
+        session = self.get_session(phone)
+        session["last_question_key"] = ""
+        self.save_session(phone, session)
+
     def get_conversation_flags(self, phone: str) -> dict:
         session = self.get_session(phone)
         return {
@@ -200,6 +206,7 @@ class ConversationStore:
             self._redis.delete(f"session:{phone}")
         else:
             self._memory[phone] = self._default_session()
+
 
     @staticmethod
     def _default_session() -> dict:
