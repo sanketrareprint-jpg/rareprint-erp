@@ -501,6 +501,34 @@ class SalesAgent:
             self.store.set_state(phone, "collecting_design")
             return
 
+        # ── "Place Order 🛒" button — handle directly before AI ─────────────────
+        if text.strip().lower() in ["place order 🛒", "place order", "order karna hai", "order karo"]:
+            lead = self.store.get_lead(phone)
+            existing_qty = lead.get("quantity")
+            p_name = lead.get("product")
+            p_obj = next((p for p in PRODUCTS.values() if p["name"] == p_name), None) if p_name else None
+            if existing_qty and p_obj:
+                # Qty already known — go straight to rate confirm
+                rate_reply = get_rate_for_qty(p_obj, int(existing_qty)) if p_obj.get("price_list") else None
+                if rate_reply:
+                    confirm_msg = (
+                        f"{rate_reply}\n\n"
+                        f"Order confirm karne ke liye sirf *₹500 token amount* bhejein.\n"
+                        f"Yeh amount aapke final invoice mein adjust ho jayega. 😊\n\n"
+                        f"Order confirm karna hai?"
+                    )
+                    await self.client.send_buttons(phone, confirm_msg, ["Yes, Confirm ✅", "Need More Info"])
+                    self.store.add_message(phone, "assistant", confirm_msg)
+                    self.store.clear_last_question(phone)
+                    return
+            elif p_obj:
+                # No qty yet — ask once with clear buttons
+                msg = f"{p_name} ke liye kitni quantity chahiye?"
+                await self.client.send_buttons(phone, msg, ["5,000 pcs", "10,000 pcs", "20,000 pcs"])
+                self.store.add_message(phone, "assistant", msg)
+                self.store.mark_question_asked(phone, "quantity")
+                return
+
         # ── "See Other Products" button → send carousel ───────────────────────
         SEE_OTHER_TRIGGERS = ["see other products", "other products", "other product",
                               "see other", "aur products", "aur kya hai", "other items",
@@ -655,15 +683,24 @@ class SalesAgent:
             )
             chat = model.start_chat(history=gemini_history)
             async with _GEMINI_SEMAPHORE:
-                response = await chat.send_message_async(text + context_note)
+                response = await asyncio.wait_for(
+                    chat.send_message_async(text + context_note),
+                    timeout=20.0,
+                )
             reply = response.text.strip()
             logger.info(f"🤖 AI reply to {phone}: {reply[:80]}")
             return reply
+        except asyncio.TimeoutError:
+            logger.error(f"Gemini timeout for {phone} — using fallback")
+            lead = self.store.get_lead(phone)
+            return self._fallback_reply(name, text, effective_product, template_just_sent, lead)
         except Exception as e:
             logger.error(f"Gemini API error FULL: {type(e).__name__}: {e}")
-            return self._fallback_reply(name, text, effective_product, template_just_sent)
+            lead = self.store.get_lead(phone)
+            return self._fallback_reply(name, text, effective_product, template_just_sent, lead)
 
-    def _fallback_reply(self, name: str, text: str, product: dict | None, template_just_sent: bool) -> str:
+    def _fallback_reply(self, name: str, text: str, product: dict | None, template_just_sent: bool, lead: dict = None) -> str:
+        lead = lead or {}
         lowered = text.lower()
         if any(w in lowered for w in ["stop", "unsubscribe", "opt out"]):
             return "[UNSUBSCRIBE]"
@@ -674,10 +711,19 @@ class SalesAgent:
             return f"{prod_name} ke rates fixed hain — quality aur service ke liye best value hai. Koi aur sawaal?"
         if any(w in lowered for w in ["trust", "gst", "fake"]):
             return "GST: 27GEKPP2259Q1ZI — portal par verify karein. Amazon, IndiaMART par bhi listed hain."
-        if template_just_sent and product:
-            return f"{product['name']} ke rates share kar diye. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
-        if product:
-            return f"{product['name']} ke baare mein baat kar rahe hain. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
+        # If qty already captured — don't ask again; instead move toward order confirmation
+        known_qty = lead.get("quantity")
+        prod_name = product["name"] if product else lead.get("product", "")
+        if prod_name and known_qty:
+            return (
+                f"Aapka order detail: *{prod_name}* — *{known_qty} pcs*\n\n"
+                f"Order confirm karne ke liye sirf *₹500 token amount* bhejein. "
+                f"Yeh amount aapke final invoice mein adjust hoga. 😊"
+            )
+        if (template_just_sent or product) and prod_name and not known_qty:
+            return f"{prod_name} ke liye kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
+        if prod_name and not known_qty:
+            return f"{prod_name} ke liye kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
         return (
             f"Hi {name}! Rareprint mein aapka swagat hai. 😊\n\n"
             f"Hum print karte hain: Medicine Pouches, Visiting Cards, Prescription Stickers, "
@@ -931,4 +977,4 @@ class SalesAgent:
             self.store.update_lead(phone, quantity=qty_match.group())
         pin_match = re.search(r"\b([1-9][0-9]{5})\b", text)
         if pin_match:
-            self.store.update_lead(phone, pincode=pin_match.group())
+            self.store.update_lead(phone, pincode=pin_match.group(1))
