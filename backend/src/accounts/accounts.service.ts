@@ -1368,4 +1368,25 @@ export class AccountsService {
     JOIN "Customer" c ON o."customerId" = c.id
     LEFT JOIN "User" sa ON o."salesAgentId" = sa.id
     JOIN "PaymentAccount" pa ON p."paymentAccountId" = pa.id
-    LEFT JOIN "User" vb ON p."ver
+    LEFT JOIN "User" vb ON p."verifiedById" = vb.id
+    WHERE p."verificationStatus" IN ('VERIFIED', 'REJECTED')
+    ORDER BY p."verifiedAt" DESC
+  `;
+  return payments.map(p => ({
+    ...p,
+    amount: Number(p.amount),
+  }));
+}
+   
+}
+ifiedById" = vb.id
+    WHERE p."verificationStatus" IN ('VERIFIED', 'REJECTED')
+    ORDER BY p."verifiedAt" DESC
+  `;
+  return payments.map(p => ({
+    ...p,
+    amount: Number(p.amount),
+  }));
+}
+   
+}
