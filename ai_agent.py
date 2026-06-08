@@ -460,11 +460,39 @@ class SalesAgent:
             # Only send template if it's a new/different product inquiry
             if current_product != product["name"]:
                 logger.info(f"🛒 Product detected: {product['name']} for {phone}")
-                # Send the fixed template immediately
+                # Clear old quantity — it belongs to previous product, not this one
+                if current_product:
+                    self.store.update_lead(phone, quantity="")
+                    self.store.clear_last_question(phone)
                 await self.client.send_product_template(phone, product)
                 self.store.update_lead(phone, product=product["name"])
                 self.store.set_state(phone, "product_sent")
                 template_sent = True
+
+        # ── Size change intent (e.g. "A4", "A5", "medium") when product already set ──
+        lead_now = self.store.get_lead(phone)
+        current_prod_name = lead_now.get("product", "")
+        SIZE_CHANGE_MAP = {
+            "a4": "Multicolour Letterpad – A4 Size",
+            "a5": "Multicolour Letterpad – A5 Size",
+            "a6": "Multicolour Letterpad – A6 Size",
+            "a7": "Multicolour Letterpad – A7 Size",
+            "a8": "Multicolour Letterpad – A8 Size",
+        }
+        if current_prod_name and "letterpad" in current_prod_name.lower() and not template_sent:
+            for size_key, prod_name in SIZE_CHANGE_MAP.items():
+                # e.g. customer says "A4" or "I want A4"
+                if re.search(r"\b" + size_key + r"\b", text_lower) and prod_name != current_prod_name:
+                    new_prod = next((p for p in PRODUCTS.values() if p["name"] == prod_name), None)
+                    if new_prod:
+                        self.store.update_lead(phone, quantity="", product="")
+                        self.store.clear_last_question(phone)
+                        await self.client.send_product_template(phone, new_prod)
+                        self.store.update_lead(phone, product=new_prod["name"])
+                        self.store.set_state(phone, "product_sent")
+                        template_sent = True
+                        product = new_prod
+                        break
 
         # ── Quantity-specific rate lookup ─────────────────────────────────────
         if product or self.store.get_lead(phone).get("product"):
@@ -574,8 +602,8 @@ class SalesAgent:
             "phone number", "whatsapp number",
         ]
         if any(t in text.lower() for t in CALL_TRIGGERS):
-            await self.client.send_text(phone, f"Zaroor! Hamare number par call ya WhatsApp karein:\n*{BUSINESS_PHONE}*\n\nSomvar se Shanivar, subah 10 baje se shaam 7 baje tak available hain. 😊")
-            self.store.add_message(phone, "assistant", f"Call number: {BUSINESS_PHONE}")
+            await self.client.send_text(phone, "Zaroor! Hamari team aapko jald hi WhatsApp par contact karegi. Aapka naam aur requirement batayein toh main note kar leta hoon. 😊")
+            self.store.add_message(phone, "assistant", "Escalated to human agent for call")
             return
 
         # ── Video/ad question → answer which size shown ──────────────────────────
