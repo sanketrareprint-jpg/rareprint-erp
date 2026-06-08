@@ -1379,14 +1379,3 @@ export class AccountsService {
 }
    
 }
-ifiedById" = vb.id
-    WHERE p."verificationStatus" IN ('VERIFIED', 'REJECTED')
-    ORDER BY p."verifiedAt" DESC
-  `;
-  return payments.map(p => ({
-    ...p,
-    amount: Number(p.amount),
-  }));
-}
-   
-}
