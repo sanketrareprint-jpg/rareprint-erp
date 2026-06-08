@@ -224,7 +224,9 @@ export class AccountsService {
     });
     if (!order) return;
 
-    const totalPaid = order.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+    const totalPaid = order.payments
+      .filter((p) => p.verificationStatus === 'VERIFIED')
+      .reduce((sum, payment) => sum + Number(payment.amount), 0);
     const grandTotal = Number(order.grandTotal);
     const paymentStatus =
       totalPaid >= grandTotal ? PaymentStatus.PAID :
@@ -264,7 +266,9 @@ export class AccountsService {
     }, new Map<string, typeof slabs>());
 
     return orders.map((order) => {
-      const totalPaid  = order.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const totalPaid  = order.payments
+        .filter((p) => p.verificationStatus === 'VERIFIED')
+        .reduce((sum, p) => sum + Number(p.amount), 0);
       const grandTotal = Number(order.grandTotal);
       const balanceDue = Math.max(0, grandTotal - totalPaid);
 
@@ -354,7 +358,9 @@ export class AccountsService {
     });
 
     return orders.map((order) => {
-      const totalPaid  = order.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const totalPaid  = order.payments
+        .filter((p) => p.verificationStatus === 'VERIFIED')
+        .reduce((sum, p) => sum + Number(p.amount), 0);
       const grandTotal = Number(order.grandTotal);
       const balanceDue = grandTotal - totalPaid;
       const customerCredit = Math.max(0, totalPaid - grandTotal);
@@ -1362,14 +1368,4 @@ export class AccountsService {
     JOIN "Customer" c ON o."customerId" = c.id
     LEFT JOIN "User" sa ON o."salesAgentId" = sa.id
     JOIN "PaymentAccount" pa ON p."paymentAccountId" = pa.id
-    LEFT JOIN "User" vb ON p."verifiedById" = vb.id
-    WHERE p."verificationStatus" IN ('VERIFIED', 'REJECTED')
-    ORDER BY p."verifiedAt" DESC
-  `;
-  return payments.map(p => ({
-    ...p,
-    amount: Number(p.amount),
-  }));
-}
-   
-}
+    LEFT JOIN "User" vb ON p."ver

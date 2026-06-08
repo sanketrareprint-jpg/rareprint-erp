@@ -416,7 +416,12 @@ export default function AccountsPage() {
   async function approveOrder(id: string) {
     setProcessing(id);
     try {
-      await fetch(`${API_BASE_URL}/accounts/${id}/approve`, { method: "PATCH", headers: getAuthHeaders() });
+      const res = await fetch(`${API_BASE_URL}/accounts/${id}/approve`, { method: "PATCH", headers: getAuthHeaders() });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Order approval failed: ${err.message || res.statusText}`);
+        return;
+      }
       await load();
     } finally { setProcessing(null); }
   }
@@ -476,11 +481,16 @@ export default function AccountsPage() {
     setVerifyingId(bankMatchPayment.id);
     try {
       const referenceNumber = txn.chequeNo || txn.description.slice(0, 50);
-      await fetch(`${API_BASE_URL}/accounts/payments/${bankMatchPayment.id}/verify`, {
+      const verifyRes = await fetch(`${API_BASE_URL}/accounts/payments/${bankMatchPayment.id}/verify`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ referenceNumber }),
       });
+      if (!verifyRes.ok) {
+        const err = await verifyRes.json().catch(() => ({}));
+        alert(`Receipt verification failed: ${err.message || verifyRes.statusText}`);
+        return;
+      }
       await fetch(`${API_BASE_URL}/bank-statement/transactions/${txn.id}/reconcile`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -499,11 +509,16 @@ export default function AccountsPage() {
   async function verifyPayment(id: string, utr?: string) {
     setVerifyingId(id);
     try {
-      await fetch(`${API_BASE_URL}/accounts/payments/${id}/verify`, {
+      const res = await fetch(`${API_BASE_URL}/accounts/payments/${id}/verify`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ referenceNumber: utr || undefined }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Receipt verification failed: ${err.message || res.statusText}`);
+        return;
+      }
       await loadReceipts();
     } finally {
       setVerifyingId(null);
@@ -1821,24 +1836,4 @@ await loadHistory();
 
       {/* Reject Order Modal */}
       {rejectId && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
-          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
-            <h2 className="text-sm font-bold text-slate-800 mb-3">Reject Order</h2>
-            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)}
-              placeholder="Enter rejection reason..." rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
-            <div className="flex justify-end gap-2 mt-3">
-              <button onClick={() => { setRejectId(null); setRejectReason(""); }}
-                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={rejectOrder} disabled={processing === rejectId}
-                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
-                {processing === rejectId ? "Rejecting..." : "Reject Order"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" 
