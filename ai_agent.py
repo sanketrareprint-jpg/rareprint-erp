@@ -301,7 +301,7 @@ class SalesAgent:
             self.store.update_customer_profile(phone, name=name, language_hint=language_hint)
 
         if msg.get("media_type", "").lower() in ["image", "photo"] and msg.get("media_url"):
-            image_note = self._describe_image(msg["media_url"])
+            image_note = await self._describe_image(msg["media_url"])
             if image_note:
                 text = f"{text}\n\n[IMAGE DATA: {image_note}]".strip()
 
@@ -353,7 +353,7 @@ class SalesAgent:
         if state == "unsubscribed":
             return  # silently ignore
 
-        if self._is_all_products_request(text):
+        if self._is_all_products_request(text) and not self.store.get_lead(phone).get("product"):
             await self._send_product_carousel(phone)
             if ALL_PRODUCTS_PDF_URL:
                 await self.client.send_document(
@@ -489,17 +489,33 @@ class SalesAgent:
                         self.store.clear_last_question(phone)  # qty answered — don't re-ask
                         return
 
-        # ── Order confirmation → collect design matter ────────────────────────
-        state = self.store.get_state(phone)
-        if state == "payment_sent":
-            # Customer confirmed payment — ask for design matter
+        # ── state == "payment_sent": wait for actual payment proof
+        # (design matter is triggered in the payment-image/text block above)
+
+        # ── Order confirmation words → send payment link ─────────────────────────
+        CONFIRM_WORDS = {
+            "yes, confirm ✅", "yes confirm", "confirm ✅", "haan confirm", "yes",
+            "haan", "ha", "bilkul", "kar do", "karo", "theek hai", "thik hai",
+            "chalega", "chale ga", "done", "ok confirm", "confirm karo",
+            "order confirm", "haan ji", "ji haan", "zaroor", "perfect",
+            "proceed", "aage badho", "book karo", "slot book karo",
+        }
+        if text.strip().lower() in CONFIRM_WORDS:
             lead = self.store.get_lead(phone)
-            p_name = lead.get("product", "")
-            matter_prompt = get_design_matter_prompt(p_name, phone=phone, app_url=APP_URL)
-            await self.client.send_text(phone, matter_prompt)
-            self.store.add_message(phone, "assistant", matter_prompt)
-            self.store.set_state(phone, "collecting_design")
-            return
+            p_name = lead.get("product")
+            qty = lead.get("quantity")
+            if p_name and qty:
+                p_obj = next((p for p in PRODUCTS.values() if p["name"] == p_name), None)
+                if p_obj:
+                    confirm_text = (
+                        f"✅ Perfect! *{p_name}* — *{qty} pcs* order confirm ho raha hai.\n\n"
+                        f"₹500 token amount bhejein slot book karne ke liye:"
+                    )
+                    await self.client.send_text(phone, confirm_text)
+                    await self.client.send_payment_link(phone, p_obj)
+                    self.store.add_message(phone, "assistant", confirm_text)
+                    self.store.set_state(phone, "payment_sent")
+                    return
 
         # ── "Place Order 🛒" button — handle directly before AI ─────────────────
         if text.strip().lower() in ["place order 🛒", "place order", "order karna hai", "order karo"]:
@@ -509,7 +525,8 @@ class SalesAgent:
             p_obj = next((p for p in PRODUCTS.values() if p["name"] == p_name), None) if p_name else None
             if existing_qty and p_obj:
                 # Qty already known — go straight to rate confirm
-                rate_reply = get_rate_for_qty(p_obj, int(existing_qty)) if p_obj.get("price_list") else None
+                safe_qty = self._extract_qty_from_text(existing_qty) or self._extract_qty_from_text(str(existing_qty).replace(",",""))
+                rate_reply = get_rate_for_qty(p_obj, safe_qty) if (safe_qty and p_obj.get("price_list")) else None
                 if rate_reply:
                     confirm_msg = (
                         f"{rate_reply}\n\n"
@@ -522,12 +539,35 @@ class SalesAgent:
                     self.store.clear_last_question(phone)
                     return
             elif p_obj:
-                # No qty yet — ask once with clear buttons
+                # No qty yet — ask once with product-specific buttons
+                p_name_lower = (p_name or "").lower()
+                if "visiting card" in p_name_lower or "prescription sticker" in p_name_lower:
+                    qty_btns = ["2,000 pcs", "5,000 pcs", "10,000 pcs"]
+                elif "keychain" in p_name_lower or "pen " in p_name_lower:
+                    qty_btns = ["500 pcs", "1,000 pcs", "2,000 pcs"]
+                elif "bill book" in p_name_lower or "letterpad" in p_name_lower:
+                    qty_btns = ["10 pads", "20 pads", "50 pads"]
+                else:
+                    qty_btns = ["5,000 pcs", "10,000 pcs", "20,000 pcs"]
                 msg = f"{p_name} ke liye kitni quantity chahiye?"
-                await self.client.send_buttons(phone, msg, ["5,000 pcs", "10,000 pcs", "20,000 pcs"])
+                await self.client.send_buttons(phone, msg, qty_btns)
                 self.store.add_message(phone, "assistant", msg)
                 self.store.mark_question_asked(phone, "quantity")
                 return
+
+        # ── "Need More Info" / "Ask a Question" → invite specific question ────────
+        if text.strip().lower() in ["need more info", "ask a question", "more info", "puchna hai"]:
+            lead = self.store.get_lead(phone)
+            prod = lead.get("product", "")
+            reply_msg = f"{prod} ke baare mein kya jaanna chahte hain? Rate, quality, delivery time, ya kuch aur?" if prod else "Kya jaanna chahte hain? Rate, quality, delivery, ya kuch aur?"
+            await self.client.send_text(phone, reply_msg)
+            self.store.add_message(phone, "assistant", reply_msg)
+            return
+
+        # ── "Call Me" → give phone number ────────────────────────────────────────
+        if text.strip().lower() in ["call me", "call karo", "call karein", "call kijiye", "phone karo"]:
+            await self.client.send_text(phone, f"Zaroor! Hamare number par call karein: *{BUSINESS_PHONE}*\nWhatsApp par bhi available hain. 😊")
+            return
 
         # ── "See Other Products" button → send carousel ───────────────────────
         SEE_OTHER_TRIGGERS = ["see other products", "other products", "other product",
@@ -562,6 +602,10 @@ class SalesAgent:
         # ── Execute special commands ──────────────────────────────────────────
         if "[SEND_PAYMENT_LINK]" in ai_reply:
             ai_reply = ai_reply.replace("[SEND_PAYMENT_LINK]", "").strip()
+            # Send the accompanying text first, then the payment link
+            if ai_reply:
+                await self.client.send_text(phone, ai_reply)
+                self.store.add_message(phone, "assistant", ai_reply)
             lead = self.store.get_lead(phone)
             p_name = lead.get("product")
             p_obj = next((p for p in PRODUCTS.values() if p["name"] == p_name), None)
@@ -613,8 +657,21 @@ class SalesAgent:
         if history_len <= 2 and not product:
             return ["Medicine Pouches", "Visiting Cards", "Stickers & Labels"]
         if product and not lead.get("quantity"):
-            if any(w in ai_reply.lower() for w in ["quantity", "kitni", "qty", "5,000", "10,000"]):
-                return ["5,000 pcs", "10,000 pcs", "20,000 pcs"]
+            if any(w in ai_reply.lower() for w in ["quantity", "kitni", "qty", "5,000", "10,000", "2,000"]):
+                # Product-specific quantity buttons
+                prod_name_lower = (lead.get("product") or "").lower()
+                if "visiting card" in prod_name_lower or "prescription sticker" in prod_name_lower:
+                    return ["2,000 pcs", "5,000 pcs", "10,000 pcs"]
+                elif "keychain" in prod_name_lower or "pen " in prod_name_lower:
+                    return ["500 pcs", "1,000 pcs", "2,000 pcs"]
+                elif "bill book" in prod_name_lower or "letterpad" in prod_name_lower:
+                    return ["10 pads", "20 pads", "50 pads"]
+                else:
+                    return ["5,000 pcs", "10,000 pcs", "20,000 pcs"]
+        if lead.get("quantity") and lead.get("product"):
+            # If qty confirmed — nudge toward order
+            if any(w in ai_reply.lower() for w in ["confirm", "₹500", "token", "order", "book"]):
+                return ["Yes, Confirm ✅", "Need More Info", "Call Me"]
         if state == "product_sent" and lead.get("city") and lead.get("quantity"):
             return ["Place Order 🛒", "Need More Info", "Call Me"]
         return []
@@ -666,16 +723,22 @@ class SalesAgent:
             )
 
         gemini_history = []
+        first_user_seen = False
         for m in history[:-1]:
             role = "user" if m["role"] == "user" else "model"
+            if role == "user":
+                first_user_seen = True
+            if not first_user_seen:
+                continue  # skip leading model turns — Gemini requires user first
             gemini_history.append({"role": role, "parts": [m["content"]]})
 
         try:
             system = CUSTOM_SYSTEM_PROMPT if CUSTOM_SYSTEM_PROMPT else build_system_prompt()
+            # Reuse self.ai with updated system instruction instead of creating a new model each call
             model = genai.GenerativeModel(
                 model_name="models/gemini-2.5-flash",
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=8192,
+                    max_output_tokens=512,
                     temperature=0.7,
                 ),
                 safety_settings=_SAFETY_SETTINGS,
@@ -720,10 +783,17 @@ class SalesAgent:
                 f"Order confirm karne ke liye sirf *₹500 token amount* bhejein. "
                 f"Yeh amount aapke final invoice mein adjust hoga. 😊"
             )
-        if (template_just_sent or product) and prod_name and not known_qty:
-            return f"{prod_name} ke liye kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
         if prod_name and not known_qty:
-            return f"{prod_name} ke liye kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
+            prod_lower = prod_name.lower()
+            if "visiting card" in prod_lower or "prescription sticker" in prod_lower:
+                qty_hint = "2,000 / 5,000 / 10,000?"
+            elif "keychain" in prod_lower or "pen " in prod_lower:
+                qty_hint = "500 / 1,000 / 2,000?"
+            elif "bill book" in prod_lower or "letterpad" in prod_lower:
+                qty_hint = "10 / 20 / 50 pads?"
+            else:
+                qty_hint = "5,000 / 10,000 / 20,000?"
+            return f"{prod_name} ke liye kitni quantity chahiye — {qty_hint}"
         return (
             f"Hi {name}! Rareprint mein aapka swagat hai. 😊\n\n"
             f"Hum print karte hain: Medicine Pouches, Visiting Cards, Prescription Stickers, "
@@ -752,6 +822,16 @@ class SalesAgent:
         # Only show last_q if NOT already captured (i.e., still unanswered)
         pending_note = f"Waiting for answer to: {last_q}. " if last_q and last_q not in captured else ""
 
+        # Determine next step to guide AI
+        if captured.get("quantity") and captured.get("product"):
+            next_step = "Quantity and product known — ask customer to confirm the order with ₹500 token. Only use [SEND_PAYMENT_LINK] AFTER customer explicitly says they want to confirm/book the order (not just any 'yes')."
+        elif captured.get("product") and not captured.get("quantity"):
+            next_step = "Product known, quantity unknown — ask for quantity next (one question only)."
+        elif not captured.get("product"):
+            next_step = "Ask what product they need."
+        else:
+            next_step = "Continue conversation toward ₹500 token close."
+
         profile_note = ""
         if profile and (profile.get("city") or profile.get("name")):
             profile_note = " RETURNING CUSTOMER — do NOT ask name or city again."
@@ -760,6 +840,7 @@ class SalesAgent:
             "\n\n[SYSTEM MEMORY — STRICT RULES: "
             f"ALREADY CAPTURED (NEVER ASK FOR THESE AGAIN): {captured_text}. "
             f"{pending_note}"
+            f"NEXT STEP: {next_step} "
             f"Language: {language_hint}. Reply in exact same language/script as customer.{profile_note}]"
         )
 
@@ -821,12 +902,34 @@ class SalesAgent:
         lakh = re.search(r"(\d+\.?\d*)\s*(lakh|lac)", t)
         if lakh:
             return int(float(lakh.group(1)) * 100000)
+        # Hindi word numbers
+        HINDI_NUMBERS = {
+            "ek hazaar": 1000, "do hazaar": 2000, "teen hazaar": 3000,
+            "chaar hazaar": 4000, "paanch hazaar": 5000, "panch hazaar": 5000,
+            "chhe hazaar": 6000, "saat hazaar": 7000, "aath hazaar": 8000,
+            "nau hazaar": 9000, "das hazaar": 10000, "bees hazaar": 20000,
+            "pachees hazaar": 25000, "tees hazaar": 30000, "pachas hazaar": 50000,
+            "ek lakh": 100000, "do lakh": 200000,
+        }
+        for phrase, val in HINDI_NUMBERS.items():
+            if phrase in t:
+                return val
+        # "5 thousand" or "5thousand"
+        thousand = re.search(r"(\d+)\s*thousand", t)
+        if thousand:
+            return int(thousand.group(1)) * 1000
         k = re.search(r"(\d+)\s*k\b", t)
         if k:
             return int(k.group(1)) * 1000
-        qty = re.search(r"(\d{3,})\s*(pcs?|pieces?|nos?\.?|qty|pouches?|stickers?|cards?)?", t)
-        if qty:
-            return int(qty.group(1))
+        # Require unit suffix for bare numbers to avoid capturing prices (e.g. "₹4999")
+        qty_with_unit = re.search(r"(\d{1,})\s*(pcs?|pieces?|nos?\.?|qty|pouches?|stickers?|cards?|pads?|books?|sets?)", t)
+        if qty_with_unit:
+            return int(qty_with_unit.group(1))
+        # Bare 4-5 digit number only if no ₹/rs/rupee nearby (not a price)
+        if not re.search(r"[₹]|\brs\b|\brupee", t):
+            bare = re.search(r"\b(\d{4,6})\b", t)
+            if bare:
+                return int(bare.group(1))
         return None
 
     def _detect_language_hint(self, text: str) -> str:
@@ -859,13 +962,13 @@ class SalesAgent:
             return f"mixed {hits[0][0]} + {hits[1][0]}"
         return hits[0][0]
 
-    def _describe_image(self, image_url: str) -> str:
+    async def _describe_image(self, image_url: str) -> str:
         """Read a customer-sent image using Gemini Vision and extract order/sales details."""
         if not self.ai:
             return ""
         try:
             import httpx
-            resp = httpx.get(image_url, timeout=12)
+            resp = await asyncio.to_thread(httpx.get, image_url, timeout=12)
             resp.raise_for_status()
             media_type = resp.headers.get("content-type", "").split(";")[0].strip()
             if not media_type.startswith("image/"):
@@ -875,7 +978,7 @@ class SalesAgent:
                 generation_config=genai.types.GenerationConfig(max_output_tokens=300),
                 safety_settings=_SAFETY_SETTINGS,
             )
-            response = vision_model.generate_content([
+            prompt_parts = [
                 {"mime_type": media_type, "data": resp.content},
                 (
                     "Extract useful sales/order details from this image for a printing shop. "
@@ -883,7 +986,8 @@ class SalesAgent:
                     "If it looks like a payment screenshot, say 'Payment screenshot received'. "
                     "Keep it concise."
                 ),
-            ])
+            ]
+            response = await asyncio.to_thread(vision_model.generate_content, prompt_parts)
             return response.text.strip()
         except Exception as e:
             logger.warning(f"Image reading failed: {e}")
@@ -899,8 +1003,9 @@ class SalesAgent:
 
         if last_q == "city" and not self.store.get_lead(phone).get("city"):
             # Accept city if no digits and reasonably short (avoid capturing "nahi" etc.)
-            reject_words = {"nahi", "no", "na", "nope", "stop", "baad", "later", "thik", "ok", "okay", "haan", "yes"}
-            if not re.search(r"\d", value) and len(value.split()) <= 4 and value.lower() not in reject_words:
+            reject_words = {"nahi", "no", "na", "nope", "stop", "baad", "later", "thik", "ok", "okay", "haan", "yes", "bilkul", "theek", "zaroor", "kal", "aaj", "abhi", "soch", "dekhte", "samjha", "bata", "dekh", "jaata", "jata", "woh", "wo", "hmm", "ha", "ji", "hn", "accha", "acha", "theek", "kab", "karo", "karunga", "bataunga", "bolunga", "samjha", "dekhunga", "phir", "baad"}
+            words_in_value = set(value.lower().split())
+            if not re.search(r"\d", value) and len(value.split()) <= 4 and not value.lower() in reject_words and not words_in_value.intersection(reject_words):
                 self.store.update_lead(phone, city=value)
                 self.store.update_customer_profile(phone, city=value)
                 asyncio.create_task(self._send_city_references(phone, value))
@@ -969,12 +1074,15 @@ class SalesAgent:
             self.store.mark_question_asked(phone, "name")
 
     def _extract_lead_data(self, phone: str, text: str):
+        lead = self.store.get_lead(phone)
         email_match = re.search(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", text)
-        if email_match:
+        if email_match and not lead.get("email"):
             self.store.update_lead(phone, email=email_match.group())
-        qty_match = re.search(r"(\d+)\s*(pcs?|pieces?|copies|qty|nos?\.?)", text, re.I)
-        if qty_match:
-            self.store.update_lead(phone, quantity=qty_match.group())
+        # Only extract qty if not already captured; use comprehensive extractor
+        if not lead.get("quantity"):
+            qty = self._extract_qty_from_text(text)
+            if qty:
+                self.store.update_lead(phone, quantity=str(qty))
         pin_match = re.search(r"\b([1-9][0-9]{5})\b", text)
-        if pin_match:
+        if pin_match and not lead.get("pincode"):
             self.store.update_lead(phone, pincode=pin_match.group(1))
