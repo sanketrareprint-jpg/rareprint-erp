@@ -564,9 +564,39 @@ class SalesAgent:
             self.store.add_message(phone, "assistant", reply_msg)
             return
 
-        # ── "Call Me" → give phone number ────────────────────────────────────────
-        if text.strip().lower() in ["call me", "call karo", "call karein", "call kijiye", "phone karo"]:
-            await self.client.send_text(phone, f"Zaroor! Hamare number par call karein: *{BUSINESS_PHONE}*\nWhatsApp par bhi available hain. 😊")
+        # ── Phone call request — catch all variations ────────────────────────────
+        CALL_TRIGGERS = [
+            "call me", "call karo", "call karein", "call kijiye", "phone karo",
+            "call kr", "call kar", "bat kriye", "baat kriye", "baat karo",
+            "phone pe", "phone par", "phone kriye", "phone karo", "call kro",
+            "call pe baat", "baat karni", "direct baat", "baat karte",
+            "number do", "number dena", "apna number", "contact number",
+            "phone number", "whatsapp number",
+        ]
+        if any(t in text.lower() for t in CALL_TRIGGERS):
+            await self.client.send_text(phone, f"Zaroor! Hamare number par call ya WhatsApp karein:\n*{BUSINESS_PHONE}*\n\nSomvar se Shanivar, subah 10 baje se shaam 7 baje tak available hain. 😊")
+            self.store.add_message(phone, "assistant", f"Call number: {BUSINESS_PHONE}")
+            return
+
+        # ── Video/ad question → answer which size shown ──────────────────────────
+        VIDEO_TRIGGERS = [
+            "video", "video mein", "video pe", "video par", "video me",
+            "ad mein", "ad pe", "ad me", "photo mein", "photo pe",
+            "image mein", "pic mein", "konsa size dikha", "kaunsa size",
+            "ye wala", "is wale", "isme", "iss mein",
+        ]
+        if any(t in text.lower() for t in VIDEO_TRIGGERS) and not self.store.get_lead(phone).get("quantity"):
+            lead = self.store.get_lead(phone)
+            prod = lead.get("product", "Medicine Pouch")
+            msg = (
+                f"Video/ad mein sab sizes available hain — Small (4x5 inch), Medium (4x7 inch), "
+                f"Large (5.5x8 inch), Extra Large (8.5x11 inch). "
+                f"Aap already *{prod}* select kar chuke hain. Kitni quantity chahiye — 5,000 / 10,000 / 20,000?"
+            ) if lead.get("product") else (
+                "Ad mein sab sizes available hain — Small, Medium, Large, Extra Large. Konsa size chahiye aapko?"
+            )
+            await self.client.send_text(phone, msg)
+            self.store.add_message(phone, "assistant", msg)
             return
 
         # ── "See Other Products" button → send carousel ───────────────────────
