@@ -750,6 +750,7 @@ export class BigshipService {
     codAmount?: number;
     pickupWarehouseId?: number;  // override; falls back to env var if omitted
     packageBoxes?: BigshipPackageBox[];
+    invoiceBuffer?: Buffer;
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return {};
 
@@ -802,7 +803,7 @@ export class BigshipService {
               qty:               '1',
               amount:            String(declaredValue),
               totalAmount:       declaredValue,
-              collectableAmount: codAmount,
+              collectableAmount: 0,  // COD set at order level via MasterOrderCollectableAmount
               categoryId:        '1',
             }],
           })),
@@ -840,6 +841,7 @@ export class BigshipService {
           customerName: input.customerName ?? 'Customer',
           amount: input.subTotal,
         },
+        invoiceBuffer: input.invoiceBuffer,
       });
     } catch (e: unknown) {
       const err = e as { response?: { data?: unknown }; message?: string };
@@ -852,6 +854,7 @@ export class BigshipService {
     masterCustomOrderId: string;
     courierId: number;
     invoiceData?: { orderNumber: string; customerName: string; amount: number };
+    invoiceBuffer?: Buffer;
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
     const token = await this.getAuthToken();
@@ -860,13 +863,22 @@ export class BigshipService {
       // Per Bigship API docs, domestic B2C place-order MUST use multipart/form-data, NOT JSON.
       // Sending JSON always fails for domestic segments, so skip the basic JSON attempt entirely
       // and go directly to multipart with the invoice PDF.
-      this.logger.log(`Bigship place-order — sending multipart for orderId=${input.masterCustomOrderId} courierId=${input.courierId}`);
+      const pdfBuffer = input.invoiceBuffer && input.invoiceBuffer.length > 0
+        ? input.invoiceBuffer
+        : await generateInvoicePdf({
+            invoiceNo: input.masterCustomOrderId,
+            orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
+            customerName: input.invoiceData?.customerName ?? 'Customer',
+            amount: input.invoiceData?.amount ?? 0,
+            date: bigshipDateNow().slice(0, 10),
+          });
+      this.logger.log(`Bigship place-order — invoice ${pdfBuffer.length}b user-uploaded=${!!(input.invoiceBuffer?.length)} orderId=${input.masterCustomOrderId}`);
       const { data: multipartData } = await this.postPlaceOrderMultipart({
         token,
         masterCustomOrderId: input.masterCustomOrderId,
         courierId: input.courierId,
         invoiceAmount: input.invoiceData?.amount ?? 0,
-        pdfBuffer: Buffer.alloc(0),
+        pdfBuffer,
       });
       this.logger.log(`Bigship place-order multipart success — ${JSON.stringify(multipartData)?.slice(0, 200)}`);
       const placeData: Record<string, unknown> = multipartData;
@@ -921,11 +933,16 @@ export class BigshipService {
       form.append('MasterCustomOrderId', input.masterCustomOrderId);
       form.append('courierId', String(input.courierId));
       form.append('riskTypeId', '1');
-      form.append('invoiceType', 'generate');
+      form.append('invoiceType', 'uploaded');
       form.append('invoiceNumber', input.masterCustomOrderId);
       form.append('invoiceDate', bigshipDateNow());
       form.append('order_invoice_amount', invoiceAmt);
       form.append('MasterOrderInvoiceAmount', invoiceAmt);
+      form.append('InvoiceData', input.pdfBuffer, {
+        filename: 'invoice.pdf',
+        contentType: 'application/pdf',
+        knownLength: input.pdfBuffer.length,
+      });
 
       return await this.api().post('/api/outbound/place-order', form, {
         headers: {

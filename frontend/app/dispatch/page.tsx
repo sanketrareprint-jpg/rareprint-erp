@@ -105,6 +105,7 @@ export default function DispatchPage() {
   const [ratesLoading, setRatesLoading] = useState<string | null>(null);
   const [selectedRate, setSelectedRate] = useState<Record<string, string>>({});
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [invoiceFile, setInvoiceFile] = useState<Record<string, File | null>>({});
   const [search, setSearch] = useState("");
   const [courierFilter, setCourierFilter] = useState("ALL");
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -298,21 +299,25 @@ export default function DispatchPage() {
     if (multiBoxEnabled[orderId] && sanitizedBoxes.length === 0) { alert("Enter valid package box details"); return; }
     setBookingId(orderId);
     try {
+      const fd = new FormData();
+      fd.append("orderId", orderId);
+      fd.append("itemIds", JSON.stringify(itemIds));
+      fd.append("rateId", rateId);
+      fd.append("selectedQuote", JSON.stringify(selectedQuote));
+      fd.append("isCod", String(orderData?.isCod ?? false));
+      if (orderData?.codAmount != null) fd.append("codAmount", String(orderData.codAmount));
+      fd.append("warehouseId", wid ?? "");
+      fd.append("pickupName", wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : (warehouse?.name ?? ""));
+      fd.append("pickupLocation", wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : (warehouse?.location ?? ""));
+      fd.append("pickupPincode", wid === "CUSTOM" ? (pickup?.pincode.trim() ?? "") : (warehouse?.pincode ?? ""));
+      if (parseFloat(weightOverride[orderId] || "0")) fd.append("weightKgOverride", weightOverride[orderId]);
+      if (sanitizedBoxes.length > 0) fd.append("packageBoxes", JSON.stringify(sanitizedBoxes));
+      const inv = invoiceFile[orderId];
+      if (inv) fd.append("invoiceFile", inv, inv.name);
       const res = await fetch(`${API_BASE_URL}/dispatch/book`, {
         method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId, itemIds, rateId,
-          selectedQuote,
-          isCod: orderData?.isCod ?? false,
-          codAmount: orderData?.codAmount ?? undefined,
-          warehouseId: wid,
-          pickupName: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : warehouse?.name,
-          pickupLocation: wid === "CUSTOM" ? (pickup?.name.trim() || "Custom Pickup") : warehouse?.location,
-          pickupPincode: wid === "CUSTOM" ? pickup?.pincode.trim() : warehouse?.pincode,
-          weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
-          packageBoxes: sanitizedBoxes.length > 0 ? sanitizedBoxes : undefined,
-        }),
+        headers: getAuthHeaders(),
+        body: fd,
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) {
@@ -804,8 +809,15 @@ export default function DispatchPage() {
                                 </label>
                               ))}
                           </div>
-                          <div className="flex justify-end">
-                            <button onClick={() => book(o.id)} disabled={bookingId === o.id || !someSelected}
+                          <div className="flex items-center justify-between gap-3 mt-1">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <span className="text-[11px] text-slate-500 whitespace-nowrap">Invoice PDF <span className="text-red-500">*</span></span>
+                              <input type="file" accept=".pdf,application/pdf"
+                                onChange={e => setInvoiceFile(prev => ({ ...prev, [o.id]: e.target.files?.[0] ?? null }))}
+                                className="text-[11px] text-slate-600 file:mr-2 file:rounded file:border-0 file:bg-blue-50 file:px-2 file:py-0.5 file:text-[11px] file:font-semibold file:text-blue-700 hover:file:bg-blue-100" />
+                              {invoiceFile[o.id] && <span className="text-[10px] text-green-600 font-semibold">✓ {invoiceFile[o.id]!.name.slice(0,20)}</span>}
+                            </label>
+                            <button onClick={() => book(o.id)} disabled={bookingId === o.id || !someSelected || !invoiceFile[o.id]}
                               className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
                               {bookingId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                               Dispatch {orderSelected.size} Item{orderSelected.size !== 1 ? "s" : ""}
