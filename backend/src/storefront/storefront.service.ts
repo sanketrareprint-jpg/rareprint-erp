@@ -163,7 +163,7 @@ export class StorefrontService {
   }
 
   private async generateOrderNumber() {
-    const last = await this.prisma.order.findFirst({ where: { isTest: { not: true } }, orderBy: { createdAt: 'desc' } });
+    const last = await this.prisma.order.findFirst({ orderBy: { createdAt: 'desc' } });
     const lastNum = last ? parseInt(last.orderNumber, 10) : 10588;
     const next = (Number.isFinite(lastNum) ? lastNum : 10588) + 1;
     const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
@@ -413,4 +413,3 @@ export class StorefrontService {
     return { success: true };
   }
 }
-                                                                                                                                                                                                                          

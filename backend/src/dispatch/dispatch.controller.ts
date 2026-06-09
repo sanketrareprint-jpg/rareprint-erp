@@ -43,6 +43,11 @@ export class DispatchController {
     return this.dispatchService.getWarehouses();
   }
 
+  @Get('warehouses/debug-raw')
+  getWarehousesDebugRaw() {
+    return this.dispatchService.getWarehousesDebugRaw();
+  }
+
   @Get('rates/:orderId')
   getRates(
     @Param('orderId') orderId: string,

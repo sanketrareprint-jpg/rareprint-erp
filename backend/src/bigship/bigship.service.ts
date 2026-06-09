@@ -962,35 +962,43 @@ export class BigshipService {
             headers: { Authorization: `Bearer ${token}` },
           });
 
-          const list = data?.data?.warehouse;
+          // Bigship may return the array under different keys depending on API version
+          const dataPayload = data?.data ?? data;
+          const list: unknown = dataPayload?.warehouse
+            ?? dataPayload?.warehouseList
+            ?? dataPayload?.warehouses
+            ?? dataPayload?.list
+            ?? (Array.isArray(dataPayload) ? dataPayload : undefined);
+
+          this.logger.log(`Bigship getWarehouseList segment=${segmentType} page=${page}: keys=${Object.keys(dataPayload ?? {}).join(',')}, count=${Array.isArray(list) ? list.length : typeof list}`);
+
           if (!Array.isArray(list) || list.length === 0) break;
 
           for (const w of list as Record<string, unknown>[]) {
-            const id = Number(w.warehouseId);
+            const id = Number(w.warehouseId ?? w.id);
             if (!seen.has(id)) {
               seen.add(id);
               results.push({
                 bigshipWarehouseId: id,
-                name:          String(w.warehouseName         ?? w.warehouseContactPerson ?? `Warehouse ${id}`),
-                pincode:       String(w.pincode               ?? ''),
+                name:          String(w.warehouseName         ?? w.name ?? w.warehouseContactPerson ?? `Warehouse ${id}`),
+                pincode:       String(w.pincode               ?? w.zip ?? ''),
                 city:          String(w.city                  ?? ''),
                 state:         String(w.state                 ?? ''),
-                address:       String(w.warehouseAddressLine1 ?? ''),
+                address:       String(w.warehouseAddressLine1 ?? w.address ?? ''),
                 contactPerson: String(w.warehouseContactPerson ?? ''),
-                phone:         String(w.warehouseAddressPhone  ?? ''),
-                isActive:      bigshipActiveFlag(w.isActive),
+                phone:         String(w.warehouseAddressPhone  ?? w.phone ?? ''),
+                isActive:      bigshipActiveFlag(w.isActive ?? w.active),
               });
             }
           }
 
-          fetchedForSegment += list.length;
+          fetchedForSegment += (list as unknown[]).length;
           // Use per-segment total so cross-segment accumulation doesn't break pagination
-          const total = Number(data?.data?.total ?? 0);
-          if (fetchedForSegment >= total || list.length < perPage) break;
+          const total = Number(dataPayload?.total ?? data?.data?.total ?? 0);
+          if (fetchedForSegment >= total || (list as unknown[]).length < perPage) break;
           page++;
         } catch (e) {
-          // segment type may not be supported — just skip it
-          this.logger.debug(`Bigship getWarehouseList segment=${segmentType} page=${page}: ${e}`);
+          this.logger.warn(`Bigship getWarehouseList segment=${segmentType} page=${page}: ${bigshipErrorMessage(e)}`);
           break;
         }
       }

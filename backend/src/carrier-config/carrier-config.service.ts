@@ -109,7 +109,13 @@ export class CarrierConfigService implements OnModuleInit {
   private overlayEnvVars(): void {
     const e = process.env;
 
-    if (e.ACTIVE_CARRIER)               this.config.activeCarrier           = e.ACTIVE_CARRIER as ActiveCarrier;
+    if (e.ACTIVE_CARRIER) {
+      this.config.activeCarrier = e.ACTIVE_CARRIER as ActiveCarrier;
+    } else if (e.BIGSHIP_USERNAME && e.BIGSHIP_PASSWORD && e.BIGSHIP_ACCESS_KEY) {
+      // Auto-detect: if Bigship credentials are present in env, use bigship
+      // (avoids needing a separate ACTIVE_CARRIER var in Railway)
+      this.config.activeCarrier = 'bigship';
+    }
 
     if (e.BIGSHIP_USERNAME)             this.config.bigship.username         = e.BIGSHIP_USERNAME;
     if (e.BIGSHIP_PASSWORD)             this.config.bigship.password         = e.BIGSHIP_PASSWORD;

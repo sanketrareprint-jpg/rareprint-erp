@@ -191,6 +191,11 @@ export class DispatchService {
     private readonly whatsapp: WhatsAppService,
   ) {}
 
+  /** Debug: returns the raw Bigship warehouse API response for the first segment type */
+  async getWarehousesDebugRaw(): Promise<unknown> {
+    return this.bigship.getWarehouseList();
+  }
+
   async getWarehouses(): Promise<Warehouse[]> {
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
