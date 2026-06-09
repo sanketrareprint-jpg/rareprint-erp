@@ -661,44 +661,29 @@ export class DispatchService {
         ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined);
       let bs: { bigshipOrderId?: string; awbNumber?: string; message?: string } = {};
       if (Number.isFinite(courierId) && courierId > 0) {
-        bs = bigshipRate.masterCustomOrderId
-          ? await this.bigship.placeExistingOrder({
-              masterCustomOrderId: bigshipRate.masterCustomOrderId,
-              courierId,
-              invoiceData: {
-                orderNumber: order.orderNumber,
-                customerName: order.customer.businessName,
-                amount: Number(order.grandTotal),
-              },
-            })
-          : await this.bigship.tryCreateAdhocOrder({
-              orderNumber: order.orderNumber,
-              customerName: order.customer.businessName,
-              customerPhone: order.customer.phone ?? '9999999999',
-              customerEmail: order.customer.email ?? 'noreply@example.com',
-              billingAddress: addr.line, billingCity: addr.city,
-              billingPincode: addr.pincode, billingState: addr.state,
-              weightKg, subTotal: Number(order.grandTotal),
-              courierId,
-              isCod: orderIsCod,
-              codAmount: orderCodAmt,
-              pickupWarehouseId: bsPickupWHId,
-              packageBoxes: normalizedBoxes,
-            });
+        // Always create a fresh order at dispatch time and immediately manifest it.
+        // The rate-fetch step creates a draft in Bigship only to get pricing; that draft
+        // is NOT reused here because Bigship rejects place-order on stale/placeholder drafts.
+        // This mirrors how Shiprocket works: create + assign AWB in one shot at dispatch.
+        bs = await this.bigship.tryCreateAdhocOrder({
+          orderNumber: order.orderNumber,
+          customerName: order.customer.businessName,
+          customerPhone: order.customer.phone ?? '9999999999',
+          customerEmail: order.customer.email ?? 'noreply@example.com',
+          billingAddress: addr.line, billingCity: addr.city,
+          billingPincode: addr.pincode, billingState: addr.state,
+          weightKg, subTotal: Number(order.grandTotal),
+          courierId,
+          isCod: orderIsCod,
+          codAmount: orderCodAmt,
+          pickupWarehouseId: bsPickupWHId,
+          packageBoxes: normalizedBoxes,
+        });
       }
 
       if (!bs.bigshipOrderId) {
         const message = bs.message ?? 'no Bigship order ID returned';
-        if (bigshipRate.masterCustomOrderId) {
-          // Always fall back to saving the draft so user can manually process in Bigship
-          this.logger.warn(`Bigship place-order failed for ${order.orderNumber}, saving draft for manual processing: ${message}`);
-          bs = {
-            bigshipOrderId: bigshipRate.masterCustomOrderId,
-            message: `Bigship manual manifest required: ${message}`,
-          };
-        } else {
-          throw new BadRequestException(`Bigship booking failed: ${message}`);
-        }
+        throw new BadRequestException(`Bigship booking failed: ${message}`);
       }
 
       trackingRef    = bs.awbNumber ?? '';

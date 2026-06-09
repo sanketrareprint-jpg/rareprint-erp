@@ -782,7 +782,22 @@ export class BigshipService {
         return { message: JSON.stringify(createData)?.slice(0, 200) };
       }
 
-      // ── Step 2: Place / manifest order ───────────────────────────────────
+      // ── Step 2: Confirm courier rates (Bigship API requires this before place-order) ──
+      try {
+        this.logger.log(`Bigship tryCreateAdhocOrder — calling courier-wise-shipment-cost for order ${customOrderId}`);
+        await this.api().post(
+          '/api/outbound/courier-wise-shipment-cost',
+          { MasterCustomOrderId: customOrderId },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        this.logger.log(`Bigship tryCreateAdhocOrder — rate confirmation passed for ${customOrderId}`);
+      } catch (e) {
+        // Log but continue — some couriers may still allow place-order without prior rate check
+        const errMsg = JSON.stringify((e as { response?: { data?: unknown } }).response?.data ?? (e as { message?: string }).message ?? '');
+        this.logger.warn(`Bigship tryCreateAdhocOrder — rate confirmation step failed (continuing): ${errMsg.slice(0, 200)}`);
+      }
+
+      // ── Step 3: Place / manifest order ───────────────────────────────────
       return this.placeExistingOrder({
         masterCustomOrderId: customOrderId,
         courierId: input.courierId,
@@ -809,40 +824,27 @@ export class BigshipService {
     const invoiceDate = new Date().toISOString().slice(0, 10);
 
     try {
-      let placeData: Record<string, unknown>;
-      try {
-        this.logger.log(`Bigship place-order basic attempt — orderId=${input.masterCustomOrderId} courierId=${input.courierId}`);
-        const { data } = await this.postPlaceOrderBasic({
-          token,
-          masterCustomOrderId: input.masterCustomOrderId,
-          courierId: input.courierId,
-          invoiceAmount: input.invoiceData?.amount ?? 0,
-        });
-        this.logger.log(`Bigship place-order basic success — ${JSON.stringify(data)?.slice(0, 200)}`);
-        placeData = data;
-      } catch (e: unknown) {
-        const errMsg = JSON.stringify((e as { response?: { data?: unknown } }).response?.data ?? (e as { message?: string }).message ?? '');
-        this.logger.warn(`Bigship place-order basic failed — ${errMsg.slice(0, 200)}`);
-        if (!isBigshipInvoiceRequiredError(e)) throw e;
-        this.logger.log(`Bigship place-order — invoice required, generating PDF and retrying multipart`);
-        const pdfBuffer = await generateInvoicePdf({
-          invoiceNo: input.masterCustomOrderId,
-          orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
-          customerName: input.invoiceData?.customerName ?? 'Customer',
-          amount: input.invoiceData?.amount ?? 0,
-          date: invoiceDate,
-        });
-        this.logger.log(`Bigship place-order — PDF generated (${pdfBuffer.length} bytes), sending multipart`);
-        const { data } = await this.postPlaceOrderMultipart({
-          token,
-          masterCustomOrderId: input.masterCustomOrderId,
-          courierId: input.courierId,
-          invoiceAmount: input.invoiceData?.amount ?? 0,
-          pdfBuffer,
-        });
-        this.logger.log(`Bigship place-order multipart success — ${JSON.stringify(data)?.slice(0, 200)}`);
-        placeData = data;
-      }
+      // Per Bigship API docs, domestic B2C place-order MUST use multipart/form-data, NOT JSON.
+      // Sending JSON always fails for domestic segments, so skip the basic JSON attempt entirely
+      // and go directly to multipart with the invoice PDF.
+      this.logger.log(`Bigship place-order — generating invoice PDF for orderId=${input.masterCustomOrderId} courierId=${input.courierId}`);
+      const pdfBuffer = await generateInvoicePdf({
+        invoiceNo: input.masterCustomOrderId,
+        orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
+        customerName: input.invoiceData?.customerName ?? 'Customer',
+        amount: input.invoiceData?.amount ?? 0,
+        date: invoiceDate,
+      });
+      this.logger.log(`Bigship place-order — PDF generated (${pdfBuffer.length} bytes), sending multipart`);
+      const { data: multipartData } = await this.postPlaceOrderMultipart({
+        token,
+        masterCustomOrderId: input.masterCustomOrderId,
+        courierId: input.courierId,
+        invoiceAmount: input.invoiceData?.amount ?? 0,
+        pdfBuffer,
+      });
+      this.logger.log(`Bigship place-order multipart success — ${JSON.stringify(multipartData)?.slice(0, 200)}`);
+      const placeData: Record<string, unknown> = multipartData;
 
       const placePayload = placeData?.data as Record<string, unknown> | undefined;
       const awb = String(placePayload?.awb_assigned ?? placePayload?.reference_number ?? '');
