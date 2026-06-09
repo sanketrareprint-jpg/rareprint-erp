@@ -221,9 +221,9 @@ export class OrdersService {
   }
 
   private async generateOrderNumber(): Promise<string> {
-    const last = await this.prisma.order.findFirst({ orderBy: { createdAt: 'desc' } });
-    const lastNum = last ? parseInt(last.orderNumber, 10) : 10588;
-    const next = (isNaN(lastNum) ? 10588 : lastNum) + 1;
+    const last = await this.prisma.order.findFirst({ where: { isTest: { not: true } }, orderBy: { createdAt: 'desc' } });
+    const lastNum = last ? parseInt(last.orderNumber, 10) : 1200;
+    const next = (isNaN(lastNum) ? 1200 : lastNum) + 1;
     const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
     if (exists) return String(Date.now());
     return String(next);
@@ -1001,15 +1001,4 @@ export class OrdersService {
         itemDetails: buildItemDetails(o.items as any),
         items: o.items.map((i) => ({
           id: i.id,
-          productName: i.product.name,
-          itemProductionStage: i.itemProductionStage,
-          designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
-        })),
-      };
-    });
-    return { data, page, limit, total, hasMore: page * limit < total };
-  }
-}
-
-
-
+          productName: i.pr  
