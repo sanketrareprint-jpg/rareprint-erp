@@ -108,7 +108,7 @@ export class DispatchController {
         pincode: body.pickupPincode,
         location: body.pickupLocation,
       },
-      selectedQuote as Parameters<typeof this.dispatchService.bookItems>[10],
+      selectedQuote as { rateId: string; carrierName?: string; amount?: number; currency?: string; estimatedDays?: number } | undefined,
       packageBoxes as DispatchPackageBox[] | undefined,
       invoiceFile?.buffer,
     );
