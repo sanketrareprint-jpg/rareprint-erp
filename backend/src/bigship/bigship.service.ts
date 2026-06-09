@@ -836,8 +836,9 @@ export class BigshipService {
       return { bigshipOrderId: customOrderId };
     } catch (e: unknown) {
       const err = e as { response?: { data?: unknown }; message?: string };
-      this.logger.warn(`Bigship order failed: ${JSON.stringify(err.response?.data)?.slice(0, 300)}`);
-      return { message: err.message };
+      const detail = JSON.stringify(err.response?.data ?? err.message ?? 'unknown')?.slice(0, 400);
+      this.logger.warn(`Bigship tryCreateAdhocOrder failed: ${detail}`);
+      return { message: detail };
     }
   }
 
