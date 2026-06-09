@@ -855,27 +855,18 @@ export class BigshipService {
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
     const token = await this.getAuthToken();
-    const invoiceDate = new Date().toISOString().slice(0, 10);
 
     try {
       // Per Bigship API docs, domestic B2C place-order MUST use multipart/form-data, NOT JSON.
       // Sending JSON always fails for domestic segments, so skip the basic JSON attempt entirely
       // and go directly to multipart with the invoice PDF.
-      this.logger.log(`Bigship place-order — generating invoice PDF for orderId=${input.masterCustomOrderId} courierId=${input.courierId}`);
-      const pdfBuffer = await generateInvoicePdf({
-        invoiceNo: input.masterCustomOrderId,
-        orderNumber: input.invoiceData?.orderNumber ?? input.masterCustomOrderId,
-        customerName: input.invoiceData?.customerName ?? 'Customer',
-        amount: input.invoiceData?.amount ?? 0,
-        date: invoiceDate,
-      });
-      this.logger.log(`Bigship place-order — PDF generated (${pdfBuffer.length} bytes), sending multipart`);
+      this.logger.log(`Bigship place-order — sending multipart for orderId=${input.masterCustomOrderId} courierId=${input.courierId}`);
       const { data: multipartData } = await this.postPlaceOrderMultipart({
         token,
         masterCustomOrderId: input.masterCustomOrderId,
         courierId: input.courierId,
         invoiceAmount: input.invoiceData?.amount ?? 0,
-        pdfBuffer,
+        pdfBuffer: Buffer.alloc(0),
       });
       this.logger.log(`Bigship place-order multipart success — ${JSON.stringify(multipartData)?.slice(0, 200)}`);
       const placeData: Record<string, unknown> = multipartData;
@@ -910,7 +901,7 @@ export class BigshipService {
         courierId: input.courierId,
         riskTypeId: 1,
         invoiceNumber: input.masterCustomOrderId,
-        invoiceDate: new Date().toISOString().slice(0, 10),
+        invoiceDate: bigshipDateNow(),
         MasterOrderInvoiceAmount: invoiceAmt,
       },
       { headers: { Authorization: `Bearer ${input.token}` } },
@@ -924,44 +915,28 @@ export class BigshipService {
     invoiceAmount: number;
     pdfBuffer: Buffer;
   }): Promise<{ data: Record<string, unknown> }> {
-    const invoicePath = path.join(os.tmpdir(), `bigship-invoice-${input.masterCustomOrderId}-${Date.now()}.pdf`);
-
     try {
-      await fs.writeFile(invoicePath, input.pdfBuffer);
-
       const form = new FormData();
       const invoiceAmt = String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1)));
       form.append('MasterCustomOrderId', input.masterCustomOrderId);
       form.append('courierId', String(input.courierId));
       form.append('riskTypeId', '1');
-      form.append('invoiceType', 'uploaded');
+      form.append('invoiceType', 'generate');
       form.append('invoiceNumber', input.masterCustomOrderId);
-      form.append('invoiceDate', new Date().toISOString().slice(0, 10));
+      form.append('invoiceDate', bigshipDateNow());
       form.append('order_invoice_amount', invoiceAmt);
       form.append('MasterOrderInvoiceAmount', invoiceAmt);
-      form.append('InvoiceData', createReadStream(invoicePath), {
-        filename: 'invoice.pdf',
-        contentType: 'application/pdf',
-        knownLength: input.pdfBuffer.length,
-      });
-      const contentLength = await new Promise<number>((resolve, reject) => {
-        form.getLength((err, length) => {
-          if (err) reject(err);
-          else resolve(length);
-        });
-      });
 
       return await this.api().post('/api/outbound/place-order', form, {
         headers: {
           Authorization: `Bearer ${input.token}`,
           ...form.getHeaders(),
-          'Content-Length': contentLength,
         },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
       });
-    } finally {
-      await fs.unlink(invoicePath).catch(() => undefined);
+    } catch (e) {
+      throw e;
     }
   }
 
