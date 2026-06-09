@@ -474,8 +474,8 @@ export default function DispatchPage() {
                   <p>No shipment history found.</p>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <table className="w-full text-xs">
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-xs">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Date</th>
@@ -487,7 +487,6 @@ export default function DispatchPage() {
                         <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Amount</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">COD</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">Status</th>
-                        <th className="px-4 py-2.5 text-center font-semibold text-slate-600"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -531,13 +530,11 @@ export default function DispatchPage() {
                               h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
                               "bg-slate-100 text-slate-600"
                             }`}>{h.status}</span>
-                          </td>
-                          <td className="px-4 py-2.5 text-center">
                             {h.status === "PACKED" && (
                               <button
                                 onClick={() => void returnToQueue(h.orderId)}
                                 disabled={returningId === h.orderId}
-                                className="rounded border border-orange-300 bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+                                className="mt-1 block w-full rounded border border-orange-300 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
                               >↩ Queue</button>
                             )}
                           </td>
