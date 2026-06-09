@@ -156,4 +156,13 @@ export class DispatchController {
   ) {
     return this.dispatchService.markManuallyDispatched(body.orderId, req.user.id, body);
   }
+
+
+  @Post('return-to-queue/:orderId')
+  returnToQueue(
+    @Param('orderId') orderId: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.dispatchService.returnToQueue(orderId, req.user.id);
+  }
 }

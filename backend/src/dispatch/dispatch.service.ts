@@ -1122,4 +1122,39 @@ export class DispatchService {
     return { success: true, shipmentNumber, carrierName, awbNumber: trackingRef };
   }
 
+  /** Return a dispatched order back to the dispatch queue.
+   *  Deletes the latest shipment record and resets order + items to READY_FOR_DISPATCH. */
+  async returnToQueue(orderId: string, userId: string): Promise<{ success: boolean }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, shipments: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    if (!order) throw new NotFoundException(`Order ${orderId} not found`);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (order.shipments.length > 0) {
+        await tx.shipment.delete({ where: { id: order.shipments[0].id } });
+      }
+      await tx.orderItem.updateMany({
+        where: { orderId },
+        data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
+      });
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.READY_FOR_DISPATCH },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: OrderStatus.READY_FOR_DISPATCH,
+          changedById: userId,
+          reason: 'Returned to dispatch queue by user',
+        },
+      });
+    });
+
+    return { success: true };
+  }
+
 }

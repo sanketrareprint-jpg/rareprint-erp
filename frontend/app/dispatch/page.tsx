@@ -119,6 +119,25 @@ export default function DispatchPage() {
   const [history, setHistory] = useState<ShipmentHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
+  const [returningId, setReturningId] = useState<string | null>(null);
+
+  const returnToQueue = async (orderId: string) => {
+    if (!confirm("Return this order to the dispatch queue?")) return;
+    setReturningId(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/return-to-queue/${orderId}`, {
+        method: "POST", headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadHistory();
+      await load();
+      alert("Order returned to queue.");
+    } catch (e) {
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setReturningId(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setError(null); setLoading(true);
@@ -468,6 +487,7 @@ export default function DispatchPage() {
                         <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Amount</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">COD</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">Status</th>
+                        <th className="px-4 py-2.5 text-center font-semibold text-slate-600"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -511,6 +531,15 @@ export default function DispatchPage() {
                               h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
                               "bg-slate-100 text-slate-600"
                             }`}>{h.status}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            {h.status === "PACKED" && (
+                              <button
+                                onClick={() => void returnToQueue(h.orderId)}
+                                disabled={returningId === h.orderId}
+                                className="rounded border border-orange-300 bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+                              >↩ Queue</button>
+                            )}
                           </td>
                         </tr>
                       ))}
