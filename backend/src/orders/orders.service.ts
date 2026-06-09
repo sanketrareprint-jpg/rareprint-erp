@@ -1001,4 +1001,15 @@ export class OrdersService {
         itemDetails: buildItemDetails(o.items as any),
         items: o.items.map((i) => ({
           id: i.id,
-          productName: i.pr  
+          productName: i.product.name,
+          itemProductionStage: i.itemProductionStage,
+          designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
+        })),
+      };
+    });
+    return { data, page, limit, total, hasMore: page * limit < total };
+  }
+}
+
+
+
