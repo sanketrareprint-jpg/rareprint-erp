@@ -588,7 +588,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[], invoiceBuffer?: Buffer) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[]) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -683,7 +683,6 @@ export class DispatchService {
           codAmount: orderCodAmt,
           pickupWarehouseId: bsPickupWHId,
           packageBoxes: normalizedBoxes,
-          invoiceBuffer,
         });
       }
 

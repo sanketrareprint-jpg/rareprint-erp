@@ -750,7 +750,6 @@ export class BigshipService {
     codAmount?: number;
     pickupWarehouseId?: number;  // override; falls back to env var if omitted
     packageBoxes?: BigshipPackageBox[];
-    invoiceBuffer?: Buffer;
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return {};
 
@@ -832,17 +831,9 @@ export class BigshipService {
         this.logger.warn(`Bigship tryCreateAdhocOrder — rate confirmation step failed (continuing): ${errMsg.slice(0, 200)}`);
       }
 
-      // ── Step 3: Place / manifest order ───────────────────────────────────
-      return this.placeExistingOrder({
-        masterCustomOrderId: customOrderId,
-        courierId: input.courierId,
-        invoiceData: {
-          orderNumber: input.orderNumber ?? customOrderId,
-          customerName: input.customerName ?? 'Customer',
-          amount: input.subTotal,
-        },
-        invoiceBuffer: input.invoiceBuffer,
-      });
+      // ── Step 3: Order is ready in Bigship — user will upload invoice & place from Bigship UI ──
+      this.logger.log(`Bigship tryCreateAdhocOrder — order ${customOrderId} ready. Courier ${input.courierId} confirmed. User will place via Bigship UI.`);
+      return { bigshipOrderId: customOrderId };
     } catch (e: unknown) {
       const err = e as { response?: { data?: unknown }; message?: string };
       this.logger.warn(`Bigship order failed: ${JSON.stringify(err.response?.data)?.slice(0, 300)}`);

@@ -1,5 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { DispatchService } from './dispatch.service';
@@ -68,49 +67,45 @@ export class DispatchController {
   }
 
   @Post('book')
-  @UseInterceptors(FileInterceptor('invoiceFile'))
   book(
     @Body() body: {
       orderId: string;
-      itemIds: string | string[];
+      itemIds: string[];
       rateId: string;
-      isCod?: string | boolean;
-      codAmount?: string | number;
+      isCod?: boolean;
+      codAmount?: number;
       warehouseId?: string;
-      weightKgOverride?: string | number;
-      selectedQuote?: string | Record<string, unknown>;
+      weightKgOverride?: number;
+      selectedQuote?: {
+        rateId: string;
+        carrierName?: string;
+        amount?: number;
+        currency?: string;
+        estimatedDays?: number;
+      };
       pickupName?: string;
       pickupPincode?: string;
       pickupLocation?: string;
-      packageBoxes?: string | DispatchPackageBox[];
+      packageBoxes?: DispatchPackageBox[];
     },
     @Req() req: Request & { user: JwtUser },
-    @UploadedFile() invoiceFile?: Express.Multer.File,
   ) {
-    // FormData sends everything as strings — parse JSON fields
-    const itemIds: string[] = typeof body.itemIds === 'string' ? JSON.parse(body.itemIds) : body.itemIds;
-    const selectedQuote = typeof body.selectedQuote === 'string' ? JSON.parse(body.selectedQuote) : body.selectedQuote;
-    const packageBoxes = typeof body.packageBoxes === 'string' ? JSON.parse(body.packageBoxes) : body.packageBoxes;
-    const isCod = body.isCod === 'true' || body.isCod === true;
-    const codAmount = body.codAmount ? parseFloat(String(body.codAmount)) : undefined;
-    const weightKgOverride = body.weightKgOverride ? parseFloat(String(body.weightKgOverride)) : undefined;
     return this.dispatchService.bookItems(
       body.orderId,
-      itemIds,
+      body.itemIds,
       body.rateId,
       req.user.id,
-      isCod,
-      codAmount,
+      body.isCod,
+      body.codAmount,
       body.warehouseId,
-      weightKgOverride,
+      body.weightKgOverride,
       {
         name: body.pickupName,
         pincode: body.pickupPincode,
         location: body.pickupLocation,
       },
-      selectedQuote as { rateId: string; carrierName?: string; amount?: number; currency?: string; estimatedDays?: number } | undefined,
-      packageBoxes as DispatchPackageBox[] | undefined,
-      invoiceFile?.buffer,
+      body.selectedQuote,
+      body.packageBoxes,
     );
   }
 
