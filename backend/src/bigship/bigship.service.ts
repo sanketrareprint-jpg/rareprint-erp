@@ -64,6 +64,40 @@ const STATE_CODE: Record<string, string> = {
   'JHARKHAND': 'JH',
 };
 
+// Reverse map: 2-letter state code → full uppercase name
+const STATE_CODE_TO_NAME: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_CODE).map(([name, code]) => [code, name])
+);
+
+/** Bigship requires Y-m-d H:i:s format (UTC+5:30) */
+function bigshipDateNow(): string {
+  const now = new Date();
+  // Convert to IST (UTC+5:30)
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/** Resolve a state value (full name or 2-letter code) to a title-cased full name */
+function resolveStateName(raw: string): string {
+  const cleaned = raw.trim().toUpperCase();
+  // If it looks like a 2-letter code, resolve to full name
+  if (cleaned.length <= 3 && STATE_CODE_TO_NAME[cleaned]) {
+    return titleCase(STATE_CODE_TO_NAME[cleaned]);
+  }
+  return titleCase(raw.trim());
+}
+
+/** Sanitize mobile to a valid 10-digit Indian mobile number */
+function sanitizeMobile(raw: string | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  // Strip leading country code (91)
+  const stripped = digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits;
+  const ten = stripped.slice(0, 10);
+  // Must be 10 digits starting with 6/7/8/9
+  if (ten.length === 10 && /^[6-9]/.test(ten)) return ten;
+  return '9999999999';
+}
+
 function titleCase(value: string): string {
   return value
     .toLowerCase()
@@ -301,7 +335,7 @@ const STATE_CAPITAL: Record<string, string> = {
 };
 
 function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string, fallbackState?: string): Array<{ city: string; state: string }> {
-  const state = fallbackState?.trim() ? titleCase(fallbackState.trim()) : stateFromPincode(pin);
+  const state = stateFromPincode(pin);  // always derive from pincode — stored state may be abbreviated or wrong
   const extraCityMap: Record<string, string[]> = {
     '132001': ['KARNAL'],
     '262701': ['KHERI', 'LAKHIMPUR', 'LAKHIMPUR KHERI', 'LAKHIMPUR-KHERI'],
@@ -618,14 +652,14 @@ export class BigshipService {
             segment_type:               'domestic_b2c',
             MasterOrderPickUpLocation:  warehouseId,
             MasterOrderReturnLocation:  warehouseId,
-            MasterOrderDate:            new Date().toISOString().slice(0, 10),
+            MasterOrderDate:            bigshipDateNow(),
             MasterOrderPaymentMode:     params.isCod ? 2 : 1,
             OrderInvoiceNo:             invoiceNo,
             MasterOrderInvoiceAmount:   declaredValue,
             MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
             MasterOrderShippingName:    limitBigshipName(params.shippingName, 'Rate Check', 25),
             MasterOrderShippingEmail:   params.shippingEmail ?? '',
-            MasterOrderShippingMobileNo: (params.shippingMobile ?? '9999999999').replace(/\D/g, '').slice(0, 10) || '9999999999',
+            MasterOrderShippingMobileNo: sanitizeMobile(params.shippingMobile),
             MasterOrderShippingAddress: limitBigshipAddress(params.shippingAddress, 'Rate Check Address', 75),
             MasterOrderShippingZipCode: deliveryPostcode,
             MasterOrderShippingCity:    attempt.city,
@@ -745,14 +779,14 @@ export class BigshipService {
           segment_type:               'domestic_b2c',
           MasterOrderPickUpLocation:  pickupWarehouseId,
           MasterOrderReturnLocation:  pickupWarehouseId,
-          MasterOrderDate:            new Date().toISOString().slice(0, 10),
+          MasterOrderDate:            bigshipDateNow(),
           MasterOrderPaymentMode:     input.isCod ? 2 : 1,  // 1=Prepaid, 2=COD
           OrderInvoiceNo:             invoiceNo,
           MasterOrderInvoiceAmount:   declaredValue,
           MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
           MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
           MasterOrderShippingEmail:   input.customerEmail || '',
-          MasterOrderShippingMobileNo: input.customerPhone.replace(/\D/g, '').slice(0, 10) || '9999999999',
+          MasterOrderShippingMobileNo: sanitizeMobile(input.customerPhone),
           MasterOrderShippingAddress: limitBigshipAddress(input.billingAddress, 'Address', 75),
           MasterOrderShippingAddress2: '',
           MasterOrderShippingLandmark: '',
