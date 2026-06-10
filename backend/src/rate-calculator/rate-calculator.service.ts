@@ -289,6 +289,17 @@ export class RateCalculatorService {
     return { perSheet: normal, columns: normalCols, rows: normalRows, rotated: false };
   }
 
+  private getStickerClubbingBlock(width: number, height: number): { columns: number; rows: number; stickers: number; area: number } {
+    const stickerArea = width * height;
+    if (stickerArea >= 6) return { columns: 1, rows: 1, stickers: 1, area: stickerArea };
+
+    const minBlockWidth = 5;
+    const columns = Math.max(1, Math.ceil(minBlockWidth / width));
+    const rows = Math.max(1, Math.ceil(6 / (columns * stickerArea)));
+    const stickers = columns * rows;
+    return { columns, rows, stickers, area: stickerArea * stickers };
+  }
+
   // ── Clubbing vendor cost lookup ──────────────────────────────────────────
   private getClubbingCost(clubbing: any, fsize: string, sides: string, qty: number): number | null {
     const sizeRates = clubbing?.rates?.[fsize];
@@ -382,8 +393,10 @@ export class RateCalculatorService {
       const subtotal = selectedType === 'nontearable' ? nonTearableSubtotal : plainSubtotal;
       const total = subtotal * multiplier;
       const area = width * height;
-      const clubbingEligible = stickerQty >= 1000 && area >= 6;
-      const clubbingCost = clubbingEligible ? (area * stickerQty * 0.035) + 150 : null;
+      const clubbingBlock = width > 0 && height > 0 ? this.getStickerClubbingBlock(width, height) : null;
+      const clubbingSets = clubbingBlock ? Math.ceil(stickerQty / clubbingBlock.stickers) : 0;
+      const clubbingEligible = stickerQty >= 1000 && !!clubbingBlock && clubbingBlock.area >= 6;
+      const clubbingCost = clubbingEligible && clubbingBlock ? (clubbingBlock.area * clubbingSets * 0.035) + 150 : null;
       const clubbingTotal = clubbingCost != null ? clubbingCost * multiplier : null;
       const breakdown: any[] = [
         { label: `Sticker layout (${fit.columns} x ${fit.rows} = ${fit.perSheet}/sheet on 11.5x17.5 usable area${fit.rotated ? ', rotated' : ''})`, amount: 0 },
@@ -391,7 +404,10 @@ export class RateCalculatorService {
         { label: `Non tearable sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${nonTearableSheetRate})`, amount: nonTearableSubtotal },
       ];
       if (clubbingCost != null) {
-        breakdown.push({ label: `Clubbing plain sticker (${width} x ${height} x ${stickerQty.toLocaleString()} x Rs.0.035 + Rs.150)`, amount: clubbingCost });
+        const blockLabel = clubbingBlock && clubbingBlock.stickers > 1
+          ? `${clubbingBlock.columns} x ${clubbingBlock.rows} = ${clubbingBlock.stickers} stickers/block, ${clubbingSets.toLocaleString()} blocks`
+          : `${stickerQty.toLocaleString()} stickers`;
+        breakdown.push({ label: `Clubbing plain sticker (${blockLabel}, ${clubbingBlock?.area.toFixed(2)} sq in x Rs.0.035 + Rs.150)`, amount: clubbingCost });
       }
       return {
         breakdown,
@@ -421,9 +437,14 @@ export class RateCalculatorService {
           plainTotal: plainSubtotal * multiplier,
           nonTearableTotal: nonTearableSubtotal * multiplier,
           clubbingEligible,
+          clubbingBlockColumns: clubbingBlock?.columns ?? 0,
+          clubbingBlockRows: clubbingBlock?.rows ?? 0,
+          clubbingStickersPerBlock: clubbingBlock?.stickers ?? 0,
+          clubbingBlockArea: clubbingBlock?.area ?? 0,
+          clubbingSets,
           clubbingCost,
           clubbingTotal,
-          clubbingUnavailableReason: clubbingEligible ? null : (stickerQty < 1000 ? 'Minimum 1000 pcs required for clubbing' : 'Minimum 6 sq inch sticker area required for clubbing'),
+          clubbingUnavailableReason: clubbingEligible ? null : (stickerQty < 1000 ? 'Minimum 1000 pcs required for clubbing' : 'Minimum 6 sq inch sticker block area required for clubbing'),
         },
       };
     }

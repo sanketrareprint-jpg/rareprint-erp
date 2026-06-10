@@ -45,6 +45,11 @@ type Result = {
     plainTotal: number;
     nonTearableTotal: number;
     clubbingEligible: boolean;
+    clubbingBlockColumns: number;
+    clubbingBlockRows: number;
+    clubbingStickersPerBlock: number;
+    clubbingBlockArea: number;
+    clubbingSets: number;
     clubbingCost: number | null;
     clubbingTotal: number | null;
     clubbingUnavailableReason: string | null;
@@ -107,7 +112,7 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
   diagnosticbag: { label: "X-ray / CT Scan Bags",
                 fixedInfo: "Small = X-ray bag 10.5x16 inch. Big = CT scan bag 16x21 inch." },
   sticker:     { label: "Sticker",
-                fixedInfo: "In-house uses 12×18 sheets with 11.5×17.5 printable area. Clubbing is available only for plain stickers above 1000 pcs and 6 sq inch." },
+                fixedInfo: "In-house uses 12×18 sheets with 11.5×17.5 printable area. Clubbing is only plain stickers above 1000 pcs and 6 sq inch block area." },
   file:       { label: "Files with Punching",
                 fixedSize: "file", fixedParent: "1925",
                 fixedInfo: "Fixed: 12×18 inch size | 19×25\" parent sheet | 2 per sheet" },
@@ -444,7 +449,11 @@ function StickerProductionCard({ sticker, multiplier }: {
           <p className="text-xs font-bold text-slate-700 mb-1">Clubbing Plain</p>
           {sticker.clubbingEligible && sticker.clubbingCost != null && sticker.clubbingTotal != null ? (
             <>
-              <p className="text-xs text-slate-500">Area × qty × 0.035 + Rs.150</p>
+              <p className="text-xs text-slate-500">
+                {sticker.clubbingStickersPerBlock > 1
+                  ? `${sticker.clubbingBlockColumns}×${sticker.clubbingBlockRows} = ${sticker.clubbingStickersPerBlock}/block · ${sticker.clubbingSets.toLocaleString()} blocks`
+                  : "Area × qty"} × 0.035 + Rs.150
+              </p>
               <p className="text-sm font-extrabold text-purple-800 mt-2">{fmt(sticker.clubbingTotal)}</p>
               <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {mult}</p>
             </>
@@ -707,6 +716,13 @@ export default function RateCalculatorPage() {
     ? { cols: stickerRotatedCols, rows: stickerRotatedRows, perSheet: stickerRotatedFit, rotated: true }
     : { cols: stickerNormalCols, rows: stickerNormalRows, perSheet: stickerNormalFit, rotated: false };
   const stickerSheetsNeeded = stickerBestFit.perSheet > 0 ? Math.ceil(rQty / stickerBestFit.perSheet) : 0;
+  const stickerClubCols = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(5 / rStickerW));
+  const stickerClubRows = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(6 / (stickerClubCols * stickerArea)));
+  const stickerClubPerBlock = stickerClubCols * stickerClubRows;
+  const stickerClubBlockArea = stickerArea * stickerClubPerBlock;
+  const stickerClubSets = stickerClubPerBlock > 0 ? Math.ceil(rQty / stickerClubPerBlock) : 0;
+  const stickerClubEligible = rQty >= 1000 && stickerClubBlockArea >= 6;
+  const stickerClubCost = stickerClubEligible ? stickerClubBlockArea * stickerClubSets * 0.035 + 150 : 0;
 
   const loadRates = useCallback(async () => {
     setRatesLoading(true);
@@ -1108,13 +1124,17 @@ export default function RateCalculatorPage() {
                         <span className="text-amber-600 font-semibold">size does not fit usable area</span>
                       )}
                     </div>
-                    {rQty < 1000 || stickerArea < 6 ? (
+                    {rQty < 1000 || !stickerClubEligible ? (
                       <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
-                        Clubbing Nil: minimum 1000 pcs and 6 sq inch area required. Clubbing is only for plain stickers.
+                        Clubbing Nil: minimum 1000 pcs and 6 sq inch block area required. Clubbing is only for plain stickers.
                       </div>
                     ) : (
                       <div className="mt-2 bg-purple-50 border border-purple-200 rounded p-2 text-xs text-purple-700">
-                        Clubbing plain sticker preview: {fmt(stickerArea * rQty * 0.035 + 150)} before multiplier.
+                        Clubbing plain sticker preview:{" "}
+                        {stickerClubPerBlock > 1 && (
+                          <>{stickerClubCols}×{stickerClubRows} = {stickerClubPerBlock} stickers/block · {stickerClubSets.toLocaleString()} blocks · </>
+                        )}
+                        {fmt(stickerClubCost)} before multiplier.
                       </div>
                     )}
                   </>
