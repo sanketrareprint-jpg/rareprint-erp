@@ -32,6 +32,22 @@ const TABLE_COLUMNS: Record<string, string[]> = {
 };
 
 const PROTECTED = ["user", "order", "payment"];
+const PRINTING_TYPE_OPTIONS = ["OFFSET", "DIGITAL", "SCREEN", "FLEX"];
+const PRODUCT_SIDE_OPTIONS = ["SINGLE_SIDE", "DOUBLE_SIDE"];
+
+type ProductCategoryOption = {
+  id: string;
+  name?: string | null;
+  slug?: string | null;
+};
+type DbRow = Record<string, unknown>;
+type FieldValue = string | number | boolean | null | undefined;
+type SqlResult = {
+  error?: string;
+  rows?: DbRow[];
+  columns?: string[];
+  [key: string]: unknown;
+};
 
 export default function AdminDbPage() {
   const router = useRouter();
@@ -39,7 +55,7 @@ export default function AdminDbPage() {
   const [tables, setTables] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [activeTable, setActiveTable] = useState<string | null>(null);
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<DbRow[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -47,14 +63,15 @@ export default function AdminDbPage() {
   const [tableLoading, setTableLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [editingRow, setEditingRow] = useState<string | null>(null);
-  const [editData, setEditData] = useState<Record<string, any>>({});
+  const [editData, setEditData] = useState<Record<string, FieldValue>>({});
   const [sql, setSql] = useState("");
-  const [sqlResult, setSqlResult] = useState<any>(null);
+  const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
   const [sqlLoading, setSqlLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"tables" | "query">("tables");
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addData, setAddData] = useState<Record<string, string>>({});
+  const [addData, setAddData] = useState<Record<string, FieldValue>>({});
   const [addLoading, setAddLoading] = useState(false);
+  const [productCategories, setProductCategories] = useState<ProductCategoryOption[]>([]);
   // Bulk import state
   const [showImportModal, setShowImportModal] = useState(false);
   const [importCsvText, setImportCsvText] = useState("");
@@ -91,6 +108,20 @@ export default function AdminDbPage() {
     } finally { setTableLoading(false); }
   }, []);
 
+  const loadProductCategories = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/db/table/productCategory?page=1&limit=500`, { headers: getAuthHeaders() });
+      const d = await res.json();
+      setProductCategories(d.rows || []);
+    } catch {
+      setProductCategories([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTable === "product") loadProductCategories();
+  }, [activeTable, loadProductCategories]);
+
   const saveEdit = async (id: string) => {
     if (!activeTable) return;
     const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}/${id}`, {
@@ -98,7 +129,7 @@ export default function AdminDbPage() {
       body: JSON.stringify(editData),
     });
     if (res.ok) { setEditingRow(null); loadTable(activeTable, page); }
-    else { const e = await res.json(); alert("Save failed: " + (e.message || "Unknown error")); }
+    else { const e = await res.json(); alert("Save failed: " + formatAdminDbError(e.message || "Unknown error")); }
   };
 
   const deleteRow = async (id: string) => {
@@ -119,7 +150,7 @@ export default function AdminDbPage() {
         body: JSON.stringify(addData),
       });
       if (res.ok) { setShowAddModal(false); setAddData({}); loadTable(activeTable, page); }
-      else { const e = await res.json(); alert("Add failed: " + (e.message || JSON.stringify(e))); }
+      else { const e = await res.json(); alert("Add failed: " + formatAdminDbError(e.message || JSON.stringify(e))); }
     } finally { setAddLoading(false); }
   };
 
@@ -183,9 +214,9 @@ export default function AdminDbPage() {
 
       for (let i = 0; i < dataRows.length; i++) {
         const vals = dataRows[i].split(",").map((v: string) => v.trim());
-        const obj: Record<string, any> = {};
+        const obj: Record<string, FieldValue> = {};
         headers.forEach((h: string, j: number) => {
-          let v: any = vals[j] ?? "";
+          let v: FieldValue = vals[j] ?? "";
           if (v === "" || v === "NULL" || v === "null") { v = null; }
           else if (v === "true" || v === "TRUE") { v = true; }
           else if (v === "false" || v === "FALSE") { v = false; }
@@ -193,7 +224,7 @@ export default function AdminDbPage() {
           obj[h] = v;
         });
         // Strip relation objects and auto fields
-        const clean: Record<string, any> = {};
+        const clean: Record<string, FieldValue> = {};
         const SKIP_KEYS = ["id","createdAt","updatedAt","category","productCategory",
           "customer","order","vendor","user","product","items","payments","costSlabs",
           "commissionRule","paymentAccount","jobWork","printSheet","shipment",
@@ -212,9 +243,9 @@ export default function AdminDbPage() {
           if (res.ok) { success++; }
           else {
             const e = await res.json();
-            errors.push(`Row ${i + 2}: ${e.message || JSON.stringify(e)}`);
+            errors.push(`Row ${i + 2}: ${formatAdminDbError(e.message || JSON.stringify(e))}`);
           }
-        } catch (err) { errors.push(`Row ${i + 2}: Network error`); }
+        } catch { errors.push(`Row ${i + 2}: Network error`); }
       }
 
       const msg = `✅ Imported: ${success} / ${dataRows.length}  |  ❌ Failed: ${errors.length}` +
@@ -234,6 +265,81 @@ export default function AdminDbPage() {
   const filteredRows = rows.filter(row =>
     !search || Object.values(row).some(v => String(v).toLowerCase().includes(search.toLowerCase()))
   );
+
+  const categoryLabel = (category: ProductCategoryOption) =>
+    category.name || category.slug || category.id;
+
+  const formatAdminDbError = (message: string) => {
+    if (message.includes("Unique constraint failed") && message.includes("sku")) {
+      return "SKU already exists. Please use a different SKU.";
+    }
+    if (message.includes("Invalid value for argument") || message.includes("Invalid `")) {
+      return "One of the selected or entered values is invalid. Please check the highlighted product fields.";
+    }
+    return message;
+  };
+
+  const renderField = (
+    col: string,
+    value: FieldValue,
+    onChange: (value: FieldValue) => void,
+    editing = false,
+  ) => {
+    const baseClass = editing
+      ? "w-full border border-blue-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-blue-500 min-w-32 bg-white"
+      : "w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-xs outline-none focus:border-blue-400 bg-white";
+    const controlValue = value == null || typeof value === "boolean" ? "" : String(value);
+
+    if (activeTable === "product" && col === "categoryId") {
+      return (
+        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
+          <option value="">Select category</option>
+          {productCategories.map(category => (
+            <option key={category.id} value={category.id}>
+              {categoryLabel(category)}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    if (activeTable === "product" && col === "printingType") {
+      return (
+        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
+          <option value="">Select printing type</option>
+          {PRINTING_TYPE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+      );
+    }
+
+    if (activeTable === "product" && col === "sides") {
+      return (
+        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
+          <option value="">Select sides</option>
+          {PRODUCT_SIDE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+      );
+    }
+
+    if (/^(is|has)[A-Z]/.test(col)) {
+      return (
+        <select
+          value={value === true ? "true" : value === false ? "false" : ""}
+          onChange={e => onChange(e.target.value === "" ? "" : e.target.value === "true")}
+          className={baseClass}
+        >
+          <option value="">Select true/false</option>
+          <option value="true">TRUE</option>
+          <option value="false">FALSE</option>
+        </select>
+      );
+    }
+
+    return (
+      <input value={controlValue} onChange={e => onChange(e.target.value)}
+        placeholder={col} className={baseClass} />
+    );
+  };
 
   if (loading) return (
     <DashboardShell>
@@ -297,7 +403,7 @@ export default function AdminDbPage() {
                         <tr>{sqlResult.columns?.map((c: string) => <th key={c} className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">{c}</th>)}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {sqlResult.rows.map((row: any, i: number) => (
+                        {sqlResult.rows.map((row: DbRow, i: number) => (
                           <tr key={i} className="hover:bg-slate-50">
                             {sqlResult.columns?.map((c: string) => (
                               <td key={c} className="px-3 py-1.5 text-slate-700 whitespace-nowrap">
@@ -323,7 +429,7 @@ export default function AdminDbPage() {
                   <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{total} records</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { setAddData({}); setShowAddModal(true); }}
+                  <button onClick={() => { if (activeTable === "product") loadProductCategories(); setAddData({}); setShowAddModal(true); }}
                     className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
                     + Add Record
                   </button>
@@ -361,20 +467,27 @@ export default function AdminDbPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredRows.map(row => (
-                        <tr key={row.id} className="hover:bg-slate-50">
+                      {filteredRows.map(row => {
+                        const rowId = String(row.id ?? "");
+                        const rowEditData = Object.fromEntries(
+                          Object.entries(row).filter(([, value]) =>
+                            value == null || ["string", "number", "boolean"].includes(typeof value)
+                          )
+                        ) as Record<string, FieldValue>;
+                        return (
+                        <tr key={rowId} className="hover:bg-slate-50">
                           <td className="px-3 py-1.5 whitespace-nowrap">
-                            {editingRow === row.id ? (
+                            {editingRow === rowId ? (
                               <div className="flex gap-1">
-                                <button onClick={() => saveEdit(row.id)} className="p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"><Check className="h-3 w-3" /></button>
+                                <button onClick={() => saveEdit(rowId)} className="p-1 rounded bg-green-100 text-green-700 hover:bg-green-200"><Check className="h-3 w-3" /></button>
                                 <button onClick={() => setEditingRow(null)} className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200"><X className="h-3 w-3" /></button>
                               </div>
                             ) : (
                               <div className="flex gap-1">
-                                <button onClick={() => { setEditingRow(row.id); setEditData({ ...row }); }}
+                                <button onClick={() => { setEditingRow(rowId); setEditData(rowEditData); }}
                                   className="p-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><Edit2 className="h-3 w-3" /></button>
                                 {!PROTECTED.includes(activeTable) && (
-                                  <button onClick={() => deleteRow(row.id)}
+                                  <button onClick={() => deleteRow(rowId)}
                                     className="p-1 rounded bg-red-50 text-red-500 hover:bg-red-100"><Trash2 className="h-3 w-3" /></button>
                                 )}
                               </div>
@@ -382,9 +495,8 @@ export default function AdminDbPage() {
                           </td>
                           {columns.map(col => (
                             <td key={col} className="px-3 py-1.5 max-w-xs">
-                              {editingRow === row.id && !['id','createdAt','updatedAt'].includes(col) ? (
-                                <input value={editData[col] ?? ''} onChange={e => setEditData(p => ({ ...p, [col]: e.target.value }))}
-                                  className="w-full border border-blue-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-blue-500 min-w-16" />
+                              {editingRow === rowId && !['id','createdAt','updatedAt'].includes(col) ? (
+                                renderField(col, editData[col], value => setEditData(p => ({ ...p, [col]: value })), true)
                               ) : (
                                 <span className={`${row[col] === null ? 'text-slate-300' : 'text-slate-700'} whitespace-nowrap`}>
                                   {row[col] === null ? 'NULL' :
@@ -396,7 +508,7 @@ export default function AdminDbPage() {
                             </td>
                           ))}
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -425,8 +537,7 @@ export default function AdminDbPage() {
             {columns.filter(col => !['id','createdAt','updatedAt'].includes(col)).map(col => (
               <div key={col}>
                 <label className="block text-xs font-medium text-slate-600 mb-0.5">{col}</label>
-                <input value={addData[col] || ""} onChange={e => setAddData(p => ({ ...p, [col]: e.target.value }))}
-                  placeholder={col} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-xs outline-none focus:border-blue-400" />
+                {renderField(col, addData[col], value => setAddData(p => ({ ...p, [col]: value })))}
               </div>
             ))}
           </div>

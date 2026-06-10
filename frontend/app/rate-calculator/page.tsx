@@ -9,6 +9,7 @@ type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing";
 type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
+type QuoteCopy = { number: string; text: string };
 type Result = {
   breakdown: BreakdownRow[];
   subtotal: number;
@@ -126,6 +127,46 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
 
 function fmt(n: number) {
   return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function makeQuotationNumber() {
+  const d = new Date();
+  const date = d.toISOString().slice(0, 10).replace(/-/g, "");
+  const time = String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `RPQ-${date}-${time}${rand}`;
+}
+
+function buildQuotationText({
+  quoteNumber,
+  customer,
+  product,
+  job,
+  qty,
+  result,
+}: {
+  quoteNumber: string;
+  customer?: string;
+  product?: string;
+  job?: string;
+  qty?: number;
+  result: Result;
+}) {
+  const lines = [
+    `Quotation No: ${quoteNumber}`,
+    `Date: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`,
+    customer ? `Customer: ${customer}` : "",
+    product ? `Product: ${product}` : "",
+    job ? `Job: ${job}` : "",
+    qty ? `Quantity: ${qty.toLocaleString("en-IN")}` : "",
+    "",
+    `Total Quote: ${fmt(result.total)}`,
+  ].filter(Boolean);
+
+  const perVal = result.perPiece ?? result.perSticker;
+  if (perVal) lines.push(`Per Piece: ${fmt(perVal)}`);
+  lines.push("", "Notes:", "- Final amount includes margin and GST as calculated.", "- Artwork/design, delivery or special finishing can be confirmed separately if applicable.");
+  return lines.join("\n");
 }
 
 function getStickerMultiplier(cost: number) {
@@ -285,6 +326,36 @@ function ResultCard({ result, perLabel = "Per Piece", desc, isAdmin = true }: {
           <span className="font-bold">{fmt(perVal)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function QuotationCopyCard({ quote }: { quote: QuoteCopy }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(quote.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-3 mt-2">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div>
+          <p className="text-xs font-bold text-slate-800">Quotation Copy</p>
+          <p className="text-[11px] text-slate-500">{quote.number}</p>
+        </div>
+        <button onClick={copy}
+          className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <textarea readOnly value={quote.text}
+        className="h-36 w-full resize-none rounded border border-slate-200 bg-slate-50 p-2 text-xs leading-5 text-slate-700 outline-none" />
     </div>
   );
 }
@@ -537,7 +608,7 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove, paperOptions }: {
   const cuts = CUTS[layer.psize]?.[layer.fsize] ?? 4;
   const parentSheets = Math.ceil(layer.qty / cuts);
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 relative">
+    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 mb-1.5 relative">
       <p className="text-xs font-bold text-slate-400 mb-2">LAYER {idx + 1}</p>
       {canRemove && (
         <button onClick={onRemove} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-lg leading-none font-bold">×</button>
@@ -612,8 +683,8 @@ function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectEle
 }
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-3 mb-2">
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">{title}</p>
+    <div className="bg-white rounded-lg border border-slate-200 p-2.5 mb-1.5">
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1.5">{title}</p>
       {children}
     </div>
   );
@@ -626,6 +697,7 @@ export default function RateCalculatorPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [resultDesc, setResultDesc] = useState("");
+  const [currentQuote, setCurrentQuote] = useState<QuoteCopy | null>(null);
 
   // ── Forward State ──
   const [layers, setLayers] = useState<Layer[]>([{ psize: "1823", gsm: "bond70", qty: 1000, fsize: "A4", colors: 1, sides: "single" }]);
@@ -796,27 +868,39 @@ export default function RateCalculatorPage() {
   };
 
   // Auto-save quote to history
-  const saveToHistory = async (calcType: string, inputParams: any, result: any, product?: string, qty?: number) => {
+  const saveToHistory = async (calcType: string, inputParams: any, result: Result, product?: string, qty?: number) => {
+    const quoteNumber = makeQuotationNumber();
+    const customer = inputParams.customer ?? inputParams.rCustomer ?? "";
+    const job = inputParams.job ?? inputParams.fJob ?? "";
+    const quotationText = buildQuotationText({
+      quoteNumber,
+      customer,
+      product: product ?? calcType,
+      job,
+      qty,
+      result,
+    });
+    setCurrentQuote({ number: quoteNumber, text: quotationText });
     try {
       await fetch(`${API_BASE_URL}/rate-calculator/history`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           calcType, product: product ?? calcType,
-          qty, customer: inputParams.customer ?? inputParams.rCustomer ?? "",
-          job: inputParams.job ?? inputParams.fJob ?? "",
+          qty, customer,
+          job,
           breakdown: result.breakdown ?? [],
           subtotal: result.subtotal ?? 0,
           total: result.total ?? 0,
           perPiece: result.perPiece ?? result.perSticker ?? null,
           multiplier: result.multiplier ?? 1.67,
-          inputParams,
+          inputParams: { ...inputParams, quotationNumber: quoteNumber, quotationText },
         }),
       });
     } catch {}
   };
 
   const post = async (endpoint: string, body: any) => {
-    setLoading(true); setResult(null);
+    setLoading(true); setResult(null); setCurrentQuote(null);
     try {
       const res = await fetch(`${API_BASE_URL}/rate-calculator/${endpoint}`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -958,7 +1042,7 @@ export default function RateCalculatorPage() {
             <span className="hidden md:flex items-center px-2 text-xs font-bold text-blue-700 whitespace-nowrap">Rate Calc</span>
             {TABS.map(t => (
               <button key={t.id} onClick={() => {
-                setTab(t.id); setResult(null);
+                setTab(t.id); setResult(null); setCurrentQuote(null);
                 if (t.id === "history") loadHistory();
                 if (t.id === "clubbing") loadClubbing();
               }}
@@ -974,7 +1058,7 @@ export default function RateCalculatorPage() {
 
         {/* ── FORWARD ── */}
         {tab === "forward" && (
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(460px,2fr)] xl:grid-cols-[minmax(0,5fr)_minmax(560px,4fr)] gap-2 items-start">
             {/* Left: inputs */}
             <div>
               <Card title="📋 Job Details">
@@ -1062,6 +1146,7 @@ export default function RateCalculatorPage() {
               {result && (
                 <>
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                  {currentQuote && <QuotationCopyCard quote={currentQuote} />}
                   <CommissionPanel
                     cost={result.subtotal}
                     total={result.total}
@@ -1082,7 +1167,7 @@ export default function RateCalculatorPage() {
 
         {/* ── REVERSE ── */}
         {tab === "reverse" && (
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(460px,2fr)] xl:grid-cols-[minmax(0,5fr)_minmax(560px,4fr)] gap-2 items-start">
             {/* Left: inputs */}
             <div>
               <div className="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-xs text-blue-700 mb-2">
@@ -1314,6 +1399,7 @@ export default function RateCalculatorPage() {
               {result && (
                 <>
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                  {currentQuote && <QuotationCopyCard quote={currentQuote} />}
                   {result?.sticker && (
                     <StickerProductionCard sticker={result.sticker} />
                   )}
@@ -1523,6 +1609,11 @@ export default function RateCalculatorPage() {
                             h.calcType === "reverse" ? "bg-purple-100 text-purple-700" :
                             "bg-amber-100 text-amber-700"
                           }`}>{h.calcType.toUpperCase()}</span>
+                          {h.inputParams?.quotationNumber && (
+                            <span className="text-xs font-bold text-slate-700 bg-slate-100 rounded px-2 py-0.5">
+                              {h.inputParams.quotationNumber}
+                            </span>
+                          )}
                           <span className="text-xs font-semibold text-slate-700 truncate">{h.product || "—"}</span>
                           {h.customer && <span className="text-xs text-slate-500">Customer: {h.customer}</span>}
                           {h.job && <span className="text-xs text-slate-500">Job: {h.job}</span>}
@@ -1537,6 +1628,20 @@ export default function RateCalculatorPage() {
                           {new Date(h.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                           {" · x"}{h.multiplier}
                         </p>
+                        {h.inputParams?.quotationText && (
+                          <details className="mt-2">
+                            <summary className="text-xs text-green-700 cursor-pointer hover:underline">Copy quotation</summary>
+                            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                              <button
+                                onClick={() => navigator.clipboard.writeText(h.inputParams.quotationText)}
+                                className="mb-2 rounded bg-slate-900 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-700">
+                                Copy Text
+                              </button>
+                              <textarea readOnly value={h.inputParams.quotationText}
+                                className="h-32 w-full resize-none rounded border border-slate-200 bg-white p-2 text-xs leading-5 text-slate-700 outline-none" />
+                            </div>
+                          </details>
+                        )}
                         {isAdmin && (
                           <details className="mt-2">
                             <summary className="text-xs text-blue-600 cursor-pointer hover:underline">View breakdown</summary>
