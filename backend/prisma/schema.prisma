@@ -1,0 +1,1628 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String                @id @default(cuid())
+  fullName           String
+  email              String                @unique
+  phone              String?
+  passwordHash       String
+  role               UserRole
+  salesAgentCategory SalesAgentCategory?
+  isActive           Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  commissions        Commission[]          @relation("CommissionSalesAgent")
+  ordersAsAgent      Order[]               @relation("OrderSalesAgent")
+  paymentsReceived   Payment[]             @relation("PaymentReceivedBy")
+  paymentsVerified   Payment[]             @relation("PaymentVerifiedBy")
+  productionJobs     ProductionJob[]       @relation("ProductionAssignedTo")
+  shipmentsHandled   Shipment[]            @relation("ShipmentHandledBy")
+  statusLogsCreated  StatusLog[]           @relation("StatusChangedBy")
+  itemStageLogs      ItemStageLog[]        @relation("ItemStageChangedBy")
+  tasksCreated       Task[]                @relation("TaskCreatedBy")
+  tasksAssigned      Task[]                @relation("TaskAssignedTo")
+  agentLeads         Lead[]                @relation("AgentLeads")
+  leadActivities     LeadActivity[]        @relation("ActivityCreator")
+  learningProgress   UserTopicProgress[]   @relation("UserLearning")
+  quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
+  milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
+  learningStreaks    DailyLearningStreak[] @relation("UserStreak")
+  callAnalyses       CallAnalysis[]        @relation("UserCallAnalyses")
+  marketingContacts  MarketingContact[]    @relation("MarketingContactAgent")
+  marketingCampaigns MarketingCampaign[]   @relation("MarketingCampaignCreator")
+  bankImports        BankImportSession[]   @relation("BankImports")
+  bankTxnReconciled  BankTransaction[]     @relation("BankTxnReconciledBy")
+}
+
+model Customer {
+  id               String                  @id @default(cuid())
+  customerCode     String                  @unique
+  businessName     String
+  contactPerson    String?
+  email            String?
+  phone            String?
+  gstNumber        String?
+  billingAddress   String?
+  shippingAddress  String?
+  city             String?
+  state            String?
+  pincode          String?
+  creditLimit      Decimal?                @db.Decimal(12, 2)
+  isActive         Boolean                 @default(true)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  orders           Order[]
+  ledgerEntries    AccountingLedgerEntry[]
+  creditDebitNotes AccountingNote[]
+}
+
+model ProductCategory {
+  id              String           @id @default(cuid())
+  name            String           @unique
+  description     String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  commissionRules CommissionRule[]
+  products        Product[]
+}
+
+model Product {
+  id                 String            @id @default(cuid())
+  sku                String            @unique
+  name               String
+  description        String?
+  categoryId         String
+  gsm                Int
+  sizeInches         String
+  openSizeInches     String? // e.g. "4x5" open flat size for sheet calc
+  printingType       PrintingType
+  sides              ProductSides
+  weightPerUnitGrams Decimal?          @db.Decimal(10, 3)
+  isActive           Boolean           @default(true)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  commissionRules    CommissionRule[]
+  orderItems         OrderItem[]
+  category           ProductCategory   @relation(fields: [categoryId], references: [id])
+  costSlabs          ProductCostSlab[]
+  rateSlabs          ProductRateSlab[]
+  sheetItems         PrintSheetItem[]
+}
+
+model ProductCostSlab {
+  id            String    @id @default(cuid())
+  productId     String
+  minQuantity   Int
+  maxQuantity   Int?
+  unitPrice     Decimal   @db.Decimal(12, 2)
+  setupCost     Decimal?  @db.Decimal(12, 2)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, minQuantity, maxQuantity])
+}
+
+model ProductRateSlab {
+  id            String    @id @default(cuid())
+  productId     String
+  minQuantity   Int
+  maxQuantity   Int?
+  rateAmount    Decimal   @db.Decimal(12, 2) // total selling rate for this quantity tier
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, minQuantity, maxQuantity])
+}
+
+model CommissionRule {
+  id             String           @id @default(cuid())
+  name           String
+  productId      String?
+  categoryId     String?
+  applicableRole UserRole         @default(SALES_AGENT)
+  commissionPct  Decimal          @db.Decimal(5, 2)
+  effectiveFrom  DateTime         @default(now())
+  effectiveTo    DateTime?
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  commissions    Commission[]
+  category       ProductCategory? @relation(fields: [categoryId], references: [id])
+  product        Product?         @relation(fields: [productId], references: [id])
+
+  @@index([productId, categoryId, effectiveFrom, effectiveTo])
+}
+
+model PaymentAccount {
+  id             String          @id @default(cuid())
+  name           String
+  accountType    String
+  accountNumber  String?
+  bankName       String?
+  ifscCode       String?
+  upiId          String?
+  openingBalance Decimal?        @db.Decimal(14, 2)
+  currentBalance Decimal?        @db.Decimal(14, 2)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  payments       Payment[]
+  vendorPayments VendorPayment[]
+}
+
+// ── Vendor model for Clubbing / jobwork ──────────────────────────────────────
+model Vendor {
+  id                  String                  @id @default(cuid())
+  name                String
+  phone               String?
+  email               String?
+  address             String?
+  gstNumber           String?
+  isActive            Boolean                 @default(true)
+  isPress             Boolean                 @default(false) // true = this vendor is a printing press
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  jobWorks            JobWork[]
+  sheetStages         SheetStageVendor[]
+  paperPurchaseItems  PaperPurchaseItem[]     @relation("PaperItemPress")
+  paperInventory      PaperInventory[]        @relation("PressInventory")
+  paperTransactions   PaperTransaction[]      @relation("PressTransactions")
+  paperPurchaseOrders PaperPurchaseOrder[]    @relation("POSupplier")
+  bankTransactions    BankTransaction[]       @relation("BankTxnVendor")
+  vendorKeywords      VendorKeyword[]         @relation("VendorKeywords")
+  purchaseBills       PurchaseBill[]
+  vendorPayments      VendorPayment[]
+  ledgerEntries       AccountingLedgerEntry[]
+  creditDebitNotes    AccountingNote[]
+}
+
+// ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
+model JobWork {
+  id              String        @id @default(cuid())
+  orderItemId     String
+  vendorId        String
+  description     String
+  cost            Decimal       @db.Decimal(12, 2)
+  vendorInvoiceNo String?
+  status          JobWorkStatus @default(PENDING)
+  isPaid          Boolean       @default(false)
+  paidAt          DateTime?
+  completedAt     DateTime?
+  dueDate         DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  vendor          Vendor        @relation(fields: [vendorId], references: [id])
+}
+
+// ── PrintSheet: Sheet Production ────────────────────────────────────────────
+model PrintSheet {
+  id                    String             @id @default(cuid())
+  sheetNo               String             @unique // auto-generated e.g. SHT-2024-001
+  gsm                   Int
+  quality               SheetQuality
+  quantity              Int
+  actualPrintedQuantity Int?
+  sizeInches            String // e.g. "18x23"
+  areaSqInches          Float // computed: width * height
+  printing              ProductSides
+  status                SheetStatus        @default(INCOMPLETE)
+  usedAreaSqInches      Float              @default(0)
+  createdBySource       String             @default("MANUAL")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  items                 PrintSheetItem[]
+  stageVendors          SheetStageVendor[]
+
+  @@index([status, updatedAt])
+  @@index([gsm, status])
+}
+
+// ── Items placed on a sheet ──────────────────────────────────────────────────
+model PrintSheetItem {
+  id                   String     @id @default(cuid())
+  sheetId              String
+  orderItemId          String
+  productId            String
+  multiple             Int // how many times this item fits on sheet
+  quantityOnSheet      Int // quantity covered by this sheet placement
+  areaSqInches         Float // open size area * multiple
+  dueDate              DateTime?
+  processingVendorName String?
+  createdAt            DateTime   @default(now())
+  sheet                PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  orderItem            OrderItem  @relation(fields: [orderItemId], references: [id])
+  product              Product    @relation(fields: [productId], references: [id])
+
+  @@index([sheetId])
+  @@index([orderItemId])
+  @@index([productId])
+}
+
+// ── Stage-wise vendors for sheet production ──────────────────────────────────
+model SheetStageVendor {
+  id              String               @id @default(cuid())
+  sheetId         String
+  stage           SheetProductionStage
+  vendorId        String
+  description     String?
+  cost            Decimal              @db.Decimal(12, 2)
+  vendorInvoiceNo String?
+  isPaid          Boolean              @default(false)
+  paidAt          DateTime?
+  createdAt       DateTime             @default(now())
+  sheet           PrintSheet           @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  vendor          Vendor               @relation(fields: [vendorId], references: [id])
+}
+
+// ── ItemStageLog: full history of each item's stage changes ─────────────────
+model ItemStageLog {
+  id          String                @id @default(cuid())
+  orderItemId String
+  fromStage   OrderProductionStage?
+  toStage     OrderProductionStage
+  changedById String?
+  note        String?
+  createdAt   DateTime              @default(now())
+  orderItem   OrderItem             @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  changedBy   User?                 @relation("ItemStageChangedBy", fields: [changedById], references: [id])
+
+  @@index([orderItemId, createdAt])
+}
+
+model Godown {
+  id             String          @id @default(cuid())
+  name           String
+  code           String          @unique
+  address        String?
+  city           String?
+  state          String?
+  pincode        String?
+  contactPerson  String?
+  phone          String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  productionJobs ProductionJob[]
+  shipments      Shipment[]
+}
+
+model Order {
+  id               String                  @id @default(cuid())
+  orderNumber      String                  @unique
+  customerId       String
+  salesAgentId     String?
+  orderDate        DateTime                @default(now())
+  expectedDelivery DateTime?
+  status           OrderStatus             @default(DRAFT)
+  paymentStatus    PaymentStatus           @default(PENDING)
+  subtotal         Decimal                 @db.Decimal(14, 2)
+  discount         Decimal                 @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal                 @default(0) @db.Decimal(14, 2)
+  shippingCharge   Decimal                 @default(0) @db.Decimal(14, 2)
+  grandTotal       Decimal                 @db.Decimal(14, 2)
+  notes            String?
+  leadSource       String? // e.g. "WALK_IN", "FB_AD_Jan_2025"
+  isTest           Boolean                 @default(false)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  productionStage  OrderProductionStage    @default(NOT_PRINTED)
+  commissions      Commission[]
+  invoice          Invoice?
+  ledgerEntries    AccountingLedgerEntry[]
+  customer         Customer                @relation(fields: [customerId], references: [id])
+  salesAgent       User?                   @relation("OrderSalesAgent", fields: [salesAgentId], references: [id])
+  items            OrderItem[]
+  payments         Payment[]
+  productionJobs   ProductionJob[]
+  shipments        Shipment[]
+  statusLogs       StatusLog[]
+  reassuranceLogs  OrderReassuranceLog[]
+
+  @@index([status, orderDate])
+  @@index([status, updatedAt])
+  @@index([salesAgentId, orderDate])
+  @@index([customerId, orderDate])
+  @@index([productionStage])
+}
+
+model OrderItem {
+  id                  String               @id @default(cuid())
+  orderId             String
+  productId           String
+  quantity            Int
+  unitPrice           Decimal              @db.Decimal(12, 2)
+  lineDiscount        Decimal              @default(0) @db.Decimal(12, 2)
+  taxRatePct          Decimal              @default(0) @db.Decimal(5, 2)
+  taxAmount           Decimal              @default(0) @db.Decimal(12, 2)
+  lineTotal           Decimal              @db.Decimal(14, 2)
+  artworkNotes        String?
+  productionNotes     String?
+  designFiles         Json                 @default("[]")
+  productionCategory  ProductionCategory? // INHOUSE | CLUBBING | SHEET_PRODUCTION
+  itemProductionStage OrderProductionStage @default(NOT_PRINTED)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product             Product              @relation(fields: [productId], references: [id])
+  stageLogs           ItemStageLog[]
+  jobWorks            JobWork[]
+  sheetItems          PrintSheetItem[]
+
+  @@index([orderId, productId])
+  @@index([itemProductionStage, updatedAt])
+  @@index([productionCategory, itemProductionStage])
+}
+
+model Payment {
+  id                 String                    @id @default(cuid())
+  orderId            String
+  paymentAccountId   String
+  receivedById       String?
+  paymentDate        DateTime                  @default(now())
+  amount             Decimal                   @db.Decimal(14, 2)
+  method             PaymentMethod
+  referenceNumber    String?
+  notes              String?
+  verificationStatus PaymentVerificationStatus @default(PENDING_VERIFICATION)
+  verifiedById       String?
+  verifiedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  verifiedBy         User?                     @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
+  order              Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAccount     PaymentAccount            @relation(fields: [paymentAccountId], references: [id])
+  receivedBy         User?                     @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  bankTransactions   BankTransaction[]         @relation("BankTxnPayment")
+
+  @@index([orderId, verificationStatus])
+  @@index([paymentDate])
+}
+
+model Invoice {
+  id               String                  @id @default(cuid())
+  orderId          String                  @unique
+  invoiceNumber    String                  @unique
+  issueDate        DateTime                @default(now())
+  dueDate          DateTime?
+  subtotal         Decimal                 @db.Decimal(14, 2)
+  discountAmount   Decimal                 @default(0) @db.Decimal(14, 2)
+  taxableAmount    Decimal                 @default(0) @db.Decimal(14, 2)
+  cgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  sgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  igstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal                 @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal                 @db.Decimal(14, 2)
+  paidAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  balanceAmount    Decimal                 @db.Decimal(14, 2)
+  gstTreatment     GstTreatment            @default(INTRA_STATE)
+  status           InvoiceStatus           @default(ISSUED)
+  whatsappStatus   WhatsAppDeliveryStatus  @default(PENDING)
+  whatsappSentAt   DateTime?
+  whatsappError    String?
+  notes            String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  order            Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items            InvoiceItem[]
+  ledgerEntries    AccountingLedgerEntry[]
+  creditDebitNotes AccountingNote[]
+}
+
+model InvoiceItem {
+  id             String  @id @default(cuid())
+  invoiceId      String
+  productName    String
+  sku            String?
+  hsnSac         String?
+  quantity       Int
+  unitPrice      Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  taxableAmount  Decimal @db.Decimal(14, 2)
+  gstRatePct     Decimal @default(0) @db.Decimal(5, 2)
+  cgstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  sgstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  igstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  lineTotal      Decimal @db.Decimal(14, 2)
+  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model PurchaseBill {
+  id               String                  @id @default(cuid())
+  vendorId         String
+  billNumber       String
+  billDate         DateTime                @default(now())
+  dueDate          DateTime?
+  subtotal         Decimal                 @db.Decimal(14, 2)
+  taxableAmount    Decimal                 @db.Decimal(14, 2)
+  cgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  sgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  igstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal                 @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal                 @db.Decimal(14, 2)
+  paidAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  balanceAmount    Decimal                 @db.Decimal(14, 2)
+  gstTreatment     GstTreatment            @default(INTRA_STATE)
+  status           PurchaseBillStatus      @default(OPEN)
+  notes            String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  vendor           Vendor                  @relation(fields: [vendorId], references: [id])
+  payments         VendorPayment[]
+  ledgerEntries    AccountingLedgerEntry[]
+  creditDebitNotes AccountingNote[]
+
+  @@unique([vendorId, billNumber])
+  @@index([vendorId, billDate])
+  @@index([status, dueDate])
+}
+
+model VendorPayment {
+  id               String         @id @default(cuid())
+  vendorId         String
+  purchaseBillId   String?
+  paymentAccountId String
+  paymentDate      DateTime       @default(now())
+  amount           Decimal        @db.Decimal(14, 2)
+  method           PaymentMethod
+  referenceNumber  String?
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  vendor           Vendor         @relation(fields: [vendorId], references: [id])
+  purchaseBill     PurchaseBill?  @relation(fields: [purchaseBillId], references: [id])
+  paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id])
+
+  @@index([vendorId, paymentDate])
+  @@index([purchaseBillId])
+}
+
+model AccountingLedgerEntry {
+  id             String          @id @default(cuid())
+  entryDate      DateTime        @default(now())
+  entryType      LedgerEntryType
+  accountName    String
+  debitAmount    Decimal         @default(0) @db.Decimal(14, 2)
+  creditAmount   Decimal         @default(0) @db.Decimal(14, 2)
+  narration      String?
+  referenceType  String
+  referenceId    String
+  customerId     String?
+  vendorId       String?
+  orderId        String?
+  invoiceId      String?
+  purchaseBillId String?
+  createdAt      DateTime        @default(now())
+  customer       Customer?       @relation(fields: [customerId], references: [id])
+  vendor         Vendor?         @relation(fields: [vendorId], references: [id])
+  order          Order?          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoice        Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  purchaseBill   PurchaseBill?   @relation(fields: [purchaseBillId], references: [id])
+
+  @@index([entryDate])
+  @@index([accountName, entryDate])
+  @@index([customerId, entryDate])
+  @@index([vendorId, entryDate])
+  @@index([referenceType, referenceId])
+}
+
+model AccountingNote {
+  id             String               @id @default(cuid())
+  noteNumber     String               @unique
+  noteType       AccountingNoteType
+  partyType      AccountingPartyType
+  customerId     String?
+  vendorId       String?
+  invoiceId      String?
+  purchaseBillId String?
+  noteDate       DateTime             @default(now())
+  reason         String
+  taxableAmount  Decimal              @db.Decimal(14, 2)
+  cgstAmount     Decimal              @default(0) @db.Decimal(14, 2)
+  sgstAmount     Decimal              @default(0) @db.Decimal(14, 2)
+  igstAmount     Decimal              @default(0) @db.Decimal(14, 2)
+  taxAmount      Decimal              @default(0) @db.Decimal(14, 2)
+  totalAmount    Decimal              @db.Decimal(14, 2)
+  status         AccountingNoteStatus @default(ISSUED)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  customer       Customer?            @relation(fields: [customerId], references: [id])
+  vendor         Vendor?              @relation(fields: [vendorId], references: [id])
+  invoice        Invoice?             @relation(fields: [invoiceId], references: [id])
+  purchaseBill   PurchaseBill?        @relation(fields: [purchaseBillId], references: [id])
+
+  @@index([noteType, noteDate])
+  @@index([customerId, noteDate])
+  @@index([vendorId, noteDate])
+}
+
+model Commission {
+  id               String          @id @default(cuid())
+  orderId          String
+  salesAgentId     String
+  commissionRuleId String?
+  commissionPct    Decimal         @db.Decimal(5, 2)
+  commissionBase   Decimal         @db.Decimal(14, 2)
+  commissionAmount Decimal         @db.Decimal(14, 2)
+  isSettled        Boolean         @default(false)
+  settledAt        DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  commissionRule   CommissionRule? @relation(fields: [commissionRuleId], references: [id])
+  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  salesAgent       User            @relation("CommissionSalesAgent", fields: [salesAgentId], references: [id])
+}
+
+model ProductionJob {
+  id             String           @id @default(cuid())
+  orderId        String
+  godownId       String?
+  assignedToId   String?
+  jobCode        String           @unique
+  plannedStartAt DateTime?
+  actualStartAt  DateTime?
+  completedAt    DateTime?
+  status         ProductionStatus @default(QUEUED)
+  remarks        String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  assignedTo     User?            @relation("ProductionAssignedTo", fields: [assignedToId], references: [id])
+  godown         Godown?          @relation(fields: [godownId], references: [id])
+  order          Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Shipment {
+  id                   String         @id @default(cuid())
+  orderId              String
+  godownId             String?
+  handledById          String?
+  shipmentNumber       String         @unique
+  dispatchDate         DateTime?
+  expectedDelivery     DateTime?
+  deliveredAt          DateTime?
+  carrierName          String?
+  vehicleNumber        String?
+  trackingNumber       String?
+  status               ShipmentStatus @default(PENDING)
+  notes                String?
+  dispatchType         String?
+  transportName        String?
+  lrNumber             String?
+  transportChargesType String?
+  transportBy          String?
+  awbNumber            String?
+  deliveryBoyName      String?
+  collectedByName      String?
+  collectedByPhone     String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  godown               Godown?        @relation(fields: [godownId], references: [id])
+  handledBy            User?          @relation("ShipmentHandledBy", fields: [handledById], references: [id])
+  order                Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model StatusLog {
+  id          String       @id @default(cuid())
+  orderId     String
+  fromStatus  OrderStatus?
+  toStatus    OrderStatus
+  changedById String?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  changedBy   User?        @relation("StatusChangedBy", fields: [changedById], references: [id])
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([toStatus, orderId])
+}
+
+model OrderReassuranceLog {
+  id           String   @id @default(cuid())
+  orderId      String
+  orderNo      String
+  campaignName String
+  success      Boolean  @default(false)
+  error        String?
+  sentAt       DateTime @default(now())
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, sentAt])
+  @@index([sentAt])
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  INHOUSE
+  ACCOUNTS
+  PRODUCTION
+  DISPATCH
+  SALES_AGENT
+}
+
+enum SalesAgentCategory {
+  A
+  B
+  C
+  D
+}
+
+enum PrintingType {
+  OFFSET
+  DIGITAL
+  SCREEN
+  FLEX
+}
+
+enum ProductSides {
+  SINGLE_SIDE
+  DOUBLE_SIDE
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  IN_PRODUCTION
+  READY_FOR_DISPATCH
+  PENDING_DISPATCH_APPROVAL
+  PARTIALLY_DISPATCHED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CHEQUE
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+enum GstTreatment {
+  INTRA_STATE
+  INTER_STATE
+  EXPORT
+  UNREGISTERED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+enum WhatsAppDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum PurchaseBillStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum LedgerEntryType {
+  SALE
+  PURCHASE
+  PAYMENT_IN
+  PAYMENT_OUT
+  CREDIT_NOTE
+  DEBIT_NOTE
+  GST
+  ADJUSTMENT
+}
+
+enum AccountingNoteType {
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+enum AccountingPartyType {
+  CUSTOMER
+  VENDOR
+}
+
+enum AccountingNoteStatus {
+  ISSUED
+  CANCELLED
+}
+
+enum ProductionStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  PENDING
+  PACKED
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+enum OrderProductionStage {
+  NOT_PRINTED
+  PRINTING
+  PROCESSING
+  READY_FOR_DISPATCH
+}
+
+// ── New enums for production overhaul ────────────────────────────────────────
+
+enum ProductionCategory {
+  INHOUSE
+  CLUBBING
+  SHEET_PRODUCTION
+}
+
+enum JobWorkStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SheetQuality {
+  MAPLITHO
+  STICKER
+  BOND
+  ART_CARD
+  DUPLEX_CARD_WB
+  DUPLEX_CARD_GB
+}
+
+enum PaperUnit {
+  REAM
+  PACKET
+}
+
+enum PaperPOStatus {
+  DRAFT
+  RECEIVED
+  CANCELLED
+}
+
+enum PaperTransactionType {
+  PURCHASE
+  PRINTING_DEDUCTION
+  ADJUSTMENT
+}
+
+enum SheetStatus {
+  INCOMPLETE
+  SETTING
+  PRINTING
+  PROCESSING
+  COMPLETE
+}
+
+enum SheetProductionStage {
+  PAPER_PURCHASE
+  PLATE_MAKING
+  PRINTING
+  BINDING
+  LAMINATION
+  EXTRA_PROCESSING
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  QUOTED
+  WON
+  LOST
+  RECYCLED
+}
+
+enum LeadSource {
+  MANUAL
+  CSV_IMPORT
+  WHATSAPP
+  REFERRAL
+  WALK_IN
+  ONLINE_FORM
+}
+
+enum ActivityType {
+  CALL_MADE
+  CALL_MISSED
+  CALL_BUSY
+  WHATSAPP_SENT
+  NOTE_ADDED
+  STATUS_CHANGED
+  QUOTE_SENT
+  FOLLOW_UP_SCHEDULED
+}
+
+enum FollowUpStatus {
+  PENDING
+  DONE
+  SKIPPED
+}
+
+model Lead {
+  id               String         @id @default(cuid())
+  name             String
+  phone            String
+  email            String?
+  businessName     String?
+  city             String?
+  productInterest  String?
+  tags             String[]       @default([])
+  estimatedQty     Int?
+  estimatedValue   Float?
+  notes            String?
+  source           LeadSource     @default(MANUAL)
+  status           LeadStatus     @default(NEW)
+  score            Int            @default(0)
+  isHot            Boolean        @default(false)
+  agentId          String
+  agent            User           @relation("AgentLeads", fields: [agentId], references: [id])
+  convertedOrderId String?
+  activities       LeadActivity[]
+  followUps        LeadFollowUp[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([phone])
+  @@index([agentId])
+  @@index([status])
+}
+
+model LeadActivity {
+  id          String       @id @default(cuid())
+  leadId      String
+  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type        ActivityType
+  description String
+  createdById String
+  createdBy   User         @relation("ActivityCreator", fields: [createdById], references: [id])
+  createdAt   DateTime     @default(now())
+}
+
+model LeadFollowUp {
+  id          String         @id @default(cuid())
+  leadId      String
+  lead        Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  status      FollowUpStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+// ============================================================
+// SALES LEARNING MODULE — Add these models to schema.prisma
+// ============================================================
+
+enum TopicLanguage {
+  EN
+  HI
+}
+
+enum DifficultyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  PRO
+}
+
+model SalesTopic {
+  id            String          @id @default(cuid())
+  orderIndex    Int             @unique // 1, 2, 3... controls unlock order
+  groupNumber   Int // every 5 topics = 1 milestone group (1,1,1,1,1, 2,2,2,2,2...)
+  titleEn       String
+  titleHi       String
+  sourceBook    String // e.g. "SPIN Selling by Neil Rackham"
+  contentEn     String          @db.Text // full topic explanation in English
+  contentHi     String          @db.Text // full topic explanation in Hindi
+  scriptEn      String          @db.Text // medicine pouch sales script EN
+  scriptHi      String          @db.Text // medicine pouch sales script HI
+  keyPoints     String[] // bullet points for quick recap
+  difficulty    DifficultyLevel @default(BEGINNER)
+  estimatedMins Int             @default(10)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  questions    TopicQuestion[]
+  userProgress UserTopicProgress[]
+  quizAttempts QuizAttempt[]
+}
+
+model TopicQuestion {
+  id            String     @id @default(cuid())
+  topicId       String
+  topic         SalesTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  questionEn    String
+  questionHi    String
+  options       Json // { en: [opt1,opt2,opt3,opt4], hi: [opt1,opt2,opt3,opt4] }
+  correctIndex  Int // 0-3
+  explanationEn String? // shown after answering
+  explanationHi String?
+  orderIndex    Int        @default(0)
+  createdAt     DateTime   @default(now())
+}
+
+model UserTopicProgress {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation("UserLearning", fields: [userId], references: [id])
+  topicId      String
+  topic        SalesTopic @relation(fields: [topicId], references: [id])
+  topicRead    Boolean    @default(false)
+  topicReadAt  DateTime?
+  quizPassed   Boolean    @default(false)
+  quizPassedAt DateTime?
+  quizAttempts Int        @default(0)
+  bestScore    Int        @default(0) // out of 5
+  isUnlocked   Boolean    @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([userId, topicId])
+  @@index([userId])
+  @@index([topicId])
+}
+
+model QuizAttempt {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation("UserQuizAttempts", fields: [userId], references: [id])
+  topicId       String
+  topic         SalesTopic @relation(fields: [topicId], references: [id])
+  answers       Int[] // index of chosen answers per question
+  score         Int // 0-5
+  passed        Boolean
+  timeTakenSecs Int?
+  attemptedAt   DateTime   @default(now())
+
+  @@index([userId, topicId])
+}
+
+model MilestoneTest {
+  id          String              @id @default(cuid())
+  groupNumber Int                 @unique // matches SalesTopic.groupNumber
+  titleEn     String
+  titleHi     String
+  totalMarks  Int                 @default(200) // 10 questions × 20 marks
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  questions   MilestoneQuestion[]
+  attempts    MilestoneAttempt[]
+}
+
+model MilestoneQuestion {
+  id            String        @id @default(cuid())
+  testId        String
+  test          MilestoneTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  questionEn    String
+  questionHi    String
+  options       Json // { en: [...], hi: [...] }
+  correctIndex  Int
+  marksPerQ     Int           @default(20)
+  orderIndex    Int           @default(0)
+  sourceTopicId String? // which topic this came from
+  createdAt     DateTime      @default(now())
+}
+
+model MilestoneAttempt {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation("UserMilestoneAttempts", fields: [userId], references: [id])
+  testId        String
+  test          MilestoneTest @relation(fields: [testId], references: [id])
+  answers       Int[]
+  score         Int // 0-200
+  percentage    Float
+  passed        Boolean // >= 60% to pass
+  timeTakenSecs Int?
+  attemptedAt   DateTime      @default(now())
+
+  @@index([userId, testId])
+}
+
+model DailyLearningStreak {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation("UserStreak", fields: [userId], references: [id])
+  date         DateTime @db.Date
+  topicsRead   Int      @default(0)
+  quizzesDone  Int      @default(0)
+  pointsEarned Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model Task {
+  id           String          @id @default(cuid())
+  title        String
+  description  String?
+  status       TaskStatus      @default(OPEN)
+  priority     TaskPriority    @default(NORMAL)
+  goalHorizon  TaskGoalHorizon @default(WEEKLY)
+  dueDate      DateTime?
+  createdById  String
+  assignedToId String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  completedAt  DateTime?
+  createdBy    User            @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User            @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+
+  @@index([assignedToId, status, dueDate])
+  @@index([assignedToId, goalHorizon, status])
+  @@index([createdById, createdAt])
+  @@index([status, dueDate])
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TaskGoalHorizon {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+model CallAnalysis {
+  id                String   @id @default(cuid())
+  agentId           String
+  agent             User     @relation("UserCallAnalyses", fields: [agentId], references: [id])
+  agentName         String
+  customerName      String
+  callType          String
+  duration          String?
+  overallScore      Int
+  grade             String
+  sentiment         String?
+  language          String?
+  transcript        String?  @db.Text
+  transcriptSummary String?  @db.Text
+  strengthsList     Json
+  improvementsList  Json
+  categoryScores    Json
+  coachFeedback     String?  @db.Text
+  actionItems       Json
+  hasRealTranscript Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([createdAt])
+  @@index([grade])
+}
+
+// ============================================================
+// ADD THESE RELATIONS TO YOUR EXISTING User MODEL:
+// ============================================================
+// learningProgress   UserTopicProgress[]   @relation("UserLearning")
+// quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
+// milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
+// learningStreaks     DailyLearningStreak[] @relation("UserStreak")
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// ── Rate Calculator: Quote History ───────────────────────────────────────────
+model QuoteHistory {
+  id          String   @id @default(cuid())
+  calcType    String // "forward" | "reverse" | "sticker"
+  customer    String?
+  job         String?
+  product     String?
+  qty         Int?
+  breakdown   Json
+  subtotal    Float
+  total       Float
+  perPiece    Float?
+  multiplier  Float    @default(1.67)
+  inputParams Json // full input DTO for reference
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([customer])
+}
+
+// ── Reward System ────────────────────────────────────────────────────────────
+model RewardWallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  coins        Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  transactions RewardTransaction[]
+}
+
+model RewardTransaction {
+  id             String       @id @default(cuid())
+  walletId       String
+  coins          Int
+  reason         String
+  notificationId String?
+  orderId        String?
+  createdAt      DateTime     @default(now())
+  wallet         RewardWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  type        String
+  title       String
+  message     String
+  orderId     String?
+  orderNo     String?
+  itemId      String?
+  sheetId     String?
+  jobWorkId   String?
+  toUserId    String
+  toUserName  String
+  fromSystem  Boolean   @default(true)
+  isRead      Boolean   @default(false)
+  isResolved  Boolean   @default(false)
+  resolvedAt  DateTime?
+  explanation String?
+  actionTaken String?
+  copyToAdmin Boolean   @default(false)
+  adminSeen   Boolean   @default(false)
+  priority    String    @default("NORMAL")
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([toUserId, isResolved])
+  @@index([toUserId, isRead])
+  @@index([toUserId, createdAt])
+  @@index([copyToAdmin, createdAt])
+  @@index([type, isResolved])
+  @@index([orderId])
+}
+
+// ── Paper Inventory ───────────────────────────────────────────────────────────
+
+/// A paper purchase order — can be created from an uploaded invoice image (AI-extracted)
+model PaperPurchaseOrder {
+  id               String              @id @default(cuid())
+  poNumber         String              @unique // auto e.g. PPO-2025-001
+  invoiceNumber    String? // read from invoice image
+  invoiceImagePath String? // stored file path
+  supplierId       String? // optional paper supplier (Vendor)
+  status           PaperPOStatus       @default(DRAFT)
+  notes            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  items            PaperPurchaseItem[]
+  supplier         Vendor?             @relation("POSupplier", fields: [supplierId], references: [id])
+}
+
+/// Each line item in a paper PO — one row per paper type, assigned to a specific press
+model PaperPurchaseItem {
+  id            String             @id @default(cuid())
+  poId          String
+  paperName     String // e.g. "Maplitho 70 GSM 18x23"
+  gsm           Int
+  quality       SheetQuality
+  sizeInches    String?
+  unit          PaperUnit // REAM or PACKET
+  unitQuantity  Float // number of reams or packets purchased
+  sheetsPerUnit Int // 500 for REAM; user-entered for PACKET (100/125/250)
+  totalSheets   Int // computed: unitQuantity * sheetsPerUnit
+  pressId       String // which press this paper is allocated to
+  createdAt     DateTime           @default(now())
+  po            PaperPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  press         Vendor             @relation("PaperItemPress", fields: [pressId], references: [id])
+  transactions  PaperTransaction[]
+
+  @@index([poId])
+  @@index([pressId, gsm, quality])
+}
+
+/// Running balance of paper at each press, per GSM + quality combination
+model PaperInventory {
+  id            String       @id @default(cuid())
+  pressId       String
+  gsm           Int
+  quality       SheetQuality
+  balanceSheets Int          @default(0) // always in individual sheet count
+  updatedAt     DateTime     @updatedAt
+  press         Vendor       @relation("PressInventory", fields: [pressId], references: [id])
+
+  @@unique([pressId, gsm, quality])
+  @@index([pressId])
+}
+
+/// Full ledger of all paper movements (purchases IN, printing deductions OUT)
+model PaperTransaction {
+  id              String               @id @default(cuid())
+  pressId         String
+  gsm             Int
+  quality         SheetQuality
+  transactionType PaperTransactionType
+  sheets          Int // positive = IN (purchase), negative = OUT (consumed)
+  balanceAfter    Int // snapshot of balance after this transaction
+  referenceId     String? // sheetId or poItemId
+  referenceType   String? // 'PURCHASE' | 'PRINT_SHEET'
+  notes           String?
+  purchaseItemId  String?
+  createdAt       DateTime             @default(now())
+  purchaseItem    PaperPurchaseItem?   @relation(fields: [purchaseItemId], references: [id])
+  press           Vendor               @relation("PressTransactions", fields: [pressId], references: [id])
+
+  @@index([pressId, gsm, quality, createdAt])
+  @@index([referenceId])
+}
+
+// ── WhatsApp Campaign Marketing Automation ─────────────────────────────────
+
+enum MarketingLeadTemperature {
+  COLD
+  WARM
+  HOT
+  BLOCKED
+}
+
+enum MarketingContactStatus {
+  UNKNOWN
+  VALID
+  INVALID
+  BLOCKED
+  UNSUBSCRIBED
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum MarketingTemplateType {
+  TEXT
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum MarketingJobStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum MarketingEventType {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  CLICKED
+  REPLIED
+  FAILED
+  BLOCKED
+  UNSUBSCRIBED
+  ORDER_PLACED
+}
+
+model MarketingContact {
+  id                String                   @id @default(cuid())
+  mobile            String                   @unique
+  shopName          String?
+  ownerName         String?
+  city              String?
+  state             String?
+  productCategory   String?
+  tags              String[]                 @default([])
+  lastOrderDate     DateTime?
+  lastBroadcastDate DateTime?
+  lastReplyDate     DateTime?
+  leadTemperature   MarketingLeadTemperature @default(COLD)
+  engagementScore   Int                      @default(0)
+  assignedAgentId   String?
+  whatsappStatus    MarketingContactStatus   @default(UNKNOWN)
+  isBlacklisted     Boolean                  @default(false)
+  optedOutAt        DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  assignedAgent     User?                    @relation("MarketingContactAgent", fields: [assignedAgentId], references: [id])
+  broadcastJobs     MarketingBroadcastJob[]
+  events            MarketingMessageEvent[]
+
+  @@index([city])
+  @@index([state])
+  @@index([assignedAgentId])
+  @@index([engagementScore])
+  @@index([leadTemperature])
+}
+
+model MarketingTemplate {
+  id                  String                  @id @default(cuid())
+  name                String
+  aisensyCampaignName String
+  templateType        MarketingTemplateType   @default(TEXT)
+  language            String                  @default("en")
+  body                String
+  mediaUrl            String?
+  variables           Json                    @default("[]")
+  ctaButtons          Json                    @default("[]")
+  isActive            Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  campaignSteps       MarketingCampaignStep[]
+
+  @@index([isActive, language])
+}
+
+model MarketingSegment {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  filters     Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MarketingCampaign {
+  id            String                  @id @default(cuid())
+  name          String
+  status        MarketingCampaignStatus @default(DRAFT)
+  segmentId     String?
+  dailyLimit    Int                     @default(10000)
+  cooldownDays  Int                     @default(30)
+  priority      Int                     @default(0)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  lastRotatedAt DateTime?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  createdBy     User?                   @relation("MarketingCampaignCreator", fields: [createdById], references: [id])
+  steps         MarketingCampaignStep[]
+  jobs          MarketingBroadcastJob[]
+  events        MarketingMessageEvent[]
+
+  @@index([status, startsAt, priority])
+}
+
+model MarketingCampaignStep {
+  id         String                  @id @default(cuid())
+  campaignId String
+  templateId String
+  stepOrder  Int
+  delayHours Int                     @default(0)
+  filters    Json                    @default("{}")
+  campaign   MarketingCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  template   MarketingTemplate       @relation(fields: [templateId], references: [id])
+  jobs       MarketingBroadcastJob[]
+
+  @@unique([campaignId, stepOrder])
+  @@index([campaignId])
+}
+
+model MarketingBroadcastJob {
+  id                String                @id @default(cuid())
+  campaignId        String
+  stepId            String
+  contactId         String
+  status            MarketingJobStatus    @default(QUEUED)
+  scheduledAt       DateTime              @default(now())
+  sentAt            DateTime?
+  providerMessageId String?
+  retryCount        Int                   @default(0)
+  errorMessage      String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  campaign          MarketingCampaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  step              MarketingCampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  contact           MarketingContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, stepId, contactId])
+  @@index([status, scheduledAt])
+  @@index([providerMessageId])
+}
+
+model MarketingMessageEvent {
+  id                String             @id @default(cuid())
+  contactId         String?
+  campaignId        String?
+  providerMessageId String?
+  eventType         MarketingEventType
+  rawPayload        Json?
+  occurredAt        DateTime           @default(now())
+  contact           MarketingContact?  @relation(fields: [contactId], references: [id])
+  campaign          MarketingCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([contactId, occurredAt])
+  @@index([campaignId, occurredAt])
+  @@index([providerMessageId])
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BANK STATEMENT MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+
+model BankImportSession {
+  id              String            @id @default(cuid())
+  accountNumber   String
+  fileName        String
+  importedById    String
+  rowsFound       Int               @default(0)
+  rowsImported    Int               @default(0)
+  rowsSkipped     Int               @default(0)
+  lastSrlImported Int?
+  lastBalance     Decimal?          @db.Decimal(14, 2)
+  status          BankImportStatus  @default(PROCESSING)
+  errorMessage    String?
+  createdAt       DateTime          @default(now())
+  importedBy      User              @relation("BankImports", fields: [importedById], references: [id])
+  transactions    BankTransaction[]
+
+  @@index([accountNumber, createdAt])
+}
+
+model BankTransaction {
+  id                String              @id @default(cuid())
+  sessionId         String
+  accountNumber     String
+  srl               Int
+  txnDate           DateTime
+  txnDateTime       DateTime?
+  valueDate         DateTime
+  description       String
+  chequeNo          String?
+  crDr              BankTxnType
+  amount            Decimal             @db.Decimal(14, 2)
+  balance           Decimal             @db.Decimal(14, 2)
+  reconcileStatus   BankReconcileStatus @default(UNMATCHED)
+  matchedPaymentId  String?
+  matchedVendorId   String?
+  expenseCategoryId String?
+  reviewNote        String?
+  reconciledAt      DateTime?
+  reconciledById    String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           BankImportSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matchedPayment    Payment?            @relation("BankTxnPayment", fields: [matchedPaymentId], references: [id])
+  matchedVendor     Vendor?             @relation("BankTxnVendor", fields: [matchedVendorId], references: [id])
+  expenseCategory   ExpenseCategory?    @relation(fields: [expenseCategoryId], references: [id])
+  reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
+
+  @@unique([accountNumber, txnDate, srl])
+  @@index([accountNumber, txnDate])
+  @@index([reconcileStatus])
+  @@index([txnDate])
+}
+
+model VendorKeyword {
+  id        String   @id @default(cuid())
+  keyword   String   @unique
+  vendorId  String
+  createdAt DateTime @default(now())
+  vendor    Vendor   @relation("VendorKeywords", fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+model ExpenseCategory {
+  id           String            @id @default(cuid())
+  name         String            @unique
+  description  String?
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  keywords     ExpenseKeyword[]
+  transactions BankTransaction[]
+}
+
+model ExpenseKeyword {
+  id         String          @id @default(cuid())
+  keyword    String          @unique
+  categoryId String
+  createdAt  DateTime        @default(now())
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
+
+enum BankImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum BankTxnType {
+  CR
+  DR
+}
+
+enum BankReconcileStatus {
+  UNMATCHED
+  MATCHED_PAYMENT
+  MATCHED_VENDOR
+  MATCHED_EXPENSE
+  MANUAL_REVIEW
+  IGNORED
+}
+
+// ── In-House Sticker Stock (12×18 sheets printed in office) ─────────────────
+model InHouseStickerStock {
+  id            String   @id @default(cuid())
+  balanceSheets Int      @default(0) // current balance of 12x18 sticker sheets
+  updatedAt     DateTime @updatedAt
+}
+
+model InHouseStickerTransaction {
+  id              String               @id @default(cuid())
+  transactionType InHouseStickerTxType
+  sheets          Int // positive = IN, negative = OUT
+  balanceAfter    Int
+  referenceId     String? // e.g. job/order ID when used
+  notes           String?
+  createdAt       DateTime             @default(now())
+
+  @@index([createdAt])
+}
+
+enum InHouseStickerTxType {
+  STOCK_IN // sheets added to stock
+  USED // sheets consumed for in-house jobs
+  ADJUSTMENT // manual correction
+}

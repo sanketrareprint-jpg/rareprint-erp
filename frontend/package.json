@@ -1,0 +1,42 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start",
+    "test:e2e": "node scripts/check-playwright-base-url.js && playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "lint": "eslint",
+    "build:android": "CAPACITOR_BUILD=1 next build && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:run": "npx cap run android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/keyboard": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
+    "@tanstack/react-query": "^5.97.0",
+    "axios": "^1.15.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.8.0",
+    "next": "16.2.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.4",
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

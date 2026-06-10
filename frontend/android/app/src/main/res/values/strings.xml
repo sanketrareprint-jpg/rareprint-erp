@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RarePrint</string>
+    <string name="title_activity_main">RarePrint</string>
+    <string name="package_name">com.rareprint.crm</string>
+    <string name="custom_url_scheme">com.rareprint.crm</string>
+</resources>

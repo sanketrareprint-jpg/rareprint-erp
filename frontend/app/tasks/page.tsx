@@ -1,0 +1,468 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DashboardShell } from "@/components/dashboard-shell";
+import { API_BASE_URL } from "@/lib/api";
+import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
+import { CheckCircle2, Clock, Heart, Loader2, Pencil, Plus, Save, Sprout, Target, UserCheck, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+type UserOption = { id: string; fullName: string; email: string; role: string };
+type Task = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+  goalHorizon: "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+  dueDate?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  createdBy: { id: string; fullName: string; role: string };
+  assignedTo: { id: string; fullName: string; role: string };
+};
+type TaskView = "assigned" | "created" | "all";
+type TaskFilter = "ACTIVE" | "ALL" | Task["status"];
+type QuadrantFilter = "ALL" | Task["priority"];
+type GoalHorizonFilter = "ALL" | Task["goalHorizon"];
+type FormState = {
+  title: string;
+  description: string;
+  assignedToId: string;
+  priority: Task["priority"];
+  goalHorizon: Task["goalHorizon"];
+  dueDate: string;
+};
+
+const statusLabels: Record<Task["status"], string> = {
+  OPEN: "Open",
+  IN_PROGRESS: "In Progress",
+  DONE: "Done",
+  CANCELLED: "Cancelled",
+};
+
+const priorityClass: Record<Task["priority"], string> = {
+  LOW: "bg-slate-100 text-slate-600",
+  NORMAL: "bg-amber-50 text-amber-700",
+  HIGH: "bg-emerald-50 text-emerald-700",
+  URGENT: "bg-red-50 text-red-700",
+};
+const priorityLabels: Record<Task["priority"], string> = {
+  LOW: "Q4: Waste",
+  NORMAL: "Q3: Interruptions",
+  HIGH: "Q2: Growth",
+  URGENT: "Q1: Crisis",
+};
+const priorityHelp: Record<Task["priority"], string> = {
+  URGENT: "Urgent and important",
+  HIGH: "Important, not urgent",
+  NORMAL: "Urgent, not important",
+  LOW: "Not urgent, not important",
+};
+const priorityRank: Record<Task["priority"], number> = {
+  URGENT: 0,
+  HIGH: 1,
+  NORMAL: 2,
+  LOW: 3,
+};
+const quadrantOrder: Task["priority"][] = ["URGENT", "HIGH", "NORMAL", "LOW"];
+const goalHorizonOrder: Task["goalHorizon"][] = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"];
+const goalHorizonLabels: Record<Task["goalHorizon"], string> = {
+  WEEKLY: "Weekly Goal",
+  MONTHLY: "Monthly Goal",
+  QUARTERLY: "Quarterly Goal",
+  YEARLY: "Yearly Goal",
+};
+const goalHorizonHelp: Record<Task["goalHorizon"], string> = {
+  WEEKLY: "This week execution",
+  MONTHLY: "Monthly outcomes",
+  QUARTERLY: "90-day priorities",
+  YEARLY: "Annual direction",
+};
+const lifeGoals = [
+  { label: "Live", helper: "Health, energy, cash flow, production basics", icon: Target, color: "text-blue-700 bg-blue-50" },
+  { label: "Love", helper: "Team trust, customer care, family commitments", icon: Heart, color: "text-rose-700 bg-rose-50" },
+  { label: "Learn", helper: "Training, systems, experiments, better process", icon: Sprout, color: "text-emerald-700 bg-emerald-50" },
+  { label: "Legacy", helper: "Brand, culture, SOPs, long-term capability", icon: CheckCircle2, color: "text-violet-700 bg-violet-50" },
+];
+
+export default function TasksPage() {
+  const router = useRouter();
+  const [currentUser] = useState(() => getStoredUser());
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [view, setView] = useState<TaskView>("assigned");
+  const [status, setStatus] = useState<TaskFilter>("ACTIVE");
+  const [quadrantFilter, setQuadrantFilter] = useState<QuadrantFilter>("ALL");
+  const [goalHorizonFilter, setGoalHorizonFilter] = useState<GoalHorizonFilter>("ALL");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editForm, setEditForm] = useState<FormState>({
+    title: "",
+    description: "",
+    assignedToId: "",
+    priority: "NORMAL",
+    goalHorizon: "WEEKLY",
+    dueDate: "",
+  });
+  const [form, setForm] = useState<FormState>({
+    title: "",
+    description: "",
+    assignedToId: currentUser?.id ?? "",
+    priority: "NORMAL",
+    goalHorizon: "WEEKLY",
+    dueDate: "",
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ view, status });
+      const [taskRes, userRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/tasks?${params}`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/tasks/users`, { headers: getAuthHeaders() }),
+      ]);
+      if (taskRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+      setTasks(taskRes.ok ? await taskRes.json() : []);
+      const userList = userRes.ok ? await userRes.json() : [];
+      const userOptions = currentUser && !userList.some((user: UserOption) => user.id === currentUser.id)
+        ? [{ id: currentUser.id, fullName: currentUser.fullName, email: currentUser.email, role: currentUser.role }, ...userList]
+        : userList;
+      setUsers(userOptions);
+      setForm(prev => ({ ...prev, assignedToId: prev.assignedToId || currentUser?.id || userList[0]?.id || "" }));
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser, router, status, view]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const counts = useMemo(() => ({
+    open: tasks.filter(t => t.status === "OPEN").length,
+    progress: tasks.filter(t => t.status === "IN_PROGRESS").length,
+    done: tasks.filter(t => t.status === "DONE").length,
+  }), [tasks]);
+  const taskMatchesFilter = useCallback((task: Task) => {
+    if (status === "ACTIVE") return task.status !== "DONE";
+    if (status === "ALL") return true;
+    return task.status === status;
+  }, [status]);
+  const sortedTasks = useMemo(() => (
+    [...tasks].sort((a, b) => {
+      const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      const dueA = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const dueB = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      if (dueA !== dueB) return dueA - dueB;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    })
+  ), [tasks]);
+  const visibleTasks = useMemo(() => (
+    sortedTasks.filter(task => {
+      const matchesQuadrant = quadrantFilter === "ALL" || task.priority === quadrantFilter;
+      const matchesGoalHorizon = goalHorizonFilter === "ALL" || task.goalHorizon === goalHorizonFilter;
+      return matchesQuadrant && matchesGoalHorizon;
+    })
+  ), [goalHorizonFilter, quadrantFilter, sortedTasks]);
+  const quadrantCounts = useMemo(() => (
+    quadrantOrder.reduce((acc, priority) => {
+      acc[priority] = tasks.filter(task => task.priority === priority && task.status !== "DONE").length;
+      return acc;
+    }, {} as Record<Task["priority"], number>)
+  ), [tasks]);
+  const goalHorizonCounts = useMemo(() => (
+    goalHorizonOrder.reduce((acc, goalHorizon) => {
+      acc[goalHorizon] = tasks.filter(task => task.goalHorizon === goalHorizon && task.status !== "DONE").length;
+      return acc;
+    }, {} as Record<Task["goalHorizon"], number>)
+  ), [tasks]);
+
+  async function createTask() {
+    if (!form.title.trim()) { alert("Task title is required"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title,
+          description: form.description || undefined,
+          assignedToId: form.assignedToId || currentUser?.id,
+          priority: form.priority,
+          goalHorizon: form.goalHorizon,
+          dueDate: form.dueDate || undefined,
+        }),
+      });
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message || "Could not create task"); return; }
+      setForm({ title: "", description: "", assignedToId: currentUser?.id ?? "", priority: "NORMAL", goalHorizon: "WEEKLY", dueDate: "" });
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateTask(id: string, patch: Partial<Task>) {
+    const res = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) { alert("Could not update task"); return; }
+    const updated = await res.json();
+    setTasks(prev => {
+      const next = prev.map(task => task.id === id ? updated : task);
+      return taskMatchesFilter(updated) ? next : next.filter(task => task.id !== id);
+    });
+  }
+
+  function startEdit(task: Task) {
+    setEditingId(task.id);
+    setEditForm({
+      title: task.title,
+      description: task.description ?? "",
+      assignedToId: task.assignedTo.id,
+      priority: task.priority,
+      goalHorizon: task.goalHorizon,
+      dueDate: task.dueDate ? task.dueDate.slice(0, 10) : "",
+    });
+  }
+
+  async function saveEdit(taskId: string) {
+    if (!editForm.title.trim()) { alert("Task title is required"); return; }
+    setEditSaving(true);
+    try {
+      await updateTask(taskId, {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        assignedToId: editForm.assignedToId,
+        priority: editForm.priority,
+        goalHorizon: editForm.goalHorizon,
+        dueDate: editForm.dueDate,
+      } as Partial<Task>);
+      setEditingId(null);
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  return (
+    <DashboardShell>
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:p-6 lg:overflow-hidden">
+        <div className="flex flex-none flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Tasks</h1>
+            <p className="text-sm text-slate-500">Create work, assign it to a user, and track what is assigned to you.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2"><p className="font-bold text-slate-900">{counts.open}</p><p className="text-slate-500">Open</p></div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2"><p className="font-bold text-blue-700">{counts.progress}</p><p className="text-slate-500">Progress</p></div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2"><p className="font-bold text-green-700">{counts.done}</p><p className="text-slate-500">Done</p></div>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 gap-4 lg:flex-1 lg:grid-cols-[360px_1fr]">
+          <div className="self-start rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <Plus className="h-4 w-4 text-blue-600" />
+              <h2 className="font-semibold text-slate-900">New Task</h2>
+            </div>
+            <div className="space-y-3">
+              <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Task title" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Details, role, outcome, or weekly goal" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Assigned To</label>
+                <select value={form.assignedToId} onChange={e => setForm(p => ({ ...p, assignedToId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                  {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">Defaults to the user currently using ERP.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                  {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
+                </select>
+                <select value={form.goalHorizon} onChange={e => setForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
+                  {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+              <div>
+                <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
+              </div>
+              <button onClick={createTask} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Create Task
+              </button>
+            </div>
+
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Target className="h-4 w-4 text-emerald-600" />
+                <h2 className="text-sm font-semibold text-slate-900">Habit 3 Focus</h2>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {lifeGoals.map(goal => {
+                  const Icon = goal.icon;
+                  return (
+                    <div key={goal.label} className="rounded-lg border border-slate-200 p-2">
+                      <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-800">
+                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md ${goal.color}`}><Icon className="h-3.5 w-3.5" /></span>
+                        {goal.label}
+                      </div>
+                      <p className="text-slate-500">{goal.helper}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-col gap-3">
+            <div className="grid flex-none gap-2 md:grid-cols-4">
+              {goalHorizonOrder.map(goalHorizon => (
+                <button
+                  key={goalHorizon}
+                  type="button"
+                  onClick={() => setGoalHorizonFilter(prev => prev === goalHorizon ? "ALL" : goalHorizon)}
+                  className={`rounded-lg border px-3 py-2 text-left transition hover:border-blue-300 hover:shadow-sm ${
+                    goalHorizonFilter === goalHorizon ? "border-blue-500 bg-blue-50 ring-1 ring-blue-200" : "border-slate-200 bg-white"
+                  }`}
+                  title={`Show ${goalHorizonLabels[goalHorizon]} tasks`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-slate-900">{goalHorizonLabels[goalHorizon]}</p>
+                    <span className="text-sm font-bold text-slate-900">{goalHorizonCounts[goalHorizon] ?? 0}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{goalHorizonHelp[goalHorizon]}</p>
+                </button>
+              ))}
+            </div>
+            <div className="grid flex-none gap-2 md:grid-cols-4">
+              {quadrantOrder.map(priority => (
+                <button
+                  key={priority}
+                  type="button"
+                  onClick={() => setQuadrantFilter(prev => prev === priority ? "ALL" : priority)}
+                  className={`rounded-lg border px-3 py-2 text-left transition hover:border-blue-300 hover:shadow-sm ${
+                    quadrantFilter === priority
+                      ? "border-blue-500 bg-blue-50 ring-1 ring-blue-200"
+                      : priority === "HIGH"
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-slate-200 bg-white"
+                  }`}
+                  title={`Show ${priorityLabels[priority]} tasks`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-slate-900">{priorityLabels[priority]}</p>
+                    <span className="text-sm font-bold text-slate-900">{quadrantCounts[priority] ?? 0}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{priorityHelp[priority]}</p>
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-none flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              {[
+                ["assigned", "My Assigned"],
+                ["created", "Created By Me"],
+                ...(currentUser?.role === "ADMIN" ? [["all", "All Tasks"]] : []),
+              ].map(([key, label]) => (
+                <button key={key} onClick={() => setView(key as TaskView)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === key ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>{label}</button>
+              ))}
+              <select value={status} onChange={e => setStatus(e.target.value as TaskFilter)} className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold outline-none">
+                <option value="ACTIVE">Active Tasks</option>
+                <option value="DONE">History</option>
+                <option value="ALL">All Status</option>
+                {Object.entries(statusLabels)
+                  .filter(([value]) => value !== "DONE")
+                  .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              {quadrantFilter !== "ALL" && (
+                <button onClick={() => setQuadrantFilter("ALL")} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                  Clear {priorityLabels[quadrantFilter]}
+                </button>
+              )}
+              {goalHorizonFilter !== "ALL" && (
+                <button onClick={() => setGoalHorizonFilter("ALL")} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                  Clear {goalHorizonLabels[goalHorizonFilter]}
+                </button>
+              )}
+            </div>
+
+            {loading ? (
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+            ) : visibleTasks.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
+                <p>{quadrantFilter !== "ALL" ? `No ${priorityLabels[quadrantFilter]} tasks found.` : goalHorizonFilter !== "ALL" ? `No ${goalHorizonLabels[goalHorizonFilter]} tasks found.` : status === "DONE" ? "No completed tasks in history." : "No tasks found."}</p>
+                {(quadrantFilter !== "ALL" || goalHorizonFilter !== "ALL") && (
+                  <button onClick={() => { setQuadrantFilter("ALL"); setGoalHorizonFilter("ALL"); }} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                    Show All Tasks
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-4">
+                {visibleTasks.map(task => (
+                  <div key={task.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                    {editingId === task.id ? (
+                      <div className="space-y-2">
+                        <div className="grid gap-2 md:grid-cols-[1fr_160px]">
+                          <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Task subject" className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-400" />
+                          <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
+                            {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
+                          </select>
+                        </div>
+                        <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                        <div className="grid gap-2 md:grid-cols-[1fr_160px_160px]">
+                          <select value={editForm.assignedToId} onChange={e => setEditForm(p => ({ ...p, assignedToId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
+                            {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
+                          </select>
+                          <select value={editForm.goalHorizon} onChange={e => setEditForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
+                            {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
+                          <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none" />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingId(null)} disabled={editSaving} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                            <X className="h-3.5 w-3.5" /> Cancel
+                          </button>
+                          <button onClick={() => saveEdit(task.id)} disabled={editSaving} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                            {editSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
+                        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{goalHorizonLabels[task.goalHorizon]}</span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-semibold text-slate-900 truncate">{task.title}</span>
+                          <span className="ml-2 text-xs text-slate-400 truncate hidden md:inline">
+                            <UserCheck className="inline h-3 w-3 mb-0.5" /> {task.assignedTo.fullName}
+                            <span className="mx-1">·</span>Created: {task.createdBy.fullName}
+                            {task.dueDate && <><span className="mx-1">·</span><Clock className="inline h-3 w-3 mb-0.5" /> {new Date(task.dueDate).toLocaleDateString("en-IN")}</>}
+                            {task.completedAt && <><span className="mx-1">·</span><CheckCircle2 className="inline h-3 w-3 mb-0.5" /> {new Date(task.completedAt).toLocaleDateString("en-IN")}</>}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button onClick={() => startEdit(task)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                            <Pencil className="h-3 w-3" /> Edit
+                          </button>
+                          <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold outline-none">
+                            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
+                          <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
+                            <CheckCircle2 className="h-3 w-3" /> Done
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </DashboardShell>
+  );
+}

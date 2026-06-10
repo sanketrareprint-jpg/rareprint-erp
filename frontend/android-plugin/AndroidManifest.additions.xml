@@ -1,0 +1,40 @@
+<!--
+  PASTE THESE PERMISSIONS into android/app/src/main/AndroidManifest.xml
+  INSIDE the <manifest> tag, BEFORE the <application> tag.
+  The setup-android.sh script does this automatically.
+-->
+
+<!-- ── Phone call permissions ─────────────────────────────────────── -->
+
+<!-- Make phone calls directly (ACTION_CALL) -->
+<uses-permission android:name="android.permission.CALL_PHONE" />
+
+<!-- Detect call state: ringing / answered / ended -->
+<uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+<!-- Read system call log to auto-fill call outcomes -->
+<uses-permission android:name="android.permission.READ_CALL_LOG" />
+<uses-permission android:name="android.permission.WRITE_CALL_LOG" />
+
+<!-- ── Overlay / display-over-other-apps ──────────────────────────── -->
+
+<!-- Show floating CRM card on top of the phone dialer -->
+<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+<!-- Required to run OverlayService as a foreground service on Android 9+ -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"
+    tools:targetApi="34" />
+
+<!-- ── Network (already added by Capacitor — listed here for clarity) -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+<!--
+  ALSO ADD inside <application> tag (the setup script does this too):
+
+  <service
+      android:name="com.rareprint.crm.OverlayService"
+      android:exported="false"
+      android:foregroundServiceType="phoneCall" />
+-->
