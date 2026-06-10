@@ -34,6 +34,14 @@ type QuoteInputParams = {
   stickerW?: number;
   stickerH?: number;
   stickerType?: string;
+  halfCut?: boolean;
+  nonWovenSize?: string;
+  nonWovenPrintMode?: string;
+  dotMatrixSize?: string;
+  dotMatrixGsm?: number;
+  carbonCopy?: boolean;
+  keychainNumber?: string;
+  penNumber?: string;
 };
 type Result = {
   breakdown: BreakdownRow[];
@@ -64,6 +72,12 @@ type Result = {
     stickersPerSheet: number;
     sheetsNeeded: number;
     selectedType: "plain" | "nontearable";
+    halfCut?: boolean;
+    halfCutPct?: number;
+    plainBaseSubtotal?: number;
+    nonTearableBaseSubtotal?: number;
+    plainHalfCutCost?: number;
+    nonTearableHalfCutCost?: number;
     plainSheetRate: number;
     nonTearableSheetRate: number;
     plainSubtotal: number;
@@ -140,6 +154,14 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
                 fixedInfo: "PP file pricing uses quantity tiers, GST, clip and pocket options." },
   diagnosticbag: { label: "X-ray / CT Scan Bags",
                 fixedInfo: "Small = X-ray bag 10.5x16 inch. Big = CT scan bag 16x21 inch." },
+  nonwovenbag: { label: "Non Woven Bag",
+                fixedInfo: "Choose bag size and single color or multicolor. Multicolor adds the master extra per bag." },
+  dotmatrixbill: { label: "Dot Matrix Bill",
+                fixedInfo: "Choose size, GSM and carbon-copy option." },
+  keychain:   { label: "Keychain",
+                fixedInfo: "Choose keychain number from the master rate list." },
+  pen:        { label: "Pen",
+                fixedInfo: "Choose pen number from the master rate list." },
   sticker:     { label: "Sticker",
                 fixedInfo: "In-house uses 12×18 sheets with 11.5×17.5 printable area. Clubbing is only plain stickers above 1000 pcs and 6 sq inch block area." },
   file:       { label: "Files with Punching",
@@ -204,6 +226,7 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
       const sticker = result.sticker;
       details.push(`Sticker Size: ${inputParams.stickerW || 0} x ${inputParams.stickerH || 0} inch`);
       details.push(`Sticker Type: ${inputParams.stickerType === "nontearable" ? "Non Tearable" : "Plain"}`);
+      details.push(`Half Cutting: ${inputParams.halfCut ? `Yes${sticker?.halfCutPct ? ` (${sticker.halfCutPct}%)` : ""}` : "No"}`);
       if (sticker) {
         details.push(`Area: ${sticker.area.toFixed(2)} sq inch each`);
         details.push(`Sheet Layout: ${sticker.columns} x ${sticker.rows} = ${sticker.stickersPerSheet} stickers per sheet`);
@@ -217,6 +240,17 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
       details.push(`Pocket: ${inputParams.pocketSides ? `${inputParams.pocketSides} side` : "No Pocket"}`);
     } else if (inputParams.product === "diagnosticbag") {
       details.push(`Bag Type: ${inputParams.bagSize === "big" ? "Big CT Scan Bag (16x21 inch)" : "Small X-ray Bag (10.5x16 inch)"}`);
+    } else if (inputParams.product === "nonwovenbag") {
+      details.push(`Bag Size: ${inputParams.nonWovenSize || ""}`);
+      details.push(`Printing: ${inputParams.nonWovenPrintMode === "multicolor" ? "Multicolor" : "Single Color"}`);
+    } else if (inputParams.product === "dotmatrixbill") {
+      details.push(`Size: ${inputParams.dotMatrixSize || ""}`);
+      details.push(`GSM: ${inputParams.dotMatrixGsm || ""}`);
+      details.push(`Carbon Copy: ${inputParams.carbonCopy ? "Yes" : "No"}`);
+    } else if (inputParams.product === "keychain") {
+      details.push(`Keychain Number: ${inputParams.keychainNumber || ""}`);
+    } else if (inputParams.product === "pen") {
+      details.push(`Pen Number: ${inputParams.penNumber || ""}`);
     } else {
       if (inputParams.sheetsPerUnit) details.push(`Pages per Pad / Book: ${inputParams.sheetsPerUnit}`);
       if (inputParams.fsize) details.push(`Final Size: ${inputParams.fsize}`);
@@ -612,7 +646,7 @@ function StickerProductionCard({ sticker }: {
       <p className="text-sm font-bold text-amber-900 mb-3">Sticker Production</p>
       <p className="text-xs text-amber-700 mb-3">
         {sticker.width}×{sticker.height} inch · {sticker.area.toFixed(2)} sq inch · {sticker.columns}×{sticker.rows} = {sticker.stickersPerSheet}/sheet on {sticker.usableSheet} usable area
-        {sticker.rotated ? " · rotated for better fit" : ""}
+        {sticker.rotated ? " · rotated for better fit" : ""}{sticker.halfCut ? ` · half cutting ${sticker.halfCutPct}%` : ""}
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div className={`rounded-lg border p-3 ${sticker.selectedType === "plain" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
@@ -620,12 +654,14 @@ function StickerProductionCard({ sticker }: {
           <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.plainSheetRate}</p>
           <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.plainTotal)}</p>
           <p className="text-[10px] text-slate-400">Cost {fmt(sticker.plainSubtotal)} × {sticker.plainMultiplier}</p>
+          {sticker.halfCut && <p className="text-[10px] text-green-700">Includes half cut {fmt(sticker.plainHalfCutCost ?? 0)}</p>}
         </div>
         <div className={`rounded-lg border p-3 ${sticker.selectedType === "nontearable" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Non Tearable In-house</p>
           <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.nonTearableSheetRate}</p>
           <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.nonTearableTotal)}</p>
           <p className="text-[10px] text-slate-400">Cost {fmt(sticker.nonTearableSubtotal)} × {sticker.nonTearableMultiplier}</p>
+          {sticker.halfCut && <p className="text-[10px] text-green-700">Includes half cut {fmt(sticker.nonTearableHalfCutCost ?? 0)}</p>}
         </div>
         <div className={`rounded-lg border p-3 ${sticker.clubbingEligible ? "border-purple-300 bg-white" : "border-slate-200 bg-slate-50"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Clubbing Plain</p>
@@ -833,6 +869,14 @@ export default function RateCalculatorPage() {
   const [rStickerW, setRStickerW] = useState(2);
   const [rStickerH, setRStickerH] = useState(3);
   const [rStickerType, setRStickerType] = useState<"plain" | "nontearable">("plain");
+  const [rStickerHalfCut, setRStickerHalfCut] = useState(false);
+  const [rNonWovenSize, setRNonWovenSize] = useState("12x15");
+  const [rNonWovenPrintMode, setRNonWovenPrintMode] = useState<"single" | "multicolor">("single");
+  const [rDotMatrixSize, setRDotMatrixSize] = useState("4x6");
+  const [rDotMatrixGsm, setRDotMatrixGsm] = useState(70);
+  const [rCarbonCopy, setRCarbonCopy] = useState(false);
+  const [rKeychainNumber, setRKeychainNumber] = useState("KC1");
+  const [rPenNumber, setRPenNumber] = useState("PEN1");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
   // Auto-set size/parent when product changes
@@ -843,6 +887,7 @@ export default function RateCalculatorPage() {
       setRStickerW(2);
       setRStickerH(3);
       setRStickerType("plain");
+      setRStickerHalfCut(false);
       return;
     }
     if (rProduct === "ppfile") {
@@ -856,6 +901,29 @@ export default function RateCalculatorPage() {
     if (rProduct === "diagnosticbag") {
       setRQty(1000);
       setRBagSize("small");
+      return;
+    }
+    if (rProduct === "nonwovenbag") {
+      setRQty(1000);
+      setRNonWovenSize("12x15");
+      setRNonWovenPrintMode("single");
+      return;
+    }
+    if (rProduct === "dotmatrixbill") {
+      setRQty(1000);
+      setRDotMatrixSize("4x6");
+      setRDotMatrixGsm(70);
+      setRCarbonCopy(false);
+      return;
+    }
+    if (rProduct === "keychain") {
+      setRQty(1000);
+      setRKeychainNumber("KC1");
+      return;
+    }
+    if (rProduct === "pen") {
+      setRQty(1000);
+      setRPenNumber("PEN1");
       return;
     }
     if (cfg?.fixedSize)   setRSize(cfg.fixedSize);
@@ -901,7 +969,10 @@ export default function RateCalculatorPage() {
   const stickerSheetsNeeded = stickerBestFit.perSheet > 0 ? Math.ceil(rQty / stickerBestFit.perSheet) : 0;
   const stickerPlainCost = stickerSheetsNeeded * 13;
   const stickerNonTearableCost = stickerSheetsNeeded * 19;
-  const stickerSelectedCost = rStickerType === "nontearable" ? stickerNonTearableCost : stickerPlainCost;
+  const stickerHalfCutPct = Number(rates?.sticker?.halfCutPct ?? 30);
+  const stickerSelectedBaseCost = rStickerType === "nontearable" ? stickerNonTearableCost : stickerPlainCost;
+  const stickerHalfCutCost = rStickerHalfCut ? stickerSelectedBaseCost * stickerHalfCutPct / 100 : 0;
+  const stickerSelectedCost = stickerSelectedBaseCost + stickerHalfCutCost;
   const stickerAutoMultiplier = getStickerMultiplier(stickerSelectedCost);
   const stickerClubCols = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(5 / rStickerW));
   const stickerClubRows = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(6 / (stickerClubCols * stickerArea)));
@@ -1041,6 +1112,14 @@ export default function RateCalculatorPage() {
       clip: rPpClip, pocketSides: rPpPocketSides,
       bagSize: rBagSize,
       stickerW: rStickerW, stickerH: rStickerH, stickerType: rStickerType,
+      halfCut: rProduct === "sticker" ? rStickerHalfCut : undefined,
+      nonWovenSize: rNonWovenSize,
+      nonWovenPrintMode: rNonWovenPrintMode,
+      dotMatrixSize: rDotMatrixSize,
+      dotMatrixGsm: rDotMatrixGsm,
+      carbonCopy: rCarbonCopy,
+      keychainNumber: rKeychainNumber,
+      penNumber: rPenNumber,
       multiplier: rProduct === "sticker" ? undefined : (rMult !== "" ? rMult : undefined),
       customer: rCustomer,
     };
@@ -1137,6 +1216,24 @@ export default function RateCalculatorPage() {
   const bagGstPct = bagRates?.gstPct ?? 18;
   const bagMult = rMult !== "" ? rMult : (bagRates?.multiplier ?? 1.67);
   const bagPreviewPerPiece = bagBaseRate * (1 + bagGstPct / 100) * bagMult;
+  const nonWovenRates = rates?.nonWovenBag;
+  const nonWovenBaseRate = Number(nonWovenRates?.sizeRates?.[rNonWovenSize] ?? 0);
+  const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 2) : 0;
+  const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 1.67);
+  const nonWovenPreviewPerBag = (nonWovenBaseRate + nonWovenExtraRate) * nonWovenMult;
+  const dotMatrixRates = rates?.dotMatrixBill;
+  const dotMatrixBaseRate = Number(dotMatrixRates?.sizeRates?.[rDotMatrixSize]?.[rDotMatrixGsm] ?? 0);
+  const dotMatrixCarbonRate = rCarbonCopy ? Number(dotMatrixRates?.carbonCopyExtraPerBook ?? 8) : 0;
+  const dotMatrixMult = rMult !== "" ? rMult : (dotMatrixRates?.multiplier ?? 1.67);
+  const dotMatrixPreviewPerBook = (dotMatrixBaseRate + dotMatrixCarbonRate) * dotMatrixMult;
+  const keychainRates = rates?.keychain;
+  const keychainBaseRate = Number(keychainRates?.numberRates?.[rKeychainNumber] ?? 0);
+  const keychainMult = rMult !== "" ? rMult : (keychainRates?.multiplier ?? 1.67);
+  const keychainPreviewPerPiece = keychainBaseRate * keychainMult;
+  const penRates = rates?.pen;
+  const penBaseRate = Number(penRates?.numberRates?.[rPenNumber] ?? 0);
+  const penMult = rMult !== "" ? rMult : (penRates?.multiplier ?? 1.67);
+  const penPreviewPerPiece = penBaseRate * penMult;
 
   return (
     <DashboardShell>
@@ -1300,7 +1397,7 @@ export default function RateCalculatorPage() {
                 )}
                 {rProduct === "sticker" ? (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                       <Field label="Quantity">
                         <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
                       </Field>
@@ -1316,13 +1413,19 @@ export default function RateCalculatorPage() {
                           <option value="nontearable">Non Tearable</option>
                         </Select>
                       </Field>
+                      <Field label={`Half Cutting (${stickerHalfCutPct}%)`}>
+                        <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
+                          <input type="checkbox" checked={rStickerHalfCut} onChange={e => setRStickerHalfCut(e.target.checked)} />
+                          Apply
+                        </label>
+                      </Field>
                     </div>
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                       <strong>{rQty.toLocaleString()} stickers</strong> · {stickerArea.toFixed(2)} sq inch each → open sheet <strong>12×18"</strong>, usable <strong>11.5×17.5"</strong> →{" "}
                       {stickerBestFit.perSheet > 0 ? (
                         <>
                           <strong>{stickerBestFit.cols}×{stickerBestFit.rows} = {stickerBestFit.perSheet}/sheet</strong>{stickerBestFit.rotated ? " (rotated)" : ""} → <strong>{stickerSheetsNeeded.toLocaleString()} sheets</strong>
-                          {" "}· cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
+                          {" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
                         </>
                       ) : (
                         <span className="text-amber-600 font-semibold">size does not fit usable area</span>
@@ -1401,6 +1504,99 @@ export default function RateCalculatorPage() {
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                       <strong>{rQty.toLocaleString()} {rBagSize === "big" ? "CT scan bags" : "X-ray bags"}</strong> → tier <strong>{bagTier.toLocaleString()}</strong> → base <strong>{fmt(bagBaseRate)}</strong>/bag
                       {" + "}GST {bagGstPct}% × multiplier {bagMult} → approx <strong>{fmt(bagPreviewPerPiece)}</strong>/bag
+                    </div>
+                  </>
+                ) : rProduct === "nonwovenbag" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Bag Size">
+                        <Select value={rNonWovenSize} onChange={e => setRNonWovenSize(e.target.value)}>
+                          {Object.keys(nonWovenRates?.sizeRates ?? { "9x12": 8, "10x14": 10, "12x15": 12, "12x18": 14, "16x21": 18 }).map(size => (
+                            <option key={size} value={size}>{size}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Printing">
+                        <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
+                          <option value="single">Single Color</option>
+                          <option value="multicolor">Multicolor (+Rs.{nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)</option>
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} bags</strong> → base <strong>{fmt(nonWovenBaseRate)}</strong>/bag
+                      {nonWovenExtraRate > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraRate)}</strong>/bag</> : ""} × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
+                    </div>
+                  </>
+                ) : rProduct === "dotmatrixbill" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Size">
+                        <Select value={rDotMatrixSize} onChange={e => setRDotMatrixSize(e.target.value)}>
+                          {Object.keys(dotMatrixRates?.sizeRates ?? { "4x6": {}, "7.5x4": {}, "8.5x11": {} }).map(size => (
+                            <option key={size} value={size}>{size}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="GSM">
+                        <Select value={rDotMatrixGsm} onChange={e => setRDotMatrixGsm(+e.target.value)}>
+                          {Object.keys(dotMatrixRates?.sizeRates?.[rDotMatrixSize] ?? { 60: 0, 70: 0, 80: 0, 100: 0 }).map(gsm => (
+                            <option key={gsm} value={gsm}>{gsm} GSM</option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Carbon Copy">
+                        <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
+                          <input type="checkbox" checked={rCarbonCopy} onChange={e => setRCarbonCopy(e.target.checked)} />
+                          Add carbon
+                        </label>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} books</strong> → base <strong>{fmt(dotMatrixBaseRate)}</strong>/book
+                      {rCarbonCopy ? <> + carbon <strong>{fmt(dotMatrixCarbonRate)}</strong>/book</> : ""} × multiplier {dotMatrixMult} → approx <strong>{fmt(dotMatrixPreviewPerBook)}</strong>/book
+                    </div>
+                  </>
+                ) : rProduct === "keychain" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Keychain Number">
+                        <Select value={rKeychainNumber} onChange={e => setRKeychainNumber(e.target.value)}>
+                          {Object.keys(keychainRates?.numberRates ?? { KC1: 12, KC2: 14, KC3: 16, KC4: 18, KC5: 20 }).map(number => (
+                            <option key={number} value={number}>{number}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} keychains</strong> → base <strong>{fmt(keychainBaseRate)}</strong>/pc × multiplier {keychainMult} → approx <strong>{fmt(keychainPreviewPerPiece)}</strong>/pc
+                    </div>
+                  </>
+                ) : rProduct === "pen" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Pen Number">
+                        <Select value={rPenNumber} onChange={e => setRPenNumber(e.target.value)}>
+                          {Object.keys(penRates?.numberRates ?? { PEN1: 6, PEN2: 7, PEN3: 8, PEN4: 9, PEN5: 10 }).map(number => (
+                            <option key={number} value={number}>{number}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} pens</strong> → base <strong>{fmt(penBaseRate)}</strong>/pc × multiplier {penMult} → approx <strong>{fmt(penPreviewPerPiece)}</strong>/pc
                     </div>
                   </>
                 ) : (
@@ -1623,6 +1819,92 @@ export default function RateCalculatorPage() {
                   <Field label="Bag Multiplier (×)">
                     <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
                   </Field>
+                </div>
+              </Card>
+
+              <Card title="Sticker Rates">
+                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
+                  Half cutting is applied only when the Sticker calculator checkbox is selected. It is added on the selected sticker base cost before the auto multiplier.
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Field label="Half Cutting Extra (%)">
+                    <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
+                  </Field>
+                </div>
+              </Card>
+
+              <Card title="Non Woven Bag Rates">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  <Field label="Multiplier (×)">
+                    <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
+                  </Field>
+                  <Field label="Multicolor Extra (₹/bag)">
+                    <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
+                  </Field>
+                </div>
+                <DynamicRateSection
+                  data={rates.nonWovenBag?.sizeRates ?? {}}
+                  onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), sizeRates: d } }))}
+                  step={0.01}
+                  addKeyPlaceholder="size (e.g. 12x15)"
+                  addValPlaceholder="₹/bag"
+                  formatLabel={k => k + " Bag"}
+                />
+              </Card>
+
+              <Card title="Dot Matrix Bill Rates">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  <Field label="Multiplier (×)">
+                    <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? 1.67} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
+                  </Field>
+                  <Field label="Carbon Copy Extra (₹/book)">
+                    <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? 8} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
+                  </Field>
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(rates.dotMatrixBill?.sizeRates ?? {}).map(([size, gsmRates]) => (
+                    <div key={size} className="rounded-lg border border-slate-200 p-2">
+                      <p className="text-xs font-bold text-slate-600 mb-2">{size}</p>
+                      <DynamicRateSection
+                        data={gsmRates as Record<string, number>}
+                        onUpdate={d => setRates((prev: any) => ({ ...prev, dotMatrixBill: { ...(prev.dotMatrixBill ?? {}), sizeRates: { ...(prev.dotMatrixBill?.sizeRates ?? {}), [size]: d } } }))}
+                        step={0.01}
+                        addKeyPlaceholder="gsm"
+                        addValPlaceholder="₹/book"
+                        formatLabel={k => k + " GSM"}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card title="Keychain Rates">
+                <Field label="Multiplier (×)">
+                  <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? 1.67} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
+                </Field>
+                <div className="mt-3">
+                  <DynamicRateSection
+                    data={rates.keychain?.numberRates ?? {}}
+                    onUpdate={d => setRates((prev: any) => ({ ...prev, keychain: { ...(prev.keychain ?? {}), numberRates: d } }))}
+                    step={0.01}
+                    addKeyPlaceholder="number (e.g. KC6)"
+                    addValPlaceholder="₹/pc"
+                  />
+                </div>
+              </Card>
+
+              <Card title="Pen Rates">
+                <Field label="Multiplier (×)">
+                  <Input type="number" step="0.01" value={rates.pen?.multiplier ?? 1.67} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
+                </Field>
+                <div className="mt-3">
+                  <DynamicRateSection
+                    data={rates.pen?.numberRates ?? {}}
+                    onUpdate={d => setRates((prev: any) => ({ ...prev, pen: { ...(prev.pen ?? {}), numberRates: d } }))}
+                    step={0.01}
+                    addKeyPlaceholder="number (e.g. PEN6)"
+                    addValPlaceholder="₹/pc"
+                  />
                 </div>
               </Card>
 

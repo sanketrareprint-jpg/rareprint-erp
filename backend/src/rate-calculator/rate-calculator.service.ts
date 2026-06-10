@@ -81,6 +81,46 @@ const DEFAULT_RATES: any = {
       big: { 1000: 19, 2000: 16.5, 3000: 15.666, 4000: 15.25, 5000: 15, 6000: 14.833, 7000: 14.7142, 8000: 14.625, 9000: 14.5555, 10000: 14.5 },
     },
   },
+  nonWovenBag: {
+    multiplier: 1.67,
+    multicolorExtraPerBag: 2,
+    sizeRates: {
+      '9x12': 8,
+      '10x14': 10,
+      '12x15': 12,
+      '12x18': 14,
+      '16x21': 18,
+    },
+  },
+  dotMatrixBill: {
+    multiplier: 1.67,
+    carbonCopyExtraPerBook: 8,
+    sizeRates: {
+      '4x6': { 60: 18, 70: 20, 80: 22, 100: 25 },
+      '7.5x4': { 60: 20, 70: 22, 80: 24, 100: 28 },
+      '8.5x11': { 60: 35, 70: 38, 80: 42, 100: 48 },
+    },
+  },
+  keychain: {
+    multiplier: 1.67,
+    numberRates: {
+      KC1: 12,
+      KC2: 14,
+      KC3: 16,
+      KC4: 18,
+      KC5: 20,
+    },
+  },
+  pen: {
+    multiplier: 1.67,
+    numberRates: {
+      PEN1: 6,
+      PEN2: 7,
+      PEN3: 8,
+      PEN4: 9,
+      PEN5: 10,
+    },
+  },
   multiplier: 1.67,
 };
 
@@ -390,12 +430,19 @@ export class RateCalculatorService {
       const width = Number(dto.stickerW ?? 0);
       const height = Number(dto.stickerH ?? 0);
       const selectedType = dto.stickerType === 'nontearable' ? 'nontearable' : 'plain';
+      const stickerRates = rates.sticker ?? DEFAULT_RATES.sticker;
+      const halfCut = dto.halfCut === true;
+      const halfCutPct = Number(stickerRates.halfCutPct ?? DEFAULT_RATES.sticker.halfCutPct ?? 30);
       const fit = width > 0 && height > 0 ? this.getStickerSheetFit(width, height) : { perSheet: 0, columns: 0, rows: 0, rotated: false };
       const sheetsNeeded = fit.perSheet > 0 ? Math.ceil(stickerQty / fit.perSheet) : 0;
       const plainSheetRate = 13;
       const nonTearableSheetRate = 19;
-      const plainSubtotal = sheetsNeeded * plainSheetRate;
-      const nonTearableSubtotal = sheetsNeeded * nonTearableSheetRate;
+      const plainBaseSubtotal = sheetsNeeded * plainSheetRate;
+      const nonTearableBaseSubtotal = sheetsNeeded * nonTearableSheetRate;
+      const plainHalfCutCost = halfCut ? plainBaseSubtotal * halfCutPct / 100 : 0;
+      const nonTearableHalfCutCost = halfCut ? nonTearableBaseSubtotal * halfCutPct / 100 : 0;
+      const plainSubtotal = plainBaseSubtotal + plainHalfCutCost;
+      const nonTearableSubtotal = nonTearableBaseSubtotal + nonTearableHalfCutCost;
       const subtotal = selectedType === 'nontearable' ? nonTearableSubtotal : plainSubtotal;
       const multiplier = this.getStickerMultiplier(subtotal);
       const total = subtotal * multiplier;
@@ -408,9 +455,12 @@ export class RateCalculatorService {
       const clubbingTotal = clubbingCost != null && clubbingMultiplier != null ? clubbingCost * clubbingMultiplier : null;
       const breakdown: any[] = [
         { label: `Sticker layout (${fit.columns} x ${fit.rows} = ${fit.perSheet}/sheet on 11.5x17.5 usable area${fit.rotated ? ', rotated' : ''})`, amount: 0 },
-        { label: `Plain sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${plainSheetRate})`, amount: plainSubtotal },
-        { label: `Non tearable sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${nonTearableSheetRate})`, amount: nonTearableSubtotal },
+        { label: `Plain sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${plainSheetRate})`, amount: plainBaseSubtotal },
+        { label: `Non tearable sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${nonTearableSheetRate})`, amount: nonTearableBaseSubtotal },
       ];
+      if (halfCut) {
+        breakdown.push({ label: `Half Cutting (${halfCutPct}% on ${selectedType === 'nontearable' ? 'non tearable' : 'plain'} sticker cost)`, amount: selectedType === 'nontearable' ? nonTearableHalfCutCost : plainHalfCutCost });
+      }
       if (clubbingCost != null) {
         const blockLabel = clubbingBlock && clubbingBlock.stickers > 1
           ? `${clubbingBlock.columns} x ${clubbingBlock.rows} = ${clubbingBlock.stickers} stickers/block, ${clubbingSets.toLocaleString()} blocks`
@@ -423,7 +473,7 @@ export class RateCalculatorService {
         total,
         perPiece: stickerQty > 0 ? total / stickerQty : 0,
         totalPieces: stickerQty,
-        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}`,
+        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}${halfCut ? ' | half cutting' : ''}`,
         multiplier,
         customer,
         sticker: {
@@ -438,6 +488,12 @@ export class RateCalculatorService {
           stickersPerSheet: fit.perSheet,
           sheetsNeeded,
           selectedType,
+          halfCut,
+          halfCutPct,
+          plainBaseSubtotal,
+          nonTearableBaseSubtotal,
+          plainHalfCutCost,
+          nonTearableHalfCutCost,
           plainSheetRate,
           nonTearableSheetRate,
           plainSubtotal,
@@ -521,6 +577,103 @@ export class RateCalculatorService {
         perPiece: bagQty > 0 ? total / bagQty : 0,
         totalPieces: bagQty,
         description: `${bagQty.toLocaleString()} ${bagLabel}s | tier ${tier}`,
+        multiplier,
+        customer,
+      };
+    }
+
+    if (product === 'nonwovenbag') {
+      const nw = rates.nonWovenBag ?? DEFAULT_RATES.nonWovenBag;
+      const bagQty = Number(qty ?? 0);
+      const size = String(dto.nonWovenSize ?? '12x15');
+      const printMode = dto.nonWovenPrintMode === 'multicolor' ? 'multicolor' : 'single';
+      const baseRate = Number(nw.sizeRates?.[size] ?? DEFAULT_RATES.nonWovenBag.sizeRates[size] ?? 10);
+      const extraRate = printMode === 'multicolor' ? Number(nw.multicolorExtraPerBag ?? DEFAULT_RATES.nonWovenBag.multicolorExtraPerBag) : 0;
+      const baseCost = baseRate * bagQty;
+      const extraCost = extraRate * bagQty;
+      const subtotal = baseCost + extraCost;
+      const multiplier = dtoMult ?? nw.multiplier ?? DEFAULT_RATES.nonWovenBag.multiplier;
+      const total = subtotal * multiplier;
+      const breakdown: any[] = [
+        { label: `Non woven bag ${size} (${bagQty.toLocaleString()} bags x Rs.${baseRate})`, amount: baseCost },
+      ];
+      if (extraRate > 0) breakdown.push({ label: `Multicolor extra (${bagQty.toLocaleString()} bags x Rs.${extraRate})`, amount: extraCost });
+      return {
+        breakdown,
+        subtotal,
+        total,
+        perPiece: bagQty > 0 ? total / bagQty : 0,
+        totalPieces: bagQty,
+        description: `${bagQty.toLocaleString()} non woven bags | ${size} | ${printMode === 'multicolor' ? 'multicolor' : 'single color'}`,
+        multiplier,
+        customer,
+      };
+    }
+
+    if (product === 'dotmatrixbill') {
+      const dm = rates.dotMatrixBill ?? DEFAULT_RATES.dotMatrixBill;
+      const billQty = Number(qty ?? 0);
+      const size = String(dto.dotMatrixSize ?? '4x6');
+      const gsm = Number(dto.dotMatrixGsm ?? 70);
+      const carbonCopy = dto.carbonCopy === true;
+      const baseRate = Number(dm.sizeRates?.[size]?.[gsm] ?? DEFAULT_RATES.dotMatrixBill.sizeRates[size]?.[gsm] ?? 20);
+      const carbonRate = carbonCopy ? Number(dm.carbonCopyExtraPerBook ?? DEFAULT_RATES.dotMatrixBill.carbonCopyExtraPerBook) : 0;
+      const baseCost = baseRate * billQty;
+      const carbonCost = carbonRate * billQty;
+      const subtotal = baseCost + carbonCost;
+      const multiplier = dtoMult ?? dm.multiplier ?? DEFAULT_RATES.dotMatrixBill.multiplier;
+      const total = subtotal * multiplier;
+      const breakdown: any[] = [
+        { label: `Dot matrix bill ${size}, ${gsm} GSM (${billQty.toLocaleString()} books x Rs.${baseRate})`, amount: baseCost },
+      ];
+      if (carbonCopy) breakdown.push({ label: `Carbon copy extra (${billQty.toLocaleString()} books x Rs.${carbonRate})`, amount: carbonCost });
+      return {
+        breakdown,
+        subtotal,
+        total,
+        perPiece: billQty > 0 ? total / billQty : 0,
+        totalPieces: billQty,
+        description: `${billQty.toLocaleString()} dot matrix bills | ${size} | ${gsm} GSM | ${carbonCopy ? 'carbon copy' : 'without carbon copy'}`,
+        multiplier,
+        customer,
+      };
+    }
+
+    if (product === 'keychain') {
+      const kc = rates.keychain ?? DEFAULT_RATES.keychain;
+      const keychainQty = Number(qty ?? 0);
+      const number = String(dto.keychainNumber ?? 'KC1');
+      const baseRate = Number(kc.numberRates?.[number] ?? DEFAULT_RATES.keychain.numberRates[number] ?? 12);
+      const subtotal = baseRate * keychainQty;
+      const multiplier = dtoMult ?? kc.multiplier ?? DEFAULT_RATES.keychain.multiplier;
+      const total = subtotal * multiplier;
+      return {
+        breakdown: [{ label: `Keychain ${number} (${keychainQty.toLocaleString()} pcs x Rs.${baseRate})`, amount: subtotal }],
+        subtotal,
+        total,
+        perPiece: keychainQty > 0 ? total / keychainQty : 0,
+        totalPieces: keychainQty,
+        description: `${keychainQty.toLocaleString()} keychains | ${number}`,
+        multiplier,
+        customer,
+      };
+    }
+
+    if (product === 'pen') {
+      const pen = rates.pen ?? DEFAULT_RATES.pen;
+      const penQty = Number(qty ?? 0);
+      const number = String(dto.penNumber ?? 'PEN1');
+      const baseRate = Number(pen.numberRates?.[number] ?? DEFAULT_RATES.pen.numberRates[number] ?? 6);
+      const subtotal = baseRate * penQty;
+      const multiplier = dtoMult ?? pen.multiplier ?? DEFAULT_RATES.pen.multiplier;
+      const total = subtotal * multiplier;
+      return {
+        breakdown: [{ label: `Pen ${number} (${penQty.toLocaleString()} pcs x Rs.${baseRate})`, amount: subtotal }],
+        subtotal,
+        total,
+        perPiece: penQty > 0 ? total / penQty : 0,
+        totalPieces: penQty,
+        description: `${penQty.toLocaleString()} pens | ${number}`,
         multiplier,
         customer,
       };

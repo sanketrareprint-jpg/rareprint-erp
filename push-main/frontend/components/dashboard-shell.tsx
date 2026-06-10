@@ -118,33 +118,40 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* ── Dark navy icon sidebar ── */}
       <aside className="erp-sidebar" style={{
-        width: "72px", minWidth: "72px",
+        width: "116px", minWidth: "116px",
         background: "#1e3a5f",
         display: "flex", flexDirection: "column", alignItems: "center",
         paddingTop: "12px", paddingBottom: "12px",
         height: "100vh", position: "sticky", top: 0,
         overflowY: "auto", overflowX: "hidden",
       }}>
-        {/* Logo */}
+        {/* Logo + Brand */}
         <div style={{
-          width: "44px", height: "44px", background: "#2563eb",
-          borderRadius: "10px", display: "flex", alignItems: "center",
-          justifyContent: "center", marginBottom: "6px", flexShrink: 0,
+          display: "flex", alignItems: "center", gap: "8px",
+          marginBottom: "12px", paddingLeft: "6px", paddingRight: "6px", width: "100%",
         }}>
-          <Printer size={20} color="white" />
+          <div style={{
+            width: "32px", height: "32px", background: "#2563eb", flexShrink: 0,
+            borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Printer size={16} color="white" />
+          </div>
+          <span style={{
+            fontSize: "11px", fontWeight: 700, color: "#93c5fd",
+            letterSpacing: "0.04em", textTransform: "uppercase", lineHeight: 1.1,
+          }}>
+            Rare<br />Print
+          </span>
         </div>
 
-        {/* Brand */}
-        <div style={{
-          fontSize: "7px", fontWeight: 700, color: "#93c5fd",
-          letterSpacing: "0.05em", textTransform: "uppercase",
-          marginBottom: "14px", textAlign: "center", lineHeight: 1.2,
+        {/* Nav — 2-column grid */}
+        <nav style={{
+          flex: 1, display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "3px",
+          width: "100%", padding: "0 4px",
+          alignContent: "start",
         }}>
-          RARE<br />PRINT
-        </div>
-
-        {/* Nav */}
-        <nav style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", width: "100%" }}>
           {navItems.map((item) => {
             const Icon   = item.icon;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -152,7 +159,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <Link key={item.href} href={item.href} className="erp-sidebar-link" style={{
                 display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center",
-                width: "56px", height: "50px", borderRadius: "10px",
+                height: "46px", borderRadius: "8px",
                 background: active ? "#2563eb" : "transparent",
                 color: active ? "#ffffff" : "#93c5fd",
                 textDecoration: "none", gap: "3px",
@@ -161,8 +168,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "#1d4ed8"; (e.currentTarget as HTMLElement).style.color = "#fff"; } }}
                 onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#93c5fd"; } }}
               >
-                <Icon size={17} />
-                <span style={{ fontSize: "9px", fontWeight: 600, textAlign: "center", lineHeight: 1 }}>
+                <Icon size={15} />
+                <span style={{ fontSize: "8px", fontWeight: 600, textAlign: "center", lineHeight: 1.1, maxWidth: "48px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.label}
                 </span>
               </Link>

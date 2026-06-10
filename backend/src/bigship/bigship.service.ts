@@ -810,10 +810,20 @@ export class BigshipService {
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
-      const customOrderId = createData?.data?.CustomGlobalOrderId as string | undefined;
+      // Log full response so we can see the actual field names
+      this.logger.log(`Bigship create-order response: ${JSON.stringify(createData)?.slice(0, 400)}`);
+      const dataPayload = createData?.data ?? createData;
+      const customOrderId = (
+        dataPayload?.CustomGlobalOrderId ??
+        dataPayload?.MasterCustomOrderId ??
+        dataPayload?.custom_order_id ??
+        dataPayload?.order_id ??
+        dataPayload?.id ??
+        String(dataPayload?.orderId ?? '')
+      ) as string | undefined;
       if (!customOrderId) {
-        this.logger.warn(`Bigship: create-order returned no ID: ${JSON.stringify(createData)?.slice(0, 200)}`);
-        return { message: JSON.stringify(createData)?.slice(0, 200) };
+        this.logger.warn(`Bigship: create-order returned no order ID — full response: ${JSON.stringify(createData)?.slice(0, 400)}`);
+        return { message: `Order created in Bigship but ID not found. Response: ${JSON.stringify(createData)?.slice(0, 300)}` };
       }
 
       // ── Step 2: Confirm courier rates (Bigship API requires this before place-order) ──
