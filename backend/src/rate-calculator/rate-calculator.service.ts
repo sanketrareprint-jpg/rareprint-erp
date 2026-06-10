@@ -300,6 +300,13 @@ export class RateCalculatorService {
     return { columns, rows, stickers, area: stickerArea * stickers };
   }
 
+  private getStickerMultiplier(cost: number): number {
+    if (cost < 500) return 4;
+    if (cost < 1000) return 3;
+    if (cost < 3000) return 2;
+    return 1.67;
+  }
+
   // ── Clubbing vendor cost lookup ──────────────────────────────────────────
   private getClubbingCost(clubbing: any, fsize: string, sides: string, qty: number): number | null {
     const sizeRates = clubbing?.rates?.[fsize];
@@ -383,7 +390,6 @@ export class RateCalculatorService {
       const width = Number(dto.stickerW ?? 0);
       const height = Number(dto.stickerH ?? 0);
       const selectedType = dto.stickerType === 'nontearable' ? 'nontearable' : 'plain';
-      const multiplier = dtoMult ?? rates.multiplier ?? DEFAULT_RATES.multiplier;
       const fit = width > 0 && height > 0 ? this.getStickerSheetFit(width, height) : { perSheet: 0, columns: 0, rows: 0, rotated: false };
       const sheetsNeeded = fit.perSheet > 0 ? Math.ceil(stickerQty / fit.perSheet) : 0;
       const plainSheetRate = 13;
@@ -391,13 +397,15 @@ export class RateCalculatorService {
       const plainSubtotal = sheetsNeeded * plainSheetRate;
       const nonTearableSubtotal = sheetsNeeded * nonTearableSheetRate;
       const subtotal = selectedType === 'nontearable' ? nonTearableSubtotal : plainSubtotal;
+      const multiplier = this.getStickerMultiplier(subtotal);
       const total = subtotal * multiplier;
       const area = width * height;
       const clubbingBlock = width > 0 && height > 0 ? this.getStickerClubbingBlock(width, height) : null;
       const clubbingSets = clubbingBlock ? Math.ceil(stickerQty / clubbingBlock.stickers) : 0;
       const clubbingEligible = stickerQty >= 1000 && !!clubbingBlock && clubbingBlock.area >= 6;
       const clubbingCost = clubbingEligible && clubbingBlock ? (clubbingBlock.area * clubbingSets * 0.035) + 150 : null;
-      const clubbingTotal = clubbingCost != null ? clubbingCost * multiplier : null;
+      const clubbingMultiplier = clubbingCost != null ? this.getStickerMultiplier(clubbingCost) : null;
+      const clubbingTotal = clubbingCost != null && clubbingMultiplier != null ? clubbingCost * clubbingMultiplier : null;
       const breakdown: any[] = [
         { label: `Sticker layout (${fit.columns} x ${fit.rows} = ${fit.perSheet}/sheet on 11.5x17.5 usable area${fit.rotated ? ', rotated' : ''})`, amount: 0 },
         { label: `Plain sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${plainSheetRate})`, amount: plainSubtotal },
@@ -434,14 +442,17 @@ export class RateCalculatorService {
           nonTearableSheetRate,
           plainSubtotal,
           nonTearableSubtotal,
-          plainTotal: plainSubtotal * multiplier,
-          nonTearableTotal: nonTearableSubtotal * multiplier,
+          plainMultiplier: this.getStickerMultiplier(plainSubtotal),
+          nonTearableMultiplier: this.getStickerMultiplier(nonTearableSubtotal),
+          plainTotal: plainSubtotal * this.getStickerMultiplier(plainSubtotal),
+          nonTearableTotal: nonTearableSubtotal * this.getStickerMultiplier(nonTearableSubtotal),
           clubbingEligible,
           clubbingBlockColumns: clubbingBlock?.columns ?? 0,
           clubbingBlockRows: clubbingBlock?.rows ?? 0,
           clubbingStickersPerBlock: clubbingBlock?.stickers ?? 0,
           clubbingBlockArea: clubbingBlock?.area ?? 0,
           clubbingSets,
+          clubbingMultiplier,
           clubbingCost,
           clubbingTotal,
           clubbingUnavailableReason: clubbingEligible ? null : (stickerQty < 1000 ? 'Minimum 1000 pcs required for clubbing' : 'Minimum 6 sq inch sticker block area required for clubbing'),

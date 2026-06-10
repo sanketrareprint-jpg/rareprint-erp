@@ -42,6 +42,8 @@ type Result = {
     nonTearableSheetRate: number;
     plainSubtotal: number;
     nonTearableSubtotal: number;
+    plainMultiplier: number;
+    nonTearableMultiplier: number;
     plainTotal: number;
     nonTearableTotal: number;
     clubbingEligible: boolean;
@@ -50,6 +52,7 @@ type Result = {
     clubbingStickersPerBlock: number;
     clubbingBlockArea: number;
     clubbingSets: number;
+    clubbingMultiplier: number | null;
     clubbingCost: number | null;
     clubbingTotal: number | null;
     clubbingUnavailableReason: string | null;
@@ -123,6 +126,13 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
 
 function fmt(n: number) {
   return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function getStickerMultiplier(cost: number) {
+  if (cost < 500) return 4;
+  if (cost < 1000) return 3;
+  if (cost < 3000) return 2;
+  return 1.67;
 }
 
 // Converts type key like "bond70" → "70 GSM Bond", "map90" → "90 GSM Maplitho"
@@ -420,11 +430,9 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
   );
 }
 
-function StickerProductionCard({ sticker, multiplier }: {
+function StickerProductionCard({ sticker }: {
   sticker: NonNullable<Result["sticker"]>;
-  multiplier?: number;
 }) {
-  const mult = multiplier ?? 1.67;
   return (
     <div className="border border-amber-200 rounded-xl p-4 mt-3 bg-amber-50">
       <p className="text-sm font-bold text-amber-900 mb-3">Sticker Production</p>
@@ -437,13 +445,13 @@ function StickerProductionCard({ sticker, multiplier }: {
           <p className="text-xs font-bold text-slate-700 mb-1">Plain In-house</p>
           <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.plainSheetRate}</p>
           <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.plainTotal)}</p>
-          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.plainSubtotal)} × {mult}</p>
+          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.plainSubtotal)} × {sticker.plainMultiplier}</p>
         </div>
         <div className={`rounded-lg border p-3 ${sticker.selectedType === "nontearable" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Non Tearable In-house</p>
           <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.nonTearableSheetRate}</p>
           <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.nonTearableTotal)}</p>
-          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.nonTearableSubtotal)} × {mult}</p>
+          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.nonTearableSubtotal)} × {sticker.nonTearableMultiplier}</p>
         </div>
         <div className={`rounded-lg border p-3 ${sticker.clubbingEligible ? "border-purple-300 bg-white" : "border-slate-200 bg-slate-50"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Clubbing Plain</p>
@@ -455,7 +463,7 @@ function StickerProductionCard({ sticker, multiplier }: {
                   : "Area × qty"} × 0.035 + Rs.150
               </p>
               <p className="text-sm font-extrabold text-purple-800 mt-2">{fmt(sticker.clubbingTotal)}</p>
-              <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {mult}</p>
+              <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {sticker.clubbingMultiplier}</p>
             </>
           ) : (
             <p className="text-xs font-semibold text-slate-400 mt-2">Nil - {sticker.clubbingUnavailableReason}</p>
@@ -716,6 +724,10 @@ export default function RateCalculatorPage() {
     ? { cols: stickerRotatedCols, rows: stickerRotatedRows, perSheet: stickerRotatedFit, rotated: true }
     : { cols: stickerNormalCols, rows: stickerNormalRows, perSheet: stickerNormalFit, rotated: false };
   const stickerSheetsNeeded = stickerBestFit.perSheet > 0 ? Math.ceil(rQty / stickerBestFit.perSheet) : 0;
+  const stickerPlainCost = stickerSheetsNeeded * 13;
+  const stickerNonTearableCost = stickerSheetsNeeded * 19;
+  const stickerSelectedCost = rStickerType === "nontearable" ? stickerNonTearableCost : stickerPlainCost;
+  const stickerAutoMultiplier = getStickerMultiplier(stickerSelectedCost);
   const stickerClubCols = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(5 / rStickerW));
   const stickerClubRows = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(6 / (stickerClubCols * stickerArea)));
   const stickerClubPerBlock = stickerClubCols * stickerClubRows;
@@ -723,6 +735,7 @@ export default function RateCalculatorPage() {
   const stickerClubSets = stickerClubPerBlock > 0 ? Math.ceil(rQty / stickerClubPerBlock) : 0;
   const stickerClubEligible = rQty >= 1000 && stickerClubBlockArea >= 6;
   const stickerClubCost = stickerClubEligible ? stickerClubBlockArea * stickerClubSets * 0.035 + 150 : 0;
+  const stickerClubMultiplier = stickerClubEligible ? getStickerMultiplier(stickerClubCost) : 0;
 
   const loadRates = useCallback(async () => {
     setRatesLoading(true);
@@ -839,7 +852,7 @@ export default function RateCalculatorPage() {
       clip: rPpClip, pocketSides: rPpPocketSides,
       bagSize: rBagSize,
       stickerW: rStickerW, stickerH: rStickerH, stickerType: rStickerType,
-      multiplier: rMult !== "" ? rMult : undefined,
+      multiplier: rProduct === "sticker" ? undefined : (rMult !== "" ? rMult : undefined),
       customer: rCustomer,
     };
     const r = await post("reverse", body);
@@ -1119,6 +1132,7 @@ export default function RateCalculatorPage() {
                       {stickerBestFit.perSheet > 0 ? (
                         <>
                           <strong>{stickerBestFit.cols}×{stickerBestFit.rows} = {stickerBestFit.perSheet}/sheet</strong>{stickerBestFit.rotated ? " (rotated)" : ""} → <strong>{stickerSheetsNeeded.toLocaleString()} sheets</strong>
+                          {" "}· cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
                         </>
                       ) : (
                         <span className="text-amber-600 font-semibold">size does not fit usable area</span>
@@ -1134,7 +1148,7 @@ export default function RateCalculatorPage() {
                         {stickerClubPerBlock > 1 && (
                           <>{stickerClubCols}×{stickerClubRows} = {stickerClubPerBlock} stickers/block · {stickerClubSets.toLocaleString()} blocks · </>
                         )}
-                        {fmt(stickerClubCost)} before multiplier.
+                        cost {fmt(stickerClubCost)} → auto multiplier ×{stickerClubMultiplier}.
                       </div>
                     )}
                   </>
@@ -1276,10 +1290,17 @@ export default function RateCalculatorPage() {
 
               <Card title="💰 Multiplier">
                 <div className="grid grid-cols-2 gap-2 items-end">
-                  <Field label={`Multiplier (×) — ${multHint}`}>
-                    <Input type="number" step="0.01" placeholder={String(masterMult)}
-                      value={rMult} onChange={e => setRMult(e.target.value === "" ? "" : +e.target.value)} />
-                  </Field>
+                  {rProduct === "sticker" ? (
+                    <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                      <span className="font-semibold">Auto:</span> cost {fmt(stickerSelectedCost)} → ×{stickerAutoMultiplier}
+                      <span className="block text-[10px] text-amber-600">Under 500=4 · 500-1000=3 · 1000-3000=2 · 3000+=1.67</span>
+                    </div>
+                  ) : (
+                    <Field label={`Multiplier (×) — ${multHint}`}>
+                      <Input type="number" step="0.01" placeholder={String(masterMult)}
+                        value={rMult} onChange={e => setRMult(e.target.value === "" ? "" : +e.target.value)} />
+                    </Field>
+                  )}
                   <button onClick={calcReverse} disabled={loading}
                     className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
                     {loading ? "Calculating…" : "🧮 Calculate"}
@@ -1294,7 +1315,7 @@ export default function RateCalculatorPage() {
                 <>
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
                   {result?.sticker && (
-                    <StickerProductionCard sticker={result.sticker} multiplier={result.multiplier} />
+                    <StickerProductionCard sticker={result.sticker} />
                   )}
                   {result?.clubbing && (
                     <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
