@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type Tab = "forward" | "reverse" | "sticker" | "rates" | "history" | "clubbing";
+type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing";
 type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
@@ -25,6 +25,29 @@ type Result = {
     ourCost: number;
     ourTotal: number;
     winner: "vendor" | "ours";
+  };
+  sticker?: {
+    width: number;
+    height: number;
+    area: number;
+    usableSheet: string;
+    openSheet: string;
+    columns: number;
+    rows: number;
+    rotated: boolean;
+    stickersPerSheet: number;
+    sheetsNeeded: number;
+    selectedType: "plain" | "nontearable";
+    plainSheetRate: number;
+    nonTearableSheetRate: number;
+    plainSubtotal: number;
+    nonTearableSubtotal: number;
+    plainTotal: number;
+    nonTearableTotal: number;
+    clubbingEligible: boolean;
+    clubbingCost: number | null;
+    clubbingTotal: number | null;
+    clubbingUnavailableReason: string | null;
   };
 };
 
@@ -73,7 +96,7 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
                 sizeParentMap: {
                   env9x12:    "1520",  // fits only on 15×20" sheet
                   env11x17:   "1823",  // fits only on 18×23" sheet
-                  env85x11:   "1925",  // best yield on 19×25" (2/sheet vs 1/sheet)
+                  env85x11:   "1823",  // A4 envelope standard parent sheet
                 },
                 sizeParentLocked: {
                   env9x12:  true,   // MUST use 15×20
@@ -83,6 +106,8 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
                 fixedInfo: "PP file pricing uses quantity tiers, GST, clip and pocket options." },
   diagnosticbag: { label: "X-ray / CT Scan Bags",
                 fixedInfo: "Small = X-ray bag 10.5x16 inch. Big = CT scan bag 16x21 inch." },
+  sticker:     { label: "Sticker",
+                fixedInfo: "In-house uses 12×18 sheets with 11.5×17.5 printable area. Clubbing is available only for plain stickers above 1000 pcs and 6 sq inch." },
   file:       { label: "Files with Punching",
                 fixedSize: "file", fixedParent: "1925",
                 fixedInfo: "Fixed: 12×18 inch size | 19×25\" parent sheet | 2 per sheet" },
@@ -390,6 +415,48 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
   );
 }
 
+function StickerProductionCard({ sticker, multiplier }: {
+  sticker: NonNullable<Result["sticker"]>;
+  multiplier?: number;
+}) {
+  const mult = multiplier ?? 1.67;
+  return (
+    <div className="border border-amber-200 rounded-xl p-4 mt-3 bg-amber-50">
+      <p className="text-sm font-bold text-amber-900 mb-3">Sticker Production</p>
+      <p className="text-xs text-amber-700 mb-3">
+        {sticker.width}×{sticker.height} inch · {sticker.area.toFixed(2)} sq inch · {sticker.columns}×{sticker.rows} = {sticker.stickersPerSheet}/sheet on {sticker.usableSheet} usable area
+        {sticker.rotated ? " · rotated for better fit" : ""}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className={`rounded-lg border p-3 ${sticker.selectedType === "plain" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
+          <p className="text-xs font-bold text-slate-700 mb-1">Plain In-house</p>
+          <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.plainSheetRate}</p>
+          <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.plainTotal)}</p>
+          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.plainSubtotal)} × {mult}</p>
+        </div>
+        <div className={`rounded-lg border p-3 ${sticker.selectedType === "nontearable" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
+          <p className="text-xs font-bold text-slate-700 mb-1">Non Tearable In-house</p>
+          <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.nonTearableSheetRate}</p>
+          <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.nonTearableTotal)}</p>
+          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.nonTearableSubtotal)} × {mult}</p>
+        </div>
+        <div className={`rounded-lg border p-3 ${sticker.clubbingEligible ? "border-purple-300 bg-white" : "border-slate-200 bg-slate-50"}`}>
+          <p className="text-xs font-bold text-slate-700 mb-1">Clubbing Plain</p>
+          {sticker.clubbingEligible && sticker.clubbingCost != null && sticker.clubbingTotal != null ? (
+            <>
+              <p className="text-xs text-slate-500">Area × qty × 0.35 + Rs.150</p>
+              <p className="text-sm font-extrabold text-purple-800 mt-2">{fmt(sticker.clubbingTotal)}</p>
+              <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {mult}</p>
+            </>
+          ) : (
+            <p className="text-xs font-semibold text-slate-400 mt-2">Nil - {sticker.clubbingUnavailableReason}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CLUBBING COMPARISON CARD ─────────────────────────────────────────────────
 function ClubbingComparisonCard({ clubbing, multiplier }: {
   clubbing: NonNullable<Result["clubbing"]>;
@@ -571,11 +638,21 @@ export default function RateCalculatorPage() {
   const [rPpClip, setRPpClip] = useState(true);
   const [rPpPocketSides, setRPpPocketSides] = useState(0);
   const [rBagSize, setRBagSize] = useState("small");
+  const [rStickerW, setRStickerW] = useState(2);
+  const [rStickerH, setRStickerH] = useState(3);
+  const [rStickerType, setRStickerType] = useState<"plain" | "nontearable">("plain");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
   // Auto-set size/parent when product changes
   useEffect(() => {
     const cfg = PRODUCT_CONFIG[rProduct];
+    if (rProduct === "sticker") {
+      setRQty(1000);
+      setRStickerW(2);
+      setRStickerH(3);
+      setRStickerType("plain");
+      return;
+    }
     if (rProduct === "ppfile") {
       setRQty(1000);
       setRSides("single");
@@ -602,21 +679,6 @@ export default function RateCalculatorPage() {
     else if (!cfg?.fixedParent) setRParent("1823"); // default for unlocked sizes
   }, [rProduct, rSize]);
 
-  // ── Sticker State ──
-  const [sW, setSW] = useState(2); const [sH, setSH] = useState(3);
-  const [sQty, setSQty] = useState(4000);
-  const [sCols, setSCols] = useState(2); const [sRows, setSRows] = useState(2);
-  const [sMarg, setSMarg] = useState(0.25);
-  const [sMode, setSMode] = useState("inhouse");
-  const [sHalfcut, setSHalfcut] = useState("no");
-  const [sPaperRate, setSPaperRate] = useState(3.5);
-  const [sPrintRate, setSPrintRate] = useState(5);
-  const [sHcPct, setSHcPct] = useState(30);
-  const [sVendorRate, setSVendorRate] = useState(0.035);
-  const [sTransport, setSTransport] = useState(100);
-  const [sHcPct2, setSHcPct2] = useState(30);
-  const [sMult, setSMult] = useState<number | "">("");
-
   // ── Rates State ──
   const [rates, setRates] = useState<any>(null);
   const [ratesSaved, setRatesSaved] = useState(false);
@@ -633,11 +695,18 @@ export default function RateCalculatorPage() {
   const [clubbingSaved, setClubbingSaved] = useState(false);
   const [clubbingError, setClubbingError] = useState<string | null>(null);
 
-  // Sheet info for sticker preview
-  const sheetW = (sCols * sW + 2 * sMarg).toFixed(2);
-  const sheetH = (sRows * sH + 2 * sMarg).toFixed(2);
-  const stickersPerSheet = sCols * sRows;
-  const sheetsNeeded = Math.ceil(sQty / stickersPerSheet);
+  // Sticker preview for reverse calculator
+  const stickerArea = rStickerW * rStickerH;
+  const stickerNormalCols = rStickerW > 0 ? Math.floor(11.5 / rStickerW) : 0;
+  const stickerNormalRows = rStickerH > 0 ? Math.floor(17.5 / rStickerH) : 0;
+  const stickerRotatedCols = rStickerH > 0 ? Math.floor(11.5 / rStickerH) : 0;
+  const stickerRotatedRows = rStickerW > 0 ? Math.floor(17.5 / rStickerW) : 0;
+  const stickerNormalFit = stickerNormalCols * stickerNormalRows;
+  const stickerRotatedFit = stickerRotatedCols * stickerRotatedRows;
+  const stickerBestFit = stickerRotatedFit > stickerNormalFit
+    ? { cols: stickerRotatedCols, rows: stickerRotatedRows, perSheet: stickerRotatedFit, rotated: true }
+    : { cols: stickerNormalCols, rows: stickerNormalRows, perSheet: stickerNormalFit, rotated: false };
+  const stickerSheetsNeeded = stickerBestFit.perSheet > 0 ? Math.ceil(rQty / stickerBestFit.perSheet) : 0;
 
   const loadRates = useCallback(async () => {
     setRatesLoading(true);
@@ -650,7 +719,6 @@ export default function RateCalculatorPage() {
       // Pre-fill multiplier placeholders from master
       setFMult("");
       setRMult("");
-      setSMult("");
     } catch {
       setRatesError("Unable to load master rates. Please refresh.");
     } finally {
@@ -754,6 +822,7 @@ export default function RateCalculatorPage() {
       micron: rPpMicron, creasing: rPpCreasing, printSide: rSides,
       clip: rPpClip, pocketSides: rPpPocketSides,
       bagSize: rBagSize,
+      stickerW: rStickerW, stickerH: rStickerH, stickerType: rStickerType,
       multiplier: rMult !== "" ? rMult : undefined,
       customer: rCustomer,
     };
@@ -762,22 +831,6 @@ export default function RateCalculatorPage() {
       setResult(r);
       setResultDesc(r.description || "");
       saveToHistory("reverse", body, r, rProduct, rQty);
-    }
-  };
-
-  const calcSticker = async () => {
-    const body = {
-      stickerW: sW, stickerH: sH, qty: sQty, cols: sCols, rows: sRows,
-      margin: sMarg, mode: sMode, halfcut: sHalfcut === "yes",
-      paperRate: sPaperRate, printRate: sPrintRate, hcPct: sHcPct,
-      vendorRate: sVendorRate, transport: sTransport, hcPct2: sHcPct2,
-      multiplier: sMult !== "" ? sMult : undefined,
-    };
-    const r = await post("sticker", body);
-    if (r) {
-      setResult(r);
-      setResultDesc(`${sQty.toLocaleString()} stickers | ${stickersPerSheet}/sheet | ${sheetsNeeded} sheets`);
-      saveToHistory("sticker", body, r, "Sticker", sQty);
     }
   };
 
@@ -834,7 +887,6 @@ export default function RateCalculatorPage() {
   const ALL_TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: "forward",  label: "→ Forward" },
     { id: "reverse",  label: "↺ Reverse" },
-    { id: "sticker",  label: "🏷 Sticker" },
     { id: "rates",    label: "⚙ Rates",    adminOnly: true },
     { id: "history",  label: "📋 History" },
     { id: "clubbing", label: "🤝 Clubbing", adminOnly: true },
@@ -845,9 +897,9 @@ export default function RateCalculatorPage() {
   const masterMult = rates?.multiplier ?? 1.67;
   const multHint = `Default from master: ×${masterMult}`;
 
-  const reverseCuts = CUTS[rParent]?.[rSize] ?? 4;
+  const reverseCuts = rProduct === "sticker" ? stickerBestFit.perSheet : (CUTS[rParent]?.[rSize] ?? 4);
   const reversePieces = rProduct === "pads" || rProduct === "billbook" ? rQty * rSheets : rQty;
-  const reverseParentSheets = Math.ceil(reversePieces / reverseCuts);
+  const reverseParentSheets = rProduct === "sticker" ? stickerSheetsNeeded : Math.ceil(reversePieces / reverseCuts);
   const parentLabel = rParent === "1520" ? "15×20\"" : rParent === "1823" ? "18×23\"" : "19×25\"";
   const rSizeParentLocked = !!(PRODUCT_CONFIG[rProduct]?.sizeParentLocked?.[rSize]);
   const ppRates = rates?.ppFiles;
@@ -1027,7 +1079,46 @@ export default function RateCalculatorPage() {
                     📐 {PRODUCT_CONFIG[rProduct].fixedInfo}
                   </div>
                 )}
-                {rProduct === "ppfile" ? (
+                {rProduct === "sticker" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Length (in)">
+                        <Input type="number" min="0" step="0.1" value={rStickerW} onChange={e => setRStickerW(+e.target.value)} />
+                      </Field>
+                      <Field label="Width (in)">
+                        <Input type="number" min="0" step="0.1" value={rStickerH} onChange={e => setRStickerH(+e.target.value)} />
+                      </Field>
+                      <Field label="Sticker Type">
+                        <Select value={rStickerType} onChange={e => setRStickerType(e.target.value as "plain" | "nontearable")}>
+                          <option value="plain">Plain</option>
+                          <option value="nontearable">Non Tearable</option>
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} stickers</strong> · {stickerArea.toFixed(2)} sq inch each → open sheet <strong>12×18"</strong>, usable <strong>11.5×17.5"</strong> →{" "}
+                      {stickerBestFit.perSheet > 0 ? (
+                        <>
+                          <strong>{stickerBestFit.cols}×{stickerBestFit.rows} = {stickerBestFit.perSheet}/sheet</strong>{stickerBestFit.rotated ? " (rotated)" : ""} → <strong>{stickerSheetsNeeded.toLocaleString()} sheets</strong>
+                        </>
+                      ) : (
+                        <span className="text-amber-600 font-semibold">size does not fit usable area</span>
+                      )}
+                    </div>
+                    {rQty < 1000 || stickerArea < 6 ? (
+                      <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                        Clubbing Nil: minimum 1000 pcs and 6 sq inch area required. Clubbing is only for plain stickers.
+                      </div>
+                    ) : (
+                      <div className="mt-2 bg-purple-50 border border-purple-200 rounded p-2 text-xs text-purple-700">
+                        Clubbing plain sticker preview: {fmt(stickerArea * rQty * 0.35 + 150)} before multiplier.
+                      </div>
+                    )}
+                  </>
+                ) : rProduct === "ppfile" ? (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       <Field label="Quantity">
@@ -1182,6 +1273,9 @@ export default function RateCalculatorPage() {
               {result && (
                 <>
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                  {result?.sticker && (
+                    <StickerProductionCard sticker={result.sticker} multiplier={result.multiplier} />
+                  )}
                   {result?.clubbing && (
                     <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
                   )}
@@ -1202,94 +1296,6 @@ export default function RateCalculatorPage() {
             </div>
           </div>
         )}
-
-        {/* ── STICKER ── */}
-        {tab === "sticker" && (
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 items-start">
-            {/* Left: inputs */}
-            <div>
-              <Card title="🏷 Sticker Details">
-                <div className="grid grid-cols-3 gap-2">
-                  <Field label="Width (in)"><Input type="number" step="0.1" value={sW} onChange={e => setSW(+e.target.value)} /></Field>
-                  <Field label="Height (in)"><Input type="number" step="0.1" value={sH} onChange={e => setSH(+e.target.value)} /></Field>
-                  <Field label="Quantity"><Input type="number" value={sQty} onChange={e => setSQty(+e.target.value)} /></Field>
-                </div>
-              </Card>
-
-              <Card title="📐 Sheet Layout">
-                <div className="bg-blue-50 border border-blue-100 rounded p-2 text-xs text-blue-700 mb-2">
-                  Grid: {sCols}×{sRows} = <strong>{stickersPerSheet} stickers/sheet</strong> · Sheet: <strong>{sheetW}"×{sheetH}"</strong> · Sheets: <strong>{sheetsNeeded}</strong>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <Field label="Columns"><Input type="number" value={sCols} onChange={e => setSCols(+e.target.value)} /></Field>
-                  <Field label="Rows"><Input type="number" value={sRows} onChange={e => setSRows(+e.target.value)} /></Field>
-                  <Field label="Margin/side (in)"><Input type="number" step="0.05" value={sMarg} onChange={e => setSMarg(+e.target.value)} /></Field>
-                </div>
-              </Card>
-
-              <Card title="⚙ Mode">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <Field label="Mode">
-                    <Select value={sMode} onChange={e => setSMode(e.target.value)}>
-                      <option value="inhouse">In-House</option>
-                      <option value="outsource">Outsource</option>
-                    </Select>
-                  </Field>
-                  <Field label="Half Cutting">
-                    <Select value={sHalfcut} onChange={e => setSHalfcut(e.target.value)}>
-                      <option value="no">No</option><option value="yes">Yes</option>
-                    </Select>
-                  </Field>
-                </div>
-                {sMode === "inhouse" && (
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
-                    <Field label="Paper (₹/sheet)"><Input type="number" step="0.1" value={sPaperRate} onChange={e => setSPaperRate(+e.target.value)} /></Field>
-                    <Field label="Printing (₹/sheet)"><Input type="number" step="0.1" value={sPrintRate} onChange={e => setSPrintRate(+e.target.value)} /></Field>
-                    {sHalfcut === "yes" && <Field label="Half Cut %"><Input type="number" value={sHcPct} onChange={e => setSHcPct(+e.target.value)} /></Field>}
-                  </div>
-                )}
-                {sMode === "outsource" && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-                    <Field label="₹/sq in"><Input type="number" step="0.001" value={sVendorRate} onChange={e => setSVendorRate(+e.target.value)} /></Field>
-                    <Field label="Transport (₹)"><Input type="number" value={sTransport} onChange={e => setSTransport(+e.target.value)} /></Field>
-                    {sHalfcut === "yes" && <Field label="Half Cut %"><Input type="number" value={sHcPct2} onChange={e => setSHcPct2(+e.target.value)} /></Field>}
-                  </div>
-                )}
-              </Card>
-
-              <Card title="💰 Multiplier">
-                <div className="grid grid-cols-2 gap-2 items-end">
-                  <Field label={`Multiplier (×) — ${multHint}`}>
-                    <Input type="number" step="0.01" placeholder={String(masterMult)}
-                      value={sMult} onChange={e => setSMult(e.target.value === "" ? "" : +e.target.value)} />
-                  </Field>
-                  <button onClick={calcSticker} disabled={loading}
-                    className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
-                    {loading ? "Calculating…" : "🧮 Calculate"}
-                  </button>
-                </div>
-              </Card>
-            </div>
-
-            {/* Right: result */}
-            <div className="lg:sticky lg:top-0">
-              {result && (
-                <>
-                  <ResultCard result={result} perLabel="Per Sticker" desc={resultDesc} isAdmin={isAdmin} />
-                  <CommissionPanel cost={result.subtotal} total={result.total} qty={sQty} isAdmin={isAdmin} />
-                </>
-              )}
-              {!result && (
-                <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
-                  <span className="text-2xl">🏷</span>
-                  Fill details and click Calculate
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-
         {/* ── MASTER RATES ── */}
         {tab === "rates" && (
           ratesLoading ? (

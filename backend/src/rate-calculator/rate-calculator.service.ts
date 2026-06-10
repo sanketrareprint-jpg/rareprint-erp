@@ -276,6 +276,19 @@ export class RateCalculatorService {
     return { rate, tier, key };
   }
 
+  private getStickerSheetFit(width: number, height: number): { perSheet: number; columns: number; rows: number; rotated: boolean } {
+    const usableW = 11.5;
+    const usableH = 17.5;
+    const normalCols = Math.floor(usableW / width);
+    const normalRows = Math.floor(usableH / height);
+    const rotatedCols = Math.floor(usableW / height);
+    const rotatedRows = Math.floor(usableH / width);
+    const normal = normalCols * normalRows;
+    const rotated = rotatedCols * rotatedRows;
+    if (rotated > normal) return { perSheet: rotated, columns: rotatedCols, rows: rotatedRows, rotated: true };
+    return { perSheet: normal, columns: normalCols, rows: normalRows, rotated: false };
+  }
+
   // ── Clubbing vendor cost lookup ──────────────────────────────────────────
   private getClubbingCost(clubbing: any, fsize: string, sides: string, qty: number): number | null {
     const sizeRates = clubbing?.rates?.[fsize];
@@ -353,6 +366,67 @@ export class RateCalculatorService {
   async calcReverse(dto: any) {
     const rates = await this.getRates();
     const { product, qty, sheetsPerUnit = 100, fsize, paper, parent: psize = '1823', colors, sides, lam = 'none', multiplier: dtoMult, customer } = dto;
+
+    if (product === 'sticker') {
+      const stickerQty = Number(qty ?? 0);
+      const width = Number(dto.stickerW ?? 0);
+      const height = Number(dto.stickerH ?? 0);
+      const selectedType = dto.stickerType === 'nontearable' ? 'nontearable' : 'plain';
+      const multiplier = dtoMult ?? rates.multiplier ?? DEFAULT_RATES.multiplier;
+      const fit = width > 0 && height > 0 ? this.getStickerSheetFit(width, height) : { perSheet: 0, columns: 0, rows: 0, rotated: false };
+      const sheetsNeeded = fit.perSheet > 0 ? Math.ceil(stickerQty / fit.perSheet) : 0;
+      const plainSheetRate = 13;
+      const nonTearableSheetRate = 19;
+      const plainSubtotal = sheetsNeeded * plainSheetRate;
+      const nonTearableSubtotal = sheetsNeeded * nonTearableSheetRate;
+      const subtotal = selectedType === 'nontearable' ? nonTearableSubtotal : plainSubtotal;
+      const total = subtotal * multiplier;
+      const area = width * height;
+      const clubbingEligible = stickerQty >= 1000 && area >= 6;
+      const clubbingCost = clubbingEligible ? (area * stickerQty * 0.35) + 150 : null;
+      const clubbingTotal = clubbingCost != null ? clubbingCost * multiplier : null;
+      const breakdown: any[] = [
+        { label: `Sticker layout (${fit.columns} x ${fit.rows} = ${fit.perSheet}/sheet on 11.5x17.5 usable area${fit.rotated ? ', rotated' : ''})`, amount: 0 },
+        { label: `Plain sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${plainSheetRate})`, amount: plainSubtotal },
+        { label: `Non tearable sticker (${sheetsNeeded.toLocaleString()} sheets x Rs.${nonTearableSheetRate})`, amount: nonTearableSubtotal },
+      ];
+      if (clubbingCost != null) {
+        breakdown.push({ label: `Clubbing plain sticker (${width} x ${height} x ${stickerQty.toLocaleString()} x Rs.0.35 + Rs.150)`, amount: clubbingCost });
+      }
+      return {
+        breakdown,
+        subtotal,
+        total,
+        perPiece: stickerQty > 0 ? total / stickerQty : 0,
+        totalPieces: stickerQty,
+        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}`,
+        multiplier,
+        customer,
+        sticker: {
+          width,
+          height,
+          area,
+          usableSheet: '11.5x17.5',
+          openSheet: '12x18',
+          columns: fit.columns,
+          rows: fit.rows,
+          rotated: fit.rotated,
+          stickersPerSheet: fit.perSheet,
+          sheetsNeeded,
+          selectedType,
+          plainSheetRate,
+          nonTearableSheetRate,
+          plainSubtotal,
+          nonTearableSubtotal,
+          plainTotal: plainSubtotal * multiplier,
+          nonTearableTotal: nonTearableSubtotal * multiplier,
+          clubbingEligible,
+          clubbingCost,
+          clubbingTotal,
+          clubbingUnavailableReason: clubbingEligible ? null : (stickerQty < 1000 ? 'Minimum 1000 pcs required for clubbing' : 'Minimum 6 sq inch sticker area required for clubbing'),
+        },
+      };
+    }
 
     if (product === 'ppfile') {
       const pp = rates.ppFiles ?? DEFAULT_RATES.ppFiles;
