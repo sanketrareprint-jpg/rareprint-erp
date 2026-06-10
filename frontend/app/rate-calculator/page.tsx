@@ -10,6 +10,31 @@ type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "mat
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
 type QuoteCopy = { number: string; text: string };
+type QuoteInputParams = {
+  layers?: Layer[];
+  lam?: string;
+  padSize?: string;
+  pads?: number;
+  punch?: boolean;
+  envelope?: string;
+  multiplier?: number;
+  product?: string;
+  qty?: number;
+  sheetsPerUnit?: number;
+  fsize?: string;
+  paper?: string;
+  parent?: string;
+  colors?: number;
+  sides?: string;
+  micron?: number;
+  creasing?: string;
+  clip?: boolean;
+  pocketSides?: number;
+  bagSize?: string;
+  stickerW?: number;
+  stickerH?: number;
+  stickerType?: string;
+};
 type Result = {
   breakdown: BreakdownRow[];
   subtotal: number;
@@ -137,12 +162,85 @@ function makeQuotationNumber() {
   return `RPQ-${date}-${time}${rand}`;
 }
 
+function formatParentSheet(parent?: string) {
+  if (parent === "1520") return "15x20 inch";
+  if (parent === "1823") return "18x23 inch";
+  if (parent === "1925") return "19x25 inch";
+  return parent || "";
+}
+
+function formatYesNo(value?: boolean) {
+  return value ? "Yes" : "No";
+}
+
+function formatLam(lam?: string) {
+  if (!lam || lam === "none") return "None";
+  return lam.split("-").map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
+function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, result: Result) {
+  const details: string[] = [];
+
+  if (calcType === "forward") {
+    if (inputParams.layers?.length) {
+      details.push("Product / Printing Details:");
+      inputParams.layers.forEach((layer, index) => {
+        details.push(
+          `Layer ${index + 1}: ${layer.qty.toLocaleString("en-IN")} pcs, ${layer.fsize}, ${formatParentSheet(layer.psize)} parent sheet, ${formatPaperType(layer.gsm)}, ${layer.colors} color, ${layer.sides === "double" ? "Double Side" : "Single Side"}`
+        );
+      });
+    }
+    details.push(`Lamination: ${formatLam(inputParams.lam)}`);
+    details.push(`Pad Binding: ${inputParams.pads ? `${inputParams.pads.toLocaleString("en-IN")} pads, ${inputParams.padSize || "size as selected"}` : "No"}`);
+    details.push(`File Punching: ${formatYesNo(inputParams.punch)}`);
+    details.push(`Envelope Making: ${inputParams.envelope && inputParams.envelope !== "none" ? inputParams.envelope : "No"}`);
+  } else {
+    const productLabel = inputParams.product ? PRODUCT_CONFIG[inputParams.product]?.label || inputParams.product : "Product";
+    details.push("Product Details:");
+    details.push(`Product Type: ${productLabel}`);
+    if (inputParams.qty) details.push(`Quantity: ${inputParams.qty.toLocaleString("en-IN")}`);
+
+    if (inputParams.product === "sticker") {
+      const sticker = result.sticker;
+      details.push(`Sticker Size: ${inputParams.stickerW || 0} x ${inputParams.stickerH || 0} inch`);
+      details.push(`Sticker Type: ${inputParams.stickerType === "nontearable" ? "Non Tearable" : "Plain"}`);
+      if (sticker) {
+        details.push(`Area: ${sticker.area.toFixed(2)} sq inch each`);
+        details.push(`Sheet Layout: ${sticker.columns} x ${sticker.rows} = ${sticker.stickersPerSheet} stickers per sheet`);
+        details.push(`Sheets Required: ${sticker.sheetsNeeded.toLocaleString("en-IN")} sheets`);
+      }
+    } else if (inputParams.product === "ppfile") {
+      details.push(`Micron: ${inputParams.micron || ""}`);
+      details.push(`Printing Side: ${inputParams.sides === "double" ? "Double Side" : "Single Side"}`);
+      details.push(`Creasing: ${inputParams.creasing === "double" ? "Double Creasing" : "Single Creasing"}`);
+      details.push(`Clip: ${formatYesNo(inputParams.clip)}`);
+      details.push(`Pocket: ${inputParams.pocketSides ? `${inputParams.pocketSides} side` : "No Pocket"}`);
+    } else if (inputParams.product === "diagnosticbag") {
+      details.push(`Bag Type: ${inputParams.bagSize === "big" ? "Big CT Scan Bag (16x21 inch)" : "Small X-ray Bag (10.5x16 inch)"}`);
+    } else {
+      if (inputParams.sheetsPerUnit) details.push(`Pages per Pad / Book: ${inputParams.sheetsPerUnit}`);
+      if (inputParams.fsize) details.push(`Final Size: ${inputParams.fsize}`);
+      if (inputParams.parent) details.push(`Parent Sheet: ${formatParentSheet(inputParams.parent)}`);
+      if (inputParams.paper) details.push(`Paper: ${formatPaperType(inputParams.paper)}`);
+      if (inputParams.colors) details.push(`Printing Colors: ${inputParams.colors} color${inputParams.colors > 1 ? "s" : ""}`);
+      if (inputParams.sides) details.push(`Printing Side: ${inputParams.sides === "double" ? "Double Side" : "Single Side"}`);
+      details.push(`Lamination: ${formatLam(inputParams.lam)}`);
+    }
+  }
+
+  if (result.description) details.push(`Calculation Note: ${result.description}`);
+  if (result.multiplier) details.push(`Pricing Multiplier: x${result.multiplier}`);
+  return details;
+}
+
 function buildQuotationText({
   quoteNumber,
   customer,
   product,
   job,
   qty,
+  calcType,
+  inputParams,
   result,
 }: {
   quoteNumber: string;
@@ -150,8 +248,11 @@ function buildQuotationText({
   product?: string;
   job?: string;
   qty?: number;
+  calcType: string;
+  inputParams: QuoteInputParams;
   result: Result;
 }) {
+  const detailLines = buildQuoteDetailLines(calcType, inputParams, result);
   const lines = [
     `Quotation No: ${quoteNumber}`,
     `Date: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`,
@@ -159,6 +260,8 @@ function buildQuotationText({
     product ? `Product: ${product}` : "",
     job ? `Job: ${job}` : "",
     qty ? `Quantity: ${qty.toLocaleString("en-IN")}` : "",
+    "",
+    ...detailLines,
     "",
     `Total Quote: ${fmt(result.total)}`,
   ].filter(Boolean);
@@ -878,6 +981,8 @@ export default function RateCalculatorPage() {
       product: product ?? calcType,
       job,
       qty,
+      calcType,
+      inputParams,
       result,
     });
     setCurrentQuote({ number: quoteNumber, text: quotationText });
