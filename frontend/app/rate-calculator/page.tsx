@@ -444,7 +444,7 @@ function StickerProductionCard({ sticker, multiplier }: {
           <p className="text-xs font-bold text-slate-700 mb-1">Clubbing Plain</p>
           {sticker.clubbingEligible && sticker.clubbingCost != null && sticker.clubbingTotal != null ? (
             <>
-              <p className="text-xs text-slate-500">Area × qty × 0.35 + Rs.150</p>
+              <p className="text-xs text-slate-500">Area × qty × 0.035 + Rs.150</p>
               <p className="text-sm font-extrabold text-purple-800 mt-2">{fmt(sticker.clubbingTotal)}</p>
               <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {mult}</p>
             </>
@@ -1114,7 +1114,7 @@ export default function RateCalculatorPage() {
                       </div>
                     ) : (
                       <div className="mt-2 bg-purple-50 border border-purple-200 rounded p-2 text-xs text-purple-700">
-                        Clubbing plain sticker preview: {fmt(stickerArea * rQty * 0.35 + 150)} before multiplier.
+                        Clubbing plain sticker preview: {fmt(stickerArea * rQty * 0.035 + 150)} before multiplier.
                       </div>
                     )}
                   </>
