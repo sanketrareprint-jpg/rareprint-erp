@@ -61,22 +61,21 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [res, academyRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: getAuthHeaders() }),
-      ]);
+      const res = await fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
       const data = await res.json();
-      if (academyRes.ok) {
-        const academyData = await academyRes.json();
-        setAcademy(academyData.leaderboard ?? []);
-      }
       setStats(data.stats);
       setAgents(data.agents ?? []);
       setCatStages(data.catStages ?? []);
       setAvgProd(data.avgProd ?? []);
       setLeadData(data.leadData ?? null);
+
+      const academyRes = await fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: getAuthHeaders() }).catch(() => null);
+      if (academyRes?.ok) {
+        const academyData = await academyRes.json().catch(() => null);
+        setAcademy(academyData?.leaderboard ?? []);
+      }
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, [router]);

@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "node --max-old-space-size=400 ./node_modules/@nestjs/cli/bin/nest.js build",
+    "build": "node --max-old-space-size=2048 ./node_modules/@nestjs/cli/bin/nest.js build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "node scripts/railway-migrate.js && node dist/src/main",
     "start:dev": "node --max-old-space-size=4096 ./node_modules/@nestjs/cli/bin/nest.js start --watch",

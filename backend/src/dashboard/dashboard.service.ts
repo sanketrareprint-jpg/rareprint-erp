@@ -8,14 +8,50 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary() {
-    const [stats, agents, catStages, avgProd, leadData] = await Promise.all([
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
       this.getAvgProductionTime(),
       this.getLeadSourceAnalytics(),
     ]);
-    return { stats, agents, catStages, avgProd, leadData };
+
+    return {
+      stats: statsResult.status === 'fulfilled' ? statsResult.value : this.getEmptyStats(),
+      agents: agentsResult.status === 'fulfilled' ? agentsResult.value : [],
+      catStages: catStagesResult.status === 'fulfilled' ? catStagesResult.value : [],
+      avgProd: avgProdResult.status === 'fulfilled' ? avgProdResult.value : [],
+      leadData: leadDataResult.status === 'fulfilled' ? leadDataResult.value : { allTime: [], thisMonth: [] },
+    };
+  }
+
+  private getEmptyStats() {
+    const last7Days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+      return {
+        date: date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+        count: 0,
+        revenue: 0,
+      };
+    });
+
+    return {
+      revenue: {
+        today: 0,
+        thisMonth: 0,
+        lastMonth: 0,
+        growth: 0,
+        averagePerDay: 0,
+        monthlyRunRate: 0,
+        daysElapsed: new Date().getDate(),
+        daysInMonth: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate(),
+      },
+      orders: { total: 0, thisMonth: 0, byStatus: {}, last7Days },
+      finance: { totalOrderValue: 0, totalPaid: 0, totalOutstanding: 0 },
+      pending: { approval: 0, dispatchApproval: 0, inProduction: 0, readyForDispatch: 0 },
+      recentOrders: [],
+    };
   }
 
   async getStats() {
