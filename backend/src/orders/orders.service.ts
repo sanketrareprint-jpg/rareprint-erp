@@ -699,20 +699,132 @@ export class OrdersService {
   }
 
   async getStatusLogs(orderId: string) {
-    const logs = await this.prisma.statusLog.findMany({
-      where: { orderId },
-      include: { changedBy: { select: { fullName: true, role: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-    return logs.map((l) => ({
+    const [logs, sheetItems] = await Promise.all([
+      this.prisma.statusLog.findMany({
+        where: { orderId },
+        include: { changedBy: { select: { fullName: true, role: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.printSheetItem.findMany({
+        where: { orderItem: { orderId } },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          product: { select: { name: true, sku: true } },
+          orderItem: {
+            select: {
+              id: true,
+              quantity: true,
+              itemProductionStage: true,
+              productionNotes: true,
+              product: { select: { name: true, sku: true, sizeInches: true, gsm: true } },
+            },
+          },
+          sheet: {
+            include: {
+              stageVendors: {
+                include: { vendor: { select: { name: true } } },
+                orderBy: { createdAt: 'asc' },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const orderLogs = logs.map((l) => ({
       id: l.id,
+      type: 'ORDER_STATUS',
       fromStatus: l.fromStatus,
       toStatus: l.toStatus,
       reason: l.reason,
+      metadata: l.metadata ?? null,
       changedAt: l.createdAt.toISOString(),
       changedBy: l.changedBy?.fullName ?? 'System',
       role: (l.changedBy as any)?.role ?? '',
     }));
+
+    const loggedSheetItemIds = new Set(
+      logs
+        .map((log) => (log.metadata as any)?.sheetItemId)
+        .filter((id): id is string => typeof id === 'string'),
+    );
+
+    const sheetAssignmentLogs = sheetItems.filter((si) => !loggedSheetItemIds.has(si.id)).map((si) => ({
+      id: `sheet-assigned-${si.id}`,
+      type: 'SHEET_ASSIGNED',
+      fromStatus: null,
+      toStatus: 'SHEET_ASSIGNED',
+      reason: `${si.product.name} assigned to sheet ${si.sheet.sheetNo}`,
+      metadata: {
+        eventType: 'SHEET_ASSIGNED',
+        sheetItemId: si.id,
+        orderItemId: si.orderItemId,
+        productName: si.product.name,
+        productSku: si.product.sku,
+        orderItemQuantity: si.orderItem.quantity,
+        orderItemStage: si.orderItem.itemProductionStage,
+        productionNotes: si.orderItem.productionNotes,
+        sheetId: si.sheetId,
+        sheetNo: si.sheet.sheetNo,
+        sheetStatus: si.sheet.status,
+        sheetQuantity: si.sheet.quantity,
+        actualPrintedQuantity: si.sheet.actualPrintedQuantity,
+        sheetSize: si.sheet.sizeInches,
+        sheetGsm: si.sheet.gsm,
+        sheetQuality: si.sheet.quality,
+        sheetPrinting: si.sheet.printing,
+        quantityOnSheet: si.quantityOnSheet,
+        multiple: si.multiple,
+        stageVendors: si.sheet.stageVendors.map((sv) => ({
+          stage: sv.stage,
+          vendorName: sv.vendor.name,
+          cost: Number(sv.cost),
+          invoiceNo: sv.vendorInvoiceNo,
+          description: sv.description,
+          createdAt: sv.createdAt.toISOString(),
+        })),
+      },
+      changedAt: si.createdAt.toISOString(),
+      changedBy: 'Production',
+      role: '',
+    }));
+
+    const latestSheetById = new Map<string, (typeof sheetItems)[number]>();
+    for (const si of sheetItems) latestSheetById.set(si.sheetId, si);
+    const sheetSnapshotLogs = [...latestSheetById.values()].map((si) => ({
+      id: `sheet-current-${si.sheetId}`,
+      type: 'SHEET_CURRENT_STATUS',
+      fromStatus: null,
+      toStatus: 'SHEET_CURRENT_STATUS',
+      reason: `Sheet ${si.sheet.sheetNo} is currently ${si.sheet.status}`,
+      metadata: {
+        eventType: 'SHEET_CURRENT_STATUS',
+        sheetId: si.sheetId,
+        sheetNo: si.sheet.sheetNo,
+        sheetStatus: si.sheet.status,
+        sheetQuantity: si.sheet.quantity,
+        actualPrintedQuantity: si.sheet.actualPrintedQuantity,
+        sheetSize: si.sheet.sizeInches,
+        sheetGsm: si.sheet.gsm,
+        sheetQuality: si.sheet.quality,
+        sheetPrinting: si.sheet.printing,
+        itemCount: sheetItems.filter((item) => item.sheetId === si.sheetId).length,
+        stageVendors: si.sheet.stageVendors.map((sv) => ({
+          stage: sv.stage,
+          vendorName: sv.vendor.name,
+          cost: Number(sv.cost),
+          invoiceNo: sv.vendorInvoiceNo,
+          description: sv.description,
+          createdAt: sv.createdAt.toISOString(),
+        })),
+      },
+      changedAt: si.sheet.updatedAt.toISOString(),
+      changedBy: 'Production',
+      role: '',
+    }));
+
+    return [...orderLogs, ...sheetAssignmentLogs, ...sheetSnapshotLogs]
+      .sort((a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime());
   }
 
   async getPaymentAccounts() {

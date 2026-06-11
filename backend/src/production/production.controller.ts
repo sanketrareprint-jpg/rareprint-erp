@@ -83,8 +83,8 @@ export class ProductionController {
   }
 
   @Post('sheets/auto-organize')
-  autoOrganizeSheets() {
-    return this.clubbingSheetService.autoOrganizeSheets();
+  autoOrganizeSheets(@Req() req: Request & { user: JwtUser }) {
+    return this.clubbingSheetService.autoOrganizeSheets(req.user.id);
   }
 
   @Patch('sheets/:id')
@@ -116,25 +116,28 @@ export class ProductionController {
   getSheetItems(@Param('id') id: string) { return this.clubbingSheetService.getSheetItems(id); }
 
   @Patch('sheets/:id/status')
-  updateSheetStatus(@Param('id') id: string, @Body('status') status: SheetStatus) {
-    return this.clubbingSheetService.updateSheetStatus(id, status);
+  updateSheetStatus(@Param('id') id: string, @Body('status') status: SheetStatus, @Req() req: Request & { user: JwtUser }) {
+    return this.clubbingSheetService.updateSheetStatus(id, status, req.user.id);
   }
 
   @Patch('sheets/:id/status-with-vendor')
   updateSheetStatusWithVendor(
     @Param('id') id: string,
     @Body() body: { status: SheetStatus; vendorId: string; activityType: string; cost?: number; vendorInvoiceNo?: string; description?: string },
-  ) { return this.clubbingSheetService.updateSheetStatusWithVendor(id, body); }
+    @Req() req: Request & { user: JwtUser },
+  ) { return this.clubbingSheetService.updateSheetStatusWithVendor(id, body, req.user.id); }
 
   @Post('sheets/:id/items')
   placeItemOnSheet(
     @Param('id') sheetId: string,
     @Body() body: { orderItemId: string; productId: string; multiple: number; quantityOnSheet: number; areaSqInches: number },
-  ) { return this.clubbingSheetService.placeItemOnSheet(sheetId, body); }
+    @Req() req: Request & { user: JwtUser },
+  ) { return this.clubbingSheetService.placeItemOnSheet(sheetId, body, req.user.id); }
 
   @Post('sheets/:id/stage-vendors')
   addSheetStageVendor(
     @Param('id') sheetId: string,
     @Body() body: { stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string },
-  ) { return this.clubbingSheetService.addSheetStageVendor({ sheetId, ...body }); }
+    @Req() req: Request & { user: JwtUser },
+  ) { return this.clubbingSheetService.addSheetStageVendor({ sheetId, ...body }, req.user.id); }
 }

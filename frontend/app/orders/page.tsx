@@ -109,6 +109,20 @@ function marginColor(value?: number | null) {
   return "text-emerald-700";
 }
 
+function labelize(value?: string | null) {
+  return value ? value.replace(/_/g, " ") : "—";
+}
+
+function stageBadgeClass(value?: string | null) {
+  if (value === "PRINTING") return "bg-blue-100 text-blue-700";
+  if (value === "PROCESSING") return "bg-amber-100 text-amber-700";
+  if (value === "READY_FOR_DISPATCH" || value === "DONE") return "bg-green-100 text-green-700";
+  if (value === "SHEET_ASSIGNED") return "bg-indigo-100 text-indigo-700";
+  if (value === "SHEET_CURRENT_STATUS") return "bg-slate-100 text-slate-700";
+  if (value === "SHEET_STAGE_VENDOR_ASSIGNED") return "bg-violet-100 text-violet-700";
+  return "bg-slate-100 text-slate-600";
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -1001,10 +1015,13 @@ export default function OrdersPage() {
                                   <div className="space-y-0">
                                     {orderJourneys[o.id].map((log: any, idx: number) => {
                                       const isItemLog = log.reason?.startsWith('Item:');
+                                      const eventType = log.metadata?.eventType ?? log.type;
+                                      const isSheetEvent = eventType === "SHEET_ASSIGNED" || eventType === "SHEET_STATUS_CHANGED" || eventType === "SHEET_CURRENT_STATUS" || eventType === "SHEET_STAGE_VENDOR_ASSIGNED";
                                       const isDispatch = log.toStatus?.includes('DISPATCH') || log.toStatus?.includes('DISPATCHED');
                                       const isApproved = log.toStatus === 'APPROVED';
                                       const isReady = log.toStatus === 'READY_FOR_DISPATCH';
-                                      const dotColor = isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : isItemLog ? 'bg-amber-400' : 'bg-slate-400';
+                                      const meta = log.metadata ?? {};
+                                      const dotColor = isSheetEvent ? 'bg-indigo-500' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : isItemLog ? 'bg-amber-400' : 'bg-slate-400';
                                       return (
                                         <div key={log.id} className="relative flex gap-4 pb-4">
                                           {/* Dot */}
@@ -1013,7 +1030,55 @@ export default function OrdersPage() {
                                           <div className="flex-1 min-w-0">
                                             <div className="flex items-start justify-between gap-2">
                                               <div>
-                                                {isItemLog ? (
+                                                {isSheetEvent ? (
+                                                  <div>
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(eventType)}`}>
+                                                        {eventType === "SHEET_ASSIGNED" ? "Sheet Assigned" : eventType === "SHEET_STATUS_CHANGED" ? "Sheet Stage" : eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? "Stage Vendor" : "Current Sheet"}
+                                                      </span>
+                                                      {meta.sheetNo && <span className="text-xs font-bold text-slate-700">Sheet {meta.sheetNo}</span>}
+                                                      {meta.fromSheetStatus && (
+                                                        <>
+                                                          <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{labelize(meta.fromSheetStatus)}</span>
+                                                          <span className="text-slate-300 text-xs">→</span>
+                                                        </>
+                                                      )}
+                                                      {meta.sheetStatus && (
+                                                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(meta.sheetStatus)}`}>{labelize(meta.sheetStatus)}</span>
+                                                      )}
+                                                    </div>
+                                                    <p className="mt-1 text-xs font-medium text-slate-700">
+                                                      {eventType === "SHEET_ASSIGNED"
+                                                        ? `${meta.productName ?? "Item"} assigned to sheet ${meta.sheetNo ?? ""}`
+                                                        : eventType === "SHEET_STAGE_VENDOR_ASSIGNED"
+                                                        ? `${labelize(meta.stage)} assigned to ${meta.vendorName ?? "vendor"}`
+                                                        : log.reason}
+                                                    </p>
+                                                    <div className="mt-2 grid gap-1.5 text-xs text-slate-500 sm:grid-cols-2 lg:grid-cols-4">
+                                                      {meta.productName && <span><b className="text-slate-600">Item:</b> {meta.productName}</span>}
+                                                      {meta.quantityOnSheet !== undefined && <span><b className="text-slate-600">Qty on sheet:</b> {meta.quantityOnSheet}</span>}
+                                                      {meta.multiple !== undefined && <span><b className="text-slate-600">Multiple:</b> {meta.multiple}</span>}
+                                                      {meta.sheetQuantity !== undefined && <span><b className="text-slate-600">Sheet qty:</b> {meta.sheetQuantity}</span>}
+                                                      {meta.actualPrintedQuantity !== undefined && meta.actualPrintedQuantity !== null && <span><b className="text-slate-600">Printed qty:</b> {meta.actualPrintedQuantity}</span>}
+                                                      {meta.sheetSize && <span><b className="text-slate-600">Sheet size:</b> {meta.sheetSize}</span>}
+                                                      {meta.sheetGsm && <span><b className="text-slate-600">GSM:</b> {meta.sheetGsm}</span>}
+                                                      {meta.sheetPrinting && <span><b className="text-slate-600">Printing:</b> {labelize(meta.sheetPrinting)}</span>}
+                                                      {(meta.itemStage || meta.orderItemStage) && <span><b className="text-slate-600">Item stage:</b> {labelize(meta.itemStage ?? meta.orderItemStage)}</span>}
+                                                      {meta.stage && <span><b className="text-slate-600">Work stage:</b> {labelize(meta.stage)}</span>}
+                                                      {meta.vendorName && <span><b className="text-slate-600">Vendor:</b> {meta.vendorName}</span>}
+                                                      {meta.vendorInvoiceNo && <span><b className="text-slate-600">Invoice:</b> {meta.vendorInvoiceNo}</span>}
+                                                    </div>
+                                                    {Array.isArray(meta.stageVendors) && meta.stageVendors.length > 0 && (
+                                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                                        {meta.stageVendors.map((sv: any, vendorIdx: number) => (
+                                                          <span key={`${log.id}-vendor-${vendorIdx}`} className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-600 border border-slate-200">
+                                                            {labelize(sv.stage)}: {sv.vendorName}{sv.invoiceNo ? ` · Inv ${sv.invoiceNo}` : ""}
+                                                          </span>
+                                                        ))}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ) : isItemLog ? (
                                                   <p className="text-xs font-medium text-slate-700">{log.reason}</p>
                                                 ) : (
                                                   <div className="flex items-center gap-1.5 flex-wrap">
