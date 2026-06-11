@@ -168,7 +168,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "#1d4ed8"; (e.currentTarget as HTMLElement).style.color = "#fff"; } }}
                 onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#93c5fd"; } }}
               >
-                <Icon size={15} />
+                <Icon size={20} strokeWidth={2.2} />
                 <span style={{ fontSize: "8px", fontWeight: 600, textAlign: "center", lineHeight: 1.1, maxWidth: "48px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.label}
                 </span>
@@ -201,7 +201,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
           >
-            <LogOut size={15} />
+            <LogOut size={18} strokeWidth={2.2} />
             <span style={{ fontSize: "9px", fontWeight: 600 }}>Sign out</span>
           </button>
         </div>
