@@ -23,6 +23,9 @@ export class DashboardController {
   @Get('avg-production-time')
   getAvgProductionTime() { return this.dashboardService.getAvgProductionTime(); }
 
+  @Get('production-kpis')
+  getProductionKpis() { return this.dashboardService.getProductionKpis(); }
+
   @Get('lead-source-analytics')
   getLeadSourceAnalytics() { return this.dashboardService.getLeadSourceAnalytics(); }
 }

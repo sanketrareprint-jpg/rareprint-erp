@@ -123,6 +123,21 @@ export class ProductionService {
       data: { productionCategory },
     });
 
+    await this.prisma.statusLog.create({
+      data: {
+        orderId: item.orderId,
+        fromStatus: item.order.status,
+        toStatus: item.order.status,
+        changedById: userId,
+        reason: `Production category assigned: ${productionCategory}`,
+        metadata: {
+          eventType: 'PRODUCTION_CATEGORY_ASSIGNED',
+          orderItemId: item.id,
+          productionCategory,
+        },
+      },
+    });
+
     // Move order to IN_PRODUCTION if still APPROVED
     if (item.order.status === OrderStatus.APPROVED) {
       await this.prisma.order.update({
@@ -136,6 +151,11 @@ export class ProductionService {
           toStatus: OrderStatus.IN_PRODUCTION,
           changedById: userId,
           reason: `Production category assigned: ${productionCategory}`,
+          metadata: {
+            eventType: 'ORDER_MOVED_TO_PRODUCTION',
+            orderItemId: item.id,
+            productionCategory,
+          },
         },
       });
     }
@@ -234,6 +254,13 @@ export class ProductionService {
         toStatus: item.order.status,
         changedById: userId,
         reason: `Item: ${item.product.name}${sizeInfo ? ' ' + sizeInfo : ''} → ${stageLabel}`,
+        metadata: {
+          eventType: 'ITEM_STAGE_CHANGED',
+          orderItemId: item.id,
+          itemStage: stage,
+          productName: item.product.name,
+          productionCategory: item.productionCategory,
+        },
       },
     });
 

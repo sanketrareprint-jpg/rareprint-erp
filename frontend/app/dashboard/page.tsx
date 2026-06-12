@@ -28,6 +28,9 @@ type AvgProd       = { category: string; avgHours: number; avgDays: number; samp
 type LeadSource    = { source: string; count: number; revenue: number };
 type LeadAnalytics = { allTime: LeadSource[]; thisMonth: LeadSource[] };
 type AcademyRow    = { id: string; name: string; completedTopics: number; lastActiveDate: string | null; streak: number };
+type ProductionKpiMetric = { key: string; label: string; avgHours: number | null; avgDays: number | null; sampleSize: number; note: string };
+type ProductionCategoryCycle = { category: string; avgHours: number | null; avgDays: number | null; sampleSize: number };
+type ProductionKpis = { metrics: ProductionKpiMetric[]; categoryCycleTimes: ProductionCategoryCycle[]; bottlenecks: ProductionKpiMetric[] };
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -36,6 +39,12 @@ function fmt(n: number) {
 }
 function fmtSource(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+function fmtDuration(hours: number | null) {
+  if (hours === null) return "No data";
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  if (hours < 24) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
+  return `${(hours / 24).toFixed(1)}d`;
 }
 const statusColors: Record<string, string> = {
   PENDING_APPROVAL: "bg-yellow-100 text-yellow-800",
@@ -55,6 +64,7 @@ export default function DashboardPage() {
   const [avgProd,   setAvgProd]   = useState<AvgProd[]>([]);
   const [leadData,  setLeadData]  = useState<LeadAnalytics | null>(null);
   const [academy,   setAcademy]   = useState<AcademyRow[]>([]);
+  const [productionKpis, setProductionKpis] = useState<ProductionKpis | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
 
@@ -70,6 +80,7 @@ export default function DashboardPage() {
       setCatStages(data.catStages ?? []);
       setAvgProd(data.avgProd ?? []);
       setLeadData(data.leadData ?? null);
+      setProductionKpis(data.productionKpis ?? null);
 
       const academyRes = await fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: getAuthHeaders() }).catch(() => null);
       if (academyRes?.ok) {
@@ -123,6 +134,51 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400 truncate mt-0.5">{card.sub}</p>
             </div>
           ))}
+        </div>
+
+        {/* ── Production Speed KPIs ── */}
+        <div className="grid grid-cols-4 gap-2">
+          <div className="col-span-3 bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Clock className="h-3 w-3 text-cyan-600" />
+              <p className="text-xs font-semibold text-slate-700">Production Time KPIs</p>
+              <span className="text-xs text-slate-400 ml-auto">Average time</span>
+            </div>
+            {!productionKpis || productionKpis.metrics.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
+            ) : (
+              <div className="grid grid-cols-5 gap-1.5">
+                {productionKpis.metrics.map((metric) => (
+                  <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5 min-w-0">
+                    <p className="text-slate-500 font-medium truncate" style={{ fontSize: "10px" }}>{metric.label}</p>
+                    <p className={`text-sm font-bold leading-tight mt-0.5 ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
+                      {fmtDuration(metric.avgHours)}
+                    </p>
+                    <p className="text-slate-400 truncate" style={{ fontSize: "9px" }}>{metric.sampleSize} samples</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Factory className="h-3 w-3 text-rose-500" />
+              <p className="text-xs font-semibold text-slate-700">Slowest Categories</p>
+            </div>
+            {!productionKpis || productionKpis.categoryCycleTimes.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-4">No ready dispatch data yet</p>
+            ) : (
+              <div className="space-y-1">
+                {productionKpis.categoryCycleTimes.slice(0, 6).map((row) => (
+                  <div key={row.category} className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-700 truncate">{row.category}</span>
+                    <span className="text-xs font-bold text-rose-600 flex-shrink-0">{fmtDuration(row.avgHours)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── Row 2: Chart + Pipeline + Lead Sources ── */}

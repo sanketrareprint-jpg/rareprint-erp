@@ -1,19 +1,29 @@
 // backend/src/dashboard/dashboard.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus, OrderProductionStage } from '@prisma/client';
+import { OrderStatus, OrderProductionStage, ProductionCategory } from '@prisma/client';
+
+type ProductionKpiMetric = {
+  key: string;
+  label: string;
+  avgHours: number | null;
+  avgDays: number | null;
+  sampleSize: number;
+  note: string;
+};
 
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary() {
-    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult] = await Promise.allSettled([
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
       this.getAvgProductionTime(),
       this.getLeadSourceAnalytics(),
+      this.getProductionKpis(),
     ]);
 
     return {
@@ -22,6 +32,9 @@ export class DashboardService {
       catStages: catStagesResult.status === 'fulfilled' ? catStagesResult.value : [],
       avgProd: avgProdResult.status === 'fulfilled' ? avgProdResult.value : [],
       leadData: leadDataResult.status === 'fulfilled' ? leadDataResult.value : { allTime: [], thisMonth: [] },
+      productionKpis: productionKpisResult.status === 'fulfilled'
+        ? productionKpisResult.value
+        : { metrics: [], categoryCycleTimes: [], bottlenecks: [] },
     };
   }
 
@@ -269,6 +282,214 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
       avgDays:   +(times.reduce((s, t) => s + t, 0) / times.length / 24).toFixed(1),
       sampleSize: times.length,
     }));
+  }
+
+  private hoursBetween(start?: Date | null, end?: Date | null) {
+    if (!start || !end) return null;
+    const hours = (end.getTime() - start.getTime()) / 3600000;
+    return Number.isFinite(hours) && hours >= 0 ? hours : null;
+  }
+
+  private avg(values: (number | null)[]) {
+    const clean = values.filter((value): value is number => value !== null && Number.isFinite(value));
+    if (!clean.length) return null;
+    return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+  }
+
+  private metric(key: string, label: string, values: (number | null)[], note: string): ProductionKpiMetric {
+    const clean = values.filter((value): value is number => value !== null && Number.isFinite(value));
+    const avgHours = this.avg(clean);
+    return {
+      key,
+      label,
+      avgHours: avgHours === null ? null : +avgHours.toFixed(1),
+      avgDays: avgHours === null ? null : +(avgHours / 24).toFixed(1),
+      sampleSize: clean.length,
+      note,
+    };
+  }
+
+  private firstStatusLog<T extends { toStatus: OrderStatus; createdAt: Date }>(logs: T[], status: OrderStatus) {
+    return logs.find((log) => log.toStatus === status)?.createdAt ?? null;
+  }
+
+  private firstMetadataLog<T extends { metadata: unknown; createdAt: Date }>(
+    logs: T[],
+    eventType: string,
+    predicate?: (metadata: Record<string, unknown>) => boolean,
+  ) {
+    return logs.find((log) => {
+      const metadata = log.metadata as Record<string, unknown> | null;
+      return metadata?.eventType === eventType && (!predicate || predicate(metadata));
+    })?.createdAt ?? null;
+  }
+
+  async getProductionKpis() {
+    const [orders, payments, jobWorks, sheetItems, sheetLogs] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { status: { not: OrderStatus.CANCELLED } },
+        include: {
+          statusLogs: { orderBy: { createdAt: 'asc' } },
+          shipments: { orderBy: { createdAt: 'asc' } },
+          items: { include: { product: { include: { category: true } } } },
+        },
+      }),
+      this.prisma.payment.findMany({
+        where: { verificationStatus: 'VERIFIED', verifiedAt: { not: null } },
+        select: { createdAt: true, verifiedAt: true },
+      }),
+      this.prisma.jobWork.findMany({
+        include: {
+          orderItem: {
+            include: {
+              order: { include: { statusLogs: { orderBy: { createdAt: 'asc' } } } },
+            },
+          },
+        },
+      }),
+      this.prisma.printSheetItem.findMany({
+        include: {
+          orderItem: {
+            include: {
+              order: { include: { statusLogs: { orderBy: { createdAt: 'asc' } } } },
+            },
+          },
+        },
+      }),
+      this.prisma.statusLog.findMany({
+        where: { reason: { contains: 'Sheet' } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true, metadata: true },
+      }),
+    ]);
+
+    const approvalTimes = orders.map((order) =>
+      this.hoursBetween(
+        this.firstStatusLog(order.statusLogs, OrderStatus.PENDING_APPROVAL) ?? order.createdAt,
+        this.firstStatusLog(order.statusLogs, OrderStatus.APPROVED),
+      ),
+    );
+
+    const receiptVerifyTimes = payments.map((payment) => this.hoursBetween(payment.createdAt, payment.verifiedAt));
+
+    const categoryAssignmentTimes = {
+      [ProductionCategory.INHOUSE]: [] as (number | null)[],
+      [ProductionCategory.CLUBBING]: [] as (number | null)[],
+      [ProductionCategory.SHEET_PRODUCTION]: [] as (number | null)[],
+    };
+
+    const inhousePrintingStartTimes: (number | null)[] = [];
+    const categoryCycleTimes: Record<string, number[]> = {};
+    const readyToBookingTimes: (number | null)[] = [];
+
+    for (const order of orders) {
+      const approvedAt = this.firstStatusLog(order.statusLogs, OrderStatus.APPROVED);
+      const readyAt = this.firstStatusLog(order.statusLogs, OrderStatus.READY_FOR_DISPATCH);
+      const dispatchedAt = this.firstStatusLog(order.statusLogs, OrderStatus.DISPATCHED)
+        ?? this.firstStatusLog(order.statusLogs, OrderStatus.PARTIALLY_DISPATCHED)
+        ?? order.shipments[0]?.createdAt
+        ?? null;
+
+      if (readyAt && dispatchedAt) readyToBookingTimes.push(this.hoursBetween(readyAt, dispatchedAt));
+
+      for (const item of order.items) {
+        const productionCategory = item.productionCategory;
+        if (productionCategory && productionCategory in categoryAssignmentTimes) {
+          const assignedAt = this.firstMetadataLog(
+            order.statusLogs,
+            'PRODUCTION_CATEGORY_ASSIGNED',
+            (metadata) => metadata.orderItemId === item.id || metadata.productionCategory === productionCategory,
+          ) ?? (approvedAt && item.updatedAt >= approvedAt ? item.updatedAt : null);
+          categoryAssignmentTimes[productionCategory].push(this.hoursBetween(approvedAt, assignedAt));
+        }
+
+        if (productionCategory === ProductionCategory.INHOUSE) {
+          const printingAt = this.firstMetadataLog(
+            order.statusLogs,
+            'ITEM_STAGE_CHANGED',
+            (metadata) => metadata.orderItemId === item.id && metadata.itemStage === OrderProductionStage.PRINTING,
+          ) ?? order.statusLogs.find((log) => log.reason?.includes('Printing'))?.createdAt ?? null;
+          inhousePrintingStartTimes.push(this.hoursBetween(approvedAt, printingAt));
+        }
+
+        if (readyAt) {
+          const category = item.product.category.name;
+          if (!categoryCycleTimes[category]) categoryCycleTimes[category] = [];
+          const hours = this.hoursBetween(order.orderDate, readyAt);
+          if (hours !== null) categoryCycleTimes[category].push(hours);
+        }
+      }
+    }
+
+    const vendorAssignmentTimes = [
+      ...jobWorks.map((jobWork) =>
+        this.hoursBetween(
+          this.firstStatusLog(jobWork.orderItem.order.statusLogs, OrderStatus.APPROVED),
+          jobWork.createdAt,
+        ),
+      ),
+      ...sheetLogs
+        .filter((log) => (log.metadata as any)?.eventType === 'SHEET_STAGE_VENDOR_ASSIGNED')
+        .map((log) => {
+          const metadata = log.metadata as Record<string, unknown>;
+          const sheetAssignedAt = sheetLogs.find((candidate) =>
+            (candidate.metadata as any)?.eventType === 'SHEET_ASSIGNED' &&
+            (candidate.metadata as any)?.sheetId === metadata.sheetId
+          )?.createdAt ?? null;
+          return this.hoursBetween(sheetAssignedAt, log.createdAt);
+        }),
+    ];
+
+    const sheetAssignmentTimes = sheetItems.map((sheetItem) =>
+      this.hoursBetween(
+        this.firstStatusLog(sheetItem.orderItem.order.statusLogs, OrderStatus.APPROVED),
+        sheetItem.createdAt,
+      ),
+    );
+
+    const completeToPrintingTimes: (number | null)[] = [];
+    const completeBySheet = new Map<string, Date>();
+    for (const log of sheetLogs) {
+      const metadata = log.metadata as Record<string, unknown> | null;
+      if (metadata?.eventType !== 'SHEET_STATUS_CHANGED' || typeof metadata.sheetId !== 'string') continue;
+      if (metadata.sheetStatus === 'COMPLETE' && !completeBySheet.has(metadata.sheetId)) {
+        completeBySheet.set(metadata.sheetId, log.createdAt);
+      }
+      if (metadata.sheetStatus === 'PRINTING') {
+        completeToPrintingTimes.push(this.hoursBetween(completeBySheet.get(metadata.sheetId), log.createdAt));
+      }
+    }
+
+    const categoryRows = Object.entries(categoryCycleTimes)
+      .map(([category, times]) => {
+        const avgHours = this.avg(times);
+        return {
+          category,
+          avgHours: avgHours === null ? null : +avgHours.toFixed(1),
+          avgDays: avgHours === null ? null : +(avgHours / 24).toFixed(1),
+          sampleSize: times.length,
+        };
+      })
+      .sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0));
+
+    const metrics = [
+      this.metric('order_approval', 'Order Approval', approvalTimes, 'Order created to accounts approval'),
+      this.metric('receipt_verification', 'Receipt Verification', receiptVerifyTimes, 'Payment receipt upload to accounts verification'),
+      this.metric('assign_inhouse', 'Assign Inhouse Dept.', categoryAssignmentTimes.INHOUSE, 'Accounts approval to inhouse category assignment'),
+      this.metric('assign_clubbing', 'Assign Clubbing Dept.', categoryAssignmentTimes.CLUBBING, 'Accounts approval to clubbing category assignment'),
+      this.metric('assign_sheet', 'Assign Sheet Dept.', categoryAssignmentTimes.SHEET_PRODUCTION, 'Accounts approval to sheet production assignment'),
+      this.metric('vendor_assignment', 'Vendor Assignment', vendorAssignmentTimes, 'Production/sheet assignment to vendor selection'),
+      this.metric('inhouse_print_start', 'Inhouse Printing Start', inhousePrintingStartTimes, 'Accounts approval to first inhouse printing signal'),
+      this.metric('sheet_assignment', 'Sheet Assignment', sheetAssignmentTimes, 'Accounts approval to placing product on sheet'),
+      this.metric('sheet_complete_to_printing', 'Sheet Complete to Printing', completeToPrintingTimes, 'Sheet COMPLETE status to PRINTING status'),
+      this.metric('ready_to_booking', 'Ready to Dispatch Booking', readyToBookingTimes, 'Ready-for-dispatch to shipment booking'),
+    ];
+
+    return {
+      metrics,
+      categoryCycleTimes: categoryRows,
+      bottlenecks: [...metrics].filter((metric) => metric.avgHours !== null).sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0)).slice(0, 5),
+    };
   }
 
   // ── Lead source analytics ────────────────────────────────────────────────
