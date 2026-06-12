@@ -8,6 +8,18 @@ import { useRouter } from "next/navigation";
 
 type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
 type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
+type CustomerSearchRow = {
+  id: string;
+  businessName: string;
+  contactPerson?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  orderCount?: number;
+};
 
 const LEAD_SOURCES = [
   { value: "", label: "Select source..." },
@@ -47,7 +59,11 @@ export default function CreateOrderPage() {
   const [productSearch, setProductSearch] = useState<Record<number, string>>({});
   const [productDropdownOpen, setProductDropdownOpen] = useState<Record<number, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
+  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
+  const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const [selectedCustomerLabel, setSelectedCustomerLabel] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
   const [orderNotes, setOrderNotes] = useState("");
   const [leadSource, setLeadSource] = useState("");
@@ -63,6 +79,61 @@ export default function CreateOrderPage() {
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
+
+  function normalizePhone(value: string) {
+    const digits = value.replace(/\D/g, "");
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+
+  function fillCustomer(row: CustomerSearchRow) {
+    setCustomer({
+      customerId: row.id,
+      name: row.businessName ?? "",
+      phone: row.phone ?? "",
+      email: row.email ?? "",
+      address: row.address ?? "",
+      city: row.city ?? "",
+      state: row.state ?? "",
+      pincode: row.pincode ?? "",
+    });
+    setSelectedCustomerLabel(row.businessName);
+    setCustomerMatches([]);
+    setCustomerSearchOpen(false);
+  }
+
+  useEffect(() => {
+    const byPhone = normalizePhone(customer.phone);
+    const query = byPhone.length >= 4 ? customer.phone : customer.name.trim();
+    if (customer.customerId && selectedCustomerLabel === customer.name) return;
+    if (query.trim().length < 2) {
+      setCustomerMatches([]);
+      setCustomerSearchOpen(false);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      setCustomerSearchLoading(true);
+      try {
+        const params = new URLSearchParams({ search: query.trim(), limit: "8" });
+        const res = await fetch(`${API_BASE_URL}/customer-directory/search?${params.toString()}`, { headers: getAuthHeaders() });
+        if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows: CustomerSearchRow[] = data.customers ?? [];
+        setCustomerMatches(rows);
+        setCustomerSearchOpen(rows.length > 0);
+
+        if (byPhone.length >= 10) {
+          const exact = rows.find((row) => normalizePhone(row.phone ?? "") === byPhone);
+          if (exact) fillCustomer(exact);
+        }
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [customer.name, customer.phone, customer.customerId, selectedCustomerLabel, router]);
 
   function updateLine(index: number, field: keyof LineItem, value: string | number) {
     setLineItems(prev => {
@@ -150,12 +221,43 @@ export default function CreateOrderPage() {
             <div className="create-order-field-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
               <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
                 <label style={S.label}>Full Name *</label>
-                <input value={customer.name} onChange={e => setCustomer(c => ({ ...c, name: e.target.value }))}
-                  placeholder="Customer / Business Name" style={S.input} />
+                <div style={{ position: "relative" }}>
+                  <input value={customer.name} onChange={e => {
+                    setSelectedCustomerLabel("");
+                    setCustomer(c => ({ ...c, customerId: "", name: e.target.value }));
+                  }}
+                    onFocus={() => customerMatches.length > 0 && setCustomerSearchOpen(true)}
+                    onBlur={() => window.setTimeout(() => setCustomerSearchOpen(false), 180)}
+                    placeholder="Customer / Business Name" style={S.input} />
+                  {customerSearchOpen && (
+                    <div style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, marginTop: "4px", maxHeight: "220px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "8px", background: "white", boxShadow: "0 12px 24px rgba(15,23,42,0.14)" }}>
+                      {customerMatches.map(row => (
+                        <button key={row.id} type="button" onMouseDown={() => fillCustomer(row)}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                            <span style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a" }}>{row.businessName}</span>
+                            <span style={{ fontSize: "10px", color: "#64748b", flexShrink: 0 }}>{row.orderCount ?? 0} orders</span>
+                          </div>
+                          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {[row.phone, row.address, row.city, row.pincode].filter(Boolean).join(" • ")}
+                          </div>
+                        </button>
+                      ))}
+                      {customerSearchLoading && <div style={{ padding: "8px 10px", fontSize: "11px", color: "#64748b" }}>Searching old customers...</div>}
+                    </div>
+                  )}
+                </div>
+                {customer.customerId && (
+                  <p style={{ margin: "4px 0 0", fontSize: "10px", color: "#059669", fontWeight: 600 }}>Old customer selected. Details will be reused.</p>
+                )}
               </div>
               <div>
                 <label style={S.label}>Phone</label>
-                <input value={customer.phone} onChange={e => setCustomer(c => ({ ...c, phone: e.target.value }))}
+                <input value={customer.phone} onChange={e => {
+                  setSelectedCustomerLabel("");
+                  setCustomer(c => ({ ...c, customerId: "", phone: e.target.value }));
+                }}
+                  onFocus={() => customerMatches.length > 0 && setCustomerSearchOpen(true)}
                   placeholder="09XXXXXXXXX" style={S.input} />
               </div>
               <div>

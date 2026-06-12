@@ -12,6 +12,10 @@ import {
 } from 'class-validator';
 
 export class CreateOrderCustomerDto {
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
   @IsString()
   name: string;
 

@@ -341,7 +341,7 @@ export class OrdersService {
 
   async create(
     dto: {
-      customer: { name: string; phone?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
+      customer: { customerId?: string; name: string; phone?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
       items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string }>;
       notes?: string;
       leadSource?: string;
@@ -403,19 +403,39 @@ export class OrdersService {
     }
 
     const orderId = await this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.create({
-        data: {
-          customerCode,
-          businessName: dto.customer.name,
-          contactPerson: dto.customer.name,
-          phone: dto.customer.phone,
-          email: dto.customer.email,
-          shippingAddress,
-          city: dto.customer.city,
-          state: dto.customer.state,
-          pincode: dto.customer.pincode,
-        },
-      });
+      const existingCustomer = dto.customer.customerId
+        ? await tx.customer.findUnique({ where: { id: dto.customer.customerId } })
+        : dto.customer.phone
+          ? await tx.customer.findFirst({ where: { phone: dto.customer.phone } })
+          : null;
+
+      const customer = existingCustomer
+        ? await tx.customer.update({
+            where: { id: existingCustomer.id },
+            data: {
+              businessName: dto.customer.name,
+              contactPerson: dto.customer.name,
+              phone: dto.customer.phone,
+              email: dto.customer.email,
+              shippingAddress,
+              city: dto.customer.city,
+              state: dto.customer.state,
+              pincode: dto.customer.pincode,
+            },
+          })
+        : await tx.customer.create({
+            data: {
+              customerCode,
+              businessName: dto.customer.name,
+              contactPerson: dto.customer.name,
+              phone: dto.customer.phone,
+              email: dto.customer.email,
+              shippingAddress,
+              city: dto.customer.city,
+              state: dto.customer.state,
+              pincode: dto.customer.pincode,
+            },
+          });
 
       const order = await tx.order.create({
         data: {
