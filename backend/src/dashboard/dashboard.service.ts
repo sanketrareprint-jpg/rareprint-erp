@@ -23,7 +23,7 @@ export class DashboardService {
       this.getCategoryStageQuantities(),
       this.getAvgProductionTime(),
       this.getLeadSourceAnalytics(),
-      this.withTimeout(this.getProductionKpis(), 3500, this.getEmptyProductionKpis()),
+      this.withTimeout(this.getProductionKpis(), 10000, this.getEmptyProductionKpis()),
     ]);
 
     return {
@@ -568,3 +568,4 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
 
 
 
+                                                                                                                                                                                                                                                              

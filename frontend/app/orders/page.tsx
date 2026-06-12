@@ -212,6 +212,11 @@ export default function OrdersPage() {
 
   // Search + filter
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [marginMode, setMarginMode] = useState<"" | "below" | "above">("");
   const [marginThreshold, setMarginThreshold] = useState("15");
@@ -271,7 +276,7 @@ export default function OrdersPage() {
       limit: String(ORDER_PAGE_SIZE),
       status: statusFilter,
     });
-    if (search.trim()) params.set("search", search.trim());
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (canViewMargin && marginMode && marginThreshold) {
       params.set("marginMode", marginMode);
       params.set("marginThreshold", marginThreshold);
@@ -302,7 +307,7 @@ export default function OrdersPage() {
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
     append ? setLoadingMore(false) : setLoading(false);
-  }, [router, search, statusFilter, canViewMargin, marginMode, marginThreshold]);
+  }, [router, debouncedSearch, statusFilter, canViewMargin, marginMode, marginThreshold]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -506,7 +511,7 @@ export default function OrdersPage() {
 
   const filteredOrders = useMemo(() => {
     const base = activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     return base.filter(o => {
       const matchSearch = !q ||
         o.orderNo?.toLowerCase().includes(q) ||
@@ -704,7 +709,9 @@ export default function OrdersPage() {
               <>
               <div className="space-y-3 md:hidden">
                 {filteredOrders.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">No orders found.</div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
+                    {search !== debouncedSearch ? "Searching…" : "No orders found."}
+                  </div>
                 ) : filteredOrders.map(o => (
                   <div key={o.id} className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${selectedOrderIds.has(o.id) ? "ring-2 ring-indigo-200" : ""}`}>
                     <div className="bg-blue-700 px-3 py-2 text-white">
@@ -840,7 +847,9 @@ export default function OrdersPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={tableColSpan} className="px-4 py-10 text-center text-slate-400 text-sm">No orders found.</td></tr>
+                      <tr><td colSpan={tableColSpan} className="px-4 py-10 text-center text-slate-400 text-sm">
+                        {search !== debouncedSearch ? "Searching…" : "No orders found."}
+                      </td></tr>
                     ) : filteredOrders.map((o) => (
                       <React.Fragment key={o.id}>
                         <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
@@ -1627,18 +1636,4 @@ export default function OrdersPage() {
               </label>
             </div>
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setEditingPayment(null)}
-                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={savePaymentEdit} disabled={savingPaymentEdit}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
-
-                {savingPaymentEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+           
