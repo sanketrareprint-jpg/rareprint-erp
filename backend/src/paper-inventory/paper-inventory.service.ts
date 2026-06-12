@@ -170,11 +170,11 @@ Return ONLY valid JSON, no explanation:
           invoiceNumber: dto.invoiceNumber,
           invoiceImagePath: dto.invoiceImagePath,
           supplierId: dto.supplierId ?? null,
-          status: PaperPOStatus.RECEIVED, // auto-mark as received on creation
+          status: PaperPOStatus.RECEIVED,
           notes: dto.notes,
           transportCharges: dto.transportCharges ?? 0,
           totalBillAmount: dto.totalBillAmount ?? null,
-        },
+        } as any,
       });
 
       for (const item of dto.items) {
@@ -196,7 +196,7 @@ Return ONLY valid JSON, no explanation:
             totalSheets,
             ratePerUnit: item.ratePerUnit ?? null,
             pressId: item.pressId,
-          },
+          } as any,
         });
 
         // Update or create PaperInventory for this press + gsm + quality
@@ -516,7 +516,7 @@ Return ONLY valid JSON, no explanation:
           notes: dto.notes ?? null,
           transportCharges: dto.transportCharges ?? 0,
           totalBillAmount: dto.totalBillAmount ?? null,
-        },
+        } as any,
       });
 
       // 5. Create new items and update inventory
@@ -539,7 +539,7 @@ Return ONLY valid JSON, no explanation:
             totalSheets,
             ratePerUnit: item.ratePerUnit ?? null,
             pressId: item.pressId,
-          },
+          } as any,
         });
 
         const existingInv = await tx.paperInventory.findUnique({
