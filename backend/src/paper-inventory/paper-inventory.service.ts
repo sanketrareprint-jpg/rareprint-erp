@@ -172,10 +172,11 @@ Return ONLY valid JSON, no explanation:
           supplierId: dto.supplierId ?? null,
           status: PaperPOStatus.RECEIVED,
           notes: dto.notes,
-          transportCharges: dto.transportCharges ?? 0,
-          totalBillAmount: dto.totalBillAmount ?? null,
-        } as any,
+        },
       });
+
+      // Set billing fields via raw SQL (Prisma client may not have these yet)
+      await tx.$executeRaw`UPDATE "PaperPurchaseOrder" SET "transportCharges" = ${dto.transportCharges ?? 0}, "totalBillAmount" = ${dto.totalBillAmount ?? null} WHERE id = ${po.id}`;
 
       for (const item of dto.items) {
         const sheetsPerUnit = item.unit === PaperUnit.REAM
@@ -194,10 +195,14 @@ Return ONLY valid JSON, no explanation:
             unitQuantity: item.unitQuantity,
             sheetsPerUnit,
             totalSheets,
-            ratePerUnit: item.ratePerUnit ?? null,
             pressId: item.pressId,
-          } as any,
+          },
         });
+
+        // Set ratePerUnit via raw SQL (Prisma client may not have this field yet)
+        if (item.ratePerUnit != null) {
+          await tx.$executeRaw`UPDATE "PaperPurchaseItem" SET "ratePerUnit" = ${item.ratePerUnit} WHERE id = ${poItem.id}`;
+        }
 
         // Update or create PaperInventory for this press + gsm + quality
         const existing = await tx.paperInventory.findUnique({
@@ -514,10 +519,11 @@ Return ONLY valid JSON, no explanation:
           invoiceNumber: dto.invoiceNumber ?? null,
           supplierId: dto.supplierId ?? null,
           notes: dto.notes ?? null,
-          transportCharges: dto.transportCharges ?? 0,
-          totalBillAmount: dto.totalBillAmount ?? null,
-        } as any,
+        },
       });
+
+      // Set billing fields via raw SQL (Prisma client may not have these yet)
+      await tx.$executeRaw`UPDATE "PaperPurchaseOrder" SET "transportCharges" = ${dto.transportCharges ?? 0}, "totalBillAmount" = ${dto.totalBillAmount ?? null} WHERE id = ${id}`;
 
       // 5. Create new items and update inventory
       for (const item of dto.items) {
@@ -537,10 +543,14 @@ Return ONLY valid JSON, no explanation:
             unitQuantity: item.unitQuantity,
             sheetsPerUnit,
             totalSheets,
-            ratePerUnit: item.ratePerUnit ?? null,
             pressId: item.pressId,
-          } as any,
+          },
         });
+
+        // Set ratePerUnit via raw SQL (Prisma client may not have this field yet)
+        if (item.ratePerUnit != null) {
+          await tx.$executeRaw`UPDATE "PaperPurchaseItem" SET "ratePerUnit" = ${item.ratePerUnit} WHERE id = ${poItem.id}`;
+        }
 
         const existingInv = await tx.paperInventory.findUnique({
           where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
