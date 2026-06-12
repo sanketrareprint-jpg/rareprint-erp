@@ -55,6 +55,11 @@ export default function LoginPage() {
         | null;
 
       if (!res.ok) {
+        if (res.status === 503) {
+          setError("Database is unavailable. Please try again shortly.");
+          return;
+        }
+
         const msg = data && "message" in data ? data.message : null;
         const text = Array.isArray(msg) ? msg.join(", ") : msg;
         setError(text || "Login failed. Please check your credentials.");

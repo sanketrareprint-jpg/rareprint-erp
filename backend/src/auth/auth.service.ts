@@ -42,7 +42,12 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const passwordOk = await bcrypt.compare(password, user.passwordHash);
+    let passwordOk = false;
+    try {
+      passwordOk = await bcrypt.compare(password, user.passwordHash);
+    } catch {
+      throw new UnauthorizedException('Invalid credentials');
+    }
     if (!passwordOk) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -50,7 +55,10 @@ export class AuthService {
     return user;
   }
 
-  async login(email: string, password: string): Promise<{
+  async login(
+    email: string,
+    password: string,
+  ): Promise<{
     accessToken: string;
     tokenType: 'Bearer';
     user: { id: string; fullName: string; email: string; role: string };
