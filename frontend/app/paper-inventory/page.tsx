@@ -1364,4 +1364,81 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
                             onChange={(e) => updateItem(i, "pressId", e.target.value)}
                             className={`w-full border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 ${!item.pressId ? "border-orange-300 bg-orange-50" : "border-gray-200"}`}
                           >
-                            <option value="">— Select press —</opt
+                            <option value="">— Select press —</option>
+                            {vendors.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.name}{v.isPress ? " ✓" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2">
+                          {items.length > 1 && (
+                            <button onClick={() => removeItem(i)} className="text-gray-300 hover:text-red-500 p-1">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">★ Presses marked with ✓ are tagged as printing presses. Paper balance will be added to the selected press account.</p>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+          <div className="text-sm text-gray-500">
+            {items.length} item{items.length !== 1 ? "s" : ""}  · 
+            Total: <strong className="text-gray-900">
+              {items.reduce((sum, it) => {
+                const s = (!isNaN(Number(it.unitQuantity)) && Number(it.unitQuantity) > 0)
+                  ? computeSheets(it.unit, Number(it.unitQuantity), Number(it.sheetsPerUnit) || 500)
+                  : 0;
+                return sum + s;
+              }, 0).toLocaleString("en-IN")}
+            </strong> sheets
+            {(() => {
+              const itemsTotal = items.reduce((sum, it) => {
+                const qty = Number(it.unitQuantity) || 0;
+                const rate = Number(it.ratePerUnit) || 0;
+                return sum + qty * rate;
+              }, 0);
+              const transport = Number(transportCharges) || 0;
+              const grandTotal = itemsTotal + transport;
+              if (grandTotal === 0) return null;
+              return (
+                <div className="text-xs text-gray-600 mt-1">
+                  Paper: <strong className="text-gray-900">&#8377;{itemsTotal.toLocaleString("en-IN")}</strong>
+                  {transport > 0 && <span> + Transport: <strong className="text-gray-900">&#8377;{transport.toLocaleString("en-IN")}</strong></span>}
+                  {" · "}Bill Total: <strong className="text-green-700 text-sm">&#8377;{grandTotal.toLocaleString("en-IN")}</strong>
+                </div>
+              );
+            })()}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100">Cancel</button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 font-medium"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : isEdit ? <Pencil className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+              {saving ? "Saving..." : isEdit ? "Update Purchase Order" : "Save Purchase Order"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

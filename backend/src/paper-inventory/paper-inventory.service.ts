@@ -654,4 +654,23 @@ Return ONLY valid JSON, no explanation:
         update: { balanceSheets: newBalance },
         create: { id: INHOUSE_STOCK_ID, balanceSheets: newBalance },
       });
-      await tx
+      await tx.inHouseStickerTransaction.create({
+        data: {
+          transactionType: 'ADJUSTMENT',
+          sheets: diff,
+          balanceAfter: newBalance,
+          notes: notes ?? `Manual adjustment: ${oldBalance} → ${newBalance} sheets`,
+        },
+      });
+      return { balanceSheets: newBalance };
+    });
+  }
+
+  // Transaction history
+  async getStickerTransactions(limit = 100) {
+    return this.prisma.inHouseStickerTransaction.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+}
