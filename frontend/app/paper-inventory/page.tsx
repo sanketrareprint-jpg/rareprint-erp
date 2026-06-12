@@ -1255,14 +1255,14 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">Paper Name</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-16">GSM</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-28">Quality</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-20">Unit</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-16">Qty</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-20">GSM</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-32">Quality</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-24">Unit</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-20">Qty</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 w-24">Sh/Unit</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 w-20">Sheets</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 w-24">Rate (₹)</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 w-24">Amount (₹)</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 w-24">Sheets</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 w-28">Rate (₹)</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 w-28">Amount (₹)</th>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">Assign Press ★</th>
                     <th className="w-8" />
                   </tr>
