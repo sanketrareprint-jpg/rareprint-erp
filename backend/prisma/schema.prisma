@@ -317,7 +317,6 @@ model Order {
   grandTotal       Decimal                 @db.Decimal(14, 2)
   notes            String?
   leadSource       String? // e.g. "WALK_IN", "FB_AD_Jan_2025"
-  customFields     Json                 @default("{}")
   isTest           Boolean                 @default(false)
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
@@ -353,7 +352,6 @@ model OrderItem {
   lineTotal           Decimal              @db.Decimal(14, 2)
   artworkNotes        String?
   productionNotes     String?
-  customFields        Json                 @default("{}")
   designFiles         Json                 @default("[]")
   productionCategory  ProductionCategory? // INHOUSE | CLUBBING | SHEET_PRODUCTION
   itemProductionStage OrderProductionStage @default(NOT_PRINTED)
@@ -1629,4 +1627,5 @@ model InHouseStickerTransaction {
 enum InHouseStickerTxType {
   STOCK_IN // sheets added to stock
   USED // sheets consumed for in-house jobs
-  ADJUSTMENT 
+  ADJUSTMENT // manual correction
+}

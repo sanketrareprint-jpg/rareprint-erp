@@ -26,6 +26,7 @@ export interface CreatePOItemDto {
   unit: PaperUnit;
   unitQuantity: number;
   sheetsPerUnit?: number; // required if unit = PACKET
+  ratePerUnit?: number;   // rate per ream or per packet (₹)
   pressId: string;
 }
 
@@ -34,6 +35,8 @@ export interface CreatePODto {
   invoiceImagePath?: string;
   supplierId?: string;
   notes?: string;
+  transportCharges?: number; // freight/transport for this bill
+  totalBillAmount?: number;  // total bill value (items + transport)
   items: CreatePOItemDto[];
 }
 
@@ -169,6 +172,8 @@ Return ONLY valid JSON, no explanation:
           supplierId: dto.supplierId ?? null,
           status: PaperPOStatus.RECEIVED, // auto-mark as received on creation
           notes: dto.notes,
+          transportCharges: dto.transportCharges ?? 0,
+          totalBillAmount: dto.totalBillAmount ?? null,
         },
       });
 
@@ -189,6 +194,7 @@ Return ONLY valid JSON, no explanation:
             unitQuantity: item.unitQuantity,
             sheetsPerUnit,
             totalSheets,
+            ratePerUnit: item.ratePerUnit ?? null,
             pressId: item.pressId,
           },
         });
@@ -508,6 +514,8 @@ Return ONLY valid JSON, no explanation:
           invoiceNumber: dto.invoiceNumber ?? null,
           supplierId: dto.supplierId ?? null,
           notes: dto.notes ?? null,
+          transportCharges: dto.transportCharges ?? 0,
+          totalBillAmount: dto.totalBillAmount ?? null,
         },
       });
 
@@ -529,6 +537,7 @@ Return ONLY valid JSON, no explanation:
             unitQuantity: item.unitQuantity,
             sheetsPerUnit,
             totalSheets,
+            ratePerUnit: item.ratePerUnit ?? null,
             pressId: item.pressId,
           },
         });
@@ -645,23 +654,4 @@ Return ONLY valid JSON, no explanation:
         update: { balanceSheets: newBalance },
         create: { id: INHOUSE_STOCK_ID, balanceSheets: newBalance },
       });
-      await tx.inHouseStickerTransaction.create({
-        data: {
-          transactionType: 'ADJUSTMENT',
-          sheets: diff,
-          balanceAfter: newBalance,
-          notes: notes ?? `Manual adjustment: ${oldBalance} → ${newBalance} sheets`,
-        },
-      });
-      return { balanceSheets: newBalance };
-    });
-  }
-
-  // Transaction history
-  async getStickerTransactions(limit = 100) {
-    return this.prisma.inHouseStickerTransaction.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
-  }
-}
+      await tx
