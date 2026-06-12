@@ -1134,7 +1134,7 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[92vh] flex flex-col">
         {/* Modal header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
@@ -1250,8 +1250,8 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
               </button>
             </div>
 
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border border-gray-200 rounded-xl overflow-x-auto">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">Paper Name</th>
