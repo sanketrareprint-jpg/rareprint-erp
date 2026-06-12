@@ -1086,6 +1086,7 @@ model Task {
   status       TaskStatus      @default(OPEN)
   priority     TaskPriority    @default(NORMAL)
   goalHorizon  TaskGoalHorizon @default(WEEKLY)
+  orderIndex   Int             @default(0)
   dueDate      DateTime?
   createdById  String
   assignedToId String
@@ -1097,6 +1098,7 @@ model Task {
 
   @@index([assignedToId, status, dueDate])
   @@index([assignedToId, goalHorizon, status])
+  @@index([assignedToId, orderIndex])
   @@index([createdById, createdAt])
   @@index([status, dueDate])
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
-import { CheckCircle2, Clock, Heart, Loader2, Pencil, Plus, Save, Sprout, Target, UserCheck, X } from "lucide-react";
+import { CheckCircle2, Clock, GripVertical, Heart, Loader2, Pencil, Plus, Save, Sprout, Target, UserCheck, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type UserOption = { id: string; fullName: string; email: string; role: string };
@@ -15,6 +15,7 @@ type Task = {
   status: "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELLED";
   priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   goalHorizon: "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+  orderIndex: number;
   dueDate?: string | null;
   createdAt: string;
   completedAt?: string | null;
@@ -59,12 +60,6 @@ const priorityHelp: Record<Task["priority"], string> = {
   NORMAL: "Urgent, not important",
   LOW: "Not urgent, not important",
 };
-const priorityRank: Record<Task["priority"], number> = {
-  URGENT: 0,
-  HIGH: 1,
-  NORMAL: 2,
-  LOW: 3,
-};
 const quadrantOrder: Task["priority"][] = ["URGENT", "HIGH", "NORMAL", "LOW"];
 const goalHorizonOrder: Task["goalHorizon"][] = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"];
 const goalHorizonLabels: Record<Task["goalHorizon"], string> = {
@@ -99,6 +94,8 @@ export default function TasksPage() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<FormState>({
     title: "",
     description: "",
@@ -151,11 +148,7 @@ export default function TasksPage() {
   }, [status]);
   const sortedTasks = useMemo(() => (
     [...tasks].sort((a, b) => {
-      const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
-      if (priorityDiff !== 0) return priorityDiff;
-      const dueA = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      const dueB = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-      if (dueA !== dueB) return dueA - dueB;
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     })
   ), [tasks]);
@@ -215,6 +208,53 @@ export default function TasksPage() {
       const next = prev.map(task => task.id === id ? updated : task);
       return taskMatchesFilter(updated) ? next : next.filter(task => task.id !== id);
     });
+  }
+
+  async function saveTaskOrder(orderedTaskIds: string[]) {
+    const res = await fetch(`${API_BASE_URL}/tasks/reorder`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ taskIds: orderedTaskIds }),
+    });
+    if (!res.ok) throw new Error("Could not save task order");
+  }
+
+  async function moveTask(dragId: string, dropId: string) {
+    if (dragId === dropId) return;
+
+    const previousTasks = tasks;
+    const visibleIds = visibleTasks.map(task => task.id);
+    const fromIndex = visibleIds.indexOf(dragId);
+    const toIndex = visibleIds.indexOf(dropId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const reorderedVisibleIds = [...visibleIds];
+    const [movedId] = reorderedVisibleIds.splice(fromIndex, 1);
+    reorderedVisibleIds.splice(toIndex, 0, movedId);
+
+    const reorderedVisible = new Map(reorderedVisibleIds.map((id, index) => [id, index]));
+    const mergedIds = sortedTasks
+      .filter(task => taskMatchesFilter(task))
+      .map(task => task.id)
+      .sort((a, b) => {
+        const visibleA = reorderedVisible.get(a);
+        const visibleB = reorderedVisible.get(b);
+        if (visibleA !== undefined && visibleB !== undefined) return visibleA - visibleB;
+        return 0;
+      });
+    const orderById = new Map(mergedIds.map((id, index) => [id, (index + 1) * 1000]));
+
+    setTasks(prev => prev.map(task => {
+      const orderIndex = orderById.get(task.id);
+      return orderIndex === undefined ? task : { ...task, orderIndex };
+    }));
+
+    try {
+      await saveTaskOrder(mergedIds);
+    } catch {
+      setTasks(previousTasks);
+      alert("Could not save task order");
+    }
   }
 
   function startEdit(task: Task) {
@@ -402,7 +442,22 @@ export default function TasksPage() {
             ) : (
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-4">
                 {visibleTasks.map(task => (
-                  <div key={task.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                  <div
+                    key={task.id}
+                    onDragOver={e => {
+                      e.preventDefault();
+                      if (draggedTaskId && draggedTaskId !== task.id) setDragOverTaskId(task.id);
+                    }}
+                    onDrop={e => {
+                      e.preventDefault();
+                      if (draggedTaskId) void moveTask(draggedTaskId, task.id);
+                      setDraggedTaskId(null);
+                      setDragOverTaskId(null);
+                    }}
+                    className={`rounded-lg border bg-white px-3 py-2 shadow-sm transition ${
+                      dragOverTaskId === task.id ? "border-blue-400 ring-2 ring-blue-100" : "border-slate-200"
+                    } ${draggedTaskId === task.id ? "opacity-60" : ""}`}
+                  >
                     {editingId === task.id ? (
                       <div className="space-y-2">
                         <div className="grid gap-2 md:grid-cols-[1fr_160px]">
@@ -432,6 +487,24 @@ export default function TasksPage() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={e => {
+                            e.dataTransfer.effectAllowed = "move";
+                            e.dataTransfer.setData("text/plain", task.id);
+                            setDraggedTaskId(task.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedTaskId(null);
+                            setDragOverTaskId(null);
+                          }}
+                          className="inline-flex h-8 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing"
+                          title="Drag to move task"
+                          aria-label="Drag to move task"
+                        >
+                          <GripVertical className="h-4 w-4" />
+                        </button>
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
                         <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{goalHorizonLabels[task.goalHorizon]}</span>
                         <div className="min-w-0 flex-1">

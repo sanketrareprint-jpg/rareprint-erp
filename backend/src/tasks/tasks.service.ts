@@ -28,6 +28,7 @@ export class TasksService {
       status: true,
       priority: true,
       goalHorizon: true,
+      orderIndex: true,
       dueDate: true,
       createdAt: true,
       updatedAt: true,
@@ -60,8 +61,7 @@ export class TasksService {
     return this.prisma.task.findMany({
       where,
       orderBy: [
-        { priority: 'desc' },
-        { dueDate: 'asc' },
+        { orderIndex: 'asc' },
         { createdAt: 'desc' },
       ],
       select: this.taskSelect(),
@@ -98,6 +98,11 @@ export class TasksService {
     });
     if (!assignee) throw new BadRequestException('Assigned user not found');
 
+    const lastTask = await this.prisma.task.findFirst({
+      orderBy: { orderIndex: 'desc' },
+      select: { orderIndex: true },
+    });
+
     return this.prisma.task.create({
       data: {
         title,
@@ -106,10 +111,51 @@ export class TasksService {
         createdById,
         priority: body.priority ?? TaskPriority.NORMAL,
         goalHorizon: body.goalHorizon ?? TaskGoalHorizon.WEEKLY,
+        orderIndex: (lastTask?.orderIndex ?? 0) + 1000,
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
       },
       select: this.taskSelect(),
     });
+  }
+
+  async reorder(user: JwtUser, taskIds: string[]) {
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      throw new BadRequestException('Task order is required');
+    }
+
+    const uniqueTaskIds = [...new Set(taskIds)];
+    if (uniqueTaskIds.length !== taskIds.length) {
+      throw new BadRequestException('Task order contains duplicate tasks');
+    }
+
+    const tasks = await this.prisma.task.findMany({
+      where: { id: { in: taskIds } },
+      select: { id: true, createdById: true, assignedToId: true },
+    });
+    if (tasks.length !== taskIds.length) {
+      throw new BadRequestException('Task order contains an unknown task');
+    }
+
+    const canReorder = tasks.every(
+      (task) =>
+        ADMIN_ROLES.has(user.role) ||
+        task.createdById === user.id ||
+        task.assignedToId === user.id,
+    );
+    if (!canReorder) {
+      throw new ForbiddenException('You can reorder only your tasks');
+    }
+
+    await this.prisma.$transaction(
+      taskIds.map((id, index) =>
+        this.prisma.task.update({
+          where: { id },
+          data: { orderIndex: (index + 1) * 1000 },
+        }),
+      ),
+    );
+
+    return { ok: true };
   }
 
   async update(

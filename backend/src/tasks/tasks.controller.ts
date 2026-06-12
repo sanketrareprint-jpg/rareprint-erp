@@ -51,6 +51,14 @@ export class TasksController {
     return this.tasksService.create(req.user.id, body);
   }
 
+  @Patch('reorder')
+  reorder(
+    @Req() req: Request & { user: JwtUser },
+    @Body() body: { taskIds: string[] },
+  ) {
+    return this.tasksService.reorder(req.user, body.taskIds);
+  }
+
   @Patch(':id')
   update(
     @Param('id') id: string,
