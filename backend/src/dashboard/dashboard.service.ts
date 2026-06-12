@@ -23,7 +23,7 @@ export class DashboardService {
       this.getCategoryStageQuantities(),
       this.getAvgProductionTime(),
       this.getLeadSourceAnalytics(),
-      this.getProductionKpis(),
+      this.withTimeout(this.getProductionKpis(), 3500, this.getEmptyProductionKpis()),
     ]);
 
     return {
@@ -36,6 +36,25 @@ export class DashboardService {
         ? productionKpisResult.value
         : { metrics: [], categoryCycleTimes: [], bottlenecks: [] },
     };
+  }
+
+  private getEmptyProductionKpis() {
+    return { metrics: [], categoryCycleTimes: [], bottlenecks: [] };
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(fallback), timeoutMs);
+      promise
+        .then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          resolve(fallback);
+        });
+    });
   }
 
   private getEmptyStats() {
@@ -325,40 +344,54 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
   }
 
   async getProductionKpis() {
+    const since = new Date();
+    since.setDate(since.getDate() - 120);
+
     const [orders, payments, jobWorks, sheetItems, sheetLogs] = await Promise.all([
       this.prisma.order.findMany({
-        where: { status: { not: OrderStatus.CANCELLED } },
+        where: { status: { not: OrderStatus.CANCELLED }, orderDate: { gte: since } },
+        orderBy: { orderDate: 'desc' },
+        take: 750,
         include: {
-          statusLogs: { orderBy: { createdAt: 'asc' } },
+          statusLogs: { where: { createdAt: { gte: since } }, orderBy: { createdAt: 'asc' } },
           shipments: { orderBy: { createdAt: 'asc' } },
           items: { include: { product: { include: { category: true } } } },
         },
       }),
       this.prisma.payment.findMany({
-        where: { verificationStatus: 'VERIFIED', verifiedAt: { not: null } },
+        where: { verificationStatus: 'VERIFIED', verifiedAt: { not: null }, createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        take: 1000,
         select: { createdAt: true, verifiedAt: true },
       }),
       this.prisma.jobWork.findMany({
+        where: { createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        take: 1000,
         include: {
           orderItem: {
             include: {
-              order: { include: { statusLogs: { orderBy: { createdAt: 'asc' } } } },
+              order: { include: { statusLogs: { where: { createdAt: { gte: since } }, orderBy: { createdAt: 'asc' } } } },
             },
           },
         },
       }),
       this.prisma.printSheetItem.findMany({
+        where: { createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        take: 1000,
         include: {
           orderItem: {
             include: {
-              order: { include: { statusLogs: { orderBy: { createdAt: 'asc' } } } },
+              order: { include: { statusLogs: { where: { createdAt: { gte: since } }, orderBy: { createdAt: 'asc' } } } },
             },
           },
         },
       }),
       this.prisma.statusLog.findMany({
-        where: { reason: { contains: 'Sheet' } },
+        where: { createdAt: { gte: since }, reason: { contains: 'Sheet' } },
         orderBy: { createdAt: 'asc' },
+        take: 2000,
         select: { createdAt: true, metadata: true },
       }),
     ]);
