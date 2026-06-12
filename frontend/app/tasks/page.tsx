@@ -7,6 +7,8 @@ import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { CheckCircle2, Clock, GripVertical, Heart, Loader2, Pencil, Plus, Save, Sprout, Target, UserCheck, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+const PRODUCTION_API_FALLBACK = "https://rareprint-erp-production.up.railway.app";
+
 type UserOption = { id: string; fullName: string; email: string; role: string };
 type Task = {
   id: string;
@@ -81,6 +83,23 @@ const lifeGoals = [
   { label: "Legacy", helper: "Brand, culture, SOPs, long-term capability", icon: CheckCircle2, color: "text-violet-700 bg-violet-50" },
 ];
 
+async function taskApiFetch(path: string, init?: RequestInit) {
+  const bases = [API_BASE_URL, PRODUCTION_API_FALLBACK].filter((base, index, all) => base && all.indexOf(base) === index);
+  let lastError: unknown = null;
+
+  for (const base of bases) {
+    try {
+      const response = await fetch(`${base}${path}`, init);
+      if (response.ok || response.status === 401 || base === bases[bases.length - 1]) return response;
+      lastError = new Error(`Request failed with ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Could not connect to tasks API");
+}
+
 export default function TasksPage() {
   const router = useRouter();
   const [currentUser] = useState(() => getStoredUser());
@@ -118,8 +137,8 @@ export default function TasksPage() {
     try {
       const params = new URLSearchParams({ view, status });
       const [taskRes, userRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/tasks?${params}`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE_URL}/tasks/users`, { headers: getAuthHeaders() }),
+        taskApiFetch(`/tasks?${params}`, { headers: getAuthHeaders() }),
+        taskApiFetch("/tasks/users", { headers: getAuthHeaders() }),
       ]);
       if (taskRes.status === 401) { clearAuth(); router.replace("/login"); return; }
       setTasks(taskRes.ok ? await taskRes.json() : []);
@@ -176,7 +195,7 @@ export default function TasksPage() {
     if (!form.title.trim()) { alert("Task title is required"); return; }
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/tasks`, {
+      const res = await taskApiFetch("/tasks", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -197,7 +216,7 @@ export default function TasksPage() {
   }
 
   async function updateTask(id: string, patch: Partial<Task>) {
-    const res = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+    const res = await taskApiFetch(`/tasks/${id}`, {
       method: "PATCH",
       headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -211,7 +230,7 @@ export default function TasksPage() {
   }
 
   async function saveTaskOrder(orderedTaskIds: string[]) {
-    const res = await fetch(`${API_BASE_URL}/tasks/reorder`, {
+    const res = await taskApiFetch("/tasks/reorder", {
       method: "PATCH",
       headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ taskIds: orderedTaskIds }),

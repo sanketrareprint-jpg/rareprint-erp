@@ -38,6 +38,28 @@ export class TasksService {
     } satisfies Prisma.TaskSelect;
   }
 
+  private legacyTaskSelect() {
+    return {
+      id: true,
+      title: true,
+      description: true,
+      status: true,
+      priority: true,
+      goalHorizon: true,
+      dueDate: true,
+      createdAt: true,
+      updatedAt: true,
+      completedAt: true,
+      createdBy: { select: { id: true, fullName: true, role: true } },
+      assignedTo: { select: { id: true, fullName: true, role: true } },
+    } satisfies Prisma.TaskSelect;
+  }
+
+  private isMissingOrderIndexError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('orderIndex');
+  }
+
   async list(
     user: JwtUser,
     view: string,
@@ -58,15 +80,31 @@ export class TasksService {
       where.assignedToId = user.id;
     }
 
-    return this.prisma.task.findMany({
-      where,
-      orderBy: [
-        { orderIndex: 'asc' },
-        { createdAt: 'desc' },
-      ],
-      select: this.taskSelect(),
-      take: 300,
-    });
+    try {
+      return await this.prisma.task.findMany({
+        where,
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'desc' }],
+        select: this.taskSelect(),
+        take: 300,
+      });
+    } catch (error) {
+      if (!this.isMissingOrderIndexError(error)) throw error;
+
+      const tasks = await this.prisma.task.findMany({
+        where,
+        orderBy: [
+          { priority: 'desc' },
+          { dueDate: 'asc' },
+          { createdAt: 'desc' },
+        ],
+        select: this.legacyTaskSelect(),
+        take: 300,
+      });
+      return tasks.map((task, index) => ({
+        ...task,
+        orderIndex: (index + 1) * 1000,
+      }));
+    }
   }
 
   async listAssignableUsers() {
@@ -98,24 +136,42 @@ export class TasksService {
     });
     if (!assignee) throw new BadRequestException('Assigned user not found');
 
-    const lastTask = await this.prisma.task.findFirst({
-      orderBy: { orderIndex: 'desc' },
-      select: { orderIndex: true },
-    });
+    let nextOrderIndex = 1000;
+    try {
+      const lastTask = await this.prisma.task.findFirst({
+        orderBy: { orderIndex: 'desc' },
+        select: { orderIndex: true },
+      });
+      nextOrderIndex = (lastTask?.orderIndex ?? 0) + 1000;
+    } catch (error) {
+      if (!this.isMissingOrderIndexError(error)) throw error;
+    }
 
-    return this.prisma.task.create({
-      data: {
-        title,
-        description: body.description?.trim() || null,
-        assignedToId,
-        createdById,
-        priority: body.priority ?? TaskPriority.NORMAL,
-        goalHorizon: body.goalHorizon ?? TaskGoalHorizon.WEEKLY,
-        orderIndex: (lastTask?.orderIndex ?? 0) + 1000,
-        dueDate: body.dueDate ? new Date(body.dueDate) : null,
-      },
-      select: this.taskSelect(),
-    });
+    const data = {
+      title,
+      description: body.description?.trim() || null,
+      assignedToId,
+      createdById,
+      priority: body.priority ?? TaskPriority.NORMAL,
+      goalHorizon: body.goalHorizon ?? TaskGoalHorizon.WEEKLY,
+      orderIndex: nextOrderIndex,
+      dueDate: body.dueDate ? new Date(body.dueDate) : null,
+    };
+
+    try {
+      return await this.prisma.task.create({
+        data,
+        select: this.taskSelect(),
+      });
+    } catch (error) {
+      if (!this.isMissingOrderIndexError(error)) throw error;
+      const { orderIndex: _orderIndex, ...legacyData } = data;
+      const task = await this.prisma.task.create({
+        data: legacyData,
+        select: this.legacyTaskSelect(),
+      });
+      return { ...task, orderIndex: 0 };
+    }
   }
 
   async reorder(user: JwtUser, taskIds: string[]) {
