@@ -1,6 +1,6 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "node scripts/railway-migrate.js && node dist/src/main.js"
+    "startCommand": "node dist/src/main.js"
   }
 }
