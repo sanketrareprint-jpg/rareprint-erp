@@ -1636,4 +1636,18 @@ export default function OrdersPage() {
               </label>
             </div>
             <div className="flex justify-end gap-2 mt-4">
-           
+              <button onClick={() => setEditingPayment(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={savePaymentEdit} disabled={savingPaymentEdit}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+
+                {savingPaymentEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
