@@ -489,7 +489,7 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
           JOIN "Order" o ON o.id = r."orderId"
           JOIN "OrderItem" oi ON oi."orderId" = o.id
           JOIN "Product" p ON p.id = oi."productId"
-          JOIN "Category" cat ON cat.id = p."categoryId"
+          JOIN "ProductCategory" cat ON cat.id = p."categoryId"
           WHERE r."toStatus"::text = 'READY_FOR_DISPATCH' AND r."createdAt" >= ${since}
           GROUP BY cat.name
           ORDER BY avg_hours DESC NULLS LAST
