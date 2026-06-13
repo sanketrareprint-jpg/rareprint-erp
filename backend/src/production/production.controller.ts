@@ -77,6 +77,11 @@ export class ProductionController {
   @Get('sheets')
   listSheets() { return this.clubbingSheetService.listSheets(); }
 
+  @Get('sheets/history')
+  getSheetHistory(@Query('search') search?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.clubbingSheetService.getSheetHistory({ search, page: page ? Number(page) : 1, limit: limit ? Number(limit) : 50 });
+  }
+
   @Post('sheets')
   createSheet(@Body() body: { gsm: number; quality: SheetQuality; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; printing: ProductSides }) {
     return this.clubbingSheetService.createSheet(body);
@@ -135,9 +140,4 @@ export class ProductionController {
   ) { return this.clubbingSheetService.placeItemOnSheet(sheetId, body, req.user.id); }
 
   @Post('sheets/:id/stage-vendors')
-  addSheetStageVendor(
-    @Param('id') sheetId: string,
-    @Body() body: { stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string },
-    @Req() req: Request & { user: JwtUser },
-  ) { return this.clubbingSheetService.addSheetStageVendor({ sheetId, ...body }, req.user.id); }
-}
+  addSheetStageVendo

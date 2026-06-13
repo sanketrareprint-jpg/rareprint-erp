@@ -924,15 +924,4 @@ export class ClubbingSheetService {
               description: data.description,
               cost: data.cost,
             },
-          },
-        });
-      }
-      return stageVendor;
-    });
-  }
-
-  async deleteSheetStageVendor(id: string) {
-    await this.prisma.sheetStageVendor.delete({ where: { id } });
-    return { success: true };
-  }
-}
+        
