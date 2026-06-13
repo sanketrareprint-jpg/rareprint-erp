@@ -42,6 +42,13 @@ function resolveItemDetails(item: {
   return { size, gsm, sides };
 }
 
+function parseIstDateOnly(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00+05:30`);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException('Invalid follow-up date');
+  return date;
+}
+
 type AutoSlot = 'SMALL_5_5X8_5' | 'MEDIUM_7_3X8_5' | 'LARGE_8_5X11' | 'FILE_9X12' | 'FILE_12X18' | 'BIG_ENV_9X12';
 type AutoFamily = 'STANDARD_18X23' | 'FILE_19X25' | 'BIG_ENV_15X20';
 type AutoItem = {
