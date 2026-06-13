@@ -936,15 +936,12 @@ export class ClubbingSheetService {
     return { success: true };
   }
 
+
   async getSheetHistory({ search, page = 1, limit = 50 }: { search?: string; page?: number; limit?: number }) {
     const skip = (page - 1) * limit;
     const where: any = {
       metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' },
-      ...(search ? {
-        OR: [
-          { reason: { contains: search, mode: 'insensitive' } },
-        ],
-      } : {}),
+      ...(search ? { OR: [{ reason: { contains: search, mode: 'insensitive' } }] } : {}),
     };
     const [logs, total] = await Promise.all([
       this.prisma.statusLog.findMany({
@@ -953,7 +950,7 @@ export class ClubbingSheetService {
         skip,
         take: limit,
         include: {
-          changedBy: { select: { id: true, name: true } },
+          changedBy: { select: { id: true, fullName: true } },
           order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
         },
       }),
