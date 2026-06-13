@@ -1530,6 +1530,7 @@ model BankTransaction {
   id                String              @id @default(cuid())
   sessionId         String
   accountNumber     String
+  importKey         String
   srl               Int
   txnDate           DateTime
   txnDateTime       DateTime?
@@ -1554,7 +1555,7 @@ model BankTransaction {
   expenseCategory   ExpenseCategory?    @relation(fields: [expenseCategoryId], references: [id])
   reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
 
-  @@unique([accountNumber, txnDate, srl])
+  @@unique([accountNumber, importKey])
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])

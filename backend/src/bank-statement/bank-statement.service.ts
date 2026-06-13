@@ -3,6 +3,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BankReconcileStatus, BankTxnType, Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
+import { createHash } from 'crypto';
 
 const GST_BANK_ACCOUNT = '0513102000013378';
 
@@ -42,7 +43,9 @@ function parseDate(raw: unknown): Date | null {
   const yyyymmdd = s.match(/^(\d{4})-(\d{2})-(\d{2})\s*(\d{2}:\d{2})?/);
   if (yyyymmdd) {
     const [, yyyy, mm, dd, time] = yyyymmdd;
-    return new Date(`${yyyy}-${mm}-${dd}T${time ? time + ':00' : '00:00:00'}+05:30`);
+    return new Date(
+      `${yyyy}-${mm}-${dd}T${time ? time + ':00' : '00:00:00'}+05:30`,
+    );
   }
   return null;
 }
@@ -53,6 +56,46 @@ function startOfIstDate(date: string): Date {
 
 function endOfIstDate(date: string): Date {
   return new Date(`${date}T23:59:59.999+05:30`);
+}
+
+function normalizeText(raw: string | null | undefined): string {
+  return (raw ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function moneyKey(amount: Prisma.Decimal | number): string {
+  return Number(amount).toFixed(2);
+}
+
+function dateKey(date: Date | string | null | undefined): string {
+  if (!date) return '';
+  return new Date(date).toISOString();
+}
+
+function buildImportKey(
+  row: Pick<
+    RawBankRow,
+    | 'txnDate'
+    | 'txnDateTime'
+    | 'valueDate'
+    | 'description'
+    | 'chequeNo'
+    | 'crDr'
+    | 'amount'
+    | 'balance'
+  >,
+): string {
+  const rawKey = [
+    dateKey(row.txnDateTime),
+    dateKey(row.txnDate),
+    dateKey(row.valueDate),
+    normalizeText(row.description),
+    normalizeText(row.chequeNo),
+    row.crDr,
+    moneyKey(row.amount),
+    moneyKey(row.balance),
+  ].join('|');
+
+  return createHash('sha256').update(rawKey).digest('hex');
 }
 
 function extractAccountNumber(sheet: XLSX.WorkSheet): string {
@@ -96,7 +139,8 @@ export class BankStatementService {
 
     const rows: RawBankRow[] = [];
     for (let r = headerRow + 1; r <= range.e.r; r++) {
-      const get = (col: number) => sheet[XLSX.utils.encode_cell({ r, c: col })]?.v;
+      const get = (col: number) =>
+        sheet[XLSX.utils.encode_cell({ r, c: col })]?.v;
 
       const srl = parseFloat(String(get(2) ?? '0'));
       if (!srl || isNaN(srl)) continue;
@@ -108,14 +152,26 @@ export class BankStatementService {
       const txnDateTime = parseDate(get(0));
       const description = String(get(5) ?? '').trim();
       const chequeNo = String(get(6) ?? '').trim();
-      const crDrRaw = String(get(7) ?? '').trim().toLowerCase();
+      const crDrRaw = String(get(7) ?? '')
+        .trim()
+        .toLowerCase();
       const crDr: BankTxnType = crDrRaw.startsWith('cr') ? 'CR' : 'DR';
       const amount = parseAmount(get(9));
       const balance = parseAmount(get(10));
 
       if (!description || amount <= 0) continue;
 
-      rows.push({ srl, txnDate, txnDateTime, valueDate, description, chequeNo, crDr, amount, balance });
+      rows.push({
+        srl,
+        txnDate,
+        txnDateTime,
+        valueDate,
+        description,
+        chequeNo,
+        crDr,
+        amount,
+        balance,
+      });
     }
 
     return { accountNumber, rows };
@@ -129,21 +185,46 @@ export class BankStatementService {
     importedById: string,
   ) {
     const { accountNumber, rows } = this.parseXls(buffer);
-    if (rows.length === 0) throw new BadRequestException('No valid transactions found in file');
+    if (rows.length === 0)
+      throw new BadRequestException('No valid transactions found in file');
 
-    // Application-level dedup: fetch all balances already in DB for this account.
-    // Since each transaction produces a unique running balance, (accountNumber, balance)
-    // uniquely identifies a transaction.
+    // Application-level dedup. Running balance is not unique: a debit followed by
+    // a credit can return to the same balance, so use the full row fingerprint.
     const existing = await this.prisma.bankTransaction.findMany({
       where: { accountNumber },
-      select: { balance: true },
+      select: {
+        txnDate: true,
+        txnDateTime: true,
+        valueDate: true,
+        description: true,
+        chequeNo: true,
+        crDr: true,
+        amount: true,
+        balance: true,
+      },
     });
-    const existingBalances = new Set(
-      existing.map((r) => Number(r.balance).toFixed(2)),
+    const existingImportKeys = new Set(
+      existing.map((r) =>
+        buildImportKey({
+          txnDate: r.txnDate,
+          txnDateTime: r.txnDateTime,
+          valueDate: r.valueDate,
+          description: r.description,
+          chequeNo: r.chequeNo ?? '',
+          crDr: r.crDr,
+          amount: Number(r.amount),
+          balance: Number(r.balance),
+        }),
+      ),
     );
-    const newRows = rows.filter(
-      (r) => !existingBalances.has(r.balance.toFixed(2)),
-    );
+    const rowsSeenInFile = new Set<string>();
+    const newRows = rows.filter((r) => {
+      const importKey = buildImportKey(r);
+      if (existingImportKeys.has(importKey) || rowsSeenInFile.has(importKey))
+        return false;
+      rowsSeenInFile.add(importKey);
+      return true;
+    });
     let skipped = rows.length - newRows.length;
 
     // Create import session
@@ -207,6 +288,7 @@ export class BankStatementService {
       toCreate.push({
         sessionId: session.id,
         accountNumber,
+        importKey: buildImportKey(row),
         srl: row.srl,
         txnDate: row.txnDate,
         txnDateTime: row.txnDateTime ?? null,
@@ -255,10 +337,18 @@ export class BankStatementService {
       skipped,
       imported: insertedCount,
       summary: {
-        matched_payment: toCreate.filter((r) => r.reconcileStatus === 'MATCHED_PAYMENT').length,
-        matched_vendor: toCreate.filter((r) => r.reconcileStatus === 'MATCHED_VENDOR').length,
-        matched_expense: toCreate.filter((r) => r.reconcileStatus === 'MATCHED_EXPENSE').length,
-        manual_review: toCreate.filter((r) => r.reconcileStatus === 'MANUAL_REVIEW').length,
+        matched_payment: toCreate.filter(
+          (r) => r.reconcileStatus === 'MATCHED_PAYMENT',
+        ).length,
+        matched_vendor: toCreate.filter(
+          (r) => r.reconcileStatus === 'MATCHED_VENDOR',
+        ).length,
+        matched_expense: toCreate.filter(
+          (r) => r.reconcileStatus === 'MATCHED_EXPENSE',
+        ).length,
+        manual_review: toCreate.filter(
+          (r) => r.reconcileStatus === 'MANUAL_REVIEW',
+        ).length,
       },
     };
   }
@@ -281,12 +371,18 @@ export class BankStatementService {
 
     const counts = new Map<string, number>();
     for (const row of [...txnAccounts, ...sessionAccounts]) {
-      counts.set(row.accountNumber, (counts.get(row.accountNumber) ?? 0) + row._count._all);
+      counts.set(
+        row.accountNumber,
+        (counts.get(row.accountNumber) ?? 0) + row._count._all,
+      );
     }
 
     return Array.from(counts.entries()).map(([accountNumber, count]) => ({
       accountNumber,
-      label: accountNumber === GST_BANK_ACCOUNT ? 'GST Bank' : `CC Bank ${accountNumber.slice(-4)}`,
+      label:
+        accountNumber === GST_BANK_ACCOUNT
+          ? 'GST Bank'
+          : `CC Bank ${accountNumber.slice(-4)}`,
       count,
       isDefault: accountNumber === GST_BANK_ACCOUNT,
     }));
@@ -309,17 +405,22 @@ export class BankStatementService {
 
     const where: Prisma.BankTransactionWhereInput = {};
     if (filters.accountNumber) where.accountNumber = filters.accountNumber;
-    if (filters.reconcileStatus) where.reconcileStatus = filters.reconcileStatus;
+    if (filters.reconcileStatus)
+      where.reconcileStatus = filters.reconcileStatus;
     if (filters.crDr) where.crDr = filters.crDr;
     if (filters.fromDate || filters.toDate) {
       where.txnDate = {};
-      if (filters.fromDate) (where.txnDate as any).gte = startOfIstDate(filters.fromDate);
-      if (filters.toDate) (where.txnDate as any).lte = endOfIstDate(filters.toDate);
+      if (filters.fromDate)
+        (where.txnDate as any).gte = startOfIstDate(filters.fromDate);
+      if (filters.toDate)
+        (where.txnDate as any).lte = endOfIstDate(filters.toDate);
     }
     if (filters.amountMin !== undefined || filters.amountMax !== undefined) {
       where.amount = {};
-      if (filters.amountMin !== undefined) (where.amount as any).gte = filters.amountMin;
-      if (filters.amountMax !== undefined) (where.amount as any).lte = filters.amountMax;
+      if (filters.amountMin !== undefined)
+        (where.amount as any).gte = filters.amountMin;
+      if (filters.amountMax !== undefined)
+        (where.amount as any).lte = filters.amountMax;
     }
 
     const [total, data] = await Promise.all([
@@ -335,7 +436,14 @@ export class BankStatementService {
         skip,
         take: limit,
         include: {
-          matchedPayment: { select: { id: true, amount: true, referenceNumber: true, order: { select: { id: true } } } },
+          matchedPayment: {
+            select: {
+              id: true,
+              amount: true,
+              referenceNumber: true,
+              order: { select: { id: true } },
+            },
+          },
           matchedVendor: { select: { id: true, name: true } },
           expenseCategory: { select: { id: true, name: true } },
           reconciledBy: { select: { id: true, fullName: true } },
@@ -386,13 +494,21 @@ export class BankStatementService {
 
   // ── 6. Summary / Dashboard ─────────────────────────────────────────────────
 
-  async getSummary(filters: { accountNumber?: string; fromDate?: string; toDate?: string } = {}) {
+  async getSummary(
+    filters: {
+      accountNumber?: string;
+      fromDate?: string;
+      toDate?: string;
+    } = {},
+  ) {
     const where: Prisma.BankTransactionWhereInput = {};
     if (filters.accountNumber) where.accountNumber = filters.accountNumber;
     if (filters.fromDate || filters.toDate) {
       where.txnDate = {};
-      if (filters.fromDate) (where.txnDate as any).gte = startOfIstDate(filters.fromDate);
-      if (filters.toDate) (where.txnDate as any).lte = endOfIstDate(filters.toDate);
+      if (filters.fromDate)
+        (where.txnDate as any).gte = startOfIstDate(filters.fromDate);
+      if (filters.toDate)
+        (where.txnDate as any).lte = endOfIstDate(filters.toDate);
     }
 
     const [total, byCrDr, byStatus] = await Promise.all([
@@ -508,10 +624,18 @@ export class BankStatementService {
         }
       }
 
-      if (reconcileStatus !== 'MANUAL_REVIEW' || txn.reconcileStatus !== reconcileStatus) {
+      if (
+        reconcileStatus !== 'MANUAL_REVIEW' ||
+        txn.reconcileStatus !== reconcileStatus
+      ) {
         await this.prisma.bankTransaction.update({
           where: { id: txn.id },
-          data: { reconcileStatus, matchedPaymentId: null, matchedVendorId, expenseCategoryId },
+          data: {
+            reconcileStatus,
+            matchedPaymentId: null,
+            matchedVendorId,
+            expenseCategoryId,
+          },
         });
         updated++;
       }
