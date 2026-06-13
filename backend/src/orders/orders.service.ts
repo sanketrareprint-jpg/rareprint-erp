@@ -342,9 +342,10 @@ export class OrdersService {
   async create(
     dto: {
       customer: { customerId?: string; name: string; phone?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
-      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string }>;
+      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; customFields?: Record<string, unknown> }>;
       notes?: string;
       leadSource?: string;
+      customFields?: Record<string, unknown>;
       advanceAmount?: number;
       paymentAccountId?: string;
       paymentMethod?: string;
@@ -387,7 +388,8 @@ export class OrdersService {
       itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
       artworkNotes: i.artworkNotes ?? null,
       productionNotes: i.productionNotes ?? null,
-    }));
+      customFields: i.customFields ?? {},
+    })) as any[];
 
     const subtotal = itemsData.reduce(
       (s, row) => s.plus(row.lineTotal),
@@ -444,6 +446,7 @@ export class OrdersService {
           customerId: customer.id,
           salesAgentId,
           leadSource: dto.leadSource ?? null,
+          customFields: dto.customFields ?? {},
           status: OrderStatus.PENDING_APPROVAL,
           paymentStatus,
           subtotal,
@@ -453,7 +456,7 @@ export class OrdersService {
           shippingCharge: new Prisma.Decimal(0),
           notes: dto.notes,
           items: { create: itemsData },
-        },
+        } as any,
       });
 
       if (advance > 0 && dto.paymentAccountId) {

@@ -11,6 +11,121 @@ const fallbackCatalog = [
   'Corporate Gifts',
 ];
 
+const STOREFRONT_CONTENT_KEY = 'storefront.content.v1';
+const STOREFRONT_TEMPLATES_KEY = 'storefront.templates.v1';
+
+const defaultStorefrontContent = {
+  settings: {
+    couponText: 'Use coupon code FIRSTORDER and get 12% extra discount',
+    currency: 'INR',
+    advancePercent: 50,
+    whatsappNumber: '918004176377',
+  },
+  heroBanners: [
+    {
+      id: 'hero-clinic',
+      title: 'Custom Printing for Clinics',
+      subtitle: 'Prescription stickers, files, pouches, and healthcare stationery.',
+      href: '/web-to-print/category/prescription-stickers',
+      image: '',
+      active: true,
+      sortOrder: 1,
+    },
+    {
+      id: 'hero-labels',
+      title: 'Bulk Stickers and Labels',
+      subtitle: 'Glossy, paper, and product labels delivered across India.',
+      href: '/web-to-print/categories',
+      image: '',
+      active: true,
+      sortOrder: 2,
+    },
+    {
+      id: 'hero-bill-books',
+      title: 'Bill Books Delivered Fast',
+      subtitle: 'NCR books, letterheads, envelopes, and office print products.',
+      href: '/web-to-print/category/bill-book',
+      image: '',
+      active: true,
+      sortOrder: 3,
+    },
+  ],
+  promoBanners: [
+    {
+      id: 'promo-design',
+      title: 'Design Support Included',
+      subtitle: 'Upload artwork or ask our team to prepare your print file.',
+      href: '/web-to-print/design',
+      image: '',
+      active: true,
+      sortOrder: 1,
+    },
+  ],
+  rateLists: [
+    {
+      id: 'rate-prescription-sticker',
+      productSlug: 'prescription-sticker',
+      title: 'Prescription Sticker Rate List',
+      rows: [
+        { quantity: 1000, price: 450, label: '1,000 pcs' },
+        { quantity: 5000, price: 1650, label: '5,000 pcs' },
+        { quantity: 10000, price: 3000, label: '10,000 pcs' },
+      ],
+    },
+  ],
+  photos: [
+    { id: 'photo-sample-1', title: 'Medicine Pouch Sample', url: '', productSlug: 'medicine-paper-pouch', active: true },
+  ],
+};
+
+const defaultTemplates = [
+  {
+    id: 'clinic-visiting-card',
+    name: 'Clinic Visiting Card',
+    productType: 'visiting-card',
+    size: '3.5 x 2 in',
+    background: '#ffffff',
+    accent: '#0f766e',
+    fields: [
+      { key: 'businessName', label: 'Clinic / Doctor Name', placeholder: 'Dr. Asha Sharma' },
+      { key: 'tagline', label: 'Degree / Tagline', placeholder: 'MBBS, MD | General Physician' },
+      { key: 'phone', label: 'Phone', placeholder: '+91 98765 43210' },
+      { key: 'address', label: 'Address', placeholder: 'Main Road, Nagpur' },
+      { key: 'timing', label: 'Timing', placeholder: 'Mon-Sat 10 AM - 8 PM' },
+    ],
+  },
+  {
+    id: 'medical-store-pouch',
+    name: 'Medical Store Pouch',
+    productType: 'medicine-pouch',
+    size: '4.25 x 5.5 in',
+    background: '#f8fafc',
+    accent: '#dc2626',
+    fields: [
+      { key: 'businessName', label: 'Medical Store Name', placeholder: 'Prakash Medical Stores' },
+      { key: 'tagline', label: 'Tagline', placeholder: 'Complete health care center' },
+      { key: 'phone', label: 'Phone', placeholder: '+91 80041 76377' },
+      { key: 'address', label: 'Address', placeholder: 'Near City Center, Nagpur' },
+      { key: 'license', label: 'License / GST', placeholder: 'DL No. / GSTIN' },
+    ],
+  },
+  {
+    id: 'corporate-sticker',
+    name: 'Corporate Product Sticker',
+    productType: 'sticker',
+    size: '4 x 6 in',
+    background: '#fff7ed',
+    accent: '#1f2937',
+    fields: [
+      { key: 'businessName', label: 'Brand Name', placeholder: 'RarePrint Naturals' },
+      { key: 'tagline', label: 'Product Line', placeholder: 'Premium product label' },
+      { key: 'phone', label: 'Support Phone', placeholder: '+91 98765 43210' },
+      { key: 'address', label: 'Manufactured By', placeholder: 'Nagpur, Maharashtra' },
+      { key: 'website', label: 'Website', placeholder: 'www.example.com' },
+    ],
+  },
+];
+
 function cleanSku(value: string) {
   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32);
 }
@@ -18,6 +133,55 @@ function cleanSku(value: string) {
 @Injectable()
 export class StorefrontService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async readConfig<T>(key: string, fallback: T): Promise<T> {
+    const row = await this.prisma.systemConfig.findUnique({ where: { key } });
+    if (!row?.value) return fallback;
+    try {
+      return JSON.parse(row.value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async writeConfig<T>(key: string, value: T) {
+    await this.prisma.systemConfig.upsert({
+      where: { key },
+      update: { value: JSON.stringify(value) },
+      create: { key, value: JSON.stringify(value) },
+    });
+    return value;
+  }
+
+  async content() {
+    return this.readConfig(STOREFRONT_CONTENT_KEY, defaultStorefrontContent);
+  }
+
+  async updateContent(body: any) {
+    const next = {
+      ...defaultStorefrontContent,
+      ...(body ?? {}),
+      settings: {
+        ...defaultStorefrontContent.settings,
+        ...(body?.settings ?? {}),
+      },
+      heroBanners: Array.isArray(body?.heroBanners) ? body.heroBanners : defaultStorefrontContent.heroBanners,
+      promoBanners: Array.isArray(body?.promoBanners) ? body.promoBanners : defaultStorefrontContent.promoBanners,
+      rateLists: Array.isArray(body?.rateLists) ? body.rateLists : defaultStorefrontContent.rateLists,
+      photos: Array.isArray(body?.photos) ? body.photos : defaultStorefrontContent.photos,
+    };
+    return this.writeConfig(STOREFRONT_CONTENT_KEY, next);
+  }
+
+  async templates() {
+    const templates = await this.readConfig(STOREFRONT_TEMPLATES_KEY, defaultTemplates);
+    return { templates };
+  }
+
+  async updateTemplates(body: any) {
+    const templates = Array.isArray(body?.templates) ? body.templates : defaultTemplates;
+    return this.writeConfig(STOREFRONT_TEMPLATES_KEY, templates);
+  }
 
   async catalog() {
     const products = await this.prisma.product.findMany({
@@ -72,11 +236,12 @@ export class StorefrontService {
     const products = await this.mappedProducts();
     const categories = await this.categories();
     const media = products.filter((product) => product.name).slice(0, 8);
+    const content = await this.content();
     return {
-      settings: { couponText: 'Use coupon code FIRSTORDER and get 12% extra discount', currency: 'INR' },
+      settings: content.settings,
       stories: categories.slice(0, 8).map((category: any) => ({ title: category.name, slug: category.slug, mediaType: 'image' })),
-      heroBanners: this.buildBanners(media, 'hero'),
-      promoBanners: this.buildBanners(media, 'promo'),
+      heroBanners: content.heroBanners?.length ? content.heroBanners : this.buildBanners(media, 'hero'),
+      promoBanners: content.promoBanners?.length ? content.promoBanners : this.buildBanners(media, 'promo'),
       reels: this.buildReels(media),
       rails: [
         { title: 'Corporate Printing', products: products.slice(0, 8) },
@@ -159,7 +324,11 @@ export class StorefrontService {
 
   async banners() {
     const products = await this.mappedProducts();
-    return { hero: this.buildBanners(products, 'hero'), promo: this.buildBanners(products, 'promo') };
+    const content = await this.content();
+    return {
+      hero: content.heroBanners?.length ? content.heroBanners : this.buildBanners(products, 'hero'),
+      promo: content.promoBanners?.length ? content.promoBanners : this.buildBanners(products, 'promo'),
+    };
   }
 
   private async generateOrderNumber() {

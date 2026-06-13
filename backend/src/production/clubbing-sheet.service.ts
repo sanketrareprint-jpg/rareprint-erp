@@ -94,6 +94,7 @@ const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus>> = {
   [SheetStatus.COMPLETE]: SheetStatus.SETTING,
   [SheetStatus.SETTING]: SheetStatus.PRINTING,
   [SheetStatus.PRINTING]: SheetStatus.PROCESSING,
+  [SheetStatus.PROCESSING]: SheetStatus.DONE,
 };
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,

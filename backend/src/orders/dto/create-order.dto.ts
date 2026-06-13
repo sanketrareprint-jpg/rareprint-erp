@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsObject,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -65,6 +66,10 @@ export class CreateOrderItemDto {
   @IsOptional()
   @IsString()
   productionNotes?: string;
+
+  @IsOptional()
+  @IsObject()
+  customFields?: Record<string, unknown>;
 }
 
 export class CreateOrderDto {
@@ -102,4 +107,8 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   leadSource?: string;
+
+  @IsOptional()
+  @IsObject()
+  customFields?: Record<string, unknown>;
 }

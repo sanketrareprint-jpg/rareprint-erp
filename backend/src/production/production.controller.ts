@@ -43,6 +43,12 @@ export class ProductionController {
     @Req() req: Request & { user: JwtUser },
   ) { return this.productionService.updateItemStage(itemId, stage, req.user.id); }
 
+  @Patch('items/:itemId/follow-up-date')
+  updateItemFollowUpDate(
+    @Param('itemId') itemId: string,
+    @Body('processingFollowUpDate') processingFollowUpDate?: string | null,
+  ) { return this.productionService.updateItemFollowUpDate(itemId, processingFollowUpDate); }
+
   @Patch('items/:itemId/assign-category')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN', 'PRODUCTION', 'SALES_AGENT', 'ACCOUNTS', 'DISPATCH', 'AGENT')
@@ -60,14 +66,14 @@ export class ProductionController {
   getJobWorks(@Param('itemId') itemId: string) { return this.clubbingSheetService.getJobWorks(itemId); }
 
   @Post('clubbing/jobworks')
-  addJobWork(@Body() body: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }) {
+  addJobWork(@Body() body: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string; dueDate?: string | null }) {
     return this.clubbingSheetService.addJobWork(body);
   }
 
   @Patch('clubbing/jobworks/:id')
   updateJobWork(
     @Param('id') id: string,
-    @Body() body: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string },
+    @Body() body: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null },
   ) { return this.clubbingSheetService.updateJobWork(id, body); }
 
   @Delete('clubbing/jobworks/:id')
@@ -76,6 +82,11 @@ export class ProductionController {
   // ── Sheet Production ─────────────────────────────────────────────────────
   @Get('sheets')
   listSheets() { return this.clubbingSheetService.listSheets(); }
+
+  @Get('sheets/history')
+  getSheetHistory(@Query('search') search?: string, @Query('toStatus') toStatus?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.clubbingSheetService.getSheetHistory({ search, toStatus, page: page ? Number(page) : 1, limit: limit ? Number(limit) : 50 });
+  }
 
   @Post('sheets')
   createSheet(@Body() body: { gsm: number; quality: SheetQuality; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; printing: ProductSides }) {
@@ -107,6 +118,12 @@ export class ProductionController {
 
   @Delete('sheets/sheet-items/:id')
   removeItemFromSheet(@Param('id') id: string) { return this.clubbingSheetService.removeItemFromSheet(id); }
+
+  @Patch('sheets/sheet-items/:id/due-date')
+  updateSheetItemDueDate(
+    @Param('id') id: string,
+    @Body('dueDate') dueDate?: string | null,
+  ) { return this.clubbingSheetService.updateSheetItemDueDate(id, dueDate); }
 
   @Delete('sheets/stage-vendors/:id')
   deleteSheetStageVendor(@Param('id') id: string) { return this.clubbingSheetService.deleteSheetStageVendor(id); }

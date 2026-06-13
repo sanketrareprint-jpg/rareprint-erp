@@ -7,7 +7,8 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
-type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
+type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
+type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string> };
 type CustomerSearchRow = {
   id: string;
   businessName: string;
@@ -43,7 +44,7 @@ function fmt(n: number) {
 }
 
 function emptyLine(): LineItem {
-  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "" };
+  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "", customFields: {} };
 }
 
 const S = {
@@ -65,6 +66,9 @@ export default function CreateOrderPage() {
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
+  const [orderFields, setOrderFields] = useState<CustomField[]>([]);
+  const [itemFields, setItemFields] = useState<CustomField[]>([]);
+  const [customOrderFields, setCustomOrderFields] = useState<Record<string, string>>({});
   const [orderNotes, setOrderNotes] = useState("");
   const [leadSource, setLeadSource] = useState("");
   const [leadMonth, setLeadMonth] = useState(String(new Date().getMonth() + 1));
@@ -73,9 +77,17 @@ export default function CreateOrderPage() {
   const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
 
   const load = useCallback(async () => {
-    const res = await fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() });
+    const [res, cfgRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() }),
+      fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
+    ]);
     if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     setProducts(await res.json());
+    if (cfgRes.ok) {
+      const cfg = await cfgRes.json();
+      setOrderFields(cfg.orderFields ?? []);
+      setItemFields(cfg.itemFields ?? []);
+    }
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
@@ -162,6 +174,25 @@ export default function CreateOrderPage() {
     });
   }
 
+  function updateLineCustom(index: number, fieldId: string, value: string) {
+    setLineItems(prev => prev.map((item, i) => i === index ? { ...item, customFields: { ...item.customFields, [fieldId]: value } } : item));
+  }
+
+  function renderCustomField(field: CustomField, value: string, onChange: (value: string) => void) {
+    if (field.type === "select") {
+      return (
+        <select value={value ?? ""} onChange={e => onChange(e.target.value)} style={S.input}>
+          <option value="">Select...</option>
+          {(field.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+      );
+    }
+    if (field.type === "textarea") {
+      return <textarea value={value ?? ""} onChange={e => onChange(e.target.value)} rows={2} style={{ ...S.input, resize: "vertical" }} />;
+    }
+    return <input type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} value={value ?? ""} onChange={e => onChange(e.target.value)} style={S.input} />;
+  }
+
   const orderTotal = lineItems.reduce((sum, i) => sum + (i.lineTotal || i.quantity * i.unitPrice), 0);
 
   async function submitOrder() {
@@ -169,6 +200,10 @@ export default function CreateOrderPage() {
     if (lineItems.some(i => !i.productId || i.quantity <= 0)) {
       alert("Please fill all product lines"); return;
     }
+    const missingOrderField = orderFields.find(f => f.required && !customOrderFields[f.id]?.trim());
+    if (missingOrderField) { alert(`${missingOrderField.label} is required`); return; }
+    const missingItemField = lineItems.flatMap((item, index) => itemFields.filter(f => f.required && !item.customFields[f.id]?.trim()).map(f => `Item ${index + 1}: ${f.label}`))[0];
+    if (missingItemField) { alert(`${missingItemField} is required`); return; }
     setSubmitting(true);
     try {
       const leadSourceValue = leadSource
@@ -186,9 +221,11 @@ export default function CreateOrderPage() {
             unitPrice:       i.unitPrice || (i.lineTotal / i.quantity),
             artworkNotes:    i.specialInstructions || undefined,
             productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}, Sides: ${i.sides}`,
+            customFields:    i.customFields,
           })),
           notes:      orderNotes || undefined,
           leadSource: leadSourceValue,
+          customFields: customOrderFields,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
@@ -284,6 +321,20 @@ export default function CreateOrderPage() {
               </div>
             </div>
           </div>
+
+          {orderFields.length > 0 && (
+            <div className="create-order-section" style={S.section}>
+              <p style={S.sectionTitle}>Custom Order Fields</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                {orderFields.map(field => (
+                  <div key={field.id} className={field.type === "textarea" ? "create-order-field-wide" : ""} style={field.type === "textarea" ? { gridColumn: "span 2" } : undefined}>
+                    <label style={S.label}>{field.label}{field.required ? " *" : ""}</label>
+                    {renderCustomField(field, customOrderFields[field.id] ?? "", value => setCustomOrderFields(prev => ({ ...prev, [field.id]: value })))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Lead Source + Notes stacked */}
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -394,6 +445,16 @@ export default function CreateOrderPage() {
                   placeholder={`Item ${idx + 1} — special instructions (optional)`}
                   style={{ ...S.input, background: "#fffbeb", borderColor: "#fde68a", fontSize: "11px" }} />
               </div>
+              {itemFields.length > 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px", margin: "0 0 10px 0", padding: "8px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                  {itemFields.map(field => (
+                    <div key={field.id}>
+                      <label style={S.label}>{field.label}{field.required ? " *" : ""}</label>
+                      {renderCustomField(field, item.customFields[field.id] ?? "", value => updateLineCustom(idx, field.id, value))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
           <div className="create-order-total-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

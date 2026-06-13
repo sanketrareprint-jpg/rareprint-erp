@@ -1,5 +1,5 @@
 // backend/src/production/production.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -51,6 +51,13 @@ function resolveItemDetails(item: {
   return { size, gsm, sides };
 }
 
+function parseIstDateOnly(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00+05:30`);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException('Invalid follow-up date');
+  return date;
+}
+
 @Injectable()
 export class ProductionService {
   constructor(
@@ -67,7 +74,7 @@ export class ProductionService {
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, processingFollowUpDate: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
       },
     });
 
@@ -96,6 +103,7 @@ export class ProductionService {
           productionNotes: i.productionNotes,
           artworkNotes: i.artworkNotes,
           itemProductionStage: i.itemProductionStage,
+          processingFollowUpDate: i.processingFollowUpDate?.toISOString() ?? null,
           productionCategory: i.productionCategory ?? null,
           // Resolved product details (prefer notes, fall back to product table)
           size,
@@ -314,5 +322,15 @@ export class ProductionService {
     }
 
     return { success: true, itemId, stage };
+  }
+
+  async updateItemFollowUpDate(itemId: string, processingFollowUpDate?: string | null) {
+    const item = await this.prisma.orderItem.findUnique({ where: { id: itemId }, select: { id: true } });
+    if (!item) throw new NotFoundException('Order item not found');
+    return this.prisma.orderItem.update({
+      where: { id: itemId },
+      data: { processingFollowUpDate: parseIstDateOnly(processingFollowUpDate) },
+      select: { id: true, processingFollowUpDate: true },
+    });
   }
 }

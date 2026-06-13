@@ -1,9 +1,10 @@
 "use client";
+import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
-import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText } from "lucide-react";
 
 type CarrierCfg = {
   activeCarrier: "shiprocket" | "bigship";
@@ -44,12 +45,30 @@ type BigshipWarehouse = {
   isActive: boolean;
 };
 
+type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
+type ProductionStage = { id: string; label: string; substages: string[] };
+type ModuleOption = { key: string; label: string; href: string; fixed?: boolean; enabled: boolean };
+type ErpConfig = {
+  orderFields: CustomField[];
+  itemFields: CustomField[];
+  productionStages: ProductionStage[];
+  productionFlow: Array<{ from: string; to: string }>;
+  modules: ModuleOption[];
+  roleAccess: Record<string, string[]>;
+};
+
+const ROLES = ["ADMIN", "AGENT", "SALES_AGENT", "ACCOUNTS", "PRODUCTION", "DISPATCH", "INHOUSE"];
+const FIELD_TYPES: CustomField["type"][] = ["text", "number", "date", "select", "textarea"];
+
 export default function SettingsPage() {
   const [cfg, setCfg]         = useState<CarrierCfg | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [saved, setSaved]     = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
+  const [erpSaving, setErpSaving] = useState(false);
+  const [erpSaved, setErpSaved] = useState(false);
 
   // Test connection state
   const [testing, setTesting]         = useState(false);
@@ -75,9 +94,13 @@ export default function SettingsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/carrier-config`, { headers: getAuthHeaders() });
+      const [res, erpRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/carrier-config`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
+      ]);
       if (!res.ok) { setError("Could not load settings"); return; }
       const data: CarrierCfg = await res.json();
+      if (erpRes.ok) setErpConfig(await erpRes.json());
       setCfg(data);
       setActiveCarrier(data.activeCarrier);
       setBsUsername(data.bigship.username);
@@ -159,6 +182,83 @@ export default function SettingsPage() {
     finally { setSaving(false); }
   };
 
+  const saveErpConfig = async () => {
+    if (!erpConfig) return;
+    setErpSaving(true); setErpSaved(false); setError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/erp-config`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(erpConfig),
+      });
+      if (!res.ok) { setError("ERP configuration save failed"); return; }
+      setErpConfig(await res.json());
+      setErpSaved(true);
+      setTimeout(() => setErpSaved(false), 3000);
+    } catch {
+      setError("Network error");
+    } finally {
+      setErpSaving(false);
+    }
+  };
+
+  const addField = (scope: "orderFields" | "itemFields") => {
+    if (!erpConfig) return;
+    const id = `${scope === "orderFields" ? "order" : "item"}_${Date.now()}`;
+    setErpConfig({ ...erpConfig, [scope]: [...erpConfig[scope], { id, label: "New Field", type: "text" }] });
+  };
+
+  const updateField = (scope: "orderFields" | "itemFields", index: number, patch: Partial<CustomField>) => {
+    if (!erpConfig) return;
+    const rows = erpConfig[scope].map((field, i) => i === index ? { ...field, ...patch } : field);
+    setErpConfig({ ...erpConfig, [scope]: rows });
+  };
+
+  const removeField = (scope: "orderFields" | "itemFields", index: number) => {
+    if (!erpConfig) return;
+    setErpConfig({ ...erpConfig, [scope]: erpConfig[scope].filter((_, i) => i !== index) });
+  };
+
+  const addStage = () => {
+    if (!erpConfig) return;
+    const id = `CUSTOM_${Date.now()}`;
+    setErpConfig({
+      ...erpConfig,
+      productionStages: [...erpConfig.productionStages, { id, label: "New Stage", substages: [] }],
+    });
+  };
+
+  const updateStage = (index: number, patch: Partial<ProductionStage>) => {
+    if (!erpConfig) return;
+    setErpConfig({ ...erpConfig, productionStages: erpConfig.productionStages.map((stage, i) => i === index ? { ...stage, ...patch } : stage) });
+  };
+
+  const removeStage = (index: number) => {
+    if (!erpConfig) return;
+    const stageId = erpConfig.productionStages[index]?.id;
+    setErpConfig({
+      ...erpConfig,
+      productionStages: erpConfig.productionStages.filter((_, i) => i !== index),
+      productionFlow: erpConfig.productionFlow.filter(flow => flow.from !== stageId && flow.to !== stageId),
+    });
+  };
+
+  const toggleModule = (key: string) => {
+    if (!erpConfig) return;
+    setErpConfig({
+      ...erpConfig,
+      modules: erpConfig.modules.map(m => m.key === key ? { ...m, enabled: m.fixed ? true : !m.enabled } : m),
+    });
+  };
+
+  const toggleRoleModule = (role: string, key: string) => {
+    if (!erpConfig) return;
+    const current = erpConfig.roleAccess[role] ?? [];
+    const fixed = ["orders", "accounts", "production", "dispatch"].includes(key);
+    const next = current.includes(key) && !fixed ? current.filter(k => k !== key) : Array.from(new Set([...current, key]));
+    setErpConfig({ ...erpConfig, roleAccess: { ...erpConfig.roleAccess, [role]: next } });
+  };
+
   if (loading) return (
     <DashboardShell>
       <div className="flex items-center justify-center py-24">
@@ -185,6 +285,94 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
             <AlertCircle size={16} /> {error}
           </div>
+        )}
+
+        {erpConfig && (
+          <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-gray-900 text-base flex items-center gap-2">
+                  <Settings2 size={18} className="text-indigo-500" /> SaaS ERP Configuration
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">Customize fields, production flow, sidebar modules, and role access for each printer account.</p>
+              </div>
+              <button onClick={saveErpConfig} disabled={erpSaving} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold px-4 py-2 rounded-lg text-xs">
+                {erpSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {erpSaving ? "Saving..." : "Save ERP Config"}
+              </button>
+            </div>
+            {erpSaved && <div className="text-sm text-green-600 font-medium flex items-center gap-1"><CheckCircle2 size={15} /> ERP configuration saved.</div>}
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <ConfigPanel title="Order Fields" icon={<FileText size={16} />} action={<SmallButton onClick={() => addField("orderFields")}><Plus size={13} /> Add</SmallButton>}>
+                <FieldConfigList fields={erpConfig.orderFields} onChange={(i, patch) => updateField("orderFields", i, patch)} onRemove={(i) => removeField("orderFields", i)} />
+              </ConfigPanel>
+
+              <ConfigPanel title="Item Fields" icon={<FileText size={16} />} action={<SmallButton onClick={() => addField("itemFields")}><Plus size={13} /> Add</SmallButton>}>
+                <FieldConfigList fields={erpConfig.itemFields} onChange={(i, patch) => updateField("itemFields", i, patch)} onRemove={(i) => removeField("itemFields", i)} />
+              </ConfigPanel>
+            </div>
+
+            <ConfigPanel title="Production Stages & Flow" icon={<Workflow size={16} />} action={<SmallButton onClick={addStage}><Plus size={13} /> Stage</SmallButton>}>
+              <div className="space-y-3">
+                {erpConfig.productionStages.map((stage, index) => (
+                  <div key={stage.id} className="grid grid-cols-[1fr_1.2fr_32px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                    <input value={stage.label} onChange={e => updateStage(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+                    <input value={stage.substages.join(", ")} onChange={e => updateStage(index, { substages: e.target.value.split(",").map(v => v.trim()).filter(Boolean) })} placeholder="Sub stages: Cutting, Lamination" className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+                    <button onClick={() => removeStage(index)} className="text-red-500 hover:bg-red-50 rounded-lg p-2"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+                <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/50 p-3">
+                  <p className="text-xs font-semibold text-indigo-800 mb-2">Flow maker</p>
+                  <div className="flex flex-wrap gap-2">
+                    {erpConfig.productionStages.map((stage, index) => {
+                      const next = erpConfig.productionStages[index + 1];
+                      return (
+                        <span key={stage.id} className="text-xs text-indigo-800 bg-white border border-indigo-100 rounded-full px-3 py-1">
+                          {stage.label}{next ? ` -> ${next.label}` : ""}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </ConfigPanel>
+
+            <ConfigPanel title="Sidebar Modules" icon={<PanelLeft size={16} />}>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {erpConfig.modules.map(module => (
+                  <button key={module.key} onClick={() => toggleModule(module.key)} disabled={module.fixed} className={`text-left rounded-lg border px-3 py-2 text-xs ${module.enabled ? "border-green-200 bg-green-50 text-green-800" : "border-gray-200 bg-gray-50 text-gray-500"} ${module.fixed ? "cursor-not-allowed" : "hover:border-indigo-200"}`}>
+                    <span className="font-semibold block">{module.label}</span>
+                    <span>{module.fixed ? "Fixed" : module.enabled ? "Enabled" : "Hidden"}</span>
+                  </button>
+                ))}
+              </div>
+            </ConfigPanel>
+
+            <ConfigPanel title="Role Access" icon={<Shield size={16} />}>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead><tr><th className="text-left py-2 pr-3 text-gray-500">Role</th>{erpConfig.modules.filter(m => m.enabled || m.fixed).map(m => <th key={m.key} className="px-2 py-2 text-gray-500 font-medium">{m.label}</th>)}</tr></thead>
+                  <tbody>
+                    {ROLES.map(role => (
+                      <tr key={role} className="border-t border-gray-100">
+                        <td className="py-2 pr-3 font-semibold text-gray-700">{role.replace("_", " ")}</td>
+                        {erpConfig.modules.filter(m => m.enabled || m.fixed).map(m => {
+                          const checked = (erpConfig.roleAccess[role] ?? []).includes(m.key);
+                          const fixed = ["orders", "accounts", "production", "dispatch"].includes(m.key);
+                          return (
+                            <td key={m.key} className="text-center py-2">
+                              <input type="checkbox" checked={checked || fixed} disabled={fixed} onChange={() => toggleRoleModule(role, m.key)} />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </ConfigPanel>
+          </section>
         )}
 
         {/* ── Active Carrier Toggle ───────────────────────────────────────── */}
@@ -450,6 +638,52 @@ function Field({
         autoComplete="off"
         className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 bg-gray-50"
       />
+    </div>
+  );
+}
+
+function ConfigPanel({ title, icon, action, children }: { title: string; icon: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">{icon}{title}</h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SmallButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100">
+      {children}
+    </button>
+  );
+}
+
+function FieldConfigList({ fields, onChange, onRemove }: { fields: CustomField[]; onChange: (index: number, patch: Partial<CustomField>) => void; onRemove: (index: number) => void }) {
+  return (
+    <div className="space-y-2">
+      {fields.length === 0 && <p className="text-xs text-gray-400">No custom fields yet.</p>}
+      {fields.map((field, index) => (
+        <div key={field.id} className="rounded-lg border border-gray-100 bg-gray-50 p-2 space-y-2">
+          <div className="grid grid-cols-[1fr_110px_72px_28px] gap-2 items-center">
+            <input value={field.label} onChange={e => onChange(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+            <select value={field.type} onChange={e => onChange(index, { type: e.target.value as CustomField["type"] })} className="border border-gray-200 rounded-lg px-2 py-2 text-xs">
+              {FIELD_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <label className="flex items-center gap-1 text-xs text-gray-600">
+              <input type="checkbox" checked={!!field.required} onChange={e => onChange(index, { required: e.target.checked })} />
+              Req
+            </label>
+            <button onClick={() => onRemove(index)} className="text-red-500 hover:bg-red-50 rounded-lg p-2"><Trash2 size={14} /></button>
+          </div>
+          {field.type === "select" && (
+            <input value={(field.options ?? []).join(", ")} onChange={e => onChange(index, { options: e.target.value.split(",").map(v => v.trim()).filter(Boolean) })} placeholder="Options: Small, Medium, Large" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+          )}
+        </div>
+      ))}
     </div>
   );
 }

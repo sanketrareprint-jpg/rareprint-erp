@@ -489,22 +489,38 @@ export class VirtualCeoService {
       });
     }
 
-    // 9. Sheets in PROCESSING > 2 days — follow up
-    const sheetsInProcessing = await this.prisma.printSheet.findMany({
-      where: { status: SheetStatus.PROCESSING },
-      orderBy: { updatedAt: 'asc' },
+    // 9. Sheet items in PROCESSING — respect item-level follow-up date
+    const sheetsInProcessing = await this.prisma.printSheetItem.findMany({
+      where: {
+        sheet: { status: SheetStatus.PROCESSING },
+        orderItem: { itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH } },
+      },
+      include: {
+        sheet: { select: { sheetNo: true, gsm: true, sizeInches: true, updatedAt: true } },
+        orderItem: {
+          select: {
+            product: { select: { name: true } },
+            order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
     });
 
-    for (const s of sheetsInProcessing) {
-      const days = ageDays(s.updatedAt);
-      if (days < 2) continue;
+    for (const si of sheetsInProcessing) {
+      const followUpDate = (si as any).dueDate as Date | null ?? null;
+      if (!isDueOrOverdueIST(followUpDate)) continue;
+      const days = ageDays(si.sheet.updatedAt);
+      if (!followUpDate && days < 2) continue;
+      const dueDateStr = followUpDate ? ` · Follow-up: ${followUpDate.toLocaleDateString('en-IN')}` : '';
       items.push({
-        id: `prod-sheet-proc-${s.id}`,
+        id: `prod-sheet-proc-${si.id}`,
         department: 'PRODUCTION',
         priority: days > 4 ? 'HIGH' : 'MEDIUM',
         category: 'Sheet Processing Follow-up',
-        title: `Sheet ${s.sheetNo} in processing ${Math.round(days)} days`,
-        detail: `${s.gsm} GSM, ${s.sizeInches}" — follow up on processing stage`,
+        title: `Sheet ${si.sheet.sheetNo} processing — ${si.orderItem.order.orderNumber}`,
+        detail: `${si.orderItem.order.customer.businessName} · ${si.orderItem.product.name} · ${si.sheet.gsm} GSM, ${si.sheet.sizeInches}"${dueDateStr}`,
+        orderNo: si.orderItem.order.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/sheet-layout',
       });

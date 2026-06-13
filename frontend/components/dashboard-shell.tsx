@@ -7,13 +7,17 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
-  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot,
+  Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
 interface StoredUser { id: string; fullName: string; email: string; role: Role; }
+type ErpConfig = {
+  modules: Array<{ key: string; href: string; enabled: boolean; fixed?: boolean }>;
+  roleAccess: Record<string, string[]>;
+};
 
 const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ADMIN: [
@@ -29,6 +33,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Design",     href: "/design-studio",    icon: Palette },
     { label: "Paper Stock", href: "/paper-inventory", icon: Archive },
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
+    { label: "Reports",    href: "/reports",          icon: FileSpreadsheet },
     { label: "CRM",        href: "/crm",              icon: BarChart2 },
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
     { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
@@ -73,6 +78,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
     { label: "Cost Table", href: "/cost-table", icon: Table2 },
     { label: "Bank Statement", href: "/bank-statement", icon: Landmark },
+    { label: "Reports", href: "/reports", icon: FileSpreadsheet },
   ],
   PRODUCTION: [
     { label: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
@@ -106,12 +112,39 @@ function getStoredUser(): StoredUser | null {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
+const MODULE_KEY_BY_HREF: Record<string, string> = {
+  "/dashboard": "dashboard",
+  "/orders": "orders",
+  "/accounts": "accounts",
+  "/production": "production",
+  "/dispatch": "dispatch",
+  "/reports": "reports",
+  "/crm": "crm",
+  "/tasks": "tasks",
+  "/storefront": "storefront",
+  "/marketing": "marketing",
+  "/customer-directory": "customers",
+  "/design-studio": "design",
+  "/paper-inventory": "paper-stock",
+  "/sticker-sheet": "sticker",
+  "/sheet-layout": "sheet-layout",
+  "/admin/database": "database",
+  "/sales-learning": "sales-learning",
+  "/admin/sales-learning": "manage-academy",
+  "/rate-calculator": "rate-calculator",
+  "/cost-table": "cost-table",
+  "/bank-statement": "bank-statement",
+  "/settings": "settings",
+  "/virtual-ceo": "virtual-ceo",
+};
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router   = useRouter();
   const [user] = useState<StoredUser | null>(() => getStoredUser());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [coins, setCoins] = useState<number | null>(null);
+  const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
 
   useEffect(() => {
     if (!user) router.replace("/login");
@@ -128,6 +161,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       .catch(() => {/* silent */});
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    fetch(`${API}/erp-config`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.modules && data?.roleAccess) setErpConfig(data); })
+      .catch(() => {/* keep built-in nav if config cannot load */});
+  }, [user]);
+
   const handleLogout = () => {
     localStorage.removeItem("rareprint_user");
     localStorage.removeItem("rareprint_token");
@@ -135,7 +176,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   };
 
   const role     = user?.role ?? "SALES_AGENT";
-  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE["SALES_AGENT"];
+  const baseNavItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE["SALES_AGENT"];
+  const navItems = erpConfig
+    ? baseNavItems.filter((item) => {
+        const key = MODULE_KEY_BY_HREF[item.href];
+        if (!key) return true;
+        const module = erpConfig.modules.find((m) => m.key === key);
+        const roleKeys = erpConfig.roleAccess[role] ?? [];
+        return Boolean(module?.enabled || module?.fixed) && roleKeys.includes(key);
+      })
+    : baseNavItems;
   const name     = user?.fullName ?? "…";
 
   return (
@@ -343,7 +393,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
 
 
 

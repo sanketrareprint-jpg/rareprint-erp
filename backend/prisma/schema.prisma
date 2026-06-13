@@ -355,6 +355,7 @@ model OrderItem {
   designFiles         Json                 @default("[]")
   productionCategory  ProductionCategory? // INHOUSE | CLUBBING | SHEET_PRODUCTION
   itemProductionStage OrderProductionStage @default(NOT_PRINTED)
+  processingFollowUpDate DateTime?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { StorefrontService } from './storefront.service';
 
 @Controller('storefront')
@@ -48,6 +49,28 @@ export class StorefrontController {
   @Get('banners')
   banners() {
     return this.service.banners();
+  }
+
+  @Get('content')
+  content() {
+    return this.service.content();
+  }
+
+  @Put('content')
+  @UseGuards(AuthGuard('jwt'))
+  updateContent(@Body() body: any) {
+    return this.service.updateContent(body);
+  }
+
+  @Get('templates')
+  templates() {
+    return this.service.templates();
+  }
+
+  @Put('templates')
+  @UseGuards(AuthGuard('jwt'))
+  updateTemplates(@Body() body: any) {
+    return this.service.updateTemplates(body);
   }
 
   @Post('orders')

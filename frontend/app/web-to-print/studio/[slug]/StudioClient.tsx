@@ -9,9 +9,11 @@ import {
   Square,
   Trash2,
   Type,
+  Wand2,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { API_BASE_URL } from "@/lib/api";
 import { type Product } from "../../catalog";
 
 type CanvasElement = {
@@ -32,11 +34,25 @@ type CanvasElement = {
   imageUrl?: string;
 };
 
+type TemplateField = { key: string; label: string; placeholder: string };
+type DesignTemplate = {
+  id: string;
+  name: string;
+  productType: string;
+  size: string;
+  background: string;
+  accent: string;
+  fields: TemplateField[];
+};
+
 const CANVAS_W = 800;
 const CANVAS_H = 500;
 
 export function StudioClient({ product }: { product: Product }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [templates, setTemplates] = useState<DesignTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [formData, setFormData] = useState<Record<string, string>>({});
   const [elements, setElements] = useState<CanvasElement[]>([
     { id: "bg", type: "rect", x: 0, y: 0, width: CANVAS_W, height: CANVAS_H, bgColor: "#FFFFFF" },
     {
@@ -84,6 +100,21 @@ export function StudioClient({ product }: { product: Product }) {
   const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const [tool, setTool] = useState<"select" | "text" | "rect">("select");
   const selectedEl = elements.find((element) => element.id === selected);
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/storefront/templates`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        const rows = Array.isArray(data?.templates) ? data.templates : [];
+        if (rows.length) {
+          setTemplates(rows);
+          setSelectedTemplateId(rows[0].id);
+          setFormData(Object.fromEntries(rows[0].fields.map((field: TemplateField) => [field.key, field.placeholder])));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   function draw() {
     const canvas = canvasRef.current;
@@ -196,6 +227,102 @@ export function StudioClient({ product }: { product: Product }) {
     link.click();
   }
 
+  function chooseTemplate(templateId: string) {
+    const template = templates.find((row) => row.id === templateId);
+    setSelectedTemplateId(templateId);
+    if (!template) return;
+    setFormData(Object.fromEntries(template.fields.map((field) => [field.key, formData[field.key] || field.placeholder])));
+  }
+
+  function applyTemplate() {
+    const template = selectedTemplate;
+    if (!template) return;
+    const businessName = formData.businessName || formData.brandName || template.fields[0]?.placeholder || "Your Business Name";
+    const tagline = formData.tagline || formData.license || formData.website || "Premium printed by RarePrint";
+    const phone = formData.phone || "+91 98765 43210";
+    const address = formData.address || "Your address";
+    const extra = template.fields
+      .filter((field) => !["businessName", "tagline", "phone", "address"].includes(field.key))
+      .map((field) => formData[field.key])
+      .filter(Boolean)
+      .join("  |  ");
+
+    setElements([
+      { id: "bg", type: "rect", x: 0, y: 0, width: CANVAS_W, height: CANVAS_H, bgColor: template.background || "#FFFFFF" },
+      { id: "accent-top", type: "rect", x: 0, y: 0, width: CANVAS_W, height: 70, bgColor: template.accent || "#CC0000" },
+      { id: "accent-side", type: "rect", x: 0, y: 0, width: 32, height: CANVAS_H, bgColor: template.accent || "#CC0000" },
+      {
+        id: "title",
+        type: "text",
+        x: 70,
+        y: 105,
+        width: 620,
+        height: 70,
+        text: businessName,
+        fontSize: 42,
+        fontFamily: "Arial",
+        color: "#111827",
+        bold: true,
+        align: "left",
+      },
+      {
+        id: "sub",
+        type: "text",
+        x: 72,
+        y: 180,
+        width: 560,
+        height: 38,
+        text: tagline,
+        fontSize: 22,
+        fontFamily: "Arial",
+        color: template.accent || "#CC0000",
+        bold: true,
+        align: "left",
+      },
+      {
+        id: "phone",
+        type: "text",
+        x: 72,
+        y: 350,
+        width: 520,
+        height: 34,
+        text: phone,
+        fontSize: 24,
+        fontFamily: "Arial",
+        color: "#111827",
+        bold: true,
+        align: "left",
+      },
+      {
+        id: "address",
+        type: "text",
+        x: 72,
+        y: 395,
+        width: 620,
+        height: 30,
+        text: address,
+        fontSize: 16,
+        fontFamily: "Arial",
+        color: "#4b5563",
+        align: "left",
+      },
+      {
+        id: "extra",
+        type: "text",
+        x: 72,
+        y: 440,
+        width: 650,
+        height: 28,
+        text: extra,
+        fontSize: 14,
+        fontFamily: "Arial",
+        color: "#4b5563",
+        align: "left",
+      },
+    ]);
+    setSelected("title");
+  }
+
   return (
     <div className="flex h-screen flex-col bg-slate-100">
       <div className="flex items-center gap-4 border-b border-slate-200 bg-white px-4 py-3">
@@ -229,6 +356,37 @@ export function StudioClient({ product }: { product: Product }) {
           <button title="Delete selected" onClick={deleteSelected} className="grid h-10 w-10 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">
             <Trash2 className="h-5 w-5" />
           </button>
+        </div>
+
+        <div className="w-80 overflow-y-auto border-r border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Template Form</p>
+          <h2 className="mt-2 text-lg font-black text-slate-950">Fill fields, create preview</h2>
+          <div className="mt-4 space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold text-slate-500">Template</span>
+              <select value={selectedTemplateId} onChange={(event) => chooseTemplate(event.target.value)} className="w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:border-slate-400">
+                {templates.length === 0 && <option>No templates loaded</option>}
+                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+            </label>
+            {selectedTemplate?.fields.map((field) => (
+              <label key={field.key} className="block">
+                <span className="mb-1 block text-xs font-bold text-slate-500">{field.label}</span>
+                <input
+                  value={formData[field.key] ?? ""}
+                  placeholder={field.placeholder}
+                  onChange={(event) => setFormData((current) => ({ ...current, [field.key]: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:border-slate-400"
+                />
+              </label>
+            ))}
+            <button onClick={applyTemplate} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800">
+              <Wand2 className="h-4 w-4" /> Create Design From Form
+            </button>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">
+              This is the first template-based workflow: customer data is placed into a locked starter layout, then the design can still be edited manually.
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-1 items-center justify-center overflow-auto p-6">
