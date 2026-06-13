@@ -388,6 +388,9 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit }: {
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${po.status === "RECEIVED" ? "bg-green-100 text-green-700" : po.status === "DRAFT" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
                 {po.status}
               </span>
+              {po.totalBillAmount != null && po.totalBillAmount > 0 && (
+                <span className="text-sm font-semibold text-gray-800">₹{po.totalBillAmount.toLocaleString("en-IN")}</span>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{po.items.length} item{po.items.length !== 1 ? "s" : ""}</span>
