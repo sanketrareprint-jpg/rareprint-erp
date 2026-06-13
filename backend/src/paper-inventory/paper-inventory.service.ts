@@ -531,7 +531,7 @@ Return ONLY valid JSON, no explanation:
       });
       if (!existing) throw new NotFoundException('Purchase order not found');
 
-      // 1. Reverse inventory for each old item
+      // 1. Reverse inventory for each old item (no reversal transaction — delete old ones instead)
       for (const oldItem of existing.items) {
         const inv = await tx.paperInventory.findUnique({
           where: { pressId_gsm_quality: { pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
@@ -543,30 +543,19 @@ Return ONLY valid JSON, no explanation:
             data: { balanceSheets: newBalance },
           });
         }
-        await tx.paperTransaction.create({
-          data: {
-            pressId: oldItem.pressId,
-            gsm: oldItem.gsm,
-            quality: oldItem.quality,
-            transactionType: PaperTransactionType.ADJUSTMENT,
-            sheets: -oldItem.totalSheets,
-            balanceAfter: newBalance,
-            referenceId: id,
-            referenceType: 'PO_EDIT_REVERSAL',
-            notes: `PO ${existing.poNumber} edited — reversed old entry`,
-          },
-        });
       }
 
-      // 2. Null out purchaseItemId on any transactions referencing these items
-      //    (no onDelete:SetNull on the relation, so we must do this manually)
+      // 2. Delete old purchase transactions for this PO (keeps history clean — no stale reversal entries)
       const oldItemIds = existing.items.map((i) => i.id);
       if (oldItemIds.length > 0) {
-        await tx.paperTransaction.updateMany({
+        await tx.paperTransaction.deleteMany({
           where: { purchaseItemId: { in: oldItemIds } },
-          data: { purchaseItemId: null },
         });
       }
+      // Also delete any leftover PO_EDIT_REVERSAL entries for this PO
+      await tx.paperTransaction.deleteMany({
+        where: { referenceId: id, referenceType: 'PO_EDIT_REVERSAL' },
+      });
 
       // 3. Delete old items
       await tx.paperPurchaseItem.deleteMany({ where: { poId: id } });
