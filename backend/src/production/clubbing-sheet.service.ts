@@ -936,4 +936,43 @@ export class ClubbingSheetService {
     await this.prisma.sheetStageVendor.delete({ where: { id } });
     return { success: true };
   }
+
+
+  async getSheetHistory({ search, toStatus, page = 1, limit = 50 }: { search?: string; toStatus?: string; page?: number; limit?: number }) {
+    // Fetch all sheet status change logs (no pagination yet — we deduplicate first)
+    const andConditions: any[] = [
+      { metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' } },
+    ];
+    if (toStatus) andConditions.push({ metadata: { path: ['sheetStatus'], equals: toStatus } });
+    if (search) andConditions.push({ reason: { contains: search, mode: 'insensitive' } });
+
+    const raw = await this.prisma.statusLog.findMany({
+      where: { AND: andConditions },
+      orderBy: { createdAt: 'desc' },
+      include: { changedBy: { select: { id: true, fullName: true } } },
+    });
+
+    // Deduplicate: one row per (sheetId + fromStatus + toStatus)
+    const seen = new Set<string>();
+    const deduped: typeof raw = [];
+    for (const log of raw) {
+      const meta = log.metadata as any;
+      const key = `${meta?.sheetId}__${meta?.fromSheetStatus}__${meta?.sheetStatus}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        // Count how many items were on this sheet for this status change
+        (log as any)._itemCount = raw.filter(l => {
+          const m = l.metadata as any;
+          return m?.sheetId === meta?.sheetId && m?.fromSheetStatus === meta?.fromSheetStatus && m?.sheetStatus === meta?.sheetStatus;
+        }).length;
+        deduped.push(log);
+      }
+    }
+
+    const total = deduped.length;
+    const skip = (page - 1) * limit;
+    const paginated = deduped.slice(skip, skip + limit);
+
+    return { logs: paginated, total, page, limit };
+  }
 }
