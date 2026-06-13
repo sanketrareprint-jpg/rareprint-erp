@@ -50,8 +50,9 @@ export class DashboardService {
           clearTimeout(timer);
           resolve(value);
         })
-        .catch(() => {
+        .catch((err) => {
           clearTimeout(timer);
+          console.error('[withTimeout] caught error:', err?.message ?? err);
           resolve(fallback);
         });
     });
