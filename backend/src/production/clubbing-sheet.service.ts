@@ -42,6 +42,13 @@ function resolveItemDetails(item: {
   return { size, gsm, sides };
 }
 
+function parseIstDateOnly(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00+05:30`);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException('Invalid follow-up date');
+  return date;
+}
+
 type AutoSlot = 'SMALL_5_5X8_5' | 'MEDIUM_7_3X8_5' | 'LARGE_8_5X11' | 'FILE_9X12' | 'FILE_12X18' | 'BIG_ENV_9X12';
 type AutoFamily = 'STANDARD_18X23' | 'FILE_19X25' | 'BIG_ENV_15X20';
 type AutoItem = {
@@ -94,6 +101,7 @@ const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus>> = {
   [SheetStatus.COMPLETE]: SheetStatus.SETTING,
   [SheetStatus.SETTING]: SheetStatus.PRINTING,
   [SheetStatus.PRINTING]: SheetStatus.PROCESSING,
+  [SheetStatus.PROCESSING]: SheetStatus.DONE,
 };
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
@@ -317,14 +325,15 @@ export class ClubbingSheetService {
     return this.prisma.jobWork.findMany({ where: { orderItemId }, include: { vendor: true }, orderBy: { createdAt: 'asc' } });
   }
 
-  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }) {
+  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string; dueDate?: string | null }) {
     const item = await this.prisma.orderItem.findUnique({ where: { id: data.orderItemId } });
     if (!item) throw new NotFoundException('Order item not found');
-    return this.prisma.jobWork.create({ data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo }, include: { vendor: true } });
+    return this.prisma.jobWork.create({ data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: parseIstDateOnly(data.dueDate) }, include: { vendor: true } });
   }
 
-  async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string }) {
-    return this.prisma.jobWork.update({ where: { id: jobWorkId }, data: { ...data, completedAt: data.status === JobWorkStatus.COMPLETED ? new Date() : undefined }, include: { vendor: true } });
+  async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null }) {
+    const { dueDate, ...rest } = data;
+    return this.prisma.jobWork.update({ where: { id: jobWorkId }, data: { ...rest, ...(dueDate !== undefined ? { dueDate: parseIstDateOnly(dueDate) } : {}), completedAt: data.status === JobWorkStatus.COMPLETED ? new Date() : undefined }, include: { vendor: true } });
   }
 
   async deleteJobWork(jobWorkId: string) {
@@ -364,7 +373,7 @@ export class ClubbingSheetService {
           // Resolved product details (prefer notes, fall back to product table)
           size, gsm, sides,
           designFiles: designFilesMap[i.id] ?? [],
-          jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, completedAt: j.completedAt?.toISOString() ?? null })),
+          jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, dueDate: j.dueDate?.toISOString() ?? null, completedAt: j.completedAt?.toISOString() ?? null })),
         };
       }),
     }));
@@ -393,6 +402,7 @@ export class ClubbingSheetService {
             multiple: true,
             quantityOnSheet: true,
             areaSqInches: true,
+            dueDate: true,
             orderItem: {
               select: {
                 id: true,
@@ -931,6 +941,14 @@ export class ClubbingSheetService {
     });
   }
 
+  async updateSheetItemDueDate(sheetItemId: string, dueDate?: string | null) {
+    return this.prisma.printSheetItem.update({
+      where: { id: sheetItemId },
+      data: { dueDate: parseIstDateOnly(dueDate) },
+      select: { id: true, dueDate: true },
+    });
+  }
+
   async deleteSheetStageVendor(id: string) {
     await this.prisma.sheetStageVendor.delete({ where: { id } });
     return { success: true };
@@ -953,25 +971,4 @@ export class ClubbingSheetService {
 
     // Deduplicate: one row per (sheetId + fromStatus + toStatus)
     const seen = new Set<string>();
-    const deduped: typeof raw = [];
-    for (const log of raw) {
-      const meta = log.metadata as any;
-      const key = `${meta?.sheetId}__${meta?.fromSheetStatus}__${meta?.sheetStatus}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        // Count how many items were on this sheet for this status change
-        (log as any)._itemCount = raw.filter(l => {
-          const m = l.metadata as any;
-          return m?.sheetId === meta?.sheetId && m?.fromSheetStatus === meta?.fromSheetStatus && m?.sheetStatus === meta?.sheetStatus;
-        }).length;
-        deduped.push(log);
-      }
-    }
-
-    const total = deduped.length;
-    const skip = (page - 1) * limit;
-    const paginated = deduped.slice(skip, skip + limit);
-
-    return { logs: paginated, total, page, limit };
-  }
-}
+    const deduped: typeof ra

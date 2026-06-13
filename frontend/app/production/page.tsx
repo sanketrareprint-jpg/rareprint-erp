@@ -22,7 +22,7 @@ const SHEET_NEXT_STATUS: Record<string, string | null> = {
   COMPLETE: "SETTING",
   SETTING: "PRINTING",
   PRINTING: "PROCESSING",
-  PROCESSING: null,
+  PROCESSING: "DONE",
 };
 const SHEET_STAGES = ["PAPER_PURCHASE","PLATE_MAKING","PRINTING","BINDING","LAMINATION","EXTRA_PROCESSING"];
 const JW_STATUSES = ["PENDING","IN_PROGRESS","COMPLETED"];
@@ -32,6 +32,7 @@ type OrderItem = {
   id: string; productName: string; sku: string; quantity: number;
   unitPrice: number; lineTotal: number; productionNotes?: string;
   artworkNotes?: string; itemProductionStage: ProductionStage;
+  processingFollowUpDate?: string | null;
   productionCategory: ProductionCategory | null;
   // Resolved by backend: prefers productionNotes, falls back to product table
   size?: string | null;
@@ -46,10 +47,10 @@ type ProductionOrder = {
   orderDate: string; notes?: string; items: OrderItem[];
 };
 type Vendor = { id: string; name: string; phone?: string; };
-type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; completedAt?: string; };
+type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; dueDate?: string | null; completedAt?: string; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; size?: string | null; gsm?: string | null; sides?: string | null; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
-type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
+type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; dueDate?: string | null; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
 type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
@@ -79,6 +80,11 @@ function getItemDetails(item: { size?: string | null; gsm?: string | null; sides
   };
 }
 function fmt(n: number) { return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n); }
+async function readApiError(res: Response, fallback: string) {
+  const body = await res.json().catch(() => null);
+  const message = Array.isArray(body?.message) ? body.message.join("\n") : body?.message;
+  return message || fallback;
+}
 function formatBytes(b: number) { if (b < 1024) return `${b} B`; if (b < 1048576) return `${(b/1024).toFixed(1)} KB`; return `${(b/1048576).toFixed(1)} MB`; }
 function getFileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -114,6 +120,16 @@ function getSheetCreatedLabel(sheet: PrintSheet) {
 }
 function displaySheetNo(value?: string | null) {
   return (value ?? "").replace(/^sheet\s*no\s*:\s*/i, "").trim();
+}
+function dateInputValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+function dateLabel(value?: string | null) {
+  if (!value) return "No date";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "No date" : date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "Asia/Kolkata" });
 }
 function getAllowedSheetStatuses(currentStatus: string) {
   const nextStatus = SHEET_NEXT_STATUS[currentStatus];
@@ -174,6 +190,7 @@ export default function ProductionPage() {
   const [sendDialog, setSendDialog] = useState<{ itemId: string; productName: string; orderNo: string } | null>(null);
   const [sendVendorId, setSendVendorId] = useState("");
   const [sendDesc, setSendDesc] = useState("");
+  const [sendDueDate, setSendDueDate] = useState("");
   const [sendingSend, setSendingSend] = useState(false);
   // Received dialog (fill cost + inv no)
   const [receiveDialog, setReceiveDialog] = useState<{ jwId: string; vendorName: string; productName: string } | null>(null);
@@ -388,7 +405,7 @@ export default function ProductionPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderItemId: sendDialog.itemId, vendorId: sendVendorId, description: sendDesc || "Job Work", cost: 0 }),
+        body: JSON.stringify({ orderItemId: sendDialog.itemId, vendorId: sendVendorId, description: sendDesc || "Job Work", cost: 0, dueDate: sendDueDate || null }),
       });
       if (!res.ok) { alert("Failed to send to vendor"); return; }
       // Set item stage to PRINTING
@@ -396,9 +413,36 @@ export default function ProductionPage() {
         method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ stage: "PRINTING" }),
       });
-      setSendDialog(null); setSendVendorId(""); setSendDesc("");
+      setSendDialog(null); setSendVendorId(""); setSendDesc(""); setSendDueDate("");
       await loadAll(true);
     } finally { setSendingSend(false); }
+  }
+
+  async function updateInhouseFollowUpDate(itemId: string, processingFollowUpDate: string) {
+    const res = await fetch(`${API_BASE_URL}/production/items/${itemId}/follow-up-date`, {
+      method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ processingFollowUpDate: processingFollowUpDate || null }),
+    });
+    if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
+    await loadAll(true);
+  }
+
+  async function updateJobWorkDueDate(jwId: string, dueDate: string) {
+    const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${jwId}`, {
+      method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ dueDate: dueDate || null }),
+    });
+    if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
+    await loadAll(true);
+  }
+
+  async function updateSheetItemDueDate(sheetItemId: string, dueDate: string) {
+    const res = await fetch(`${API_BASE_URL}/production/sheets/sheet-items/${sheetItemId}/due-date`, {
+      method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ dueDate: dueDate || null }),
+    });
+    if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
+    await loadAll(true);
   }
 
   async function receiveFromVendor() {
@@ -685,8 +729,20 @@ export default function ProductionPage() {
       }
     }
     if (sheet && sheet.status === "COMPLETE" && status === "SETTING") {
+      const printQty = String(sheet.actualPrintedQuantity ?? sheet.quantity);
       setSettingDialog({ sheetId, sheetNo: sheet.sheetNo });
-      setSettingForm({ plateVendorId: "", plateDesc: "", plateRate: "", plateQty: "", plateAmount: "", printVendorId: "", printDesc: "", printRate: "", printQty: "", printAmount: "" });
+      setSettingForm({
+        plateVendorId: "",
+        plateDesc: "",
+        plateRate: "1000",
+        plateQty: "1",
+        plateAmount: "",
+        printVendorId: "",
+        printDesc: "",
+        printRate: "",
+        printQty,
+        printAmount: "",
+      });
       return;
     }
     const prevExpanded = expandedSheet;
@@ -718,25 +774,38 @@ export default function ProductionPage() {
   async function submitSettingDialog() {
     if (!settingDialog) return;
     const { sheetId } = settingDialog;
-        if (!settingForm.plateVendorId || (!settingForm.plateAmount && (!settingForm.plateRate || !settingForm.plateQty))) { alert("Plate Making: Vendor and Amount (or Rate x Qty) are required"); return; }
-    if (!settingForm.printVendorId || (!settingForm.printAmount && (!settingForm.printRate || !settingForm.printQty))) { alert("Printing: Vendor and Amount (or Rate x Qty) are required"); return; }
-    if (!settingForm.printVendorId || (!settingForm.printAmount && (!settingForm.printRate || !settingForm.printQty))) { alert("Fill Printing vendor, rate and quantity"); return; }
+    if (!settingForm.plateVendorId || !settingForm.plateRate || !settingForm.plateQty) { alert("Plate Making: select vendor, rate and quantity"); return; }
+    if (!settingForm.printVendorId || !settingForm.printRate || !settingForm.printQty) { alert("Printing: select vendor, rate and quantity"); return; }
     setSavingSetting(true);
     try {
       const h = { ...getAuthHeaders(), "Content-Type": "application/json" };
-      const plateTotal = settingForm.plateAmount ? Number(settingForm.plateAmount) : Number(settingForm.plateRate) * Number(settingForm.plateQty);
-      const printTotal = settingForm.printAmount ? Number(settingForm.printAmount) : Number(settingForm.printRate) * Number(settingForm.printQty);
-      await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
+      const plateTotal = Number(settingForm.plateRate) * Number(settingForm.plateQty);
+      const printTotal = Number(settingForm.printRate) * Number(settingForm.printQty);
+      if (!Number.isFinite(plateTotal) || plateTotal <= 0) { alert("Plate Making: enter a valid rate and quantity"); return; }
+      if (!Number.isFinite(printTotal) || printTotal <= 0) { alert("Printing: enter a valid rate and quantity"); return; }
+
+      const plateRes = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
         method: "POST", headers: h,
         body: JSON.stringify({ stage: "PLATE_MAKING", vendorId: settingForm.plateVendorId, cost: plateTotal, description: settingForm.plateDesc || undefined }),
       });
-      await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
+      if (!plateRes.ok) { alert(await readApiError(plateRes, "Failed to save plate making vendor")); return; }
+
+      const printRes = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/stage-vendors`, {
         method: "POST", headers: h,
         body: JSON.stringify({ stage: "PRINTING", vendorId: settingForm.printVendorId, cost: printTotal, description: settingForm.printDesc || undefined }),
       });
-      await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
+      if (!printRes.ok) { alert(await readApiError(printRes, "Failed to save printing vendor")); return; }
+
+      const settingRes = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
         method: "PATCH", headers: h, body: JSON.stringify({ status: "SETTING" }),
       });
+      if (!settingRes.ok) { alert(await readApiError(settingRes, "Failed to move sheet to setting")); return; }
+
+      const printingRes = await fetch(`${API_BASE_URL}/production/sheets/${sheetId}/status`, {
+        method: "PATCH", headers: h, body: JSON.stringify({ status: "PRINTING" }),
+      });
+      if (!printingRes.ok) { alert(await readApiError(printingRes, "Failed to move sheet to printing")); return; }
+
       setSettingDialog(null);
       await loadAll(true);
       setProcessingSubTab("printing");
@@ -938,6 +1007,12 @@ export default function ProductionPage() {
                           <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                         )}
                       </div>
+                      {item.itemProductionStage === "PROCESSING" && (
+                        <div className="mt-2">
+                          <label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label>
+                          <input type="date" defaultValue={dateInputValue(item.processingFollowUpDate)} onBlur={e => updateInhouseFollowUpDate(item.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
+                        </div>
+                      )}
                       {sheetAssignments.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1">
                           {sheetAssignments.map((a, i) => <span key={i} className="rounded-full bg-cyan-50 border border-cyan-200 px-2 py-1 text-xs font-bold text-cyan-700">{a.no} · {a.qty}</span>)}
@@ -976,6 +1051,7 @@ export default function ProductionPage() {
                     <th className="px-3 py-2 font-semibold text-slate-600">Qty</th>
                     {activeTab === "all" && <th className="px-3 py-2 font-semibold text-slate-600">Type</th>}
                     <th className="px-3 py-2 font-semibold text-slate-600">Stage</th>
+                    <th className="px-3 py-2 font-semibold text-slate-600">Schedule</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Sheets</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Files</th>
                     <th className="px-3 py-2 font-semibold text-slate-600">Upload</th>
@@ -1010,6 +1086,12 @@ export default function ProductionPage() {
                                 {PRODUCTION_STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                               </select>
                             </div>
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {item.itemProductionStage === "PROCESSING" ? (
+                              <input type="date" defaultValue={dateInputValue(item.processingFollowUpDate)} onBlur={e => updateInhouseFollowUpDate(item.id, e.target.value)}
+                                className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
+                            ) : <span className="text-slate-300 text-xs">—</span>}
                           </td>
                               {userRole !== "INHOUSE" && <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200 ml-1">✕</button>}
                           <td className="px-3 py-1.5 max-w-[160px]">
@@ -1151,6 +1233,7 @@ export default function ProductionPage() {
                               <div className="mt-2 rounded-lg bg-orange-50 px-3 py-2 text-xs">
                                 <div className="flex justify-between gap-2"><span className="text-slate-500">Vendor</span><strong className="text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "—"}</strong></div>
                                 {clubSubTab === "in_progress" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Cost</span><strong>{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</strong></div>}
+                                {clubSubTab === "in_progress" && activeJw && <div className="mt-2"><label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label><input type="date" defaultValue={dateInputValue(activeJw.dueDate)} onBlur={e => updateJobWorkDueDate(activeJw.id, e.target.value)} className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-semibold outline-none" /></div>}
                                 {clubSubTab === "received" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Invoice</span><strong>{completedJw?.vendorInvoiceNo ?? "—"}</strong></div>}
                               </div>
                             )}
@@ -1167,7 +1250,7 @@ export default function ProductionPage() {
                             <div className="mt-2 flex gap-2">
                               {clubSubTab === "unassigned" && (
                                 <>
-                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
+                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
                                   <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="flex-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                                 </>
                               )}
@@ -1195,6 +1278,7 @@ export default function ProductionPage() {
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Stage</th>
                           {clubSubTab !== "unassigned" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Vendor</th>}
                           {clubSubTab === "in_progress" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Cost</th>}
+                          {clubSubTab === "in_progress" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Schedule</th>}
                           {clubSubTab === "received" && <th className="px-3 py-2 text-left font-semibold text-slate-600">Invoice</th>}
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Files</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
@@ -1230,6 +1314,12 @@ export default function ProductionPage() {
                               {clubSubTab === "in_progress" && (
                                 <td className="px-3 py-2 text-slate-600">{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</td>
                               )}
+                              {clubSubTab === "in_progress" && (
+                                <td className="px-3 py-2">
+                                  {activeJw ? <input type="date" defaultValue={dateInputValue(activeJw.dueDate)} onBlur={e => updateJobWorkDueDate(activeJw.id, e.target.value)}
+                                    className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" /> : <span className="text-slate-300">—</span>}
+                                </td>
+                              )}
                               {clubSubTab === "received" && (
                                 <td className="px-3 py-2 text-slate-500">{completedJw?.vendorInvoiceNo ?? "—"}</td>
                               )}
@@ -1239,7 +1329,7 @@ export default function ProductionPage() {
                               <td className="px-3 py-2">
                                 {clubSubTab === "unassigned" && (
                                   <div className="flex gap-1">
-                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); }}
+                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }}
                                       className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
                                       Send →
                                     </button>
@@ -1551,7 +1641,7 @@ export default function ProductionPage() {
                                 </button>
                               )}
                               <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
-                                {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s}</option>)}
+                                {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s === "DONE" ? "Ready" : s}</option>)}
                               </select>
                               {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                             </div>
@@ -1626,7 +1716,14 @@ export default function ProductionPage() {
                       className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "processing" ? "bg-white shadow-sm text-orange-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                       Processing Orders
                       <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "processing" ? "bg-orange-100 text-orange-700" : "bg-slate-200 text-slate-500"}`}>
-                        {sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE").flatMap(s => s.items).filter(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH").length}
+                        {sheetsData.filter(s => s.status === "PROCESSING").flatMap(s => s.items).filter(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH").length}
+                      </span>
+                    </button>
+                    <button onClick={() => setProcessingSubTab("ready")}
+                      className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "ready" ? "bg-white shadow-sm text-emerald-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                      Ready
+                      <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "ready" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+                        {sheetsData.filter(s => s.status === "DONE").length}
                       </span>
                     </button>
                   </div>
@@ -1661,7 +1758,7 @@ export default function ProductionPage() {
                                 <div className="flex items-center gap-2">
                                   <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
                                     className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status] || "bg-gray-100"}`}>
-                                    {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s}</option>)}
+                                    {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s === "DONE" ? "Ready" : s}</option>)}
                                   </select>
                                   {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                                 </div>
@@ -1701,8 +1798,33 @@ export default function ProductionPage() {
                     );
                   })()}
 
+                  {processingSubTab === "ready" && (() => {
+                    const readySheets = sheetsData.filter(s => s.status === "DONE");
+                    if (readySheets.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheets marked Ready yet.</div>;
+                    return (
+                      <div className="space-y-2">
+                        {readySheets.map(sheet => (
+                          <div key={sheet.id} className="rounded-xl border border-emerald-200 bg-white shadow-sm overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <span className="font-bold text-emerald-700 text-sm">Sheet No: {displaySheetNo(sheet.sheetNo)}</span>
+                                <span className="text-slate-600 text-xs">{sheet.gsm} GSM · {sheet.quality.replace(/_/g," ")} · {sheet.sizeInches}" · Qty {sheet.quantity}</span>
+                                <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-bold">Ready</span>
+                                <span className="text-xs text-slate-500">{sheet.items.length} items</span>
+                              </div>
+                              <select value={sheet.status} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
+                                className="rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent bg-emerald-100 text-emerald-800">
+                                {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s === "DONE" ? "Ready" : s}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {processingSubTab === "processing" && (() => {
-                    const procSheets = sheetsData.filter(s => s.status === "PROCESSING" || s.status === "DONE");
+                    const procSheets = sheetsData.filter(s => s.status === "PROCESSING");
                     // Filter out items already marked READY_FOR_DISPATCH using sheetOrderItems
                     const allItems = procSheets.flatMap(sheet => sheet.items.map(si => ({ ...si, sheet })))
                       .filter(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH");
@@ -1759,6 +1881,10 @@ export default function ProductionPage() {
                                       {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                     </select>
                                   </div>
+                                  <div className="mt-2">
+                                    <label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label>
+                                    <input type="date" defaultValue={dateInputValue(si.dueDate)} onBlur={e => updateSheetItemDueDate(si.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
+                                  </div>
                                   <button
                                     onClick={async () => {
                                       if (!confirm("Mark this item as Ready for Dispatch?")) return;
@@ -1792,6 +1918,7 @@ export default function ProductionPage() {
                                 <col className="w-[5%]" />
                                 <col className="w-[14%]" />
                                 <col className="w-[8%]" />
+                                <col className="w-[8%]" />
                               </colgroup>
                               <thead><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
@@ -1803,6 +1930,7 @@ export default function ProductionPage() {
                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Processing Vendor</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Schedule</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
                               </tr></thead>
                               <tbody>
@@ -1823,6 +1951,10 @@ export default function ProductionPage() {
                                         <option value="">Select Vendor...</option>
                                         {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                       </select>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <input type="date" defaultValue={dateInputValue(si.dueDate)} onBlur={e => updateSheetItemDueDate(si.id, e.target.value)}
+                                        className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
                                     </td>
                                     <td className="px-3 py-2">
                                       <button
@@ -1960,6 +2092,10 @@ export default function ProductionPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Description <span className="text-slate-400 font-normal">(optional)</span></label>
                 <input value={sendDesc} onChange={e => setSendDesc(e.target.value)} placeholder="e.g. Lamination, Die cut" style={IS.input} />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Schedule Date <span className="text-slate-400 font-normal">(CEO report)</span></label>
+                <input type="date" value={sendDueDate} onChange={e => setSendDueDate(e.target.value)} style={IS.input} />
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setSendDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -2090,13 +2226,21 @@ export default function ProductionPage() {
                 <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Description</label>
                   <input value={settingForm.plateDesc} onChange={e => setSettingForm(p => ({ ...p, plateDesc: e.target.value }))} placeholder="Optional" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Rate (Rs) *</label>
-                  <input type="number" value={settingForm.plateRate} onChange={e => setSettingForm(p => ({ ...p, plateRate: e.target.value }))} placeholder="0.00" style={IS.input} /></div>
+                  <input type="number" value={settingForm.plateRate} onChange={e => setSettingForm(p => ({ ...p, plateRate: e.target.value, plateAmount: "" }))} placeholder="0.00" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Quantity *</label>
-                  <input type="number" value={settingForm.plateQty} onChange={e => setSettingForm(p => ({ ...p, plateQty: e.target.value }))} placeholder="0" style={IS.input} /></div>
-                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">— OR — Direct Amount (Rs)</label>
-                  <input type="number" value={settingForm.plateAmount} onChange={e => setSettingForm(p => ({ ...p, plateAmount: e.target.value, plateRate: "", plateQty: "" }))} placeholder="Enter total amount directly" style={IS.input} /></div>
-                {(settingForm.plateAmount || (settingForm.plateRate && settingForm.plateQty)) && (
-                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(settingForm.plateAmount ? Number(settingForm.plateAmount) : Number(settingForm.plateRate) * Number(settingForm.plateQty))}</div>
+                  <input type="number" value={settingForm.plateQty} onChange={e => setSettingForm(p => {
+                    const qty = Number(e.target.value);
+                    const amount = Number(p.plateAmount);
+                    return { ...p, plateQty: e.target.value, plateRate: amount > 0 && qty > 0 ? String(amount / qty) : p.plateRate };
+                  })} placeholder="0" style={IS.input} /></div>
+                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Direct Amount (Rs)</label>
+                  <input type="number" value={settingForm.plateAmount} onChange={e => setSettingForm(p => {
+                    const amount = Number(e.target.value);
+                    const qty = Number(p.plateQty);
+                    return { ...p, plateAmount: e.target.value, plateRate: amount > 0 && qty > 0 ? String(amount / qty) : p.plateRate };
+                  })} placeholder="Enter total amount directly" style={IS.input} /></div>
+                {settingForm.plateRate && settingForm.plateQty && (
+                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(Number(settingForm.plateRate) * Number(settingForm.plateQty))}</div>
                 )}
               </div>
             </div>
@@ -2110,13 +2254,21 @@ export default function ProductionPage() {
                 <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Description</label>
                   <input value={settingForm.printDesc} onChange={e => setSettingForm(p => ({ ...p, printDesc: e.target.value }))} placeholder="Optional" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Rate (Rs) *</label>
-                  <input type="number" value={settingForm.printRate} onChange={e => setSettingForm(p => ({ ...p, printRate: e.target.value }))} placeholder="0.00" style={IS.input} /></div>
+                  <input type="number" value={settingForm.printRate} onChange={e => setSettingForm(p => ({ ...p, printRate: e.target.value, printAmount: "" }))} placeholder="0.00" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Quantity *</label>
-                  <input type="number" value={settingForm.printQty} onChange={e => setSettingForm(p => ({ ...p, printQty: e.target.value }))} placeholder="0" style={IS.input} /></div>
-                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">— OR — Direct Amount (Rs)</label>
-                  <input type="number" value={settingForm.printAmount} onChange={e => setSettingForm(p => ({ ...p, printAmount: e.target.value, printRate: "", printQty: "" }))} placeholder="Enter total amount directly" style={IS.input} /></div>
-                {(settingForm.printAmount || (settingForm.printRate && settingForm.printQty)) && (
-                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(settingForm.printAmount ? Number(settingForm.printAmount) : Number(settingForm.printRate) * Number(settingForm.printQty))}</div>
+                  <input type="number" value={settingForm.printQty} onChange={e => setSettingForm(p => {
+                    const qty = Number(e.target.value);
+                    const amount = Number(p.printAmount);
+                    return { ...p, printQty: e.target.value, printRate: amount > 0 && qty > 0 ? String(amount / qty) : p.printRate };
+                  })} placeholder="0" style={IS.input} /></div>
+                <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Direct Amount (Rs)</label>
+                  <input type="number" value={settingForm.printAmount} onChange={e => setSettingForm(p => {
+                    const amount = Number(e.target.value);
+                    const qty = Number(p.printQty);
+                    return { ...p, printAmount: e.target.value, printRate: amount > 0 && qty > 0 ? String(amount / qty) : p.printRate };
+                  })} placeholder="Enter total amount directly" style={IS.input} /></div>
+                {settingForm.printRate && settingForm.printQty && (
+                  <div className="col-span-2 text-right text-xs font-bold text-cyan-700">Total: {fmt(Number(settingForm.printRate) * Number(settingForm.printQty))}</div>
                 )}
               </div>
             </div>
@@ -2164,174 +2316,4 @@ export default function ProductionPage() {
                       <span className="text-slate-400 font-normal ml-1">Max: {multipleDialog.maxMultiple}×</span>
                     </label>
                     <input type="number" min={1} max={multipleDialog.maxMultiple} value={multipleValue}
-                      onChange={e => {
-                        const v = parseInt(e.target.value);
-                        if (!isNaN(v)) setMultipleValue(String(Math.min(Math.max(1, v), multipleDialog.maxMultiple)));
-                        else setMultipleValue(e.target.value);
-                      }}
-                      style={{ width:"100%",borderRadius:"6px",border:"1px solid #e2e8f0",padding:"8px 10px",fontSize:"14px",boxSizing:"border-box" as const }} />
-                    <p className="text-xs text-slate-400 mt-1">Suggested: {multipleDialog.suggestedMultiple}× (fills balance exactly)</p>
-                  </div>
-                  {val > multipleDialog.maxMultiple && (
-                    <p className="text-xs text-red-600 font-semibold">Exceeds max allowed ({multipleDialog.maxMultiple}×)</p>
-                  )}
-                </div>
-              );
-            })()}
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setMultipleDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={confirmPlaceWithMultiple} disabled={!!placingItem}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                {placingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Place on Sheet
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Create Sheet Modal ── */}
-      {createSheetModal && (
-        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-slate-900">Create New Sheet</h2>
-              <button onClick={() => setCreateSheetModal(false)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">GSM *</label>
-                <input type="number" value={sheetForm.gsm} onChange={e => setSheetForm(p => ({ ...p, gsm: e.target.value }))} placeholder="e.g. 130" style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
-                <select value={sheetForm.quality} onChange={e => setSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
-                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
-                <input type="number" value={sheetForm.quantity} onChange={e => setSheetForm(p => ({ ...p, quantity: e.target.value }))} placeholder="e.g. 500" style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Printed Qty</label>
-                <input type="number" value={sheetForm.actualPrintedQuantity} onChange={e => setSheetForm(p => ({ ...p, actualPrintedQuantity: e.target.value }))} placeholder="Optional" style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
-                <input value={sheetForm.sizeInches} onChange={e => setSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
-                <select value={sheetForm.printing} onChange={e => setSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
-                  <option value="SINGLE_SIDE">Single Side</option>
-                  <option value="DOUBLE_SIDE">Double Side</option>
-                </select>
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setCreateSheetModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={createSheet} disabled={savingSheet}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                {savingSheet ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Create Sheet
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Edit Sheet Modal ── */}
-      {editSheetModal && (
-        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Edit Sheet</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Only incomplete sheets can be edited.</p>
-              </div>
-              <button onClick={() => setEditSheetModal(null)}><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-slate-700 mb-1">Sheet Number *</label>
-                <input disabled={editSheetModal.status === "SETTING"} value={editSheetForm.sheetNo} onChange={e => setEditSheetForm(p => ({ ...p, sheetNo: e.target.value }))} placeholder="SHT-2026-001" style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">GSM *</label>
-                <input disabled={editSheetModal.status === "SETTING"} type="number" value={editSheetForm.gsm} onChange={e => setEditSheetForm(p => ({ ...p, gsm: e.target.value }))} style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
-                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.quality} onChange={e => setEditSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
-                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
-                <input disabled={editSheetModal.status === "SETTING"} type="number" value={editSheetForm.quantity} onChange={e => setEditSheetForm(p => ({ ...p, quantity: e.target.value }))} style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Printed Qty</label>
-                <input type="number" value={editSheetForm.actualPrintedQuantity} onChange={e => setEditSheetForm(p => ({ ...p, actualPrintedQuantity: e.target.value }))} placeholder="Blank = planned qty" style={IS.input} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
-                <input disabled={editSheetModal.status === "SETTING"} value={editSheetForm.sizeInches} onChange={e => setEditSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
-                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.printing} onChange={e => setEditSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
-                  <option value="SINGLE_SIDE">Single Side</option>
-                  <option value="DOUBLE_SIDE">Double Side</option>
-                </select>
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setEditSheetModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button onClick={updateSheet} disabled={savingEditSheet}
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
-                {savingEditSheet ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                
