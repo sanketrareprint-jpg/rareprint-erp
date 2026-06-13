@@ -96,12 +96,12 @@ const MIN_AUTO_SHEET_QUANTITY_BY_GSM: Partial<Record<number, number>> = {
   70: 5000,
 };
 const AUTO_SHEET_SEQUENCE_START = 2001;
-const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus>> = {
+const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus | null>> = {
   [SheetStatus.INCOMPLETE]: SheetStatus.COMPLETE,
   [SheetStatus.COMPLETE]: SheetStatus.SETTING,
   [SheetStatus.SETTING]: SheetStatus.PRINTING,
   [SheetStatus.PRINTING]: SheetStatus.PROCESSING,
-  [SheetStatus.PROCESSING]: SheetStatus.DONE,
+  [SheetStatus.PROCESSING]: null,
 };
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
@@ -957,18 +957,17 @@ export class ClubbingSheetService {
 
   async getSheetHistory({ search, toStatus, page = 1, limit = 50 }: { search?: string; toStatus?: string; page?: number; limit?: number }) {
     // Fetch all sheet status change logs (no pagination yet — we deduplicate first)
-    const where: any = {
-      metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' },
-      ...(toStatus ? { metadata: { path: ['sheetStatus'], equals: toStatus } } : {}),
-      ...(search ? { OR: [{ reason: { contains: search, mode: 'insensitive' } }] } : {}),
-    };
+    const andConditions: any[] = [
+      { metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' } },
+    ];
+    if (toStatus) andConditions.push({ metadata: { path: ['sheetStatus'], equals: toStatus } });
+    if (search) andConditions.push({ reason: { contains: search, mode: 'insensitive' } });
 
     const raw = await this.prisma.statusLog.findMany({
-      where,
+      where: { AND: andConditions },
       orderBy: { createdAt: 'desc' },
       include: { changedBy: { select: { id: true, fullName: true } } },
     });
 
     // Deduplicate: one row per (sheetId + fromStatus + toStatus)
-    const seen = new Set<string>();
-    const deduped: typeof ra
+    const seen = ne
