@@ -360,7 +360,7 @@ Return ONLY valid JSON, no explanation:
 
   // -- List Purchase Orders ---------------------------------------------------
   async listPurchaseOrders() {
-    return this.prisma.paperPurchaseOrder.findMany({
+    const pos = await this.prisma.paperPurchaseOrder.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         supplier: true,
@@ -369,6 +369,33 @@ Return ONLY valid JSON, no explanation:
         },
       },
     });
+    if (pos.length === 0) return pos;
+
+    // Fetch billing fields not in stale Prisma client
+    const poIds = pos.map(p => p.id);
+    const billingRows: any[] = await this.prisma.$queryRaw`
+      SELECT id, "transportCharges", "totalBillAmount" FROM "PaperPurchaseOrder" WHERE id = ANY(${poIds}::text[])
+    `;
+    const billingMap = new Map(billingRows.map(r => [r.id, r]));
+
+    const itemIds = pos.flatMap(p => p.items.map(i => i.id));
+    const rateMap = new Map<string, number | null>();
+    if (itemIds.length > 0) {
+      const rateRows: any[] = await this.prisma.$queryRaw`
+        SELECT id, "ratePerUnit" FROM "PaperPurchaseItem" WHERE id = ANY(${itemIds}::text[])
+      `;
+      for (const r of rateRows) rateMap.set(r.id, r.ratePerUnit ?? null);
+    }
+
+    return pos.map(po => ({
+      ...po,
+      transportCharges: billingMap.get(po.id)?.transportCharges ?? 0,
+      totalBillAmount: billingMap.get(po.id)?.totalBillAmount ?? null,
+      items: po.items.map(item => ({
+        ...item,
+        ratePerUnit: rateMap.get(item.id) ?? null,
+      })),
+    }));
   }
 
   // -- Press-wise Statement ---------------------------------------------------
@@ -460,7 +487,29 @@ Return ONLY valid JSON, no explanation:
       },
     });
     if (!po) throw new NotFoundException('Purchase order not found');
-    return po;
+
+    // Fetch billing fields not in stale Prisma client
+    const billing: any[] = await this.prisma.$queryRaw`
+      SELECT "transportCharges", "totalBillAmount" FROM "PaperPurchaseOrder" WHERE id = ${id}
+    `;
+    const itemIds = po.items.map(i => i.id);
+    const rateMap = new Map<string, number | null>();
+    if (itemIds.length > 0) {
+      const rateRows: any[] = await this.prisma.$queryRaw`
+        SELECT id, "ratePerUnit" FROM "PaperPurchaseItem" WHERE id = ANY(${itemIds}::text[])
+      `;
+      for (const r of rateRows) rateMap.set(r.id, r.ratePerUnit ?? null);
+    }
+
+    return {
+      ...po,
+      transportCharges: billing[0]?.transportCharges ?? 0,
+      totalBillAmount: billing[0]?.totalBillAmount ?? null,
+      items: po.items.map(item => ({
+        ...item,
+        ratePerUnit: rateMap.get(item.id) ?? null,
+      })),
+    };
   }
 
   // -- Update Purchase Order (reverse old inventory, apply new) ---------------
