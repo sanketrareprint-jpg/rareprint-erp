@@ -89,12 +89,12 @@ const MIN_AUTO_SHEET_QUANTITY_BY_GSM: Partial<Record<number, number>> = {
   70: 5000,
 };
 const AUTO_SHEET_SEQUENCE_START = 2001;
-const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus>> = {
+const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus | null>> = {
   [SheetStatus.INCOMPLETE]: SheetStatus.COMPLETE,
   [SheetStatus.COMPLETE]: SheetStatus.SETTING,
   [SheetStatus.SETTING]: SheetStatus.PRINTING,
   [SheetStatus.PRINTING]: SheetStatus.PROCESSING,
-  [SheetStatus.PROCESSING]: SheetStatus.DONE,
+  [SheetStatus.PROCESSING]: null,
 };
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
@@ -932,47 +932,56 @@ export class ClubbingSheetService {
     });
   }
 
+  async updateSheetItemDueDate(sheetItemId: string, dueDate?: string | null) {
+    return this.prisma.printSheetItem.update({
+      where: { id: sheetItemId },
+      data: { dueDate: parseIstDateOnly(dueDate) },
+      select: { id: true, dueDate: true },
+    });
+  }
+
   async deleteSheetStageVendor(id: string) {
     await this.prisma.sheetStageVendor.delete({ where: { id } });
     return { success: true };
   }
 
-
   async getSheetHistory({ search, toStatus, page = 1, limit = 50 }: { search?: string; toStatus?: string; page?: number; limit?: number }) {
-    // Fetch all sheet status change logs (no pagination yet — we deduplicate first)
-    const andConditions: any[] = [
-      { metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' } },
-    ];
-    if (toStatus) andConditions.push({ metadata: { path: ['sheetStatus'], equals: toStatus } });
-    if (search) andConditions.push({ reason: { contains: search, mode: 'insensitive' } });
+    const where: any = {
+      metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' },
+      ...(toStatus ? { metadata: { path: ['sheetStatus'], equals: toStatus } } : {}),
+      ...(search ? { OR: [{ reason: { contains: search, mode: 'insensitive' } }] } : {}),
+    };
 
     const raw = await this.prisma.statusLog.findMany({
-      where: { AND: andConditions },
+      where,
       orderBy: { createdAt: 'desc' },
       include: { changedBy: { select: { id: true, fullName: true } } },
     });
 
-    // Deduplicate: one row per (sheetId + fromStatus + toStatus)
     const seen = new Set<string>();
     const deduped: typeof raw = [];
-    for (const log of raw) {
-      const meta = log.metadata as any;
-      const key = `${meta?.sheetId}__${meta?.fromSheetStatus}__${meta?.sheetStatus}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        // Count how many items were on this sheet for this status change
-        (log as any)._itemCount = raw.filter(l => {
-          const m = l.metadata as any;
-          return m?.sheetId === meta?.sheetId && m?.fromSheetStatus === meta?.fromSheetStatus && m?.sheetStatus === meta?.sheetStatus;
-        }).length;
-        deduped.push(log);
-      }
+    for (const row of raw) {
+      const sheetId = (row.metadata as any)?.sheetId ?? '';
+      const key = `${sheetId}|${row.fromStatus}|${row.toStatus}`;
+      if (!seen.has(key)) { seen.add(key); deduped.push(row); }
     }
 
     const total = deduped.length;
-    const skip = (page - 1) * limit;
-    const paginated = deduped.slice(skip, skip + limit);
-
-    return { logs: paginated, total, page, limit };
+    const items = deduped.slice((page - 1) * limit, page * limit);
+    return {
+      items: items.map(r => ({
+        id: r.id,
+        sheetId: (r.metadata as any)?.sheetId,
+        sheetNo: (r.metadata as any)?.sheetNo,
+        fromStatus: r.fromStatus,
+        toStatus: r.toStatus,
+        reason: r.reason,
+        createdAt: r.createdAt,
+        changedBy: r.changedBy,
+        metadata: r.metadata,
+      })),
+      total, page, limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }
