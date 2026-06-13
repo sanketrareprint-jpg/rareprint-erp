@@ -326,6 +326,8 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
       label,
       avgHours: avgHours === null ? null : +avgHours.toFixed(1),
       avgDays: avgHours === null ? null : +(avgHours / 24).toFixed(1),
+      avgDaysMonth: null,
+      avgDaysWeek: null,
       sampleSize: clean.length,
       note,
     };
