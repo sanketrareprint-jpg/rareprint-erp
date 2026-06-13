@@ -347,181 +347,183 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     const since = new Date();
     since.setDate(since.getDate() - 120);
 
-    const [orders, payments, jobWorks, sheetItems, sheetLogs] = await Promise.all([
-      this.prisma.order.findMany({
-        where: { status: { not: OrderStatus.CANCELLED }, orderDate: { gte: since } },
-        orderBy: { orderDate: 'desc' },
-        take: 750,
-        include: {
-          statusLogs: { where: { createdAt: { gte: since } }, orderBy: { createdAt: 'asc' } },
-          shipments: { orderBy: { createdAt: 'asc' } },
-          items: { include: { product: { include: { category: true } } } },
-        },
-      }),
-      this.prisma.payment.findMany({
-        where: { verificationStatus: 'VERIFIED', verifiedAt: { not: null }, createdAt: { gte: since } },
-        orderBy: { createdAt: 'desc' },
-        take: 1000,
-        select: { createdAt: true, verifiedAt: true },
-      }),
-      this.prisma.jobWork.findMany({
-        where: { createdAt: { gte: since } },
-        orderBy: { createdAt: 'desc' },
-        take: 1000,
-        include: {
-          orderItem: {
-            include: {
-              order: { include: { statusLogs: { where: { createdAt: { gte: since } }, orderBy: { createdAt: 'asc' } } } },
-            },
-          },
-        },
-      }),
-      this.prisma.printSheetItem.findMany({
-        where: { createdAt: { gte: since } },
-        orderBy: { createdAt: 'desc' },
-        take: 1000,
-        include: {
-          orderItem: {
-            include: {
-              order: { include: { statusLogs: { where: { createdAt: { gte: since } }, orderBy: { createdAt: 'asc' } } } },
-            },
-          },
-        },
-      }),
-      this.prisma.statusLog.findMany({
-        where: { createdAt: { gte: since }, reason: { contains: 'Sheet' } },
-        orderBy: { createdAt: 'asc' },
-        take: 2000,
-        select: { createdAt: true, metadata: true },
-      }),
-    ]);
+    type AvgRow     = { avg_hours: string | number | null; cnt: string | number };
+    type CatRow     = { category: string; avg_hours: string | number | null; cnt: string | number };
+    type CatAssign  = { production_category: string; avg_hours: string | number | null; cnt: string | number };
 
-    const approvalTimes = orders.map((order) =>
-      this.hoursBetween(
-        this.firstStatusLog(order.statusLogs, OrderStatus.PENDING_APPROVAL) ?? order.createdAt,
-        this.firstStatusLog(order.statusLogs, OrderStatus.APPROVED),
-      ),
-    );
+    const n = (v: string | number | null | undefined): number | null =>
+      v == null ? null : (Number.isFinite(Number(v)) ? +Number(v).toFixed(1) : null);
+    const cnt = (v: string | number): number => Number(v) || 0;
 
-    const receiptVerifyTimes = payments.map((payment) => this.hoursBetween(payment.createdAt, payment.verifiedAt));
+    const toData = (rows: AvgRow[]) => ({ avgHours: n(rows[0]?.avg_hours), sampleSize: cnt(rows[0]?.cnt ?? 0) });
+    const mk = (key: string, label: string, d: { avgHours: number | null; sampleSize: number }, note: string): ProductionKpiMetric => ({
+      key, label, note, avgHours: d.avgHours,
+      avgDays: d.avgHours != null ? +(d.avgHours / 24).toFixed(1) : null,
+      sampleSize: d.sampleSize,
+    });
 
-    const categoryAssignmentTimes = {
-      [ProductionCategory.INHOUSE]: [] as (number | null)[],
-      [ProductionCategory.CLUBBING]: [] as (number | null)[],
-      [ProductionCategory.SHEET_PRODUCTION]: [] as (number | null)[],
+    const [approvalR, receiptR, catAssignR, vendorR, sheetAssignR, readyBookR, inhousePrintR, sheetCPR, catTimeR] =
+      await Promise.all([
+
+        // 1. Order approval: PENDING_APPROVAL (or createdAt) → APPROVED
+        this.prisma.$queryRaw<AvgRow[]>`
+          SELECT AVG(EXTRACT(EPOCH FROM (a."createdAt" - COALESCE(p."createdAt", o."createdAt"))) / 3600)::float AS avg_hours,
+                 COUNT(a.id)::int AS cnt
+          FROM "StatusLog" a
+          JOIN "Order" o ON o.id = a."orderId"
+          LEFT JOIN LATERAL (
+            SELECT "createdAt" FROM "StatusLog" p2
+            WHERE p2."orderId" = a."orderId" AND p2."toStatus"::text = 'PENDING_APPROVAL'
+            ORDER BY "createdAt" ASC LIMIT 1
+          ) p ON true
+          WHERE a."toStatus"::text = 'APPROVED' AND a."createdAt" >= ${since}
+        `,
+
+        // 2. Receipt verification: payment createdAt → verifiedAt
+        this.prisma.$queryRaw<AvgRow[]>`
+          SELECT AVG(EXTRACT(EPOCH FROM ("verifiedAt" - "createdAt")) / 3600)::float AS avg_hours,
+                 COUNT(id)::int AS cnt
+          FROM "Payment"
+          WHERE "verificationStatus" = 'VERIFIED' AND "verifiedAt" IS NOT NULL AND "createdAt" >= ${since}
+        `,
+
+        // 3. Category assignment: APPROVED → item.updatedAt (when productionCategory set)
+        this.prisma.$queryRaw<CatAssign[]>`
+          SELECT oi."productionCategory"::text AS production_category,
+                 AVG(EXTRACT(EPOCH FROM (oi."updatedAt" - a."createdAt")) / 3600)::float AS avg_hours,
+                 COUNT(oi.id)::int AS cnt
+          FROM "OrderItem" oi
+          JOIN LATERAL (
+            SELECT "createdAt" FROM "StatusLog"
+            WHERE "orderId" = oi."orderId" AND "toStatus"::text = 'APPROVED'
+            ORDER BY "createdAt" ASC LIMIT 1
+          ) a ON true
+          WHERE oi."productionCategory"::text IN ('INHOUSE','CLUBBING','SHEET_PRODUCTION')
+            AND oi."updatedAt" > a."createdAt"
+            AND a."createdAt" >= ${since}
+          GROUP BY oi."productionCategory"
+        `,
+
+        // 4. Vendor assignment: APPROVED → JobWork created
+        this.prisma.$queryRaw<AvgRow[]>`
+          SELECT AVG(EXTRACT(EPOCH FROM (jw."createdAt" - a."createdAt")) / 3600)::float AS avg_hours,
+                 COUNT(jw.id)::int AS cnt
+          FROM "JobWork" jw
+          JOIN "OrderItem" oi ON oi.id = jw."orderItemId"
+          JOIN LATERAL (
+            SELECT "createdAt" FROM "StatusLog"
+            WHERE "orderId" = oi."orderId" AND "toStatus"::text = 'APPROVED'
+            ORDER BY "createdAt" ASC LIMIT 1
+          ) a ON true
+          WHERE jw."createdAt" >= ${since}
+        `,
+
+        // 5. Sheet assignment: APPROVED → PrintSheetItem created
+        this.prisma.$queryRaw<AvgRow[]>`
+          SELECT AVG(EXTRACT(EPOCH FROM (psi."createdAt" - a."createdAt")) / 3600)::float AS avg_hours,
+                 COUNT(psi.id)::int AS cnt
+          FROM "PrintSheetItem" psi
+          JOIN "OrderItem" oi ON oi.id = psi."orderItemId"
+          JOIN LATERAL (
+            SELECT "createdAt" FROM "StatusLog"
+            WHERE "orderId" = oi."orderId" AND "toStatus"::text = 'APPROVED'
+            ORDER BY "createdAt" ASC LIMIT 1
+          ) a ON true
+          WHERE psi."createdAt" >= ${since}
+        `,
+
+        // 6. Ready to booking: READY_FOR_DISPATCH → first shipment
+        this.prisma.$queryRaw<AvgRow[]>`
+          SELECT AVG(EXTRACT(EPOCH FROM (fs."createdAt" - r."createdAt")) / 3600)::float AS avg_hours,
+                 COUNT(r.id)::int AS cnt
+          FROM "StatusLog" r
+          JOIN LATERAL (
+            SELECT MIN("createdAt") AS "createdAt" FROM "Shipment"
+            WHERE "orderId" = r."orderId"
+          ) fs ON fs."createdAt" > r."createdAt"
+          WHERE r."toStatus"::text = 'READY_FOR_DISPATCH' AND r."createdAt" >= ${since}
+        `,
+
+        // 7. Inhouse printing start: APPROVED → ITEM_STAGE_CHANGED/PRINTING log
+        this.prisma.$queryRaw<AvgRow[]>`
+          SELECT AVG(EXTRACT(EPOCH FROM (sl."createdAt" - a."createdAt")) / 3600)::float AS avg_hours,
+                 COUNT(sl.id)::int AS cnt
+          FROM "StatusLog" sl
+          JOIN LATERAL (
+            SELECT "createdAt" FROM "StatusLog"
+            WHERE "orderId" = sl."orderId" AND "toStatus"::text = 'APPROVED'
+            ORDER BY "createdAt" ASC LIMIT 1
+          ) a ON true
+          WHERE sl.metadata->>'eventType' = 'ITEM_STAGE_CHANGED'
+            AND sl.metadata->>'itemStage' = 'PRINTING'
+            AND sl."createdAt" >= ${since}
+        `,
+
+        // 8. Sheet complete → printing
+        this.prisma.$queryRaw<AvgRow[]>`
+          WITH sheet_complete AS (
+            SELECT metadata->>'sheetId' AS sheet_id, MIN("createdAt") AS completed_at
+            FROM "StatusLog"
+            WHERE metadata->>'eventType' = 'SHEET_STATUS_CHANGED'
+              AND metadata->>'sheetStatus' = 'COMPLETE'
+              AND "createdAt" >= ${since}
+            GROUP BY metadata->>'sheetId'
+          )
+          SELECT AVG(EXTRACT(EPOCH FROM (sl."createdAt" - sc.completed_at)) / 3600)::float AS avg_hours,
+                 COUNT(sl.id)::int AS cnt
+          FROM "StatusLog" sl
+          JOIN sheet_complete sc ON sc.sheet_id = sl.metadata->>'sheetId'
+          WHERE sl.metadata->>'eventType' = 'SHEET_STATUS_CHANGED'
+            AND sl.metadata->>'sheetStatus' = 'PRINTING'
+            AND sl."createdAt" >= ${since}
+            AND sl."createdAt" > sc.completed_at
+        `,
+
+        // 9. Category cycle times: orderDate → READY_FOR_DISPATCH per category
+        this.prisma.$queryRaw<CatRow[]>`
+          SELECT cat.name AS category,
+                 AVG(EXTRACT(EPOCH FROM (r."createdAt" - o."orderDate")) / 3600)::float AS avg_hours,
+                 COUNT(DISTINCT o.id)::int AS cnt
+          FROM "StatusLog" r
+          JOIN "Order" o ON o.id = r."orderId"
+          JOIN "OrderItem" oi ON oi."orderId" = o.id
+          JOIN "Product" p ON p.id = oi."productId"
+          JOIN "Category" cat ON cat.id = p."categoryId"
+          WHERE r."toStatus"::text = 'READY_FOR_DISPATCH' AND r."createdAt" >= ${since}
+          GROUP BY cat.name
+          ORDER BY avg_hours DESC NULLS LAST
+        `,
+      ]);
+
+    const catAssign = (cat: string) => {
+      const row = catAssignR.find(r => r.production_category === cat);
+      return row ? { avgHours: n(row.avg_hours), sampleSize: cnt(row.cnt) } : { avgHours: null as number | null, sampleSize: 0 };
     };
 
-    const inhousePrintingStartTimes: (number | null)[] = [];
-    const categoryCycleTimes: Record<string, number[]> = {};
-    const readyToBookingTimes: (number | null)[] = [];
-
-    for (const order of orders) {
-      const approvedAt = this.firstStatusLog(order.statusLogs, OrderStatus.APPROVED);
-      const readyAt = this.firstStatusLog(order.statusLogs, OrderStatus.READY_FOR_DISPATCH);
-      const dispatchedAt = this.firstStatusLog(order.statusLogs, OrderStatus.DISPATCHED)
-        ?? this.firstStatusLog(order.statusLogs, OrderStatus.PARTIALLY_DISPATCHED)
-        ?? order.shipments[0]?.createdAt
-        ?? null;
-
-      if (readyAt && dispatchedAt) readyToBookingTimes.push(this.hoursBetween(readyAt, dispatchedAt));
-
-      for (const item of order.items) {
-        const productionCategory = item.productionCategory;
-        if (productionCategory && productionCategory in categoryAssignmentTimes) {
-          const assignedAt = this.firstMetadataLog(
-            order.statusLogs,
-            'PRODUCTION_CATEGORY_ASSIGNED',
-            (metadata) => metadata.orderItemId === item.id || metadata.productionCategory === productionCategory,
-          ) ?? (approvedAt && item.updatedAt >= approvedAt ? item.updatedAt : null);
-          categoryAssignmentTimes[productionCategory].push(this.hoursBetween(approvedAt, assignedAt));
-        }
-
-        if (productionCategory === ProductionCategory.INHOUSE) {
-          const printingAt = this.firstMetadataLog(
-            order.statusLogs,
-            'ITEM_STAGE_CHANGED',
-            (metadata) => metadata.orderItemId === item.id && metadata.itemStage === OrderProductionStage.PRINTING,
-          ) ?? order.statusLogs.find((log) => log.reason?.includes('Printing'))?.createdAt ?? null;
-          inhousePrintingStartTimes.push(this.hoursBetween(approvedAt, printingAt));
-        }
-
-        if (readyAt) {
-          const category = item.product.category.name;
-          if (!categoryCycleTimes[category]) categoryCycleTimes[category] = [];
-          const hours = this.hoursBetween(order.orderDate, readyAt);
-          if (hours !== null) categoryCycleTimes[category].push(hours);
-        }
-      }
-    }
-
-    const vendorAssignmentTimes = [
-      ...jobWorks.map((jobWork) =>
-        this.hoursBetween(
-          this.firstStatusLog(jobWork.orderItem.order.statusLogs, OrderStatus.APPROVED),
-          jobWork.createdAt,
-        ),
-      ),
-      ...sheetLogs
-        .filter((log) => (log.metadata as any)?.eventType === 'SHEET_STAGE_VENDOR_ASSIGNED')
-        .map((log) => {
-          const metadata = log.metadata as Record<string, unknown>;
-          const sheetAssignedAt = sheetLogs.find((candidate) =>
-            (candidate.metadata as any)?.eventType === 'SHEET_ASSIGNED' &&
-            (candidate.metadata as any)?.sheetId === metadata.sheetId
-          )?.createdAt ?? null;
-          return this.hoursBetween(sheetAssignedAt, log.createdAt);
-        }),
+    const metrics: ProductionKpiMetric[] = [
+      mk('order_approval',            'Order Approval',            toData(approvalR),    'Order created to accounts approval'),
+      mk('receipt_verification',      'Receipt Verification',      toData(receiptR),     'Payment receipt upload to accounts verification'),
+      mk('assign_inhouse',            'Assign Inhouse Dept.',      catAssign('INHOUSE'), 'Accounts approval to inhouse category assignment'),
+      mk('assign_clubbing',           'Assign Clubbing Dept.',     catAssign('CLUBBING'),'Accounts approval to clubbing category assignment'),
+      mk('assign_sheet',              'Assign Sheet Dept.',        catAssign('SHEET_PRODUCTION'), 'Accounts approval to sheet production assignment'),
+      mk('vendor_assignment',         'Vendor Assignment',         toData(vendorR),      'Production/sheet assignment to vendor selection'),
+      mk('inhouse_print_start',       'Inhouse Printing Start',    toData(inhousePrintR),'Accounts approval to first inhouse printing signal'),
+      mk('sheet_assignment',          'Sheet Assignment',          toData(sheetAssignR), 'Accounts approval to placing product on sheet'),
+      mk('sheet_complete_to_printing','Sheet Complete to Printing',toData(sheetCPR),     'Sheet COMPLETE status to PRINTING status'),
+      mk('ready_to_booking',          'Ready to Dispatch Booking', toData(readyBookR),   'Ready-for-dispatch to shipment booking'),
     ];
 
-    const sheetAssignmentTimes = sheetItems.map((sheetItem) =>
-      this.hoursBetween(
-        this.firstStatusLog(sheetItem.orderItem.order.statusLogs, OrderStatus.APPROVED),
-        sheetItem.createdAt,
-      ),
-    );
-
-    const completeToPrintingTimes: (number | null)[] = [];
-    const completeBySheet = new Map<string, Date>();
-    for (const log of sheetLogs) {
-      const metadata = log.metadata as Record<string, unknown> | null;
-      if (metadata?.eventType !== 'SHEET_STATUS_CHANGED' || typeof metadata.sheetId !== 'string') continue;
-      if (metadata.sheetStatus === 'COMPLETE' && !completeBySheet.has(metadata.sheetId)) {
-        completeBySheet.set(metadata.sheetId, log.createdAt);
-      }
-      if (metadata.sheetStatus === 'PRINTING') {
-        completeToPrintingTimes.push(this.hoursBetween(completeBySheet.get(metadata.sheetId), log.createdAt));
-      }
-    }
-
-    const categoryRows = Object.entries(categoryCycleTimes)
-      .map(([category, times]) => {
-        const avgHours = this.avg(times);
-        return {
-          category,
-          avgHours: avgHours === null ? null : +avgHours.toFixed(1),
-          avgDays: avgHours === null ? null : +(avgHours / 24).toFixed(1),
-          sampleSize: times.length,
-        };
-      })
-      .sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0));
-
-    const metrics = [
-      this.metric('order_approval', 'Order Approval', approvalTimes, 'Order created to accounts approval'),
-      this.metric('receipt_verification', 'Receipt Verification', receiptVerifyTimes, 'Payment receipt upload to accounts verification'),
-      this.metric('assign_inhouse', 'Assign Inhouse Dept.', categoryAssignmentTimes.INHOUSE, 'Accounts approval to inhouse category assignment'),
-      this.metric('assign_clubbing', 'Assign Clubbing Dept.', categoryAssignmentTimes.CLUBBING, 'Accounts approval to clubbing category assignment'),
-      this.metric('assign_sheet', 'Assign Sheet Dept.', categoryAssignmentTimes.SHEET_PRODUCTION, 'Accounts approval to sheet production assignment'),
-      this.metric('vendor_assignment', 'Vendor Assignment', vendorAssignmentTimes, 'Production/sheet assignment to vendor selection'),
-      this.metric('inhouse_print_start', 'Inhouse Printing Start', inhousePrintingStartTimes, 'Accounts approval to first inhouse printing signal'),
-      this.metric('sheet_assignment', 'Sheet Assignment', sheetAssignmentTimes, 'Accounts approval to placing product on sheet'),
-      this.metric('sheet_complete_to_printing', 'Sheet Complete to Printing', completeToPrintingTimes, 'Sheet COMPLETE status to PRINTING status'),
-      this.metric('ready_to_booking', 'Ready to Dispatch Booking', readyToBookingTimes, 'Ready-for-dispatch to shipment booking'),
-    ];
+    const categoryRows = catTimeR.map(row => ({
+      category: row.category,
+      avgHours: n(row.avg_hours),
+      avgDays:  row.avg_hours != null ? +(Number(row.avg_hours) / 24).toFixed(1) : null,
+      sampleSize: cnt(row.cnt),
+    }));
 
     return {
       metrics,
       categoryCycleTimes: categoryRows,
-      bottlenecks: [...metrics].filter((metric) => metric.avgHours !== null).sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0)).slice(0, 5),
+      bottlenecks: [...metrics].filter(m => m.avgHours !== null).sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0)).slice(0, 5),
     };
   }
 

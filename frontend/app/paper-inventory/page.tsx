@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
-import { getAuthHeaders, clearAuth } from "@/lib/auth";
+import { getAuthHeaders, clearAuth, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import {
   Upload, Plus, Trash2, Loader2, FileText, RefreshCw,
@@ -38,6 +38,7 @@ interface PurchaseOrder {
   notes?: string;
   transportCharges?: number;
   totalBillAmount?: number;
+  isVerified?: boolean;
   createdAt: string;
   supplier?: { id: string; name: string };
   items: Array<{
@@ -287,6 +288,13 @@ export default function PaperInventoryPage() {
             onRefresh={loadPOs}
             apiBase={API_BASE_URL}
             onEdit={(po) => setEditingPO(po)}
+            onVerify={async (poId) => {
+              await fetch(`${API_BASE_URL}/paper-inventory/purchase-orders/${poId}/verify`, {
+                method: "PATCH",
+                headers: getAuthHeaders(),
+              });
+              loadPOs();
+            }}
           />
         )}
         {tab === "statement" && (
@@ -349,14 +357,18 @@ export default function PaperInventoryPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 // PO List Tab
 // ═══════════════════════════════════════════════════════════════════════════
-function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit }: {
+function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit, onVerify }: {
   purchaseOrders: PurchaseOrder[];
   loading: boolean;
   onRefresh: () => void;
   apiBase: string;
   onEdit: (po: PurchaseOrder) => void;
+  onVerify: (poId: string) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<string | null>(null);
+  const currentUser = getStoredUser();
+  const isSanket = currentUser?.email === "sanket.rareprint@gmail.com";
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-500" /></div>;
 
@@ -388,6 +400,11 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit }: {
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${po.status === "RECEIVED" ? "bg-green-100 text-green-700" : po.status === "DRAFT" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
                 {po.status}
               </span>
+              {po.isVerified && (
+                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
+                  <CheckCircle className="h-3 w-3" /> Verified
+                </span>
+              )}
               {po.totalBillAmount != null && po.totalBillAmount > 0 && (
                 <span className="text-sm font-semibold text-gray-800">₹{po.totalBillAmount.toLocaleString("en-IN")}</span>
               )}
@@ -395,14 +412,27 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit }: {
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-500">{po.items.length} item{po.items.length !== 1 ? "s" : ""}</span>
               <span className="text-sm text-gray-400">{new Date(po.createdAt).toLocaleDateString("en-IN")}</span>
-              {/* Edit button */}
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(po); }}
-                title="Edit Purchase Order"
-                className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 font-medium transition-colors"
-              >
-                <Pencil className="h-3.5 w-3.5" /> Edit
-              </button>
+              {/* Edit button — hidden once verified */}
+              {!po.isVerified && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdit(po); }}
+                  title="Edit Purchase Order"
+                  className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 font-medium transition-colors"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </button>
+              )}
+              {/* Verify button — SANKET admin only, not yet verified */}
+              {isSanket && !po.isVerified && (
+                <button
+                  onClick={async (e) => { e.stopPropagation(); setVerifying(po.id); await onVerify(po.id); setVerifying(null); }}
+                  disabled={verifying === po.id}
+                  className="flex items-center gap-1.5 text-xs text-emerald-700 border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100 font-medium transition-colors disabled:opacity-50"
+                >
+                  {verifying === po.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                  Verify Bill
+                </button>
+              )}
               <div
                 className="cursor-pointer"
                 onClick={() => setExpanded(expanded === po.id ? null : po.id)}
@@ -433,28 +463,52 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit }: {
                     <th className="pb-2 font-medium">Quality</th>
                     <th className="pb-2 font-medium">Purchased</th>
                     <th className="pb-2 font-medium">Sheets</th>
+                    <th className="pb-2 font-medium text-right">Rate ₹</th>
+                    <th className="pb-2 font-medium text-right">Amount ₹</th>
                     <th className="pb-2 font-medium">Press</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {po.items.map((item) => (
-                    <tr key={item.id} className="border-b border-gray-50 last:border-0">
-                      <td className="py-2 text-gray-900">{item.paperName}</td>
-                      <td className="py-2 text-gray-700 font-mono">{item.gsm}</td>
-                      <td className="py-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${qualityColor(item.quality)}`}>
-                          {QUALITY_LABELS[item.quality] ?? item.quality}
-                        </span>
-                      </td>
-                      <td className="py-2 text-gray-700">
-                        {item.unitQuantity} {item.unit === "REAM" ? "Ream" : `Packet (${item.sheetsPerUnit} sh/pkt)`}
-                      </td>
-                      <td className="py-2 font-medium text-gray-900">{item.totalSheets.toLocaleString("en-IN")} sheets</td>
-                      <td className="py-2 text-blue-700 font-medium">{item.press?.name}</td>
-                    </tr>
-                  ))}
+                  {po.items.map((item) => {
+                    const rate = (item as any).ratePerUnit ?? 0;
+                    const amount = Number(item.unitQuantity) * Number(rate);
+                    return (
+                      <tr key={item.id} className="border-b border-gray-50 last:border-0">
+                        <td className="py-2 text-gray-900">{item.paperName}</td>
+                        <td className="py-2 text-gray-700 font-mono">{item.gsm}</td>
+                        <td className="py-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${qualityColor(item.quality)}`}>
+                            {QUALITY_LABELS[item.quality] ?? item.quality}
+                          </span>
+                        </td>
+                        <td className="py-2 text-gray-700">
+                          {item.unitQuantity} {item.unit === "REAM" ? "Ream" : `Packet (${item.sheetsPerUnit} sh/pkt)`}
+                        </td>
+                        <td className="py-2 font-medium text-gray-900">{item.totalSheets.toLocaleString("en-IN")} sheets</td>
+                        <td className="py-2 text-right text-gray-700">{rate > 0 ? `₹${Number(rate).toLocaleString("en-IN")}` : "—"}</td>
+                        <td className="py-2 text-right font-medium text-gray-900">{amount > 0 ? `₹${amount.toLocaleString("en-IN")}` : "—"}</td>
+                        <td className="py-2 text-blue-700 font-medium">{item.press?.name}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+              {/* Bill summary footer */}
+              {(po.totalBillAmount != null && po.totalBillAmount > 0) && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end gap-6 text-sm">
+                  {(() => {
+                    const itemsTotal = po.items.reduce((s, it) => s + Number(it.unitQuantity) * Number((it as any).ratePerUnit ?? 0), 0);
+                    const transport = po.transportCharges ?? 0;
+                    return (
+                      <>
+                        <span className="text-gray-500">Paper: <span className="font-medium text-gray-800">₹{itemsTotal.toLocaleString("en-IN")}</span></span>
+                        {transport > 0 && <span className="text-gray-500">Transport: <span className="font-medium text-gray-800">₹{transport.toLocaleString("en-IN")}</span></span>}
+                        <span className="text-gray-700 font-semibold">Bill Total: ₹{po.totalBillAmount.toLocaleString("en-IN")}</span>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           )}
         </div>

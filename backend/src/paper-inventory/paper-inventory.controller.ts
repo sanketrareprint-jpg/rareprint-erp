@@ -103,6 +103,11 @@ export class PaperInventoryController {
     return this.service.updatePurchaseOrder(id, body);
   }
 
+  @Patch('purchase-orders/:id/verify')
+  verifyPO(@Param('id') id: string) {
+    return this.service.verifyPurchaseOrder(id);
+  }
+
   @Get('statement')
   getStatement(@Query('pressId') pressId?: string) {
     return this.service.getPressStatement(pressId);

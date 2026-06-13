@@ -1253,6 +1253,7 @@ model PaperPurchaseOrder {
   supplierId       String? // optional paper supplier (Vendor)
   status           PaperPOStatus       @default(DRAFT)
   notes            String?
+  isVerified       Boolean             @default(false)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   items            PaperPurchaseItem[]

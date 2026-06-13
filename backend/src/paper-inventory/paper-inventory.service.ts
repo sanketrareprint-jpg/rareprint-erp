@@ -374,7 +374,7 @@ Return ONLY valid JSON, no explanation:
     // Fetch billing fields not in stale Prisma client
     const poIds = pos.map(p => p.id);
     const billingRows: any[] = await this.prisma.$queryRaw`
-      SELECT id, "transportCharges", "totalBillAmount" FROM "PaperPurchaseOrder" WHERE id = ANY(${poIds}::text[])
+      SELECT id, "transportCharges", "totalBillAmount", "isVerified" FROM "PaperPurchaseOrder" WHERE id = ANY(${poIds}::text[])
     `;
     const billingMap = new Map(billingRows.map(r => [r.id, r]));
 
@@ -391,6 +391,7 @@ Return ONLY valid JSON, no explanation:
       ...po,
       transportCharges: billingMap.get(po.id)?.transportCharges ?? 0,
       totalBillAmount: billingMap.get(po.id)?.totalBillAmount ?? null,
+      isVerified: billingMap.get(po.id)?.isVerified ?? false,
       items: po.items.map(item => ({
         ...item,
         ratePerUnit: rateMap.get(item.id) ?? null,
@@ -490,7 +491,7 @@ Return ONLY valid JSON, no explanation:
 
     // Fetch billing fields not in stale Prisma client
     const billing: any[] = await this.prisma.$queryRaw`
-      SELECT "transportCharges", "totalBillAmount" FROM "PaperPurchaseOrder" WHERE id = ${id}
+      SELECT "transportCharges", "totalBillAmount", "isVerified" FROM "PaperPurchaseOrder" WHERE id = ${id}
     `;
     const itemIds = po.items.map(i => i.id);
     const rateMap = new Map<string, number | null>();
@@ -505,11 +506,20 @@ Return ONLY valid JSON, no explanation:
       ...po,
       transportCharges: billing[0]?.transportCharges ?? 0,
       totalBillAmount: billing[0]?.totalBillAmount ?? null,
+      isVerified: billing[0]?.isVerified ?? false,
       items: po.items.map(item => ({
         ...item,
         ratePerUnit: rateMap.get(item.id) ?? null,
       })),
     };
+  }
+
+  // -- Verify Purchase Order (mark bill as verified by SANKET admin) ----------
+  async verifyPurchaseOrder(id: string) {
+    const po = await this.prisma.paperPurchaseOrder.findUnique({ where: { id } });
+    if (!po) throw new NotFoundException('Purchase order not found');
+    await this.prisma.$executeRaw`UPDATE "PaperPurchaseOrder" SET "isVerified" = true WHERE id = ${id}`;
+    return { success: true };
   }
 
   // -- Update Purchase Order (reverse old inventory, apply new) ---------------
