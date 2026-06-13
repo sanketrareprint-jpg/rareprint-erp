@@ -2305,4 +2305,145 @@ export default function ProductionPage() {
       {/* ── Create Sheet Modal ── */}
       {createSheetModal && (
         <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
-          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25p
+          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-slate-900">Create New Sheet</h2>
+              <button onClick={() => setCreateSheetModal(false)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">GSM *</label>
+                <input type="number" value={sheetForm.gsm} onChange={e => setSheetForm(p => ({ ...p, gsm: e.target.value }))} placeholder="e.g. 130" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
+                <select value={sheetForm.quality} onChange={e => setSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
+                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
+                <input type="number" value={sheetForm.quantity} onChange={e => setSheetForm(p => ({ ...p, quantity: e.target.value }))} placeholder="e.g. 500" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Printed Qty</label>
+                <input type="number" value={sheetForm.actualPrintedQuantity} onChange={e => setSheetForm(p => ({ ...p, actualPrintedQuantity: e.target.value }))} placeholder="Optional" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
+                <input value={sheetForm.sizeInches} onChange={e => setSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
+                <select value={sheetForm.printing} onChange={e => setSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
+                  <option value="SINGLE_SIDE">Single Side</option>
+                  <option value="DOUBLE_SIDE">Double Side</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setCreateSheetModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={createSheet} disabled={savingSheet}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                {savingSheet ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Create Sheet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Sheet Modal ── */}
+      {editSheetModal && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"32rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Edit Sheet</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Only incomplete sheets can be edited.</p>
+              </div>
+              <button onClick={() => setEditSheetModal(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Sheet Number *</label>
+                <input disabled={editSheetModal.status === "SETTING"} value={editSheetForm.sheetNo} onChange={e => setEditSheetForm(p => ({ ...p, sheetNo: e.target.value }))} placeholder="SHT-2026-001" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">GSM *</label>
+                <input disabled={editSheetModal.status === "SETTING"} type="number" value={editSheetForm.gsm} onChange={e => setEditSheetForm(p => ({ ...p, gsm: e.target.value }))} style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
+                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.quality} onChange={e => setEditSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
+                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
+                <input disabled={editSheetModal.status === "SETTING"} type="number" value={editSheetForm.quantity} onChange={e => setEditSheetForm(p => ({ ...p, quantity: e.target.value }))} style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Actual Printed Qty</label>
+                <input type="number" value={editSheetForm.actualPrintedQuantity} onChange={e => setEditSheetForm(p => ({ ...p, actualPrintedQuantity: e.target.value }))} placeholder="Blank = planned qty" style={IS.input} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Size (WxH inches) *</label>
+                <input disabled={editSheetModal.status === "SETTING"} value={editSheetForm.sizeInches} onChange={e => setEditSheetForm(p => ({ ...p, sizeInches: e.target.value }))} placeholder="e.g. 18x23" style={IS.input} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
+                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.printing} onChange={e => setEditSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
+                  <option value="SINGLE_SIDE">Single Side</option>
+                  <option value="DOUBLE_SIDE">Double Side</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditSheetModal(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={updateSheet} disabled={savingEditSheet}
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-60">
+                {savingEditSheet ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
