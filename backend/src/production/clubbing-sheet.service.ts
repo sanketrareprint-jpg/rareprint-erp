@@ -42,6 +42,13 @@ function resolveItemDetails(item: {
   return { size, gsm, sides };
 }
 
+function parseIstDateOnly(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00+05:30`);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException('Invalid follow-up date');
+  return date;
+}
+
 type AutoSlot = 'SMALL_5_5X8_5' | 'MEDIUM_7_3X8_5' | 'LARGE_8_5X11' | 'FILE_9X12' | 'FILE_12X18' | 'BIG_ENV_9X12';
 type AutoFamily = 'STANDARD_18X23' | 'FILE_19X25' | 'BIG_ENV_15X20';
 type AutoItem = {
@@ -89,12 +96,12 @@ const MIN_AUTO_SHEET_QUANTITY_BY_GSM: Partial<Record<number, number>> = {
   70: 5000,
 };
 const AUTO_SHEET_SEQUENCE_START = 2001;
-const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus>> = {
+const SHEET_NEXT_STATUS: Partial<Record<SheetStatus, SheetStatus | null>> = {
   [SheetStatus.INCOMPLETE]: SheetStatus.COMPLETE,
   [SheetStatus.COMPLETE]: SheetStatus.SETTING,
   [SheetStatus.SETTING]: SheetStatus.PRINTING,
   [SheetStatus.PRINTING]: SheetStatus.PROCESSING,
-  [SheetStatus.PROCESSING]: SheetStatus.DONE,
+  [SheetStatus.PROCESSING]: null,
 };
 const SLOT_AREA: Record<AutoSlot, number> = {
   SMALL_5_5X8_5: 5.5 * 8.5,
@@ -932,8 +939,56 @@ export class ClubbingSheetService {
     });
   }
 
+  async updateSheetItemDueDate(sheetItemId: string, dueDate?: string | null) {
+    return this.prisma.printSheetItem.update({
+      where: { id: sheetItemId },
+      data: { dueDate: parseIstDateOnly(dueDate) },
+      select: { id: true, dueDate: true },
+    });
+  }
+
   async deleteSheetStageVendor(id: string) {
     await this.prisma.sheetStageVendor.delete({ where: { id } });
     return { success: true };
+  }
+
+  async getSheetHistory({ search, toStatus, page = 1, limit = 50 }: { search?: string; toStatus?: string; page?: number; limit?: number }) {
+    const where: any = {
+      metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' },
+      ...(toStatus ? { metadata: { path: ['sheetStatus'], equals: toStatus } } : {}),
+      ...(search ? { OR: [{ reason: { contains: search, mode: 'insensitive' } }] } : {}),
+    };
+
+    const raw = await this.prisma.statusLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { changedBy: { select: { id: true, fullName: true } } },
+    });
+
+    const seen = new Set<string>();
+    const deduped: typeof raw = [];
+    for (const row of raw) {
+      const sheetId = (row.metadata as any)?.sheetId ?? '';
+      const key = `${sheetId}|${row.fromStatus}|${row.toStatus}`;
+      if (!seen.has(key)) { seen.add(key); deduped.push(row); }
+    }
+
+    const total = deduped.length;
+    const items = deduped.slice((page - 1) * limit, page * limit);
+    return {
+      items: items.map(r => ({
+        id: r.id,
+        sheetId: (r.metadata as any)?.sheetId,
+        sheetNo: (r.metadata as any)?.sheetNo,
+        fromStatus: r.fromStatus,
+        toStatus: r.toStatus,
+        reason: r.reason,
+        createdAt: r.createdAt,
+        changedBy: r.changedBy,
+        metadata: r.metadata,
+      })),
+      total, page, limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }
