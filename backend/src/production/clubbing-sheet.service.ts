@@ -924,4 +924,41 @@ export class ClubbingSheetService {
               description: data.description,
               cost: data.cost,
             },
-        
+          },
+        });
+      }
+      return stageVendor;
+    });
+  }
+
+  async deleteSheetStageVendor(id: string) {
+    await this.prisma.sheetStageVendor.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async getSheetHistory({ search, page = 1, limit = 50 }: { search?: string; page?: number; limit?: number }) {
+    const skip = (page - 1) * limit;
+    const where: any = {
+      metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' },
+      ...(search ? {
+        OR: [
+          { reason: { contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+    const [logs, total] = await Promise.all([
+      this.prisma.statusLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          changedBy: { select: { id: true, name: true } },
+          order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+        },
+      }),
+      this.prisma.statusLog.count({ where }),
+    ]);
+    return { logs, total, page, limit };
+  }
+}
