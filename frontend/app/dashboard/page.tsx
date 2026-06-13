@@ -28,8 +28,8 @@ type AvgProd       = { category: string; avgHours: number; avgDays: number; samp
 type LeadSource    = { source: string; count: number; revenue: number };
 type LeadAnalytics = { allTime: LeadSource[]; thisMonth: LeadSource[] };
 type AcademyRow    = { id: string; name: string; completedTopics: number; lastActiveDate: string | null; streak: number };
-type ProductionKpiMetric = { key: string; label: string; avgHours: number | null; avgDays: number | null; sampleSize: number; note: string };
-type ProductionCategoryCycle = { category: string; avgHours: number | null; avgDays: number | null; sampleSize: number };
+type ProductionKpiMetric = { key: string; label: string; avgHours: number | null; avgDays: number | null; avgDaysMonth: number | null; avgDaysWeek: number | null; sampleSize: number; note: string };
+type ProductionCategoryCycle = { category: string; avgHours: number | null; avgDays: number | null; avgDaysMonth: number | null; avgDaysWeek: number | null; sampleSize: number };
 type ProductionKpis = { metrics: ProductionKpiMetric[]; categoryCycleTimes: ProductionCategoryCycle[]; bottlenecks: ProductionKpiMetric[] };
 
 function fmt(n: number) {
@@ -154,7 +154,11 @@ export default function DashboardPage() {
                     <p className={`text-sm font-bold leading-tight mt-0.5 ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
                       {fmtDuration(metric.avgHours)}
                     </p>
-                    <p className="text-slate-400 truncate" style={{ fontSize: "9px" }}>{metric.sampleSize} samples</p>
+                    <p className="text-slate-400 truncate" style={{ fontSize: "9px" }}>
+                      {[metric.avgDaysMonth, metric.avgDaysWeek].some(v => v != null)
+                        ? `${metric.avgDaysMonth != null ? metric.avgDaysMonth+"d" : "—"} / ${metric.avgDaysWeek != null ? metric.avgDaysWeek+"d" : "—"} mo/wk`
+                        : `${metric.sampleSize} samples`}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -162,18 +166,26 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1.5 mb-1.5">
+            <div className="flex items-center gap-1.5 mb-1">
               <Factory className="h-3 w-3 text-rose-500" />
-              <p className="text-xs font-semibold text-slate-700">Slowest Categories</p>
+              <p className="text-xs font-semibold text-slate-700">Category Cycle Times</p>
+            </div>
+            <div className="flex justify-end gap-2 mb-1">
+              <span className="text-slate-400" style={{fontSize:"8px"}}>all / mo / wk</span>
             </div>
             {!productionKpis || productionKpis.categoryCycleTimes.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-4">No ready dispatch data yet</p>
             ) : (
               <div className="space-y-1">
-                {productionKpis.categoryCycleTimes.slice(0, 6).map((row) => (
-                  <div key={row.category} className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-slate-700 truncate">{row.category}</span>
-                    <span className="text-xs font-bold text-rose-600 flex-shrink-0">{fmtDuration(row.avgHours)}</span>
+                {productionKpis.categoryCycleTimes.map((row) => (
+                  <div key={row.category} className="flex items-center justify-between gap-1 min-w-0">
+                    <span className="text-xs font-medium text-slate-700 truncate flex-1">{row.category}</span>
+                    <span className="text-xs font-bold text-rose-600 flex-shrink-0 tabular-nums">
+                      {row.avgDays != null ? row.avgDays+"d" : "—"}
+                    </span>
+                    <span className="text-slate-400 flex-shrink-0 tabular-nums" style={{fontSize:"9px"}}>
+                      {row.avgDaysMonth != null ? row.avgDaysMonth+"d" : "—"}&nbsp;/&nbsp;{row.avgDaysWeek != null ? row.avgDaysWeek+"d" : "—"}
+                    </span>
                   </div>
                 ))}
               </div>

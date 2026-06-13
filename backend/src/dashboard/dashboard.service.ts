@@ -8,6 +8,8 @@ type ProductionKpiMetric = {
   label: string;
   avgHours: number | null;
   avgDays: number | null;
+  avgDaysMonth: number | null;
+  avgDaysWeek: number | null;
   sampleSize: number;
   note: string;
 };
@@ -345,31 +347,42 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
   }
 
   async getProductionKpis() {
-    const since = new Date();
-    since.setDate(since.getDate() - 120);
+    const now   = new Date();
+    const since = new Date(now); since.setDate(now.getDate() - 120);
+    const month = new Date(now); month.setDate(now.getDate() - 30);
+    const week  = new Date(now); week.setDate(now.getDate() - 7);
 
-    type AvgRow     = { avg_hours: string | number | null; cnt: string | number };
-    type CatRow     = { category: string; avg_hours: string | number | null; cnt: string | number };
-    type CatAssign  = { production_category: string; avg_hours: string | number | null; cnt: string | number };
+    type TriRow  = { avg_all: string|number|null; avg_month: string|number|null; avg_week: string|number|null; cnt: string|number };
+    type CatRow  = { category: string; avg_all: string|number|null; avg_month: string|number|null; avg_week: string|number|null; cnt: string|number };
+    type CatARow = { production_category: string; avg_all: string|number|null; avg_month: string|number|null; avg_week: string|number|null; cnt: string|number };
 
-    const n = (v: string | number | null | undefined): number | null =>
+    const n = (v: string|number|null|undefined): number|null =>
       v == null ? null : (Number.isFinite(Number(v)) ? +Number(v).toFixed(1) : null);
-    const cnt = (v: string | number): number => Number(v) || 0;
+    const d = (h: number|null) => h != null ? +(h/24).toFixed(1) : null;
+    const cnt = (v: string|number) => Number(v) || 0;
 
-    const toData = (rows: AvgRow[]) => ({ avgHours: n(rows[0]?.avg_hours), sampleSize: cnt(rows[0]?.cnt ?? 0) });
-    const mk = (key: string, label: string, d: { avgHours: number | null; sampleSize: number }, note: string): ProductionKpiMetric => ({
-      key, label, note, avgHours: d.avgHours,
-      avgDays: d.avgHours != null ? +(d.avgHours / 24).toFixed(1) : null,
-      sampleSize: d.sampleSize,
+    const toData = (rows: TriRow[]) => ({
+      avgHours:      n(rows[0]?.avg_all),
+      avgDays:       d(n(rows[0]?.avg_all)),
+      avgDaysMonth:  d(n(rows[0]?.avg_month)),
+      avgDaysWeek:   d(n(rows[0]?.avg_week)),
+      sampleSize:    cnt(rows[0]?.cnt ?? 0),
+    });
+
+    const mk = (key: string, label: string, data: ReturnType<typeof toData>, note: string): ProductionKpiMetric => ({
+      key, label, note, ...data,
     });
 
     const [approvalR, receiptR, catAssignR, vendorR, sheetAssignR, readyBookR, inhousePrintR, sheetCPR, catTimeR] =
       await Promise.all([
 
-        // 1. Order approval: PENDING_APPROVAL (or createdAt) → APPROVED
-        this.prisma.$queryRaw<AvgRow[]>`
-          SELECT AVG(EXTRACT(EPOCH FROM (a."createdAt" - COALESCE(p."createdAt", o."createdAt"))) / 3600)::float AS avg_hours,
-                 COUNT(a.id)::int AS cnt
+        // 1. Order approval
+        this.prisma.$queryRaw<TriRow[]>`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM (a."createdAt" - COALESCE(p."createdAt", o."createdAt"))) / 3600)::float AS avg_all,
+            AVG(CASE WHEN a."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (a."createdAt" - COALESCE(p."createdAt", o."createdAt"))) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN a."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (a."createdAt" - COALESCE(p."createdAt", o."createdAt"))) / 3600 END)::float AS avg_week,
+            COUNT(a.id)::int AS cnt
           FROM "StatusLog" a
           JOIN "Order" o ON o.id = a."orderId"
           LEFT JOIN LATERAL (
@@ -380,19 +393,25 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
           WHERE a."toStatus"::text = 'APPROVED' AND a."createdAt" >= ${since}
         `,
 
-        // 2. Receipt verification: payment createdAt → verifiedAt
-        this.prisma.$queryRaw<AvgRow[]>`
-          SELECT AVG(EXTRACT(EPOCH FROM ("verifiedAt" - "createdAt")) / 3600)::float AS avg_hours,
-                 COUNT(id)::int AS cnt
+        // 2. Receipt verification
+        this.prisma.$queryRaw<TriRow[]>`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM ("verifiedAt" - "createdAt")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN "createdAt" >= ${month} THEN EXTRACT(EPOCH FROM ("verifiedAt" - "createdAt")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN "createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM ("verifiedAt" - "createdAt")) / 3600 END)::float AS avg_week,
+            COUNT(id)::int AS cnt
           FROM "Payment"
           WHERE "verificationStatus" = 'VERIFIED' AND "verifiedAt" IS NOT NULL AND "createdAt" >= ${since}
         `,
 
-        // 3. Category assignment: APPROVED → item.updatedAt (when productionCategory set)
-        this.prisma.$queryRaw<CatAssign[]>`
-          SELECT oi."productionCategory"::text AS production_category,
-                 AVG(EXTRACT(EPOCH FROM (oi."updatedAt" - a."createdAt")) / 3600)::float AS avg_hours,
-                 COUNT(oi.id)::int AS cnt
+        // 3. Category assignment
+        this.prisma.$queryRaw<CatARow[]>`
+          SELECT
+            oi."productionCategory"::text AS production_category,
+            AVG(EXTRACT(EPOCH FROM (oi."updatedAt" - a."createdAt")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN a."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (oi."updatedAt" - a."createdAt")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN a."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (oi."updatedAt" - a."createdAt")) / 3600 END)::float AS avg_week,
+            COUNT(oi.id)::int AS cnt
           FROM "OrderItem" oi
           JOIN LATERAL (
             SELECT "createdAt" FROM "StatusLog"
@@ -400,15 +419,17 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
             ORDER BY "createdAt" ASC LIMIT 1
           ) a ON true
           WHERE oi."productionCategory"::text IN ('INHOUSE','CLUBBING','SHEET_PRODUCTION')
-            AND oi."updatedAt" > a."createdAt"
-            AND a."createdAt" >= ${since}
+            AND oi."updatedAt" > a."createdAt" AND a."createdAt" >= ${since}
           GROUP BY oi."productionCategory"
         `,
 
-        // 4. Vendor assignment: APPROVED → JobWork created
-        this.prisma.$queryRaw<AvgRow[]>`
-          SELECT AVG(EXTRACT(EPOCH FROM (jw."createdAt" - a."createdAt")) / 3600)::float AS avg_hours,
-                 COUNT(jw.id)::int AS cnt
+        // 4. Vendor assignment
+        this.prisma.$queryRaw<TriRow[]>`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM (jw."createdAt" - a."createdAt")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN a."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (jw."createdAt" - a."createdAt")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN a."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (jw."createdAt" - a."createdAt")) / 3600 END)::float AS avg_week,
+            COUNT(jw.id)::int AS cnt
           FROM "JobWork" jw
           JOIN "OrderItem" oi ON oi.id = jw."orderItemId"
           JOIN LATERAL (
@@ -419,10 +440,13 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
           WHERE jw."createdAt" >= ${since}
         `,
 
-        // 5. Sheet assignment: APPROVED → PrintSheetItem created
-        this.prisma.$queryRaw<AvgRow[]>`
-          SELECT AVG(EXTRACT(EPOCH FROM (psi."createdAt" - a."createdAt")) / 3600)::float AS avg_hours,
-                 COUNT(psi.id)::int AS cnt
+        // 5. Sheet assignment
+        this.prisma.$queryRaw<TriRow[]>`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM (psi."createdAt" - a."createdAt")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN a."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (psi."createdAt" - a."createdAt")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN a."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (psi."createdAt" - a."createdAt")) / 3600 END)::float AS avg_week,
+            COUNT(psi.id)::int AS cnt
           FROM "PrintSheetItem" psi
           JOIN "OrderItem" oi ON oi.id = psi."orderItemId"
           JOIN LATERAL (
@@ -433,22 +457,27 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
           WHERE psi."createdAt" >= ${since}
         `,
 
-        // 6. Ready to booking: READY_FOR_DISPATCH → first shipment
-        this.prisma.$queryRaw<AvgRow[]>`
-          SELECT AVG(EXTRACT(EPOCH FROM (fs."createdAt" - r."createdAt")) / 3600)::float AS avg_hours,
-                 COUNT(r.id)::int AS cnt
+        // 6. Ready to booking
+        this.prisma.$queryRaw<TriRow[]>`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM (fs."createdAt" - r."createdAt")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN r."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (fs."createdAt" - r."createdAt")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN r."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (fs."createdAt" - r."createdAt")) / 3600 END)::float AS avg_week,
+            COUNT(r.id)::int AS cnt
           FROM "StatusLog" r
           JOIN LATERAL (
-            SELECT MIN("createdAt") AS "createdAt" FROM "Shipment"
-            WHERE "orderId" = r."orderId"
+            SELECT MIN("createdAt") AS "createdAt" FROM "Shipment" WHERE "orderId" = r."orderId"
           ) fs ON fs."createdAt" > r."createdAt"
           WHERE r."toStatus"::text = 'READY_FOR_DISPATCH' AND r."createdAt" >= ${since}
         `,
 
-        // 7. Inhouse printing start: APPROVED → ITEM_STAGE_CHANGED/PRINTING log
-        this.prisma.$queryRaw<AvgRow[]>`
-          SELECT AVG(EXTRACT(EPOCH FROM (sl."createdAt" - a."createdAt")) / 3600)::float AS avg_hours,
-                 COUNT(sl.id)::int AS cnt
+        // 7. Inhouse printing start
+        this.prisma.$queryRaw<TriRow[]>`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM (sl."createdAt" - a."createdAt")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN sl."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (sl."createdAt" - a."createdAt")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN sl."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (sl."createdAt" - a."createdAt")) / 3600 END)::float AS avg_week,
+            COUNT(sl.id)::int AS cnt
           FROM "StatusLog" sl
           JOIN LATERAL (
             SELECT "createdAt" FROM "StatusLog"
@@ -461,30 +490,34 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
         `,
 
         // 8. Sheet complete → printing
-        this.prisma.$queryRaw<AvgRow[]>`
+        this.prisma.$queryRaw<TriRow[]>`
           WITH sheet_complete AS (
             SELECT metadata->>'sheetId' AS sheet_id, MIN("createdAt") AS completed_at
             FROM "StatusLog"
             WHERE metadata->>'eventType' = 'SHEET_STATUS_CHANGED'
-              AND metadata->>'sheetStatus' = 'COMPLETE'
-              AND "createdAt" >= ${since}
+              AND metadata->>'sheetStatus' = 'COMPLETE' AND "createdAt" >= ${since}
             GROUP BY metadata->>'sheetId'
           )
-          SELECT AVG(EXTRACT(EPOCH FROM (sl."createdAt" - sc.completed_at)) / 3600)::float AS avg_hours,
-                 COUNT(sl.id)::int AS cnt
+          SELECT
+            AVG(EXTRACT(EPOCH FROM (sl."createdAt" - sc.completed_at)) / 3600)::float AS avg_all,
+            AVG(CASE WHEN sl."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (sl."createdAt" - sc.completed_at)) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN sl."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (sl."createdAt" - sc.completed_at)) / 3600 END)::float AS avg_week,
+            COUNT(sl.id)::int AS cnt
           FROM "StatusLog" sl
           JOIN sheet_complete sc ON sc.sheet_id = sl.metadata->>'sheetId'
           WHERE sl.metadata->>'eventType' = 'SHEET_STATUS_CHANGED'
             AND sl.metadata->>'sheetStatus' = 'PRINTING'
-            AND sl."createdAt" >= ${since}
-            AND sl."createdAt" > sc.completed_at
+            AND sl."createdAt" >= ${since} AND sl."createdAt" > sc.completed_at
         `,
 
-        // 9. Category cycle times: orderDate → READY_FOR_DISPATCH per category
+        // 9. Category cycle times (all periods)
         this.prisma.$queryRaw<CatRow[]>`
-          SELECT cat.name AS category,
-                 AVG(EXTRACT(EPOCH FROM (r."createdAt" - o."orderDate")) / 3600)::float AS avg_hours,
-                 COUNT(DISTINCT o.id)::int AS cnt
+          SELECT
+            cat.name AS category,
+            AVG(EXTRACT(EPOCH FROM (r."createdAt" - o."orderDate")) / 3600)::float AS avg_all,
+            AVG(CASE WHEN r."createdAt" >= ${month} THEN EXTRACT(EPOCH FROM (r."createdAt" - o."orderDate")) / 3600 END)::float AS avg_month,
+            AVG(CASE WHEN r."createdAt" >= ${week}  THEN EXTRACT(EPOCH FROM (r."createdAt" - o."orderDate")) / 3600 END)::float AS avg_week,
+            COUNT(DISTINCT o.id)::int AS cnt
           FROM "StatusLog" r
           JOIN "Order" o ON o.id = r."orderId"
           JOIN "OrderItem" oi ON oi."orderId" = o.id
@@ -492,13 +525,14 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
           JOIN "ProductCategory" cat ON cat.id = p."categoryId"
           WHERE r."toStatus"::text = 'READY_FOR_DISPATCH' AND r."createdAt" >= ${since}
           GROUP BY cat.name
-          ORDER BY avg_hours DESC NULLS LAST
+          ORDER BY avg_all ASC NULLS LAST
         `,
       ]);
 
     const catAssign = (cat: string) => {
       const row = catAssignR.find(r => r.production_category === cat);
-      return row ? { avgHours: n(row.avg_hours), sampleSize: cnt(row.cnt) } : { avgHours: null as number | null, sampleSize: 0 };
+      if (!row) return { avgHours: null as number|null, avgDays: null as number|null, avgDaysMonth: null as number|null, avgDaysWeek: null as number|null, sampleSize: 0 };
+      return { avgHours: n(row.avg_all), avgDays: d(n(row.avg_all)), avgDaysMonth: d(n(row.avg_month)), avgDaysWeek: d(n(row.avg_week)), sampleSize: cnt(row.cnt) };
     };
 
     const metrics: ProductionKpiMetric[] = [
@@ -506,7 +540,7 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
       mk('receipt_verification',      'Receipt Verification',      toData(receiptR),     'Payment receipt upload to accounts verification'),
       mk('assign_inhouse',            'Assign Inhouse Dept.',      catAssign('INHOUSE'), 'Accounts approval to inhouse category assignment'),
       mk('assign_clubbing',           'Assign Clubbing Dept.',     catAssign('CLUBBING'),'Accounts approval to clubbing category assignment'),
-      mk('assign_sheet',              'Assign Sheet Dept.',        catAssign('SHEET_PRODUCTION'), 'Accounts approval to sheet production assignment'),
+      mk('assign_sheet',              'Assign Sheet Dept.',        catAssign('SHEET_PRODUCTION'),'Accounts approval to sheet production assignment'),
       mk('vendor_assignment',         'Vendor Assignment',         toData(vendorR),      'Production/sheet assignment to vendor selection'),
       mk('inhouse_print_start',       'Inhouse Printing Start',    toData(inhousePrintR),'Accounts approval to first inhouse printing signal'),
       mk('sheet_assignment',          'Sheet Assignment',          toData(sheetAssignR), 'Accounts approval to placing product on sheet'),
@@ -515,10 +549,12 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     ];
 
     const categoryRows = catTimeR.map(row => ({
-      category: row.category,
-      avgHours: n(row.avg_hours),
-      avgDays:  row.avg_hours != null ? +(Number(row.avg_hours) / 24).toFixed(1) : null,
-      sampleSize: cnt(row.cnt),
+      category:     row.category,
+      avgHours:     n(row.avg_all),
+      avgDays:      d(n(row.avg_all)),
+      avgDaysMonth: d(n(row.avg_month)),
+      avgDaysWeek:  d(n(row.avg_week)),
+      sampleSize:   cnt(row.cnt),
     }));
 
     return {
