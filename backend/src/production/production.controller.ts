@@ -76,9 +76,10 @@ export class ProductionController {
   // ── Sheet Production ─────────────────────────────────────────────────────
   @Get('sheets')
   listSheets() { return this.clubbingSheetService.listSheets(); }
+
   @Get('sheets/history')
-  getSheetHistory(@Query('search') search?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.clubbingSheetService.getSheetHistory({ search, page: page ? Number(page) : 1, limit: limit ? Number(limit) : 50 });
+  getSheetHistory(@Query('search') search?: string, @Query('toStatus') toStatus?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.clubbingSheetService.getSheetHistory({ search, toStatus, page: page ? Number(page) : 1, limit: limit ? Number(limit) : 50 });
   }
 
   @Post('sheets')

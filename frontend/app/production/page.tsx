@@ -210,6 +210,7 @@ export default function ProductionPage() {
   const [sheetHistory, setSheetHistory] = useState<{ logs: any[]; total: number; page: number }>({ logs: [], total: 0, page: 1 });
   const [sheetHistoryLoading, setSheetHistoryLoading] = useState(false);
   const [sheetHistorySearch, setSheetHistorySearch] = useState("");
+  const [sheetHistoryFilter, setSheetHistoryFilter] = useState("");
   const [processingSubTab, setProcessingSubTab] = useState<"printing"|"processing">("printing");
   const [settingDialog, setSettingDialog] = useState<{ sheetId: string; sheetNo: string } | null>(null);
   const [settingForm, setSettingForm] = useState({
@@ -229,12 +230,12 @@ export default function ProductionPage() {
     const res = await fetch(`${API_BASE_URL}/production/sheets`, { headers: getAuthHeaders() });
     if (res.ok) setSheetsData(await res.json());
   }, []);
-
-  const loadSheetHistory = useCallback(async (search = "", page = 1) => {
+  const loadSheetHistory = useCallback(async (search = "", toStatus = "", page = 1) => {
     setSheetHistoryLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (search) params.set("search", search);
+      if (toStatus) params.set("toStatus", toStatus);
       const res = await fetch(`${API_BASE_URL}/production/sheets/history?${params}`, { headers: getAuthHeaders() });
       if (res.ok) setSheetHistory(await res.json());
     } finally {
@@ -267,7 +268,7 @@ export default function ProductionPage() {
   useEffect(() => { void loadAll(); }, [loadAll]);
 
   useEffect(() => {
-    if (sheetSubTab === "history") void loadSheetHistory(sheetHistorySearch);
+    if (sheetSubTab === "history") void loadSheetHistory(sheetHistorySearch, sheetHistoryFilter);
   }, [sheetSubTab, loadSheetHistory]);
 
   useEffect(() => {
@@ -1270,58 +1271,48 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
-              <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 bg-slate-50/95 pb-2 backdrop-blur">
-                <div className="flex flex-wrap gap-2 items-center w-full">
-                  <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
-                    {[
-                      { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
-                      { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
-                      { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
-                      { key: "history",    label: "History", color: "text-purple-700" },
-                    ].map(t => {
-                      const aqm: Record<string,number> = {};
-                      sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
-                      const count = t.key === "unassigned"
-                        ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
-                        : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
-                        : t.key === "processing" ? sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length
-                        : sheetHistory.total;
-                      return (
-                        <button key={t.key} onClick={() => setSheetSubTab(t.key)}
-                          className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
-                          {t.label}
-                          <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? (t.key === "history" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700") : "bg-slate-200 text-slate-500"}`}>{count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="flex-1 flex items-center gap-2 min-w-[200px]">
-                    <div className="relative flex-1 max-w-xs">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={sheetSubTab === "history" ? sheetHistorySearch : sheetSearch}
-                        onChange={e => {
-                          if (sheetSubTab === "history") {
-                            setSheetHistorySearch(e.target.value);
-                            void loadSheetHistory(e.target.value);
-                          } else {
-                            setSheetSearch(e.target.value);
-                          }
-                        }}
-                        placeholder={sheetSubTab === "history" ? "Search sheet no, order, product…" : "Search order, customer, sheet…"}
-                        className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
-                      />
-                    </div>
-                    {sheetSubTab !== "history" && (
-                      <button onClick={autoOrganizeSheets} disabled={autoOrganizing}
-                        className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60">
-                        {autoOrganizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                        Auto Create ERP Sheets
+              <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-slate-50/95 pb-2 backdrop-blur">
+                <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+                  {[
+                    { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
+                    { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
+                    { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
+                    { key: "history",    label: "History", color: "text-purple-700" },
+                  ].map(t => {
+                    const aqm: Record<string,number> = {};
+                    sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
+                    const count = t.key === "unassigned"
+                      ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
+                      : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
+                      : t.key === "processing" ? sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length
+                      : sheetHistory.total;
+                    return (
+                      <button key={t.key} onClick={() => setSheetSubTab(t.key)}
+                        className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
+                        {t.label}
+                        <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? (t.key === "history" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700") : "bg-slate-200 text-slate-500"}`}>{count}</span>
                       </button>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  <input type="text"
+                    value={sheetSubTab === "history" ? sheetHistorySearch : sheetSearch}
+                    onChange={e => {
+                      if (sheetSubTab === "history") { setSheetHistorySearch(e.target.value); void loadSheetHistory(e.target.value, sheetHistoryFilter); }
+                      else setSheetSearch(e.target.value);
+                    }}
+                    placeholder={sheetSubTab === "history" ? "Search sheet no…" : "Search order, customer, sheet…"}
+                    className="w-52 rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </div>
+                {sheetSubTab !== "history" && (
+                  <button onClick={autoOrganizeSheets} disabled={autoOrganizing}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60 ml-auto">
+                    {autoOrganizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Auto Create ERP Sheets
+                  </button>
+                )}
               </div>
               {sheetSubTab === "unassigned" && (() => {
                 const aqm: Record<string,number> = {};
@@ -1867,10 +1858,22 @@ export default function ProductionPage() {
               {/* ── HISTORY SUB-TAB ── */}
               {sheetSubTab === "history" && (
                 <div className="space-y-3">
+                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+                    {[
+                      { key: "", label: "All" },
+                      { key: "SETTING", label: "→ Setting" },
+                      { key: "PRINTING", label: "→ Printing" },
+                      { key: "PROCESSING", label: "→ Processing" },
+                      { key: "DONE", label: "→ Done" },
+                    ].map(f => (
+                      <button key={f.key} onClick={() => { setSheetHistoryFilter(f.key); void loadSheetHistory(sheetHistorySearch, f.key); }}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetHistoryFilter === f.key ? "bg-white shadow-sm text-purple-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
                   {sheetHistoryLoading ? (
-                    <div className="flex items-center justify-center py-12 text-slate-400 text-sm gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Loading history…
-                    </div>
+                    <div className="flex items-center justify-center py-12 text-slate-400 text-sm gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading history…</div>
                   ) : sheetHistory.logs.length === 0 ? (
                     <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheet history found.</div>
                   ) : (
@@ -1880,10 +1883,9 @@ export default function ProductionPage() {
                           <thead>
                             <tr className="border-b border-slate-100 bg-slate-50">
                               <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Sheet No</th>
-                              <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Order</th>
-                              <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Customer</th>
-                              <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Product</th>
+                              <th className="px-4 py-2.5 text-left font-semibold text-slate-600">GSM · Size · Qty</th>
                               <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Status Change</th>
+                              <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Items</th>
                               <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Changed By</th>
                               <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Time</th>
                             </tr>
@@ -1893,28 +1895,21 @@ export default function ProductionPage() {
                               const meta = log.metadata as any || {};
                               const from = meta.fromSheetStatus || "–";
                               const to = meta.sheetStatus || "–";
-                              const statusColorMap: Record<string, string> = {
-                                INCOMPLETE: "bg-gray-100 text-gray-600", SETTING: "bg-yellow-100 text-yellow-700",
-                                PRINTING: "bg-blue-100 text-blue-700", PROCESSING: "bg-orange-100 text-orange-700",
-                                DONE: "bg-emerald-100 text-emerald-700", COMPLETE: "bg-green-100 text-green-700",
-                              };
+                              const statusColorMap: Record<string,string> = { INCOMPLETE:"bg-gray-100 text-gray-600",COMPLETE:"bg-green-100 text-green-700",SETTING:"bg-yellow-100 text-yellow-700",PRINTING:"bg-blue-100 text-blue-700",PROCESSING:"bg-orange-100 text-orange-700",DONE:"bg-emerald-100 text-emerald-700" };
                               return (
                                 <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                                   <td className="px-4 py-2.5 font-bold text-purple-700">{meta.sheetNo || "–"}</td>
-                                  <td className="px-4 py-2.5 font-semibold text-slate-800">{log.order?.orderNumber || "–"}</td>
-                                  <td className="px-4 py-2.5 text-slate-600">{log.order?.customer?.businessName || "–"}</td>
-                                  <td className="px-4 py-2.5 text-slate-600">{meta.productName || "–"}</td>
+                                  <td className="px-4 py-2.5 text-slate-500">{[meta.sheetGsm && `${meta.sheetGsm} GSM`, meta.sheetSize && `${meta.sheetSize}"`, meta.sheetQuantity && `Qty ${meta.sheetQuantity}`].filter(Boolean).join(" · ") || "–"}</td>
                                   <td className="px-4 py-2.5">
                                     <div className="flex items-center gap-1.5">
-                                      <span className={`rounded-full px-2 py-0.5 font-semibold ${statusColorMap[from] || "bg-slate-100 text-slate-600"}`}>{from}</span>
+                                      <span className={`rounded-full px-2 py-0.5 font-semibold ${statusColorMap[from]||"bg-slate-100 text-slate-600"}`}>{from}</span>
                                       <span className="text-slate-400">→</span>
-                                      <span className={`rounded-full px-2 py-0.5 font-semibold ${statusColorMap[to] || "bg-slate-100 text-slate-600"}`}>{to}</span>
+                                      <span className={`rounded-full px-2 py-0.5 font-semibold ${statusColorMap[to]||"bg-slate-100 text-slate-600"}`}>{to}</span>
                                     </div>
                                   </td>
-                                  <td className="px-4 py-2.5 text-slate-500">{log.changedBy?.name || "System"}</td>
-                                  <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">
-                                    {new Date(log.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-                                  </td>
+                                  <td className="px-4 py-2.5 text-slate-500">{(log as any)._itemCount || 1}</td>
+                                  <td className="px-4 py-2.5 text-slate-500">{log.changedBy?.fullName || "System"}</td>
+                                  <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">{new Date(log.createdAt).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</td>
                                 </tr>
                               );
                             })}
@@ -1925,15 +1920,9 @@ export default function ProductionPage() {
                         <div className="flex items-center justify-between px-1 text-xs text-slate-500">
                           <span>{sheetHistory.total} total entries</span>
                           <div className="flex gap-2">
-                            {sheetHistory.page > 1 && (
-                              <button onClick={() => loadSheetHistory(sheetHistorySearch, sheetHistory.page - 1)}
-                                className="rounded-md border border-slate-200 px-3 py-1 hover:bg-slate-50">← Prev</button>
-                            )}
+                            {sheetHistory.page > 1 && <button onClick={() => loadSheetHistory(sheetHistorySearch, sheetHistoryFilter, sheetHistory.page-1)} className="rounded-md border border-slate-200 px-3 py-1 hover:bg-slate-50">← Prev</button>}
                             <span className="px-2 py-1">Page {sheetHistory.page}</span>
-                            {sheetHistory.page * 50 < sheetHistory.total && (
-                              <button onClick={() => loadSheetHistory(sheetHistorySearch, sheetHistory.page + 1)}
-                                className="rounded-md border border-slate-200 px-3 py-1 hover:bg-slate-50">Next →</button>
-                            )}
+                            {sheetHistory.page*50 < sheetHistory.total && <button onClick={() => loadSheetHistory(sheetHistorySearch, sheetHistoryFilter, sheetHistory.page+1)} className="rounded-md border border-slate-200 px-3 py-1 hover:bg-slate-50">Next →</button>}
                           </div>
                         </div>
                       )}
