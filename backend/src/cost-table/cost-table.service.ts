@@ -446,16 +446,25 @@ export class CostTableService {
   // ── Orders that have items with no cost slab ──────────────────────────────
 
   async getOrdersWithoutCost() {
-    // Fetch ALL orders (any status) that have at least one item
-    // whose product has NO cost slabs at all
+    // Find all order IDs that have at least one item with NO matching cost slab
+    // for its actual quantity (covers both: no slabs at all, and slabs that
+    // don't cover the item's quantity range).
+    const orderIdsRaw = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT DISTINCT o.id
+      FROM "Order" o
+      JOIN "OrderItem" oi ON oi."orderId" = o.id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "ProductCostSlab" pcs
+        WHERE pcs."productId" = oi."productId"
+          AND pcs."minQuantity" <= oi.quantity
+          AND (pcs."maxQuantity" IS NULL OR pcs."maxQuantity" >= oi.quantity)
+      )
+    `;
+    const orderIds = orderIdsRaw.map((r) => r.id);
+    if (orderIds.length === 0) return [];
+
     const orders = await (this.prisma as any).order.findMany({
-      where: {
-        items: {
-          some: {
-            product: { costSlabs: { none: {} } },
-          },
-        },
-      },
+      where: { id: { in: orderIds } },
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { fullName: true } },
@@ -466,7 +475,7 @@ export class CostTableService {
                 id: true, sku: true, name: true, gsm: true,
                 sizeInches: true, sides: true,
                 category: { select: { name: true } },
-                costSlabs: { select: { id: true } },
+                costSlabs: { select: { id: true, minQuantity: true, maxQuantity: true } },
               },
             },
           },
@@ -485,7 +494,15 @@ export class CostTableService {
       orderDate: order.orderDate,
       totalAmount: Number(order.grandTotal),
       itemsWithNoCost: order.items
-        .filter((item: any) => item.product.costSlabs.length === 0)
+        .filter((item: any) => {
+          // Item has no matching slab for its quantity
+          const hasMatch = item.product.costSlabs.some(
+            (slab: any) =>
+              slab.minQuantity <= item.quantity &&
+              (slab.maxQuantity == null || slab.maxQuantity >= item.quantity),
+          );
+          return !hasMatch;
+        })
         .map((item: any) => ({
           productId: item.product.id,
           sku: item.product.sku,
@@ -535,23 +552,4 @@ export class CostTableService {
   }
 
   async updateSalesAgentCategory(userId: string, category: 'A' | 'B' | 'C' | 'D' | null) {
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { salesAgentCategory: category } as any,
-      select: { id: true, fullName: true, email: true, salesAgentCategory: true } as any,
-    });
-  }
-
-  async getAgentMonthCommission(userId: string) {
-    const { start, end } = this.getMonthRange();
-    const rows = (await this.profitRows(start, end)).filter((row) => row.salesAgentId === userId && !row.hasMissingCost);
-    return {
-      month: start.toISOString().slice(0, 7),
-      commissionTotal: Number(rows.reduce((sum, row) => sum + Number(row.commissionTotal ?? 0), 0).toFixed(2)),
-      grossProfit: Number(rows.reduce((sum, row) => sum + Number(row.grossProfit ?? 0), 0).toFixed(2)),
-      netGrossProfit: Number(rows.reduce((sum, row) => sum + Number(row.netGrossProfit ?? 0), 0).toFixed(2)),
-      orderCount: rows.length,
-    };
-  }
-}
-                                                                                             
+    return this.prisma.user.up
