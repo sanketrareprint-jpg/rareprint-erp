@@ -7,7 +7,7 @@ import {
   Settings, Plus, Trash2, Edit2, Check, X, ChevronDown, ChevronUp,
   AlertTriangle, CheckCircle, XCircle, IndianRupee, Percent, Save,
   Search, RefreshCw, TrendingUp, Download, Upload,
-  BarChart3, Users,
+  BarChart3, Users, ShoppingCart,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -80,6 +80,29 @@ type Profitability = {
 };
 type NoCostProduct = { id: string; sku: string; name: string; description?: string | null; category?: { name: string }; gsm: number; sizeInches: string; sides: string };
 type SalesAgent = { id: string; fullName: string; email: string; salesAgentCategory: "A" | "B" | "C" | "D" | null };
+
+type OrderWithoutCostItem = {
+  productId: string;
+  sku: string;
+  productName: string;
+  gsm: number;
+  sizeInches: string;
+  sides: string;
+  category: string | null;
+  quantity: number;
+  unitPrice: number;
+};
+type OrderWithoutCost = {
+  id: string;
+  orderNo: string;
+  status: string;
+  customerName: string;
+  customerPhone: string | null;
+  salesAgentName: string | null;
+  orderDate: string;
+  totalAmount: number;
+  itemsWithNoCost: OrderWithoutCostItem[];
+};
 
 const SAMPLE_QUANTITY_TIERS = [
   700, 1000, 1500, 2000, 3000, 3500, 4000, 5000, 6000,
@@ -169,7 +192,7 @@ export default function CostTablePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders">("table");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rateFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
@@ -196,6 +219,17 @@ export default function CostTablePage() {
   const [noCostProducts, setNoCostProducts] = useState<NoCostProduct[]>([]);
   const [salesAgents, setSalesAgents] = useState<SalesAgent[]>([]);
   const [profitLoading, setProfitLoading] = useState(false);
+  const [ordersWithoutCost, setOrdersWithoutCost] = useState<OrderWithoutCost[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [addCostModal, setAddCostModal] = useState<{
+    productId: string;
+    sku: string;
+    productName: string;
+    orderNo: string;
+  } | null>(null);
+  const [modalSlab, setModalSlab] = useState({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
+  const [modalSaving, setModalSaving] = useState(false);
 
   const headers = getAuthHeaders();
 
@@ -236,6 +270,18 @@ export default function CostTablePage() {
   }, []);
 
   useEffect(() => { if (activeTab === "profit") loadProfit(); }, [activeTab, loadProfit]);
+
+  const loadOrdersWithoutCost = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/orders-without-cost`, { headers });
+      if (res.ok) setOrdersWithoutCost(await res.json());
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (activeTab === "orders") loadOrdersWithoutCost(); }, [activeTab, loadOrdersWithoutCost]);
 
   async function updateAgentCategory(userId: string, category: "A" | "B" | "C" | "D" | "") {
     await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/category`, {
@@ -458,6 +504,34 @@ export default function CostTablePage() {
     (p.category?.name || "").toLowerCase().includes(search.toLowerCase())
   );
 
+  // ── Add Cost Modal ────────────────────────────────────────────────────────
+
+  async function saveModalCostSlab() {
+    if (!addCostModal || !modalSlab.minQuantity || !modalSlab.unitPrice) return;
+    setModalSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/slabs`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: addCostModal.productId,
+          minQuantity: Number(modalSlab.minQuantity),
+          maxQuantity: modalSlab.maxQuantity ? Number(modalSlab.maxQuantity) : null,
+          unitPrice: Number(modalSlab.unitPrice),
+          setupCost: modalSlab.setupCost ? Number(modalSlab.setupCost) : null,
+        }),
+      });
+      if (res.ok) {
+        setAddCostModal(null);
+        setModalSlab({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
+        await loadOrdersWithoutCost();
+        await load();
+      }
+    } finally {
+      setModalSaving(false);
+    }
+  }
+
   // ── Slab actions ──────────────────────────────────────────────────────────
 
   async function saveSlab(slabId: string) {
@@ -588,13 +662,14 @@ export default function CostTablePage() {
         <div className="flex border-b border-gray-200">
           {([
             { key: "table", label: "Cost Slabs", icon: IndianRupee },
+            { key: "orders", label: "Orders Without Cost", icon: ShoppingCart, badge: ordersWithoutCost.length },
             { key: "profit", label: "Profit", icon: BarChart3 },
             { key: "checker", label: "Margin Checker", icon: TrendingUp },
             { key: "settings", label: "Settings", icon: Settings },
-          ] as const).map(({ key, label, icon: Icon }) => (
+          ] as const).map(({ key, label, icon: Icon, badge }: { key: string; label: string; icon: React.ElementType; badge?: number }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key)}
+              onClick={() => setActiveTab(key as "table" | "orders" | "profit" | "checker" | "settings")}
               className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === key
                   ? "border-blue-600 text-blue-600"
@@ -1043,13 +1118,107 @@ export default function CostTablePage() {
         )}
 
         {/* ── TAB: Settings ─────────────────────────────────────────────── */}
+        {/* ── TAB: Orders Without Cost ─────────────────────────────────── */}
+        {activeTab === "orders" && (
+          <div className="space-y-4">
+            {/* Info banner */}
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">Orders blocked from approval until cost is added</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  These orders are in <strong>Pending Approval</strong> status but cannot be approved in the Accounts tab
+                  because one or more products have no cost slabs. Click <strong>"Add Cost"</strong> on each product to unblock.
+                </p>
+              </div>
+            </div>
+
+            {ordersLoading ? (
+              <div className="text-center py-16 text-gray-400">Loading orders…</div>
+            ) : ordersWithoutCost.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
+                <CheckCircle size={32} className="mx-auto mb-2 text-green-400" />
+                <p className="text-sm text-gray-500 font-medium">No orders are blocked!</p>
+                <p className="text-xs text-gray-400 mt-1">All pending orders have cost data and can be approved.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {ordersWithoutCost.map(order => (
+                  <div key={order.id} className="border border-amber-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    {/* Order header */}
+                    <div
+                      className="flex items-center justify-between px-4 py-3 bg-amber-50 cursor-pointer hover:bg-amber-100 select-none"
+                      onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-amber-700 font-mono">{order.orderNo}</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white border border-amber-200 text-amber-700">
+                          {order.status.replace(/_/g, " ")}
+                        </span>
+                        <span className="font-semibold text-gray-800 text-sm">{order.customerName}</span>
+                        {order.customerPhone && <span className="text-gray-400 text-xs">{order.customerPhone}</span>}
+                        {order.salesAgentName && (
+                          <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">{order.salesAgentName}</span>
+                        )}
+                        <span className="text-xs text-gray-400">{new Date(order.orderDate).toLocaleDateString("en-IN")}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className="text-sm font-bold text-gray-800">₹{order.totalAmount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
+                          {order.itemsWithNoCost.length} missing
+                        </span>
+                        {expandedOrder === order.id ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                      </div>
+                    </div>
+
+                    {/* Expanded: items missing cost */}
+                    {expandedOrder === order.id && (
+                      <div className="border-t border-amber-100 px-4 py-3 space-y-2">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Products with no cost slabs</p>
+                        {order.itemsWithNoCost.map(item => (
+                          <div
+                            key={item.productId}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-blue-100 rounded px-1.5 py-0.5">{item.sku}</span>
+                                <span className="font-medium text-gray-900 text-sm">{item.productName}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {item.category && <span>{item.category} &middot; </span>}
+                                {item.gsm}gsm &middot; {item.sizeInches} &middot; {item.sides}
+                                <span className="ml-2 font-semibold text-gray-700">Qty: {item.quantity.toLocaleString("en-IN")}</span>
+                                <span className="ml-2 text-gray-500">@ {fmt(item.unitPrice)}</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setAddCostModal({ productId: item.productId, sku: item.sku, productName: item.productName, orderNo: order.orderNo });
+                                setModalSlab({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
+                              }}
+                              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            >
+                              <Plus size={12} /> Add Cost
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Settings Tab */}
         {activeTab === "settings" && (
           <div className="max-w-lg space-y-4">
             <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm space-y-5">
               <h2 className="font-semibold text-gray-900 text-base flex items-center gap-2">
                 <Settings size={16} /> System Settings
               </h2>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Minimum Approval Margin % <span className="text-red-500">*</span>
@@ -1066,7 +1235,6 @@ export default function CostTablePage() {
                   <Percent size={14} className="text-gray-400" />
                 </div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Warning Margin %</label>
                 <p className="text-xs text-gray-400 mb-2">Orders between this and the minimum will show an <strong className="text-amber-600">AMBER WARNING</strong></p>
@@ -1081,7 +1249,6 @@ export default function CostTablePage() {
                   <Percent size={14} className="text-gray-400" />
                 </div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Agent Commission %</label>
                 <p className="text-xs text-gray-400 mb-2">Sales agent earns this percentage of the <strong>margin amount</strong> on approved orders</p>
@@ -1093,17 +1260,16 @@ export default function CostTablePage() {
                     onChange={e => setSettingsForm(s => ({ ...s, agentCommissionPct: Number(e.target.value) }))}
                     className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-500">% of margin ₹</span>
+                  <span className="text-sm text-gray-500">% of margin</span>
                 </div>
               </div>
-
               <div className="pt-2 border-t border-gray-100 flex items-center gap-3">
                 <button
                   onClick={saveSettings}
                   disabled={settingsSaving}
                   className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
-                  <Save size={14} /> {settingsSaving ? "Saving…" : "Save Settings"}
+                  <Save size={14} /> {settingsSaving ? "Saving..." : "Save Settings"}
                 </button>
                 {settingsSaved && (
                   <span className="inline-flex items-center gap-1 text-sm text-green-600 font-medium">
@@ -1113,7 +1279,6 @@ export default function CostTablePage() {
               </div>
             </div>
 
-            {/* Current values preview */}
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm space-y-2">
               <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">Current Active Settings</p>
               <div className="grid grid-cols-3 gap-2 mt-2">
@@ -1135,6 +1300,92 @@ export default function CostTablePage() {
         )}
 
       </div>
+
+      {/* Add Cost Modal */}
+      {addCostModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Add Cost Slab</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  For order <strong className="text-amber-700">{addCostModal.orderNo}</strong>
+                </p>
+              </div>
+              <button onClick={() => setAddCostModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-blue-100 rounded px-1.5 py-0.5">{addCostModal.sku}</span>
+              <span className="text-sm font-medium text-gray-800">{addCostModal.productName}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Min Qty <span className="text-red-500">*</span></label>
+                <input
+                  type="number"
+                  value={modalSlab.minQuantity}
+                  onChange={e => setModalSlab(s => ({ ...s, minQuantity: e.target.value }))}
+                  placeholder="e.g. 500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Max Qty (blank = no limit)</label>
+                <input
+                  type="number"
+                  value={modalSlab.maxQuantity}
+                  onChange={e => setModalSlab(s => ({ ...s, maxQuantity: e.target.value }))}
+                  placeholder="leave blank"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cost / Unit (Rs.) <span className="text-red-500">*</span></label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={modalSlab.unitPrice}
+                  onChange={e => setModalSlab(s => ({ ...s, unitPrice: e.target.value }))}
+                  placeholder="e.g. 2.50"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Setup Cost (Rs.)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={modalSlab.setupCost}
+                  onChange={e => setModalSlab(s => ({ ...s, setupCost: e.target.value }))}
+                  placeholder="optional"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              This slab applies to all orders of this product. You can add more slabs or edit them in the Cost Slabs tab.
+            </p>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={saveModalCostSlab}
+                disabled={modalSaving || !modalSlab.minQuantity || !modalSlab.unitPrice}
+                className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {modalSaving ? "Saving..." : "Save Cost Slab"}
+              </button>
+              <button onClick={() => setAddCostModal(null)} className="px-4 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardShell>
   );
 }

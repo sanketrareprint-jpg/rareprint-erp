@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -923,24 +923,51 @@ await loadHistory();
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <div className="text-xs text-slate-500 space-x-4">
-                        <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
-                        <span>Paid: <strong className="text-green-600">{fmt(order.totalPaid)}</strong></span>
-                        <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => setRejectId(order.id)}
-                          className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50">
-                          Reject
-                        </button>
-                        <button onClick={() => approveOrder(order.id)} disabled={processing === order.id}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60">
-                          {processing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                          Approve
-                        </button>
-                      </div>
-                    </div>
+                    {(() => {
+                      const hasMissingCost = order.items.some(item => item.costTotal == null);
+                      return (
+                        <>
+                          {hasMissingCost && (
+                            <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                Cost data missing for some products.{" "}
+                                <a href="/cost-table" className="underline font-semibold hover:text-red-900">
+                                  Add cost slabs in Cost Table → Orders Without Cost
+                                </a>{" "}
+                                before approving.
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                            <div className="text-xs text-slate-500 space-x-4">
+                              <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
+                              <span>Paid: <strong className="text-green-600">{fmt(order.totalPaid)}</strong></span>
+                              <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => setRejectId(order.id)}
+                                className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50">
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => !hasMissingCost && approveOrder(order.id)}
+                                disabled={processing === order.id || hasMissingCost}
+                                title={hasMissingCost ? "Add cost slabs for all products before approving" : undefined}
+                                className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg ${
+                                  hasMissingCost
+                                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                    : "bg-green-600 text-white hover:bg-green-700"
+                                } disabled:opacity-60`}
+                              >
+                                {processing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                Approve
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
