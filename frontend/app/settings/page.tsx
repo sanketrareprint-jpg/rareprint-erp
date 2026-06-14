@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
-import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText, Tag } from "lucide-react";
 
 type CarrierCfg = {
   activeCarrier: "shiprocket" | "bigship";
@@ -48,6 +48,7 @@ type BigshipWarehouse = {
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
 type ProductionStage = { id: string; label: string; substages: string[] };
 type ModuleOption = { key: string; label: string; href: string; fixed?: boolean; enabled: boolean };
+type VirtualCeoTag = { id: string; label: string; color: string };
 type ErpConfig = {
   orderFields: CustomField[];
   itemFields: CustomField[];
@@ -55,10 +56,13 @@ type ErpConfig = {
   productionFlow: Array<{ from: string; to: string }>;
   modules: ModuleOption[];
   roleAccess: Record<string, string[]>;
+  virtualCeoTags: VirtualCeoTag[];
+  virtualCeoCardTags: Record<string, string>;
 };
 
 const ROLES = ["ADMIN", "AGENT", "SALES_AGENT", "ACCOUNTS", "PRODUCTION", "DISPATCH", "INHOUSE"];
 const FIELD_TYPES: CustomField["type"][] = ["text", "number", "date", "select", "textarea"];
+const TAG_COLORS = ["#f59e0b", "#ef4444", "#6366f1", "#10b981", "#0ea5e9", "#64748b"];
 
 export default function SettingsPage() {
   const [cfg, setCfg]         = useState<CarrierCfg | null>(null);
@@ -243,6 +247,41 @@ export default function SettingsPage() {
     });
   };
 
+  const addVirtualCeoTag = () => {
+    if (!erpConfig) return;
+    setErpConfig({
+      ...erpConfig,
+      virtualCeoTags: [
+        ...(erpConfig.virtualCeoTags ?? []),
+        { id: `vceo_tag_${Date.now()}`, label: "New tag", color: TAG_COLORS[0] },
+      ],
+    });
+  };
+
+  const updateVirtualCeoTag = (index: number, patch: Partial<VirtualCeoTag>) => {
+    if (!erpConfig) return;
+    setErpConfig({
+      ...erpConfig,
+      virtualCeoTags: (erpConfig.virtualCeoTags ?? []).map((tag, i) => i === index ? { ...tag, ...patch } : tag),
+    });
+  };
+
+  const removeVirtualCeoTag = (index: number) => {
+    if (!erpConfig) return;
+    const removed = erpConfig.virtualCeoTags?.[index];
+    const nextCardTags = { ...(erpConfig.virtualCeoCardTags ?? {}) };
+    if (removed) {
+      for (const [cardId, tagId] of Object.entries(nextCardTags)) {
+        if (tagId === removed.id) delete nextCardTags[cardId];
+      }
+    }
+    setErpConfig({
+      ...erpConfig,
+      virtualCeoTags: (erpConfig.virtualCeoTags ?? []).filter((_, i) => i !== index),
+      virtualCeoCardTags: nextCardTags,
+    });
+  };
+
   const toggleModule = (key: string) => {
     if (!erpConfig) return;
     setErpConfig({
@@ -345,6 +384,30 @@ export default function SettingsPage() {
                     <span className="font-semibold block">{module.label}</span>
                     <span>{module.fixed ? "Fixed" : module.enabled ? "Enabled" : "Hidden"}</span>
                   </button>
+                ))}
+              </div>
+            </ConfigPanel>
+
+            <ConfigPanel title="Virtual CEO Card Tags" icon={<Tag size={16} />} action={<SmallButton onClick={addVirtualCeoTag}><Plus size={13} /> Tag</SmallButton>}>
+              <div className="space-y-2">
+                {(erpConfig.virtualCeoTags ?? []).length === 0 && <p className="text-xs text-gray-400">No tags yet.</p>}
+                {(erpConfig.virtualCeoTags ?? []).map((tag, index) => (
+                  <div key={tag.id} className="grid grid-cols-[1fr_150px_32px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                    <input value={tag.label} onChange={e => updateVirtualCeoTag(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+                    <div className="flex items-center gap-1.5">
+                      {TAG_COLORS.map(color => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => updateVirtualCeoTag(index, { color })}
+                          className={`h-6 w-6 rounded-full border ${tag.color === color ? "border-gray-900 ring-2 ring-gray-300" : "border-gray-200"}`}
+                          style={{ background: color }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                    <button onClick={() => removeVirtualCeoTag(index)} className="text-red-500 hover:bg-red-50 rounded-lg p-2"><Trash2 size={14} /></button>
+                  </div>
                 ))}
               </div>
             </ConfigPanel>

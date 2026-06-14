@@ -25,6 +25,12 @@ export type ModuleConfig = {
   enabled: boolean;
 };
 
+export type VirtualCeoTagConfig = {
+  id: string;
+  label: string;
+  color: string;
+};
+
 export type ErpConfig = {
   orderFields: CustomFieldConfig[];
   itemFields: CustomFieldConfig[];
@@ -32,6 +38,8 @@ export type ErpConfig = {
   productionFlow: Array<{ from: string; to: string }>;
   modules: ModuleConfig[];
   roleAccess: Record<string, string[]>;
+  virtualCeoTags: VirtualCeoTagConfig[];
+  virtualCeoCardTags: Record<string, string>;
 };
 
 const DB_KEY = 'erp_saas_config';
@@ -92,6 +100,11 @@ export const DEFAULT_ERP_CONFIG: ErpConfig = {
     DISPATCH: ['dashboard', 'orders', 'dispatch', 'tasks', 'storefront'],
     INHOUSE: ['orders', 'production', 'dispatch'],
   },
+  virtualCeoTags: [
+    { id: 'job_on_hold', label: 'Job on hold', color: '#f59e0b' },
+    { id: 'design_not_received', label: 'Design not received', color: '#ef4444' },
+  ],
+  virtualCeoCardTags: {},
 };
 
 @Injectable()
@@ -137,6 +150,8 @@ export class ErpConfigService {
       productionFlow: input.productionFlow ?? DEFAULT_ERP_CONFIG.productionFlow,
       modules,
       roleAccess,
+      virtualCeoTags: input.virtualCeoTags ?? DEFAULT_ERP_CONFIG.virtualCeoTags,
+      virtualCeoCardTags: input.virtualCeoCardTags ?? DEFAULT_ERP_CONFIG.virtualCeoCardTags,
     };
   }
 }
