@@ -552,4 +552,127 @@ export class CostTableService {
   }
 
   async updateSalesAgentCategory(userId: string, category: 'A' | 'B' | 'C' | 'D' | null) {
-    return this.prisma.user.up
+    return (this.prisma.user as any).update({
+      where: { id: userId },
+      data: { salesAgentCategory: category },
+      select: { id: true, fullName: true, salesAgentCategory: true },
+    });
+  }
+
+  async getAgentMonthCommission(userId: string) {
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const to   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const orders = await (this.prisma as any).order.findMany({
+      where: {
+        salesAgentId: userId,
+        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        orderDate: { gte: from, lt: to },
+      },
+      include: {
+        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
+        items: {
+          include: {
+            product: {
+              select: { id: true, name: true, category: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    const productIds = Array.from(
+      new Set(orders.flatMap((o: any) => o.items.map((i: any) => i.productId))),
+    ) as string[];
+
+    const [costSlabs, rateSlabs] = await Promise.all([
+      this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } }),
+      (this.prisma as any).productRateSlab?.findMany
+        ? (this.prisma as any).productRateSlab.findMany({ where: { productId: { in: productIds } } })
+        : [],
+    ]);
+
+    const costMap = costSlabs.reduce((m: Map<string, any[]>, s: any) => {
+      const arr = m.get(s.productId) ?? [];
+      arr.push(s);
+      m.set(s.productId, arr);
+      return m;
+    }, new Map<string, any[]>());
+
+    const rateMap = (rateSlabs as any[]).reduce((m: Map<string, any[]>, s: any) => {
+      const arr = m.get(s.productId) ?? [];
+      arr.push(s);
+      m.set(s.productId, arr);
+      return m;
+    }, new Map<string, any[]>());
+
+    const matchSlab = (slabs: any[], qty: number) =>
+      slabs
+        .filter((s) => s.minQuantity <= qty && (s.maxQuantity == null || s.maxQuantity >= qty))
+        .sort((a: any, b: any) => b.minQuantity - a.minQuantity)[0] ?? null;
+
+    const isSticker = (item: any) =>
+      `${item.product?.name ?? ''} ${item.product?.category?.name ?? ''}`.toLowerCase().includes('sticker');
+
+    let commissionTotal = 0;
+    let saleTotal = 0;
+    const orderBreakdown: any[] = [];
+
+    for (const order of orders) {
+      const category: string = order.salesAgent?.salesAgentCategory ?? 'B';
+      let orderCommission = 0;
+      let hasAll = true;
+
+      for (const item of order.items) {
+        const costSlab = matchSlab(costMap.get(item.productId) ?? [], item.quantity);
+        if (!costSlab) { hasAll = false; break; }
+
+        const lineTotal   = Number(item.lineTotal);
+        const unitPrice   = Number(item.unitPrice);
+        const rawCost     = Number(costSlab.unitPrice);
+        const costPerUnit = rawCost > unitPrice ? rawCost / costSlab.minQuantity : rawCost;
+        const costItemTotal = costPerUnit * item.quantity;
+        const profit      = lineTotal - costItemTotal;
+        if (profit <= 0) continue;
+
+        const rateSlab    = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
+        const rateTotal   = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
+        const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
+
+        if (category === 'D') {
+          orderCommission += Math.max(0, lineTotal - rateTotal);
+        } else if (discountPct > 5) {
+          orderCommission += profit / (category === 'C' ? 3.75 : 4);
+        } else if (category === 'A') {
+          orderCommission += rateTotal * (isSticker(item) ? 0.15 : 0.10);
+        } else if (category === 'C') {
+          orderCommission += rateTotal * (isSticker(item) ? 0.17 : 0.12);
+        } else {
+          orderCommission += rateTotal * 0.10;
+        }
+      }
+
+      if (hasAll) {
+        commissionTotal += orderCommission;
+        saleTotal += Number(order.grandTotal);
+        orderBreakdown.push({
+          orderId: order.id,
+          orderNo: order.orderNumber,
+          orderDate: order.orderDate,
+          grandTotal: Number(order.grandTotal),
+          commission: Number(orderCommission.toFixed(2)),
+        });
+      }
+    }
+
+    return {
+      userId,
+      month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+      commissionTotal: Number(commissionTotal.toFixed(2)),
+      commissionPctOfSale: saleTotal > 0 ? Number(((commissionTotal / saleTotal) * 100).toFixed(2)) : null,
+      orderCount: orderBreakdown.length,
+      orders: orderBreakdown,
+    };
+  }
+}
