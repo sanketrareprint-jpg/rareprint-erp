@@ -6,7 +6,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Send,
   DollarSign, Factory, Truck, Package, BarChart2,
-  Zap,
+  Zap, Tag,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,6 +41,12 @@ interface VirtualCeoReport {
   dispatch: ActionItem[];
   stock: ActionItem[];
 }
+
+type VirtualCeoTag = { id: string; label: string; color: string };
+type ErpConfig = {
+  virtualCeoTags?: VirtualCeoTag[];
+  virtualCeoCardTags?: Record<string, string>;
+};
 
 // ─── Priority config ──────────────────────────────────────────────────────────
 
@@ -77,9 +83,18 @@ function PriorityBadge({ priority }: { priority: ActionItem["priority"] }) {
   );
 }
 
-function ActionCard({ item, onNavigate }: { item: ActionItem; onNavigate: (url: string) => void }) {
+function ActionCard({
+  item, onNavigate, tags, selectedTagId, onTagChange,
+}: {
+  item: ActionItem;
+  onNavigate: (url: string) => void;
+  tags: VirtualCeoTag[];
+  selectedTagId?: string;
+  onTagChange: (itemId: string, tagId: string) => void;
+}) {
   const cfg = PRIORITY_CONFIG[item.priority];
   const ageLabel = item.ageDays != null ? `${item.ageDays}d` : item.ageHours != null ? `${item.ageHours}h` : null;
+  const selectedTag = tags.find(t => t.id === selectedTagId);
 
   return (
     <div style={{
@@ -109,12 +124,49 @@ function ActionCard({ item, onNavigate }: { item: ActionItem; onNavigate: (url: 
                 #{item.orderNo}
               </span>
             )}
+            {selectedTag && (
+              <span style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 10,
+                fontWeight: 800,
+                padding: "2px 7px",
+                borderRadius: 99,
+                background: `${selectedTag.color}18`,
+                color: selectedTag.color,
+                border: `1px solid ${selectedTag.color}40`,
+              }}>
+                <Tag size={10} /> {selectedTag.label}
+              </span>
+            )}
           </div>
           {/* Row 2: title */}
           <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", lineHeight: 1.4, marginBottom: 3 }}>{item.title}</div>
           {/* Row 3: detail — always visible */}
           <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>{item.detail}</div>
         </div>
+        {tags.length > 0 && (
+          <select
+            value={selectedTagId ?? ""}
+            onChange={(e) => onTagChange(item.id, e.target.value)}
+            aria-label={`Tag ${item.title}`}
+            style={{
+              width: 150,
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #cbd5e1",
+              background: "#fff",
+              color: "#334155",
+              fontSize: 12,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            <option value="">No tag</option>
+            {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.label}</option>)}
+          </select>
+        )}
         {item.actionUrl && (
           <button
             onClick={() => onNavigate(item.actionUrl!)}
@@ -134,13 +186,16 @@ function ActionCard({ item, onNavigate }: { item: ActionItem; onNavigate: (url: 
 }
 
 function DepartmentSection({
-  title, icon: Icon, color, items, onNavigate,
+  title, icon: Icon, color, items, onNavigate, tags, cardTags, onTagChange,
 }: {
   title: string;
   icon: React.ElementType;
   color: string;
   items: ActionItem[];
   onNavigate: (url: string) => void;
+  tags: VirtualCeoTag[];
+  cardTags: Record<string, string>;
+  onTagChange: (itemId: string, tagId: string) => void;
 }) {
   const high   = items.filter(i => i.priority === "HIGH").length;
   const medium = items.filter(i => i.priority === "MEDIUM").length;
@@ -195,7 +250,16 @@ function DepartmentSection({
         {["HIGH", "MEDIUM", "LOW"].flatMap(p =>
           items
             .filter(i => i.priority === p)
-            .map(item => <ActionCard key={item.id} item={item} onNavigate={onNavigate} />)
+            .map(item => (
+              <ActionCard
+                key={item.id}
+                item={item}
+                onNavigate={onNavigate}
+                tags={tags}
+                selectedTagId={cardTags[item.id]}
+                onTagChange={onTagChange}
+              />
+            ))
         )}
       </div>
     </div>
@@ -246,13 +310,19 @@ export default function VirtualCeoPage() {
   const [tab, setTab]           = useState<Tab>("daily");
   const [sending, setSending]   = useState(false);
   const [sentOk, setSentOk]     = useState<boolean | null>(null);
+  const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
+  const [tagSavingId, setTagSavingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/virtual-ceo/report`, { headers: getAuthHeaders() });
+      const [res, erpRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/virtual-ceo/report`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
+      ]);
       if (!res.ok) { setError("Could not load report"); return; }
       setReport(await res.json());
+      if (erpRes.ok) setErpConfig(await erpRes.json());
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, []);
@@ -269,6 +339,26 @@ export default function VirtualCeoPage() {
   };
 
   const navigate = (url: string) => { window.location.href = url; };
+
+  const updateCardTag = async (itemId: string, tagId: string) => {
+    if (!erpConfig) return;
+    const nextCardTags = { ...(erpConfig.virtualCeoCardTags ?? {}) };
+    if (tagId) nextCardTags[itemId] = tagId;
+    else delete nextCardTags[itemId];
+    const nextConfig = { ...erpConfig, virtualCeoCardTags: nextCardTags };
+    setErpConfig(nextConfig);
+    setTagSavingId(itemId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/erp-config`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(nextConfig),
+      });
+      if (res.ok) setErpConfig(await res.json());
+    } finally {
+      setTagSavingId(null);
+    }
+  };
 
   const generatedAt = report ? new Date(report.generatedAt).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric",
@@ -298,6 +388,8 @@ export default function VirtualCeoPage() {
 
   const allItems = [...report.accounts, ...report.production, ...report.dispatch, ...report.stock];
   const urgentItems = allItems.filter(i => i.priority === "HIGH");
+  const tags = erpConfig?.virtualCeoTags ?? [];
+  const cardTags = erpConfig?.virtualCeoCardTags ?? {};
 
   return (
     <DashboardShell>
@@ -409,8 +501,16 @@ export default function VirtualCeoPage() {
                   <AlertTriangle size={16} /> {urgentItems.length} Urgent Items — Act Now
                 </div>
                 {urgentItems.map(item => (
-                  <ActionCard key={item.id} item={item} onNavigate={navigate} />
+                  <ActionCard
+                    key={item.id}
+                    item={item}
+                    onNavigate={navigate}
+                    tags={tags}
+                    selectedTagId={cardTags[item.id]}
+                    onTagChange={updateCardTag}
+                  />
                 ))}
+                {tagSavingId && <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Saving tag...</div>}
               </div>
             )}
 
@@ -426,6 +526,9 @@ export default function VirtualCeoPage() {
                     color={cfg.color}
                     items={deptItems}
                     onNavigate={navigate}
+                    tags={tags}
+                    cardTags={cardTags}
+                    onTagChange={updateCardTag}
                   />
                 );
               })}
@@ -505,16 +608,16 @@ export default function VirtualCeoPage() {
 
         {/* ── Department-specific tabs ── */}
         {tab === "accounts" && (
-          <DepartmentSection title="Accounts" icon={DEPT_CONFIG.ACCOUNTS.icon} color={DEPT_CONFIG.ACCOUNTS.color} items={report.accounts} onNavigate={navigate} />
+          <DepartmentSection title="Accounts" icon={DEPT_CONFIG.ACCOUNTS.icon} color={DEPT_CONFIG.ACCOUNTS.color} items={report.accounts} onNavigate={navigate} tags={tags} cardTags={cardTags} onTagChange={updateCardTag} />
         )}
         {tab === "production" && (
-          <DepartmentSection title="Production" icon={DEPT_CONFIG.PRODUCTION.icon} color={DEPT_CONFIG.PRODUCTION.color} items={report.production} onNavigate={navigate} />
+          <DepartmentSection title="Production" icon={DEPT_CONFIG.PRODUCTION.icon} color={DEPT_CONFIG.PRODUCTION.color} items={report.production} onNavigate={navigate} tags={tags} cardTags={cardTags} onTagChange={updateCardTag} />
         )}
         {tab === "dispatch" && (
-          <DepartmentSection title="Dispatch" icon={DEPT_CONFIG.DISPATCH.icon} color={DEPT_CONFIG.DISPATCH.color} items={report.dispatch} onNavigate={navigate} />
+          <DepartmentSection title="Dispatch" icon={DEPT_CONFIG.DISPATCH.icon} color={DEPT_CONFIG.DISPATCH.color} items={report.dispatch} onNavigate={navigate} tags={tags} cardTags={cardTags} onTagChange={updateCardTag} />
         )}
         {tab === "stock" && (
-          <DepartmentSection title="Stock & Costs" icon={DEPT_CONFIG.STOCK.icon} color={DEPT_CONFIG.STOCK.color} items={report.stock} onNavigate={navigate} />
+          <DepartmentSection title="Stock & Costs" icon={DEPT_CONFIG.STOCK.icon} color={DEPT_CONFIG.STOCK.color} items={report.stock} onNavigate={navigate} tags={tags} cardTags={cardTags} onTagChange={updateCardTag} />
         )}
 
       </div>

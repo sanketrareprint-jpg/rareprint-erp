@@ -32,6 +32,7 @@ import { CostTableModule } from './cost-table/cost-table.module';
 import { BankStatementModule } from './bank-statement/bank-statement.module';
 import { CarrierConfigModule } from './carrier-config/carrier-config.module';
 import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
+import { ErpConfigModule } from './erp-config/erp-config.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
     CostTableModule,
     BankStatementModule,
     CarrierConfigModule,
+    ErpConfigModule,
     VirtualCeoModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
