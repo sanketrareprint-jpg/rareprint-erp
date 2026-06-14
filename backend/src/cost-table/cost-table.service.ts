@@ -443,6 +443,63 @@ export class CostTableService {
     });
   }
 
+  // ── Orders that have items with no cost slab ──────────────────────────────
+
+  async getOrdersWithoutCost() {
+    // Fetch ALL orders (any status) that have at least one item
+    // whose product has NO cost slabs at all
+    const orders = await (this.prisma as any).order.findMany({
+      where: {
+        items: {
+          some: {
+            product: { costSlabs: { none: {} } },
+          },
+        },
+      },
+      include: {
+        customer: { select: { businessName: true, phone: true } },
+        salesAgent: { select: { fullName: true } },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true, sku: true, name: true, gsm: true,
+                sizeInches: true, sides: true,
+                category: { select: { name: true } },
+                costSlabs: { select: { id: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return orders.map((order: any) => ({
+      id: order.id,
+      orderNo: order.orderNumber,
+      status: order.status,
+      customerName: order.customer.businessName,
+      customerPhone: order.customer.phone ?? null,
+      salesAgentName: order.salesAgent?.fullName ?? null,
+      orderDate: order.orderDate,
+      totalAmount: Number(order.grandTotal),
+      itemsWithNoCost: order.items
+        .filter((item: any) => item.product.costSlabs.length === 0)
+        .map((item: any) => ({
+          productId: item.product.id,
+          sku: item.product.sku,
+          productName: item.product.name,
+          gsm: item.product.gsm,
+          sizeInches: item.product.sizeInches,
+          sides: item.product.sides,
+          category: item.product.category?.name ?? null,
+          quantity: item.quantity,
+          unitPrice: Number(item.unitPrice),
+        })),
+    }));
+  }
+
   async getRateSlabsForProduct(productId: string) {
     return (this.prisma as any).productRateSlab.findMany({
       where: { productId },
@@ -497,3 +554,4 @@ export class CostTableService {
     };
   }
 }
+                                                                                             
