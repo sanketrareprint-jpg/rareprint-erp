@@ -71,14 +71,8 @@ export const DEFAULT_MODULES: ModuleConfig[] = [
 ];
 
 export const DEFAULT_ERP_CONFIG: ErpConfig = {
-  orderFields: [
-    { id: 'order_reference', label: 'Customer PO / Reference', type: 'text' },
-  ],
-  itemFields: [
-    { id: 'item_number', label: 'Item Number', type: 'text' },
-    { id: 'gsm', label: 'GSM', type: 'number' },
-    { id: 'finished_size', label: 'Finished Size', type: 'text' },
-  ],
+  orderFields: [],
+  itemFields: [],
   productionStages: [
     { id: 'NOT_PRINTED', label: 'Not Printed', substages: [] },
     { id: 'PRINTING', label: 'Printing', substages: ['Plate', 'Print', 'Drying'] },
