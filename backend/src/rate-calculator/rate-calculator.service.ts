@@ -250,6 +250,29 @@ export class RateCalculatorService {
     }
   }
 
+  // ── Cost Table lookup for Non Woven Bags ────────────────────────────────
+  private async getNonWovenCostPerBag(
+    size: string,
+    qty: number,
+  ): Promise<{ perBag: number; tier: number; sku: string } | null> {
+    const sku = 'DCUT' + size.replace('x', '');
+    try {
+      const product = await (this.prisma as any).product.findFirst({
+        where: { sku: { equals: sku, mode: 'insensitive' }, isActive: true },
+        include: { costSlabs: { orderBy: { minQuantity: 'asc' } } },
+      });
+      if (!product || !product.costSlabs?.length) return null;
+      const slab = product.costSlabs
+        .filter((s: any) => s.minQuantity <= qty && (s.maxQuantity == null || s.maxQuantity >= qty))
+        .sort((a: any, b: any) => b.minQuantity - a.minQuantity)[0];
+      if (!slab) return null;
+      const perBag = Number(slab.unitPrice) / slab.minQuantity;
+      return { perBag, tier: slab.minQuantity, sku };
+    } catch {
+      return null;
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────
   private getPrintCost(rates: any, colors: number, parentSheets: number, cutsPerSheet: number, sidesMult = 1): number {
     if (colors === 4) {
@@ -587,7 +610,19 @@ export class RateCalculatorService {
       const bagQty = Number(qty ?? 0);
       const size = String(dto.nonWovenSize ?? '12x15');
       const printMode = dto.nonWovenPrintMode === 'multicolor' ? 'multicolor' : 'single';
-      const baseRate = Number(nw.sizeRates?.[size] ?? DEFAULT_RATES.nonWovenBag.sizeRates[size] ?? 10);
+
+      // Try Cost Table first (DCUT<size> SKU → ProductCostSlab)
+      const costTableResult = await this.getNonWovenCostPerBag(size, bagQty);
+      let baseRate: number;
+      let costSource: string;
+      if (costTableResult) {
+        baseRate = costTableResult.perBag;
+        costSource = `Cost Table (${costTableResult.sku}, tier ${costTableResult.tier.toLocaleString()})`;
+      } else {
+        baseRate = Number(nw.sizeRates?.[size] ?? DEFAULT_RATES.nonWovenBag.sizeRates[size] ?? 10);
+        costSource = 'Rates config';
+      }
+
       const extraRate = printMode === 'multicolor' ? Number(nw.multicolorExtraPerBag ?? DEFAULT_RATES.nonWovenBag.multicolorExtraPerBag) : 0;
       const baseCost = baseRate * bagQty;
       const extraCost = extraRate * bagQty;
@@ -595,7 +630,7 @@ export class RateCalculatorService {
       const multiplier = dtoMult ?? nw.multiplier ?? DEFAULT_RATES.nonWovenBag.multiplier;
       const total = subtotal * multiplier;
       const breakdown: any[] = [
-        { label: `Non woven bag ${size} (${bagQty.toLocaleString()} bags x Rs.${baseRate})`, amount: baseCost },
+        { label: `Non woven bag ${size} (${bagQty.toLocaleString()} bags x Rs.${baseRate.toFixed(2)}) [${costSource}]`, amount: baseCost },
       ];
       if (extraRate > 0) breakdown.push({ label: `Multicolor extra (${bagQty.toLocaleString()} bags x Rs.${extraRate})`, amount: extraCost });
       return {
