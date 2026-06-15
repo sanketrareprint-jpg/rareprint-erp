@@ -153,7 +153,7 @@ export default function DashboardPage() {
                   <p className={`text-base font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
                     {fmtDuration(metric.avgHours)}
                   </p>
-                  <div className="mt-1.5 flex items-center gap-1" style={{ fontSize: "10px" }}>
+                  <div className="mt-1.5 flex items-center gap-1 text-xs">
                     <span className={`font-bold ${metric.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
                       {metric.avgDaysMonth != null ? metric.avgDaysMonth+"d" : "—"}
                     </span>
@@ -162,10 +162,10 @@ export default function DashboardPage() {
                       {metric.avgDaysWeek != null ? metric.avgDaysWeek+"d" : "—"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1" style={{ fontSize: "8px" }}>
-                    <span className="text-emerald-400">mo</span>
-                    <span className="text-slate-200">/</span>
-                    <span className="text-blue-400">wk</span>
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-emerald-400 font-medium">mo</span>
+                    <span className="text-slate-300">/</span>
+                    <span className="text-blue-400 font-medium">wk</span>
                   </div>
                 </div>
               ))}
@@ -360,33 +360,33 @@ export default function DashboardPage() {
 
           {/* Category Cycle Times */}
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1.5 mb-1.5">
+            <div className="flex items-center gap-1.5 mb-2">
               <Factory className="h-3 w-3 text-rose-500" />
               <p className="text-xs font-semibold text-slate-700">Category Cycle Times</p>
             </div>
-            <div className="grid grid-cols-3 mb-1 px-0.5" style={{ fontSize: "9px" }}>
-              <span className="text-slate-400 font-medium">Category</span>
-              <span className="text-slate-500 font-semibold text-center">All</span>
-              <span className="text-slate-400 text-right">
-                <span className="text-emerald-500">mo</span> / <span className="text-blue-500">wk</span>
+            <div className="grid grid-cols-3 mb-1.5 px-1">
+              <span className="text-xs text-slate-400 font-medium">Category</span>
+              <span className="text-xs text-slate-500 font-semibold text-center">All</span>
+              <span className="text-xs text-slate-400 text-right">
+                <span className="text-emerald-500 font-semibold">mo</span> / <span className="text-blue-500 font-semibold">wk</span>
               </span>
             </div>
             {!productionKpis || productionKpis.categoryCycleTimes.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-4">No ready dispatch data yet</p>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {productionKpis.categoryCycleTimes.map((row) => (
-                  <div key={row.category} className="grid grid-cols-3 items-center px-0.5 py-0.5 border-b border-slate-50 last:border-0">
+                  <div key={row.category} className="grid grid-cols-3 items-center px-1 py-0.5 border-b border-slate-50 last:border-0">
                     <span className="text-xs font-medium text-slate-700 truncate">{row.category}</span>
-                    <span className="text-xs font-bold text-rose-600 text-center tabular-nums">
+                    <span className="text-sm font-bold text-rose-600 text-center tabular-nums">
                       {row.avgDays != null ? row.avgDays+"d" : "—"}
                     </span>
-                    <span className="text-right tabular-nums" style={{ fontSize: "10px" }}>
-                      <span className={`font-semibold ${row.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
+                    <span className="text-xs text-right tabular-nums">
+                      <span className={`font-bold ${row.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
                         {row.avgDaysMonth != null ? row.avgDaysMonth+"d" : "—"}
                       </span>
                       <span className="text-slate-300 mx-0.5">/</span>
-                      <span className={`font-semibold ${row.avgDaysWeek != null ? "text-blue-600" : "text-slate-300"}`}>
+                      <span className={`font-bold ${row.avgDaysWeek != null ? "text-blue-600" : "text-slate-300"}`}>
                         {row.avgDaysWeek != null ? row.avgDaysWeek+"d" : "—"}
                       </span>
                     </span>
