@@ -829,6 +829,24 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+function AccordionCategory({ title, icon, defaultOpen = false, children }: { title: string; icon: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden mb-2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-100 hover:bg-slate-200 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <span>{icon}</span> {title}
+        </span>
+        <span className="text-slate-400 text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <div className="p-2.5 space-y-1.5">{children}</div>}
+    </div>
+  );
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function RateCalculatorPage() {
   const [tab, setTab] = useState<Tab>("forward");
@@ -1736,153 +1754,194 @@ export default function RateCalculatorPage() {
             </div>
           ) : rates ? (
             <>
-              {/* Multiplier */}
-              <Card title="💰 Selling Multiplier (covers Margin + GST)">
-                <Field label="Default Multiplier (×) — applied to total cost to get selling price">
-                  <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
-                </Field>
-                <p className="text-xs text-slate-400 mt-2">
-                  {"Example: cost ₹6,100 × " + (rates.multiplier ?? 1.67) + " = ₹" + (6100 * (rates.multiplier ?? 1.67)).toFixed(0) + " selling price"}
-                </p>
-              </Card>
-
-              {/* Paper — fully dynamic */}
-              <Card title="📄 Paper Rates (₹ per ream of 500 sheets)">
-                <DynamicPaperRates
-                  data={rates.paper ?? {}}
-                  onUpdate={d => updateRateSection("paper", d)}
-                />
-              </Card>
-
-              {/* Printing — structural, keep fixed */}
-              <Card title="🖨 Offset Printing Rates">
-                <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
-                  <strong>4-Color:</strong> billed per parent sheet (block rounding to 1000).{" "}
-                  <strong>1-Color / 2-Color:</strong> flat rate per 1,000 pieces.
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="4-Color — First 1,000 parent sheets (₹)">
-                    <Input type="number" value={rates.printing?.['4color']?.first1k ?? ""} onChange={e => updateRate("printing.4color.first1k", +e.target.value)} />
-                  </Field>
-                  <Field label="4-Color — Each next 1,000 sheets (₹)">
-                    <Input type="number" value={rates.printing?.['4color']?.nextK ?? ""} onChange={e => updateRate("printing.4color.nextK", +e.target.value)} />
-                  </Field>
-                  <Field label="1-Color — Flat per 1,000 pieces (₹)">
-                    <Input type="number" value={rates.printing?.['1color']?.flat ?? ""} onChange={e => updateRate("printing.1color.flat", +e.target.value)} />
-                  </Field>
-                  <Field label="2-Color — Flat per 1,000 pieces (₹)">
-                    <Input type="number" value={rates.printing?.['2color']?.flat ?? ""} onChange={e => updateRate("printing.2color.flat", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              {/* Plate & Punching */}
-              <Card title="🔲 Plate & Punching">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Plate Rate (₹/plate) — 1-color=1 plate, 4-color=4 plates">
-                    <Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} />
-                  </Field>
-                  <Field label="File Punching (₹/piece)">
-                    <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="PP Files">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Base costs are stored by quantity tier for single/double side, 300/350 micron and single/double creasing. These extras are applied per file before the selling multiplier.
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Field label="GST Extra (%)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? 18} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
-                  </Field>
-                  <Field label="Clip Extra (₹/file)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? 1.25} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
-                  </Field>
-                  <Field label="Pocket Extra (₹/side)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? 2.5} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
-                  </Field>
-                  <Field label="PP File Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="X-ray / CT Scan Bags">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Small bag is 10.5x16 inch X-ray bag. Big bag is 16x21 inch CT scan bag. Base costs are stored by quantity tier.
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Field label="GST Extra (%)">
-                    <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? 18} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
-                  </Field>
-                  <Field label="Bag Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="Sticker Rates">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Half cutting is applied only when the Sticker calculator checkbox is selected. It is added on the selected sticker base cost before the auto multiplier.
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Field label="Half Cutting Extra (%)">
-                    <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="Non Woven Bag Rates">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  <Field label="Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
-                  </Field>
-                  <Field label="Multicolor Extra (₹/bag)">
-                    <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
-                  </Field>
-                </div>
-                <DynamicRateSection
-                  data={rates.nonWovenBag?.sizeRates ?? {}}
-                  onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), sizeRates: d } }))}
-                  step={0.01}
-                  addKeyPlaceholder="size (e.g. 12x15)"
-                  addValPlaceholder="₹/bag"
-                  formatLabel={k => k + " Bag"}
-                />
-              </Card>
-
-              <Card title="Dot Matrix Bill Rates">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  <Field label="Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? 1.67} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
-                  </Field>
-                  <Field label="Carbon Copy Extra (₹/book)">
-                    <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? 8} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
-                  </Field>
-                </div>
-                <div className="space-y-2">
-                  {Object.entries(rates.dotMatrixBill?.sizeRates ?? {}).map(([size, gsmRates]) => (
-                    <div key={size} className="rounded-lg border border-slate-200 p-2">
-                      <p className="text-xs font-bold text-slate-600 mb-2">{size}</p>
-                      <DynamicRateSection
-                        data={gsmRates as Record<string, number>}
-                        onUpdate={d => setRates((prev: any) => ({ ...prev, dotMatrixBill: { ...(prev.dotMatrixBill ?? {}), sizeRates: { ...(prev.dotMatrixBill?.sizeRates ?? {}), [size]: d } } }))}
-                        step={0.01}
-                        addKeyPlaceholder="gsm"
-                        addValPlaceholder="₹/book"
-                        formatLabel={k => k + " GSM"}
-                      />
+              {/* ── CATEGORY: General ── */}
+              <AccordionCategory title="General" icon="⚙️" defaultOpen={true}>
+                <Card title="Selling Multiplier (covers Margin + GST)">
+                  <div className="flex items-end gap-3">
+                    <div className="w-32">
+                      <Field label="Default Multiplier (×)">
+                        <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
+                      </Field>
                     </div>
-                  ))}
-                </div>
-              </Card>
+                    <p className="text-xs text-slate-400 pb-1">
+                      cost ₹6,100 × {rates.multiplier ?? 1.67} = ₹{(6100 * (rates.multiplier ?? 1.67)).toFixed(0)}
+                    </p>
+                  </div>
+                </Card>
+                <Card title="Plate & Punching">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Plate Rate (₹/plate)">
+                      <Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} />
+                    </Field>
+                    <Field label="File Punching (₹/piece)">
+                      <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+              </AccordionCategory>
 
-              <Card title="Keychain Rates">
-                <Field label="Multiplier (×)">
-                  <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? 1.67} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
-                </Field>
-                <div className="mt-3">
+              {/* ── CATEGORY: Paper ── */}
+              <AccordionCategory title="Paper" icon="📄" defaultOpen={false}>
+                <Card title="Paper Rates (₹ per ream of 500 sheets)">
+                  <DynamicPaperRates
+                    data={rates.paper ?? {}}
+                    onUpdate={d => updateRateSection("paper", d)}
+                  />
+                </Card>
+              </AccordionCategory>
+
+              {/* ── CATEGORY: Printing & Finishing ── */}
+              <AccordionCategory title="Printing & Finishing" icon="🖨️" defaultOpen={false}>
+                <Card title="Offset Printing Rates">
+                  <p className="text-[10px] text-blue-600 mb-2">4-Color: per parent sheet (rounds to 1000) · 1/2-Color: flat per 1,000 pcs</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Field label="4-Color 1st 1,000 sheets (₹)">
+                      <Input type="number" value={rates.printing?.['4color']?.first1k ?? ""} onChange={e => updateRate("printing.4color.first1k", +e.target.value)} />
+                    </Field>
+                    <Field label="4-Color next 1,000 sheets (₹)">
+                      <Input type="number" value={rates.printing?.['4color']?.nextK ?? ""} onChange={e => updateRate("printing.4color.nextK", +e.target.value)} />
+                    </Field>
+                    <Field label="1-Color per 1,000 pcs (₹)">
+                      <Input type="number" value={rates.printing?.['1color']?.flat ?? ""} onChange={e => updateRate("printing.1color.flat", +e.target.value)} />
+                    </Field>
+                    <Field label="2-Color per 1,000 pcs (₹)">
+                      <Input type="number" value={rates.printing?.['2color']?.flat ?? ""} onChange={e => updateRate("printing.2color.flat", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+                <Card title="Lamination (₹/100 sq in)">
+                  <p className="text-[10px] text-slate-400 mb-2">18×23 sheet = 414 sq in → per sheet = 4.14 × rate</p>
+                  <DynamicRateSection
+                    data={rates.lamination ?? {}}
+                    onUpdate={d => updateRateSection("lamination", d)}
+                    step={0.01}
+                    addKeyPlaceholder="type (e.g. matt, gloss)"
+                    addValPlaceholder="₹/100sqin"
+                    formatLabel={k => k.charAt(0).toUpperCase() + k.slice(1)}
+                  />
+                </Card>
+                <Card title="Gum Pad Binding (₹/pad)">
+                  <DynamicRateSection
+                    data={rates.padBinding ?? {}}
+                    onUpdate={d => updateRateSection("padBinding", d)}
+                    addKeyPlaceholder="size (e.g. A4, A5)"
+                    addValPlaceholder="₹/pad"
+                    formatLabel={k => k}
+                  />
+                </Card>
+                <Card title="Bill Book Binding (₹/book)">
+                  <DynamicRateSection
+                    data={rates.billBookBinding ?? {}}
+                    onUpdate={d => updateRateSection("billBookBinding", d)}
+                    addKeyPlaceholder="size (e.g. A5, A6)"
+                    addValPlaceholder="₹/book"
+                    formatLabel={k => k}
+                  />
+                </Card>
+                <Card title="Envelope Making (₹/piece)">
+                  <DynamicRateSection
+                    data={rates.envelope ?? {}}
+                    onUpdate={d => updateRateSection("envelope", d)}
+                    step={0.5}
+                    addKeyPlaceholder="key (e.g. env6x9)"
+                    addValPlaceholder="₹/pc"
+                  />
+                </Card>
+              </AccordionCategory>
+
+              {/* ── CATEGORY: Files & Bags ── */}
+              <AccordionCategory title="Files & Bags" icon="📁" defaultOpen={false}>
+                <Card title="PP Files">
+                  <p className="text-[10px] text-slate-400 mb-2">Base costs by qty tier. Extras applied per file before multiplier.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Field label="GST Extra (%)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? 18} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
+                    </Field>
+                    <Field label="Clip Extra (₹/file)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? 1.25} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
+                    </Field>
+                    <Field label="Pocket Extra (₹/side)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? 2.5} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
+                    </Field>
+                    <Field label="PP File Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+                <Card title="Non Woven Bag (selling rate)">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+                    <Field label="Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
+                    </Field>
+                    <Field label="Multicolor Extra (₹/bag)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
+                    </Field>
+                  </div>
+                  <DynamicRateSection
+                    data={rates.nonWovenBag?.sizeRates ?? {}}
+                    onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), sizeRates: d } }))}
+                    step={0.01}
+                    addKeyPlaceholder="size (e.g. 12x15)"
+                    addValPlaceholder="₹/bag"
+                    formatLabel={k => k + " Bag"}
+                  />
+                </Card>
+                <Card title="X-ray / CT Scan Bags">
+                  <p className="text-[10px] text-slate-400 mb-2">Small = 10.5×16 X-ray · Big = 16×21 CT scan. Base costs by qty tier.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="GST Extra (%)">
+                      <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? 18} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
+                    </Field>
+                    <Field label="Bag Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+              </AccordionCategory>
+
+              {/* ── CATEGORY: Stationery & Gifts ── */}
+              <AccordionCategory title="Stationery & Gifts" icon="🖊️" defaultOpen={false}>
+                <Card title="Stickers">
+                  <p className="text-[10px] text-slate-400 mb-2">Half cut % added to base cost before auto multiplier (auto: under 500=×4, 500-1k=×3, 1k-3k=×2, 3k+=×1.67)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Half Cutting Extra (%)">
+                      <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+                <Card title="Dot Matrix Bills">
+                  <div className="grid grid-cols-2 gap-3 mb-2">
+                    <Field label="Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? 1.67} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
+                    </Field>
+                    <Field label="Carbon Copy Extra (₹/book)">
+                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? 8} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
+                    </Field>
+                  </div>
+                  <div className="space-y-1.5">
+                    {Object.entries(rates.dotMatrixBill?.sizeRates ?? {}).map(([size, gsmRates]) => (
+                      <div key={size} className="rounded border border-slate-200 bg-white p-2">
+                        <p className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase">{size}</p>
+                        <DynamicRateSection
+                          data={gsmRates as Record<string, number>}
+                          onUpdate={d => setRates((prev: any) => ({ ...prev, dotMatrixBill: { ...(prev.dotMatrixBill ?? {}), sizeRates: { ...(prev.dotMatrixBill?.sizeRates ?? {}), [size]: d } } }))}
+                          step={0.01}
+                          addKeyPlaceholder="gsm"
+                          addValPlaceholder="₹/book"
+                          formatLabel={k => k + " GSM"}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+                <Card title="Keychains">
+                  <div className="mb-2">
+                    <Field label="Multiplier (×)">
+                      <div className="w-24">
+                        <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? 1.67} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
+                      </div>
+                    </Field>
+                  </div>
                   <DynamicRateSection
                     data={rates.keychain?.numberRates ?? {}}
                     onUpdate={d => setRates((prev: any) => ({ ...prev, keychain: { ...(prev.keychain ?? {}), numberRates: d } }))}
@@ -1890,14 +1949,15 @@ export default function RateCalculatorPage() {
                     addKeyPlaceholder="number (e.g. KC6)"
                     addValPlaceholder="₹/pc"
                   />
-                </div>
-              </Card>
-
-              <Card title="Pen Rates">
-                <Field label="Multiplier (×)">
-                  <Input type="number" step="0.01" value={rates.pen?.multiplier ?? 1.67} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
-                </Field>
-                <div className="mt-3">
+                </Card>
+                <Card title="Pens">
+                  <div className="mb-2">
+                    <Field label="Multiplier (×)">
+                      <div className="w-24">
+                        <Input type="number" step="0.01" value={rates.pen?.multiplier ?? 1.67} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
+                      </div>
+                    </Field>
+                  </div>
                   <DynamicRateSection
                     data={rates.pen?.numberRates ?? {}}
                     onUpdate={d => setRates((prev: any) => ({ ...prev, pen: { ...(prev.pen ?? {}), numberRates: d } }))}
@@ -1905,57 +1965,8 @@ export default function RateCalculatorPage() {
                     addKeyPlaceholder="number (e.g. PEN6)"
                     addValPlaceholder="₹/pc"
                   />
-                </div>
-              </Card>
-
-              {/* Pad Binding — dynamic */}
-              <Card title="📎 Gum Pad Binding (₹/pad) — add/remove sizes">
-                <DynamicRateSection
-                  data={rates.padBinding ?? {}}
-                  onUpdate={d => updateRateSection("padBinding", d)}
-                  addKeyPlaceholder="size (e.g. A3, custom)"
-                  addValPlaceholder="₹/pad"
-                  formatLabel={k => k + " Pad"}
-                />
-              </Card>
-
-              {/* Bill Book Binding — dynamic */}
-              <Card title="📒 Bill Book Binding (₹/book) — add/remove sizes">
-                <DynamicRateSection
-                  data={rates.billBookBinding ?? {}}
-                  onUpdate={d => updateRateSection("billBookBinding", d)}
-                  addKeyPlaceholder="size (e.g. A5, A6)"
-                  addValPlaceholder="₹/book"
-                  formatLabel={k => k + " Bill Book"}
-                />
-              </Card>
-
-
-              {/* Lamination — dynamic */}
-              <Card title="✨ Lamination (₹/100 sq in) — add/remove types">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  {"Formula: (sheet area / 100) x rate x sheets. 18x23 sheet = 414 sq in, per sheet = 4.14 x rate"}
-                </div>
-                <DynamicRateSection
-                  data={rates.lamination ?? {}}
-                  onUpdate={d => updateRateSection("lamination", d)}
-                  step={0.01}
-                  addKeyPlaceholder="type (e.g. matt, uvspot, softtouch)"
-                  addValPlaceholder="r/100sqin"
-                  formatLabel={k => k.charAt(0).toUpperCase() + k.slice(1) + " Lamination"}
-                />
-              </Card>
-
-              {/* Envelope Making — dynamic */}
-              <Card title="Envelope Making (r/piece) — add/remove sizes">
-                <DynamicRateSection
-                  data={rates.envelope ?? {}}
-                  onUpdate={d => updateRateSection("envelope", d)}
-                  step={0.5}
-                  addKeyPlaceholder="key (e.g. env6x9, env5x7)"
-                  addValPlaceholder="r/pc"
-                />
-              </Card>
+                </Card>
+              </AccordionCategory>
 
               <button onClick={saveRates} className="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700">
                 Save All Rates
