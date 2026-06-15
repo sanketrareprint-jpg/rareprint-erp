@@ -1122,13 +1122,13 @@ export default function CostTablePage() {
         {activeTab === "orders" && (
           <div className="space-y-4">
             {/* Info banner */}
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-3">
-              <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 flex items-start gap-3">
+              <ShoppingCart size={16} className="text-blue-600 mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-amber-800">Orders blocked from approval until cost is added</p>
-                <p className="text-xs text-amber-700 mt-0.5">
-                  These orders are in <strong>Pending Approval</strong> status but cannot be approved in the Accounts tab
-                  because one or more products have no cost slabs. Click <strong>"Add Cost"</strong> on each product to unblock.
+                <p className="text-sm font-semibold text-blue-800">All orders missing cost data</p>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  Every order from the order book that has one or more products with no cost slabs is shown here — across all statuses.
+                  Orders in <strong>Pending Approval</strong> cannot be approved until cost is added. Click <strong>"Add Cost"</strong> on any product to add its cost slab.
                 </p>
               </div>
             </div>
@@ -1138,21 +1138,28 @@ export default function CostTablePage() {
             ) : ordersWithoutCost.length === 0 ? (
               <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
                 <CheckCircle size={32} className="mx-auto mb-2 text-green-400" />
-                <p className="text-sm text-gray-500 font-medium">No orders are blocked!</p>
-                <p className="text-xs text-gray-400 mt-1">All pending orders have cost data and can be approved.</p>
+                <p className="text-sm text-gray-500 font-medium">All orders have cost data!</p>
+                <p className="text-xs text-gray-400 mt-1">No orders in the order book are missing cost slabs.</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {ordersWithoutCost.map(order => (
-                  <div key={order.id} className="border border-amber-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                  <div key={order.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     {/* Order header */}
                     <div
-                      className="flex items-center justify-between px-4 py-3 bg-amber-50 cursor-pointer hover:bg-amber-100 select-none"
+                      className="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 select-none"
                       onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
                     >
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-amber-700 font-mono">{order.orderNo}</span>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white border border-amber-200 text-amber-700">
+                        <span className="font-bold text-blue-700 font-mono">{order.orderNo}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                          order.status === "PENDING_APPROVAL" ? "bg-amber-50 border-amber-300 text-amber-700" :
+                          order.status === "APPROVED" ? "bg-green-50 border-green-300 text-green-700" :
+                          order.status === "IN_PRODUCTION" ? "bg-blue-50 border-blue-300 text-blue-700" :
+                          order.status === "READY_FOR_DISPATCH" || order.status === "DISPATCHED" || order.status === "DELIVERED" ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+                          order.status === "CANCELLED" || order.status === "REJECTED" ? "bg-red-50 border-red-300 text-red-600" :
+                          "bg-gray-100 border-gray-200 text-gray-600"
+                        }`}>
                           {order.status.replace(/_/g, " ")}
                         </span>
                         <span className="font-semibold text-gray-800 text-sm">{order.customerName}</span>

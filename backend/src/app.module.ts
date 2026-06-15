@@ -33,7 +33,6 @@ import { BankStatementModule } from './bank-statement/bank-statement.module';
 import { CarrierConfigModule } from './carrier-config/carrier-config.module';
 import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
 import { ErpConfigModule } from './erp-config/erp-config.module';
-import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -64,9 +63,8 @@ import { ReportsModule } from './reports/reports.module';
     CostTableModule,
     BankStatementModule,
     CarrierConfigModule,
-    VirtualCeoModule,
     ErpConfigModule,
-    ReportsModule,
+    VirtualCeoModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
