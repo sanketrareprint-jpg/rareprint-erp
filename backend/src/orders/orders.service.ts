@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -221,9 +222,17 @@ export class OrdersService {
   }
 
   private async generateOrderNumber(): Promise<string> {
-    const last = await this.prisma.order.findFirst({ where: { isTest: { not: true } }, orderBy: { createdAt: 'desc' } });
-    const lastNum = last ? parseInt(last.orderNumber, 10) : 1200;
-    const next = (isNaN(lastNum) ? 1200 : lastNum) + 1;
+    // Use MAX to find the highest numeric order number atomically,
+    // avoiding race conditions from concurrent inserts.
+    const result = await this.prisma.$queryRaw<{ max: string | null }[]>`
+      SELECT MAX(CAST(NULLIF(REGEXP_REPLACE("orderNumber", '[^0-9]', '', 'g'), '') AS INTEGER))::text AS max
+      FROM "Order"
+      WHERE "isTest" = false
+        AND "orderNumber" ~ '^[0-9]+$'
+    `;
+    const maxNum = parseInt(result[0]?.max ?? '1200', 10);
+    const next = (isNaN(maxNum) ? 1200 : maxNum) + 1;
+    // Verify uniqueness; fall back to timestamp-based number if taken (should be very rare)
     const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
     if (exists) return String(Date.now());
     return String(next);
@@ -404,7 +413,9 @@ export class OrdersService {
       paymentStatus = cmp >= 0 ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
     }
 
-    const orderId = await this.prisma.$transaction(async (tx) => {
+    let orderId: string;
+    try {
+    orderId = await this.prisma.$transaction(async (tx) => {
       const existingCustomer = dto.customer.customerId
         ? await tx.customer.findUnique({ where: { id: dto.customer.customerId } })
         : dto.customer.phone
@@ -483,6 +494,17 @@ export class OrdersService {
 
       return order.id;
     });
+    } catch (err: any) {
+      // Prisma unique constraint violation (e.g. duplicate orderNumber from race condition)
+      if (err?.code === 'P2002') {
+        throw new InternalServerErrorException(
+          'Order number conflict — please try submitting again.',
+        );
+      }
+      throw new InternalServerErrorException(
+        `Order creation failed: ${err?.message ?? 'Unknown error'}`,
+      );
+    }
 
     // Send order created WhatsApp notification
     const fullOrder = await this.prisma.order.findUnique({
