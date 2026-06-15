@@ -93,12 +93,14 @@ export default function AdminDbPage() {
       .catch(() => setLoading(false));
   }, [router]);
 
-  const loadTable = useCallback(async (name: string, p = 1) => {
+  const loadTable = useCallback(async (name: string, p = 1, query = "") => {
     setTableLoading(true);
     setActiveTable(name);
     setPage(p);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/db/table/${name}?page=${p}&limit=${LIMIT}`, { headers: getAuthHeaders() });
+      const params = new URLSearchParams({ page: String(p), limit: String(LIMIT) });
+      if (query.trim()) params.set("search", query.trim());
+      const res = await fetch(`${API_BASE_URL}/admin/db/table/${name}?${params.toString()}`, { headers: getAuthHeaders() });
       const d = await res.json();
       setRows(d.rows || []);
       const fetchedCols = d.columns || (d.rows?.[0] ? Object.keys(d.rows[0]) : []);
@@ -107,6 +109,14 @@ export default function AdminDbPage() {
       setTotalPages(Math.ceil((d.total || 0) / LIMIT) || 1);
     } finally { setTableLoading(false); }
   }, []);
+
+  useEffect(() => {
+    if (!activeTable) return;
+    const handle = window.setTimeout(() => {
+      loadTable(activeTable, 1, search);
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [activeTable, search, loadTable]);
 
   const loadProductCategories = useCallback(async () => {
     try {
@@ -128,7 +138,7 @@ export default function AdminDbPage() {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify(editData),
     });
-    if (res.ok) { setEditingRow(null); loadTable(activeTable, page); }
+    if (res.ok) { setEditingRow(null); loadTable(activeTable, page, search); }
     else { const e = await res.json(); alert("Save failed: " + formatAdminDbError(e.message || "Unknown error")); }
   };
 
@@ -137,7 +147,7 @@ export default function AdminDbPage() {
     const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}/${id}`, {
       method: "DELETE", headers: getAuthHeaders(),
     });
-    if (res.ok) loadTable(activeTable, page);
+    if (res.ok) loadTable(activeTable, page, search);
     else alert("Delete failed");
   };
 
@@ -149,7 +159,7 @@ export default function AdminDbPage() {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(addData),
       });
-      if (res.ok) { setShowAddModal(false); setAddData({}); loadTable(activeTable, page); }
+      if (res.ok) { setShowAddModal(false); setAddData({}); loadTable(activeTable, page, search); }
       else { const e = await res.json(); alert("Add failed: " + formatAdminDbError(e.message || JSON.stringify(e))); }
     } finally { setAddLoading(false); }
   };
@@ -252,7 +262,7 @@ export default function AdminDbPage() {
         (errors.length > 0 ? `\n\nErrors:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ""}` : "");
       setImportResult(msg);
       if (success > 0) {
-        loadTable(activeTable, 1);
+        loadTable(activeTable, 1, search);
         // Refresh sidebar counts
         fetch(`${API_BASE_URL}/admin/db/tables`, { headers: getAuthHeaders() })
           .then(r => r.json())
@@ -261,10 +271,6 @@ export default function AdminDbPage() {
     } catch (e) { setImportResult("Import failed: " + String(e)); }
     finally { setImportLoading(false); }
   };
-
-  const filteredRows = rows.filter(row =>
-    !search || Object.values(row).some(v => String(v).toLowerCase().includes(search.toLowerCase()))
-  );
 
   const categoryLabel = (category: ProductCategoryOption) =>
     category.name || category.slug || category.id;
@@ -369,7 +375,7 @@ export default function AdminDbPage() {
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
             {tables.map(t => (
-              <button key={t} onClick={() => loadTable(t, 1)}
+              <button key={t} onClick={() => loadTable(t, 1, search)}
                 className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors ${activeTable === t ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}`}>
                 <span className="truncate">{TABLE_LABELS[t] || t}</span>
                 <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTable === t ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"}`}>
@@ -440,13 +446,13 @@ export default function AdminDbPage() {
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
                     <input value={search} onChange={e => setSearch(e.target.value)}
-                      placeholder="Filter rows..." className="pl-6 pr-3 py-1 text-xs border border-slate-200 rounded-md outline-none focus:border-blue-400 w-48" />
+                      placeholder="Search table..." className="pl-6 pr-3 py-1 text-xs border border-slate-200 rounded-md outline-none focus:border-blue-400 w-48" />
                   </div>
                   <div className="flex items-center gap-1 text-xs text-slate-500">
-                    <button onClick={() => page > 1 && loadTable(activeTable, page - 1)} disabled={page <= 1}
+                    <button onClick={() => page > 1 && loadTable(activeTable, page - 1, search)} disabled={page <= 1}
                       className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" /></button>
                     <span>{page}/{totalPages || 1}</span>
-                    <button onClick={() => page < totalPages && loadTable(activeTable, page + 1)} disabled={page >= totalPages}
+                    <button onClick={() => page < totalPages && loadTable(activeTable, page + 1, search)} disabled={page >= totalPages}
                       className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"><ChevronRight className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
@@ -467,7 +473,7 @@ export default function AdminDbPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredRows.map(row => {
+                      {rows.map(row => {
                         const rowId = String(row.id ?? "");
                         const rowEditData = Object.fromEntries(
                           Object.entries(row).filter(([, value]) =>

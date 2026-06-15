@@ -27,6 +27,19 @@ const RELATION_FIELDS = [
   'orderItem','printSheetItem','sheetStageVendor','itemStageLog',
 ];
 
+const TABLE_SEARCH_FIELDS: Record<string, string[]> = {
+  user: ['fullName', 'email', 'phone', 'role'],
+  customer: ['businessName', 'contactPerson', 'phone', 'email', 'city', 'state', 'pincode', 'gstNumber', 'panNumber'],
+  productCategory: ['name', 'description'],
+  product: ['sku', 'name', 'description', 'sizeInches', 'openSizeInches'],
+  paymentAccount: ['name', 'accountType', 'bankName', 'accountNumber', 'ifscCode', 'upiId'],
+  vendor: ['name', 'phone', 'email', 'gstNumber', 'address'],
+  jobWork: ['name', 'description'],
+  printSheet: ['sheetNo', 'quality', 'sizeInches', 'printing', 'status'],
+  godown: ['name', 'address', 'city', 'state', 'pincode'],
+  order: ['orderNumber'],
+};
+
 function cleanData(data: Record<string, any>): Record<string, any> {
   // Remove auto fields and relation name fields
   const AUTO = ['id', 'createdAt', 'updatedAt'];
@@ -82,17 +95,27 @@ export class AdminDbController {
     @Param('name') name: string,
     @Query('page') page = '1',
     @Query('limit') limit = '50',
+    @Query('search') search = '',
   ) {
     this.checkAdmin(req);
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
+    const q = search.trim();
+    const searchableFields = TABLE_SEARCH_FIELDS[name] || [];
+    const where = q && searchableFields.length > 0
+      ? {
+          OR: searchableFields.map(field => ({
+            [field]: { contains: q, mode: 'insensitive' },
+          })),
+        }
+      : undefined;
     try {
       const [rows, total] = await Promise.all([
-        (this.prisma as any)[name].findMany({ skip, take, orderBy: { createdAt: 'desc' } }).catch(() =>
-          (this.prisma as any)[name].findMany({ skip, take })
+        (this.prisma as any)[name].findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }).catch(() =>
+          (this.prisma as any)[name].findMany({ where, skip, take })
         ),
-        (this.prisma as any)[name].count(),
+        (this.prisma as any)[name].count({ where }),
       ]);
       const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
       return { rows, total, columns, page: parseInt(page), limit: take };
