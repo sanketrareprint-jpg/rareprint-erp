@@ -397,7 +397,6 @@ export class OrdersService {
       itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
       artworkNotes: i.artworkNotes ?? null,
       productionNotes: i.productionNotes ?? null,
-      customFields: i.customFields ?? {},
     })) as any[];
 
     const subtotal = itemsData.reduce(
@@ -457,7 +456,6 @@ export class OrdersService {
           customerId: customer.id,
           salesAgentId,
           leadSource: dto.leadSource ?? null,
-          customFields: dto.customFields ?? {},
           status: OrderStatus.PENDING_APPROVAL,
           paymentStatus,
           subtotal,
