@@ -137,60 +137,40 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Production Speed KPIs ── */}
-        <div className="grid grid-cols-4 gap-2">
-          <div className="col-span-3 bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Clock className="h-3 w-3 text-cyan-600" />
-              <p className="text-xs font-semibold text-slate-700">Production Time KPIs</p>
-              <span className="text-xs text-slate-400 ml-auto">Average time</span>
-            </div>
-            {!productionKpis || productionKpis.metrics.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
-            ) : (
-              <div className="grid grid-cols-5 gap-1.5">
-                {productionKpis.metrics.map((metric) => (
-                  <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5 min-w-0">
-                    <p className="text-slate-500 font-medium truncate" style={{ fontSize: "10px" }}>{metric.label}</p>
-                    <p className={`text-sm font-bold leading-tight mt-0.5 ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
-                      {fmtDuration(metric.avgHours)}
-                    </p>
-                    <p className="text-slate-400 truncate" style={{ fontSize: "9px" }}>
-                      {[metric.avgDaysMonth, metric.avgDaysWeek].some(v => v != null)
-                        ? `${metric.avgDaysMonth != null ? metric.avgDaysMonth+"d" : "—"} / ${metric.avgDaysWeek != null ? metric.avgDaysWeek+"d" : "—"} mo/wk`
-                        : `${metric.sampleSize} samples`}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+        <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Clock className="h-3 w-3 text-cyan-600" />
+            <p className="text-xs font-semibold text-slate-700">Production Time KPIs</p>
+            <span className="text-xs text-slate-400 ml-auto">all time &nbsp;·&nbsp; this month &nbsp;·&nbsp; this week</span>
           </div>
-
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Factory className="h-3 w-3 text-rose-500" />
-              <p className="text-xs font-semibold text-slate-700">Category Cycle Times</p>
-            </div>
-            <div className="flex justify-end gap-2 mb-1">
-              <span className="text-slate-400" style={{fontSize:"8px"}}>all / mo / wk</span>
-            </div>
-            {!productionKpis || productionKpis.categoryCycleTimes.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-4">No ready dispatch data yet</p>
-            ) : (
-              <div className="space-y-1">
-                {productionKpis.categoryCycleTimes.map((row) => (
-                  <div key={row.category} className="flex items-center justify-between gap-1 min-w-0">
-                    <span className="text-xs font-medium text-slate-700 truncate flex-1">{row.category}</span>
-                    <span className="text-xs font-bold text-rose-600 flex-shrink-0 tabular-nums">
-                      {row.avgDays != null ? row.avgDays+"d" : "—"}
+          {!productionKpis || productionKpis.metrics.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
+          ) : (
+            <div className="grid grid-cols-5 gap-2">
+              {productionKpis.metrics.map((metric) => (
+                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 min-w-0">
+                  <p className="text-slate-500 font-medium truncate mb-1" style={{ fontSize: "10px" }}>{metric.label}</p>
+                  <p className={`text-base font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
+                    {fmtDuration(metric.avgHours)}
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-1" style={{ fontSize: "10px" }}>
+                    <span className={`font-bold ${metric.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
+                      {metric.avgDaysMonth != null ? metric.avgDaysMonth+"d" : "—"}
                     </span>
-                    <span className="text-slate-400 flex-shrink-0 tabular-nums" style={{fontSize:"9px"}}>
-                      {row.avgDaysMonth != null ? row.avgDaysMonth+"d" : "—"}&nbsp;/&nbsp;{row.avgDaysWeek != null ? row.avgDaysWeek+"d" : "—"}
+                    <span className="text-slate-300">/</span>
+                    <span className={`font-bold ${metric.avgDaysWeek != null ? "text-blue-600" : "text-slate-300"}`}>
+                      {metric.avgDaysWeek != null ? metric.avgDaysWeek+"d" : "—"}
                     </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  <div className="flex items-center gap-1" style={{ fontSize: "8px" }}>
+                    <span className="text-emerald-400">mo</span>
+                    <span className="text-slate-200">/</span>
+                    <span className="text-blue-400">wk</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Row 2: Chart + Pipeline + Lead Sources ── */}
@@ -378,25 +358,42 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Recent Orders */}
+          {/* Category Cycle Times */}
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <p className="text-xs font-semibold text-slate-700 mb-1.5">Recent Orders</p>
-            <div className="space-y-0.5">
-              {stats.recentOrders.slice(0, 9).map(o => (
-                <div key={o.id} className="flex items-center justify-between py-0.5 border-b border-slate-50 last:border-0">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-800">{o.orderNo}</p>
-                    <p className="text-slate-400" style={{ fontSize: "9px" }}>{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className={`rounded-full px-1.5 py-0.5 font-semibold ${statusColors[o.status] ?? "bg-gray-100 text-gray-700"}`} style={{ fontSize: "8px" }}>
-                      {o.status.replace(/_/g, " ")}
-                    </span>
-                    <span className="text-xs font-bold text-slate-700">{fmt(o.total)}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Factory className="h-3 w-3 text-rose-500" />
+              <p className="text-xs font-semibold text-slate-700">Category Cycle Times</p>
             </div>
+            <div className="grid grid-cols-3 mb-1 px-0.5" style={{ fontSize: "9px" }}>
+              <span className="text-slate-400 font-medium">Category</span>
+              <span className="text-slate-500 font-semibold text-center">All</span>
+              <span className="text-slate-400 text-right">
+                <span className="text-emerald-500">mo</span> / <span className="text-blue-500">wk</span>
+              </span>
+            </div>
+            {!productionKpis || productionKpis.categoryCycleTimes.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-4">No ready dispatch data yet</p>
+            ) : (
+              <div className="space-y-1">
+                {productionKpis.categoryCycleTimes.map((row) => (
+                  <div key={row.category} className="grid grid-cols-3 items-center px-0.5 py-0.5 border-b border-slate-50 last:border-0">
+                    <span className="text-xs font-medium text-slate-700 truncate">{row.category}</span>
+                    <span className="text-xs font-bold text-rose-600 text-center tabular-nums">
+                      {row.avgDays != null ? row.avgDays+"d" : "—"}
+                    </span>
+                    <span className="text-right tabular-nums" style={{ fontSize: "10px" }}>
+                      <span className={`font-semibold ${row.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
+                        {row.avgDaysMonth != null ? row.avgDaysMonth+"d" : "—"}
+                      </span>
+                      <span className="text-slate-300 mx-0.5">/</span>
+                      <span className={`font-semibold ${row.avgDaysWeek != null ? "text-blue-600" : "text-slate-300"}`}>
+                        {row.avgDaysWeek != null ? row.avgDaysWeek+"d" : "—"}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
