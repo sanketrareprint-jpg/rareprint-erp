@@ -111,6 +111,19 @@ export class AccountsController {
     return this.accountsService.createAccountingNote(req.user, body);
   }
 
+  @Get('outstanding-order-shipments')
+  getOutstandingOrderShipments() {
+    return this.accountsService.getOutstandingOrderShipments();
+  }
+
+  @Post('orders/:orderId/cod-booking')
+  markOrderAsCod(
+    @Param('orderId') orderId: string,
+    @Body() body: { awbNumber?: string; courierPlatform: string; courierOrderId?: string },
+  ) {
+    return this.accountsService.markOrderAsCod(orderId, body);
+  }
+
   @Patch('customers/:customerId/balance-reminder')
   sendBalanceReminder(@Param('customerId') customerId: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.sendBalanceReminder(customerId, req.user);

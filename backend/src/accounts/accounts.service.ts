@@ -1222,6 +1222,88 @@ export class AccountsService {
     }));
   }
 
+  async getOutstandingOrderShipments() {
+    // Returns shipment/courier info for all orders that still have an outstanding balance
+    const rows = await this.prisma.$queryRaw<any[]>`
+      SELECT
+        o.id AS "orderId",
+        o."orderNumber" AS "orderNo",
+        o."customerId",
+        s.id AS "shipmentId",
+        s."awbNumber",
+        s."carrierName" AS "courierPlatform",
+        s."lrNumber" AS "courierOrderId",
+        s."dispatchType",
+        s."trackingNumber",
+        s.notes AS "shipmentNotes",
+        s."createdAt" AS "shipmentCreatedAt"
+      FROM "Order" o
+      LEFT JOIN "Shipment" s ON s."orderId" = o.id
+      WHERE o.status NOT IN ('DRAFT', 'CANCELLED')
+        AND (
+          o."grandTotal" - COALESCE((
+            SELECT SUM(p.amount) FROM "Payment" p
+            WHERE p."orderId" = o.id AND p."verificationStatus" = 'VERIFIED'
+          ), 0)
+        ) > 0
+      ORDER BY o."orderDate" DESC
+    `;
+    return rows.map(row => ({
+      orderId: row.orderId,
+      orderNo: row.orderNo,
+      customerId: row.customerId,
+      shipmentId: row.shipmentId ?? null,
+      awbNumber: row.awbNumber ?? null,
+      courierPlatform: row.courierPlatform ?? null,
+      courierOrderId: row.courierOrderId ?? null,
+      dispatchType: row.dispatchType ?? null,
+      trackingNumber: row.trackingNumber ?? null,
+      shipmentNotes: row.shipmentNotes ?? null,
+      shipmentCreatedAt: row.shipmentCreatedAt ?? null,
+      isCourierBooked: !!(row.awbNumber || row.trackingNumber),
+    }));
+  }
+
+  async markOrderAsCod(orderId: string, data: {
+    awbNumber?: string;
+    courierPlatform: string;
+    courierOrderId?: string;
+  }) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    // Check if a COD_MANUAL shipment already exists for this order
+    const existingManualShipment = await this.prisma.shipment.findFirst({
+      where: { orderId, dispatchType: 'COD_MANUAL' },
+    });
+
+    if (existingManualShipment) {
+      // Update existing
+      return this.prisma.shipment.update({
+        where: { id: existingManualShipment.id },
+        data: {
+          awbNumber: data.awbNumber ?? null,
+          carrierName: data.courierPlatform,
+          lrNumber: data.courierOrderId ?? null,
+        },
+      });
+    }
+
+    // Create new COD manual shipment record
+    const shipmentNumber = `COD-${order.orderNumber}-${Date.now()}`;
+    return this.prisma.shipment.create({
+      data: {
+        orderId,
+        shipmentNumber,
+        dispatchType: 'COD_MANUAL',
+        carrierName: data.courierPlatform,
+        awbNumber: data.awbNumber ?? null,
+        lrNumber: data.courierOrderId ?? null,
+        notes: `Manual COD booking. Platform: ${data.courierPlatform}${data.courierOrderId ? `, Order ID: ${data.courierOrderId}` : ''}${data.awbNumber ? `, AWB: ${data.awbNumber}` : ''}`,
+      },
+    });
+  }
+
   async sendBalanceReminder(customerId: string, user: AccountsUser) {
     assertAccountsUser(user);
     const customer = await this.prisma.customer.findUnique({

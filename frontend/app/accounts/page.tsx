@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -198,6 +198,27 @@ function parseNotes(notes?: string) {
   return { size, gsm, sides };
 }
 
+type OrderCourierInfo = {
+  orderId: string;
+  orderNo: string;
+  customerId: string;
+  shipmentId: string | null;
+  awbNumber: string | null;
+  courierPlatform: string | null;
+  courierOrderId: string | null;
+  dispatchType: string | null;
+  trackingNumber: string | null;
+  shipmentNotes: string | null;
+  shipmentCreatedAt: string | null;
+  isCourierBooked: boolean;
+};
+
+type CodForm = {
+  awbNumber: string;
+  courierPlatform: string;
+  courierOrderId: string;
+};
+
 type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors";
 
 function orderAge(dateStr: string): string {
@@ -298,6 +319,15 @@ export default function AccountsPage() {
   const [outstandingOrderStatus, setOutstandingOrderStatus] = useState("READY_DELIVERED");
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
+  // COD tracking
+  const [orderCourierMap, setOrderCourierMap] = useState<Record<string, OrderCourierInfo>>({});
+  const [courierMapLoading, setCourierMapLoading] = useState(false);
+  const [expandedOutstandingId, setExpandedOutstandingId] = useState<string | null>(null);
+  const [codModalOrderId, setCodModalOrderId] = useState<string | null>(null);
+  const [codModalOrderNo, setCodModalOrderNo] = useState<string>("");
+  const [codForm, setCodForm] = useState<CodForm>({ awbNumber: "", courierPlatform: "BIGSHIP", courierOrderId: "" });
+  const [savingCod, setSavingCod] = useState(false);
+
   // Vendor statements
   const [vendorEntries, setVendorEntries] = useState<VendorEntry[]>([]);
   const [vendorLoading, setVendorLoading] = useState(false);
@@ -377,6 +407,19 @@ export default function AccountsPage() {
     } finally { setOutstandingLoading(false); }
   }, []);
 
+  const loadCourierStatus = useCallback(async () => {
+    setCourierMapLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/outstanding-order-shipments`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data: OrderCourierInfo[] = await res.json();
+        const map: Record<string, OrderCourierInfo> = {};
+        for (const item of data) { map[item.orderId] = item; }
+        setOrderCourierMap(map);
+      }
+    } finally { setCourierMapLoading(false); }
+  }, []);
+
   const loadAccounting = useCallback(async () => {
     setAccountingLoading(true);
     try {
@@ -402,7 +445,7 @@ export default function AccountsPage() {
   useEffect(() => { if (tab === "accounting") void loadAccounting(); }, [tab, loadAccounting]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
   useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
-  useEffect(() => { if (tab === "outstanding") void loadOutstanding(); }, [tab, loadOutstanding]);
+  useEffect(() => { if (tab === "outstanding") { void loadOutstanding(); void loadCourierStatus(); } }, [tab, loadOutstanding, loadCourierStatus]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -650,6 +693,42 @@ await loadHistory();
     }
   }
 
+  function openCodModal(orderId: string, orderNo: string) {
+    const existing = orderCourierMap[orderId];
+    setCodModalOrderId(orderId);
+    setCodModalOrderNo(orderNo);
+    setCodForm({
+      awbNumber: existing?.awbNumber ?? "",
+      courierPlatform: existing?.courierPlatform ?? "BIGSHIP",
+      courierOrderId: existing?.courierOrderId ?? "",
+    });
+  }
+
+  async function saveCodBooking() {
+    if (!codModalOrderId) return;
+    if (!codForm.courierPlatform) { alert("Select a courier platform"); return; }
+    setSavingCod(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/orders/${codModalOrderId}/cod-booking`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          awbNumber: codForm.awbNumber || undefined,
+          courierPlatform: codForm.courierPlatform,
+          courierOrderId: codForm.courierOrderId || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not save COD booking");
+      }
+      setCodModalOrderId(null);
+      await loadCourierStatus();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not save COD booking");
+    } finally { setSavingCod(false); }
+  }
+
   async function createPurchaseBill() {
     if (!purchaseForm.vendorId || !purchaseForm.billNumber || !purchaseForm.subtotal) {
       alert("Select vendor, bill number, and amount");
@@ -763,6 +842,67 @@ await loadHistory();
   const totalAmount = useMemo(() => filteredEntries.reduce((s, e) => s + e.cost, 0), [filteredEntries]);
   const totalPaid = useMemo(() => filteredEntries.filter(e => e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
   const totalUnpaid = useMemo(() => filteredEntries.filter(e => !e.isPaid).reduce((s, e) => s + e.cost, 0), [filteredEntries]);
+
+  // Group SHEET_STAGE entries by sheetNo (treat sheetNo as job number)
+  type SheetGroup = {
+    sheetNo: string;
+    vendorName: string;
+    sheetGsm?: number;
+    sheetSize?: string;
+    totalCost: number;
+    allPaid: boolean;
+    entries: VendorEntry[];
+    firstDate: string;
+    products: { productName: string; orderNo: string; customerName: string; quantity: number }[];
+  };
+  const groupedSheetEntries = useMemo<SheetGroup[]>(() => {
+    const sheetEntries = filteredEntries.filter(e => e.type === "SHEET_STAGE");
+    const groups = new Map<string, SheetGroup>();
+    for (const e of sheetEntries) {
+      const key = e.sheetNo || e.id;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          sheetNo: e.sheetNo || key,
+          vendorName: e.vendorName,
+          sheetGsm: e.sheetGsm,
+          sheetSize: e.sheetSize,
+          totalCost: 0,
+          allPaid: true,
+          entries: [],
+          firstDate: e.createdAt,
+          products: [],
+        });
+      }
+      const g = groups.get(key)!;
+      g.totalCost += e.cost;
+      g.entries.push(e);
+      if (!e.isPaid) g.allPaid = false;
+      if (new Date(e.createdAt) < new Date(g.firstDate)) g.firstDate = e.createdAt;
+      for (const p of (e.products ?? [])) {
+        if (!g.products.find(x => x.orderNo === p.orderNo && x.productName === p.productName))
+          g.products.push(p);
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) => new Date(b.firstDate).getTime() - new Date(a.firstDate).getTime());
+  }, [filteredEntries]);
+
+  const jobworkEntries = useMemo(() => filteredEntries.filter(e => e.type === "JOBWORK"), [filteredEntries]);
+
+  const [markingGroupPaid, setMarkingGroupPaid] = useState<string | null>(null);
+
+  async function markSheetGroupPaid(group: SheetGroup) {
+    const unpaid = group.entries.filter(e => !e.isPaid);
+    if (unpaid.length === 0) return;
+    if (!confirm(`Mark Sheet ${group.sheetNo} (${fmt(group.entries.filter(e => !e.isPaid).reduce((s,e) => s+e.cost, 0))}) as PAID?`)) return;
+    setMarkingGroupPaid(group.sheetNo);
+    try {
+      for (const entry of unpaid) {
+        const endpoint = `${API_BASE_URL}/accounts/vendor-statements/sheet-stage/${entry.id}/paid`;
+        await fetch(endpoint, { method: "PATCH", headers: getAuthHeaders() });
+      }
+      await loadVendors();
+    } finally { setMarkingGroupPaid(null); }
+  }
   const filteredOutstanding = useMemo(() => {
     const q = outstandingSearch.trim().toLowerCase();
     return outstanding.filter(row =>
@@ -1215,6 +1355,7 @@ await loadHistory();
                   <table className="w-full text-xs">
                     <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600 w-6"></th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Orders</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Total Billing</th>
@@ -1228,55 +1369,147 @@ await loadHistory();
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredOutstanding.map(row => (
-                        <tr key={row.customerId} className="hover:bg-slate-50">
-                          <td className="px-3 py-2">
-                            <div className="font-bold text-slate-900">{row.customerName}</div>
-                            <div className="text-slate-400">{row.customerPhone || row.customerEmail || "No contact"}</div>
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-700">{row.orderCount}</td>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(row.totalAmount)}</td>
-                          <td className="px-3 py-2 text-right font-semibold text-green-700">{fmt(row.paidAmount)}</td>
-                          <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(row.outstandingAmount)}</td>
-                          <td className="px-3 py-2">
-                            <div className="flex flex-wrap gap-1">
-                              {(row.orderStatuses ?? "").split(", ").filter(Boolean).map(status => (
-                                <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${orderStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
-                                  {orderStatusLabels[status] ?? status.replace(/_/g, " ")}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <div className="flex flex-wrap gap-1">
-                              {(row.productStatuses ?? "").split(", ").filter(Boolean).map(status => (
-                                <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${productStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
-                                  {productStatusLabels[status] ?? status.replace(/_/g, " ")}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(row.lastOrderDate).toLocaleDateString("en-IN")}</td>
-                          <td className="max-w-xs truncate px-3 py-2 font-mono text-slate-500" title={row.orderNumbers}>{row.orderNumbers}</td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              onClick={() => sendBalanceReminder(row)}
-                              disabled={!row.canSendReminder || sendingReminderId === row.customerId}
-                              title={row.canSendReminder ? `Send for ${row.reminderOrderNumbers}` : "Needs phone and Ready/Delivered balance"}
-                              className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400"
-                            >
-                              {sendingReminderId === row.customerId ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
-                              {row.reminderAmount > 0 ? fmt(row.reminderAmount) : "Send"}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredOutstanding.map(row => {
+                        // Get all courier info for this customer's orders
+                        const customerOrderNos = row.orderNumbers.split(", ").filter(Boolean);
+                        const customerCourierEntries = Object.values(orderCourierMap).filter(c => c.customerId === row.customerId);
+                        const isExpanded = expandedOutstandingId === row.customerId;
+                        const bookedCount = customerCourierEntries.filter(c => c.isCourierBooked).length;
+
+                        return (
+                          <React.Fragment key={row.customerId}>
+                            <tr className="hover:bg-slate-50">
+                              <td className="px-2 py-2">
+                                <button
+                                  onClick={() => setExpandedOutstandingId(isExpanded ? null : row.customerId)}
+                                  className="p-0.5 rounded hover:bg-slate-200 text-slate-400"
+                                  title="View courier / COD details"
+                                >
+                                  {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="font-bold text-slate-900">{row.customerName}</div>
+                                <div className="text-slate-400">{row.customerPhone || row.customerEmail || "No contact"}</div>
+                                {bookedCount > 0 && (
+                                  <div className="flex items-center gap-1 mt-0.5">
+                                    <PackageCheck className="h-3 w-3 text-orange-500" />
+                                    <span className="text-[10px] text-orange-600 font-semibold">{bookedCount} COD booked</span>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-700">{row.orderCount}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(row.totalAmount)}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-green-700">{fmt(row.paidAmount)}</td>
+                              <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(row.outstandingAmount)}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex flex-wrap gap-1">
+                                  {(row.orderStatuses ?? "").split(", ").filter(Boolean).map(status => (
+                                    <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${orderStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
+                                      {orderStatusLabels[status] ?? status.replace(/_/g, " ")}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex flex-wrap gap-1">
+                                  {(row.productStatuses ?? "").split(", ").filter(Boolean).map(status => (
+                                    <span key={status} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${productStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
+                                      {productStatusLabels[status] ?? status.replace(/_/g, " ")}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(row.lastOrderDate).toLocaleDateString("en-IN")}</td>
+                              <td className="max-w-xs truncate px-3 py-2 font-mono text-slate-500" title={row.orderNumbers}>{row.orderNumbers}</td>
+                              <td className="px-3 py-2 text-right">
+                                <button
+                                  onClick={() => sendBalanceReminder(row)}
+                                  disabled={!row.canSendReminder || sendingReminderId === row.customerId}
+                                  title={row.canSendReminder ? `Send for ${row.reminderOrderNumbers}` : "Needs phone and Ready/Delivered balance"}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400"
+                                >
+                                  {sendingReminderId === row.customerId ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
+                                  {row.reminderAmount > 0 ? fmt(row.reminderAmount) : "Send"}
+                                </button>
+                              </td>
+                            </tr>
+
+                            {/* ── COD / Courier Expanded Row ── */}
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={11} className="px-0 py-0 bg-orange-50 border-b border-orange-100">
+                                  <div className="px-4 py-3">
+                                    <div className="text-[11px] font-semibold text-orange-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                      <Truck className="h-3.5 w-3.5" />
+                                      Courier / COD Status per Order
+                                      {courierMapLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      {customerOrderNos.length === 0 ? (
+                                        <p className="text-[11px] text-slate-400">No orders found</p>
+                                      ) : customerOrderNos.map(orderNo => {
+                                        // Find by orderNo in the map
+                                        const info = customerCourierEntries.find(c => c.orderNo === orderNo);
+                                        return (
+                                          <div key={orderNo} className="flex items-center gap-3 rounded-lg bg-white border border-orange-100 px-3 py-2">
+                                            <span className="font-mono font-bold text-blue-700 text-xs w-20 shrink-0">{orderNo}</span>
+
+                                            {!info ? (
+                                              <span className="text-[11px] text-slate-400 italic">Loading...</span>
+                                            ) : info.isCourierBooked ? (
+                                              <>
+                                                <PackageCheck className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                                                <span className="rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-[11px] font-bold">COD</span>
+                                                {info.courierPlatform && (
+                                                  <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-semibold">{info.courierPlatform}</span>
+                                                )}
+                                                {info.awbNumber && (
+                                                  <span className="text-[11px] text-slate-600">AWB: <span className="font-mono font-bold text-slate-800">{info.awbNumber}</span></span>
+                                                )}
+                                                {info.courierOrderId && (
+                                                  <span className="text-[11px] text-slate-600">Order ID: <span className="font-mono font-bold text-slate-800">{info.courierOrderId}</span></span>
+                                                )}
+                                                {info.trackingNumber && !info.awbNumber && (
+                                                  <span className="text-[11px] text-slate-600">Tracking: <span className="font-mono font-bold text-slate-800">{info.trackingNumber}</span></span>
+                                                )}
+                                                <button
+                                                  onClick={() => info && openCodModal(info.orderId, orderNo)}
+                                                  className="ml-auto text-[10px] text-slate-400 hover:text-blue-600 underline"
+                                                >
+                                                  Edit
+                                                </button>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Package className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                                <span className="text-[11px] text-slate-500">No courier booked</span>
+                                                <button
+                                                  onClick={() => info && openCodModal(info.orderId, orderNo)}
+                                                  className="ml-auto inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-orange-600"
+                                                >
+                                                  <Truck className="h-3 w-3" />
+                                                  Mark as COD
+                                                </button>
+                                              </>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                     <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                       <tr>
-                        <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Outstanding ({filteredOutstanding.length} customers)</td>
+                        <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Outstanding ({filteredOutstanding.length} customers)</td>
                         <td className="px-3 py-2 text-right text-sm font-bold text-red-600">{fmt(outstandingTotal)}</td>
-                        <td colSpan={5} />
+                        <td colSpan={6} />
                       </tr>
                     </tfoot>
                   </table>
@@ -1612,39 +1845,67 @@ await loadHistory();
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredEntries.map(entry => (
+                      {/* Grouped Sheet entries — one row per sheet number */}
+                      {groupedSheetEntries.map(group => (
+                        <tr key={group.sheetNo} className={`hover:bg-slate-50 ${group.allPaid ? "opacity-60" : ""}`}>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-500">
+                            {new Date(group.firstDate).toLocaleDateString("en-IN")}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-cyan-100 text-cyan-700">Sheet</span>
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">{group.vendorName}</td>
+                          <td className="px-3 py-2 max-w-xs">
+                            <div>
+                              <span className="font-semibold text-blue-700">Job #{group.sheetNo}</span>
+                              <span className="text-slate-400 ml-1 text-xs">{group.sheetGsm} GSM · {group.sheetSize}&quot;</span>
+                              <span className="ml-2 text-xs text-slate-400">({group.entries.length} stages)</span>
+                              {group.products.map((p, i) => (
+                                <div key={i} className="text-slate-400 text-xs">
+                                  {p.productName} · {p.orderNo} · {p.customerName}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-slate-400 text-xs">—</td>
+                          <td className="px-3 py-2 text-right font-bold text-slate-800">{fmt(group.totalCost)}</td>
+                          <td className="px-3 py-2 text-center">
+                            {group.allPaid ? (
+                              <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-xs font-semibold">✅ Paid</span>
+                            ) : (
+                              <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-semibold">⏳ Unpaid</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {!group.allPaid && (
+                              <button onClick={() => markSheetGroupPaid(group)} disabled={markingGroupPaid === group.sheetNo}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 font-semibold">
+                                {markingGroupPaid === group.sheetNo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                Mark Paid
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Individual Job Work entries */}
+                      {jobworkEntries.map(entry => (
                         <tr key={entry.id} className={`hover:bg-slate-50 ${entry.isPaid ? "opacity-60" : ""}`}>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                             {new Date(entry.createdAt).toLocaleDateString("en-IN")}
                           </td>
                           <td className="px-3 py-2">
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${entry.type === "JOBWORK" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700"}`}>
-                              {entry.type === "JOBWORK" ? "Job Work" : entry.stage?.replace(/_/g, " ")}
-                            </span>
+                            <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-purple-100 text-purple-700">Job Work</span>
                           </td>
                           <td className="px-3 py-2 font-semibold text-slate-800">{entry.vendorName}</td>
                           <td className="px-3 py-2 max-w-xs">
-                            {entry.type === "JOBWORK" ? (
-                              <div>
-                                <span className="font-medium text-slate-700">{entry.productName}</span>
-                                <span className="text-slate-400 ml-1">({entry.productSku})</span>
-                                <div className="text-slate-400">Order: {entry.orderNo} · {entry.customerName}</div>
-                                {entry.description && <div className="text-slate-400 italic">{entry.description}</div>}
-                              </div>
-                            ) : (
-                              <div>
-                                <span className="font-medium text-slate-700">Sheet: {entry.sheetNo}</span>
-                                <span className="text-slate-400 ml-1">{entry.sheetGsm} GSM · {entry.sheetSize}&quot;</span>
-                                {entry.products?.map((p, i) => (
-                                  <div key={i} className="text-slate-400">
-                                    {p.productName} · {p.orderNo} · {p.customerName}
-                                  </div>
-                                ))}
-                                {entry.description && <div className="text-slate-400 italic">{entry.description}</div>}
-                              </div>
-                            )}
+                            <div>
+                              <span className="font-medium text-slate-700">{entry.productName}</span>
+                              <span className="text-slate-400 ml-1">({entry.productSku})</span>
+                              <div className="text-slate-400 text-xs">Order: {entry.orderNo} · {entry.customerName}</div>
+                              {entry.description && <div className="text-slate-400 italic text-xs">{entry.description}</div>}
+                            </div>
                           </td>
-                          <td className="px-3 py-2 text-slate-500 font-mono">
+                          <td className="px-3 py-2 text-slate-500 font-mono text-xs">
                             {entry.vendorInvoiceNo || <span className="text-slate-300">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right font-bold text-slate-800">{fmt(entry.cost)}</td>
@@ -1672,7 +1933,9 @@ await loadHistory();
                     </tbody>
                     <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                       <tr>
-                        <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-slate-600">Total ({filteredEntries.length} entries)</td>
+                        <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-slate-600">
+                          Total ({groupedSheetEntries.length} sheets{jobworkEntries.length > 0 ? ` · ${jobworkEntries.length} job work` : ""})
+                        </td>
                         <td className="px-3 py-2 text-right text-xs font-bold text-slate-800">{fmt(totalAmount)}</td>
                         <td colSpan={2} className="px-3 py-2 text-xs text-slate-500 text-center">
                           Paid: <span className="text-green-700 font-semibold">{fmt(totalPaid)}</span> · Unpaid: <span className="text-red-600 font-semibold">{fmt(totalUnpaid)}</span>
@@ -1686,6 +1949,74 @@ await loadHistory();
           )}
         </div>
       </DashboardShell>
+
+      {/* ── COD Booking Modal ── */}
+      {codModalOrderId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "28rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-orange-500" />
+                  {orderCourierMap[codModalOrderId]?.isCourierBooked ? "Edit COD Booking" : "Mark as COD"}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">Order: <span className="font-mono font-semibold text-blue-700">{codModalOrderNo}</span></p>
+              </div>
+              <button onClick={() => setCodModalOrderId(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Courier Platform</span>
+                <select
+                  value={codForm.courierPlatform}
+                  onChange={e => setCodForm(f => ({ ...f, courierPlatform: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+                >
+                  <option value="BIGSHIP">BigShip</option>
+                  <option value="SHIPROCKET">Shiprocket</option>
+                  <option value="DELHIVERY">Delhivery</option>
+                  <option value="DTDC">DTDC</option>
+                  <option value="BLUEDART">BlueDart</option>
+                  <option value="ECOMEXPRESS">Ecom Express</option>
+                  <option value="XPRESSBEES">XpressBees</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">AWB Number</span>
+                <input
+                  value={codForm.awbNumber}
+                  onChange={e => setCodForm(f => ({ ...f, awbNumber: e.target.value }))}
+                  placeholder="e.g. 1234567890"
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-600">Platform Order ID</span>
+                <input
+                  value={codForm.courierOrderId}
+                  onChange={e => setCodForm(f => ({ ...f, courierOrderId: e.target.value }))}
+                  placeholder="e.g. BigShip / Shiprocket order ID"
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setCodModalOrderId(null)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={saveCodBooking} disabled={savingCod}
+                className="inline-flex items-center gap-1 px-4 py-1.5 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-60 font-semibold">
+                {savingCod ? <Loader2 className="h-3 w-3 animate-spin" /> : <PackageCheck className="h-3 w-3" />}
+                Save COD Booking
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Payment Modal */}
       {editingPayment && (
