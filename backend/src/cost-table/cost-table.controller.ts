@@ -86,6 +86,11 @@ export class CostTableController {
     return this.svc.getOrdersWithoutCost();
   }
 
+  @Get('orders-without-rate')
+  getOrdersWithoutRate() {
+    return this.svc.getOrdersWithoutRate();
+  }
+
   @Get('sales-agents')
   getSalesAgents() {
     return this.svc.getSalesAgents();

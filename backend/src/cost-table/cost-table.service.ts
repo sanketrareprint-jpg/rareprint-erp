@@ -517,6 +517,76 @@ export class CostTableService {
     }));
   }
 
+  async getOrdersWithoutRate() {
+    const orderIdsRaw = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT DISTINCT o.id
+      FROM "Order" o
+      JOIN "OrderItem" oi ON oi."orderId" = o.id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "ProductRateSlab" prs
+        WHERE prs."productId" = oi."productId"
+          AND prs."minQuantity" <= oi.quantity
+          AND (prs."maxQuantity" IS NULL OR prs."maxQuantity" >= oi.quantity)
+      )
+    `;
+    const orderIds = orderIdsRaw.map((r) => r.id);
+    if (orderIds.length === 0) return [];
+
+    const orders = await (this.prisma as any).order.findMany({
+      where: { id: { in: orderIds } },
+      include: {
+        customer: { select: { businessName: true, phone: true } },
+        salesAgent: { select: { fullName: true } },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true, sku: true, name: true, gsm: true,
+                sizeInches: true, sides: true,
+                category: { select: { name: true } },
+                rateSlabs: { select: { id: true, minQuantity: true, maxQuantity: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return orders
+      .map((order: any) => ({
+        id: order.id,
+        orderNo: order.orderNumber,
+        status: order.status,
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone ?? null,
+        salesAgentName: order.salesAgent?.fullName ?? null,
+        orderDate: order.orderDate,
+        totalAmount: Number(order.grandTotal),
+        itemsWithNoRate: order.items
+          .filter((item: any) => {
+            const hasMatch = item.product.rateSlabs.some(
+              (slab: any) =>
+                slab.minQuantity <= item.quantity &&
+                (slab.maxQuantity == null || slab.maxQuantity >= item.quantity),
+            );
+            return !hasMatch;
+          })
+          .map((item: any) => ({
+            productId: item.product.id,
+            sku: item.product.sku,
+            productName: item.product.name,
+            gsm: item.product.gsm,
+            sizeInches: item.product.sizeInches,
+            sides: item.product.sides,
+            category: item.product.category?.name ?? null,
+            quantity: item.quantity,
+            unitPrice: Number(item.unitPrice),
+          })),
+      }))
+      .filter((order: any) => order.itemsWithNoRate.length > 0);
+  }
+
   async getRateSlabsForProduct(productId: string) {
     return (this.prisma as any).productRateSlab.findMany({
       where: { productId },

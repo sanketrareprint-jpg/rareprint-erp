@@ -104,6 +104,29 @@ type OrderWithoutCost = {
   itemsWithNoCost: OrderWithoutCostItem[];
 };
 
+type OrderWithoutRateItem = {
+  productId: string;
+  sku: string;
+  productName: string;
+  gsm: number;
+  sizeInches: string;
+  sides: string;
+  category: string | null;
+  quantity: number;
+  unitPrice: number;
+};
+type OrderWithoutRate = {
+  id: string;
+  orderNo: string;
+  status: string;
+  customerName: string;
+  customerPhone: string | null;
+  salesAgentName: string | null;
+  orderDate: string;
+  totalAmount: number;
+  itemsWithNoRate: OrderWithoutRateItem[];
+};
+
 const SAMPLE_QUANTITY_TIERS = [
   700, 1000, 1500, 2000, 3000, 3500, 4000, 5000, 6000,
   8000, 9500, 10000, 12000, 15000, 20000, 30000, 40000, 50000,
@@ -192,7 +215,7 @@ export default function CostTablePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders" | "rates">("table");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rateFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
@@ -222,6 +245,17 @@ export default function CostTablePage() {
   const [ordersWithoutCost, setOrdersWithoutCost] = useState<OrderWithoutCost[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [ordersWithoutRate, setOrdersWithoutRate] = useState<OrderWithoutRate[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [expandedRateOrder, setExpandedRateOrder] = useState<string | null>(null);
+  const [addRateModal, setAddRateModal] = useState<{
+    productId: string;
+    sku: string;
+    productName: string;
+    orderNo: string;
+  } | null>(null);
+  const [modalRate, setModalRate] = useState({ minQuantity: "", maxQuantity: "", rateAmount: "" });
+  const [modalRateSaving, setModalRateSaving] = useState(false);
   const [addCostModal, setAddCostModal] = useState<{
     productId: string;
     sku: string;
@@ -282,6 +316,18 @@ export default function CostTablePage() {
   }, []);
 
   useEffect(() => { if (activeTab === "orders") loadOrdersWithoutCost(); }, [activeTab, loadOrdersWithoutCost]);
+
+  const loadOrdersWithoutRate = useCallback(async () => {
+    setRatesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/orders-without-rate`, { headers });
+      if (res.ok) setOrdersWithoutRate(await res.json());
+    } finally {
+      setRatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (activeTab === "rates") loadOrdersWithoutRate(); }, [activeTab, loadOrdersWithoutRate]);
 
   async function updateAgentCategory(userId: string, category: "A" | "B" | "C" | "D" | "") {
     await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/category`, {
@@ -532,6 +578,31 @@ export default function CostTablePage() {
     }
   }
 
+  async function saveModalRateSlab() {
+    if (!addRateModal || !modalRate.minQuantity || !modalRate.rateAmount) return;
+    setModalRateSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/products/${addRateModal.productId}/rate-slabs/bulk`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slabs: [{
+            minQuantity: Number(modalRate.minQuantity),
+            maxQuantity: modalRate.maxQuantity ? Number(modalRate.maxQuantity) : null,
+            rateAmount: Number(modalRate.rateAmount),
+          }],
+        }),
+      });
+      if (res.ok) {
+        setAddRateModal(null);
+        setModalRate({ minQuantity: "", maxQuantity: "", rateAmount: "" });
+        await loadOrdersWithoutRate();
+      }
+    } finally {
+      setModalRateSaving(false);
+    }
+  }
+
   // ── Slab actions ──────────────────────────────────────────────────────────
 
   async function saveSlab(slabId: string) {
@@ -663,13 +734,14 @@ export default function CostTablePage() {
           {([
             { key: "table", label: "Cost Slabs", icon: IndianRupee },
             { key: "orders", label: "Orders Without Cost", icon: ShoppingCart, badge: ordersWithoutCost.length },
+            { key: "rates", label: "Orders Without Rate", icon: AlertTriangle, badge: ordersWithoutRate.length },
             { key: "profit", label: "Profit", icon: BarChart3 },
             { key: "checker", label: "Margin Checker", icon: TrendingUp },
             { key: "settings", label: "Settings", icon: Settings },
           ] as const).map(({ key, label, icon: Icon, badge }: { key: string; label: string; icon: React.ElementType; badge?: number }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key as "table" | "orders" | "profit" | "checker" | "settings")}
+              onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "profit" | "checker" | "settings")}
               className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === key
                   ? "border-blue-600 text-blue-600"
@@ -1219,6 +1291,104 @@ export default function CostTablePage() {
           </div>
         )}
 
+        {/* ── TAB: Orders Without Rate ──────────────────────────────────── */}
+        {activeTab === "rates" && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">All orders missing rate sheet data</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Every order that has one or more products with no rate slabs is shown here — across all statuses.
+                  Without rate data, agent commission cannot be calculated. Click <strong>"Add Rate"</strong> on any product to add its rate slab.
+                </p>
+              </div>
+            </div>
+
+            {ratesLoading ? (
+              <div className="text-center py-16 text-gray-400">Loading orders…</div>
+            ) : ordersWithoutRate.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
+                <CheckCircle size={32} className="mx-auto mb-2 text-green-400" />
+                <p className="text-sm text-gray-500 font-medium">All orders have rate data!</p>
+                <p className="text-xs text-gray-400 mt-1">No orders in the order book are missing rate slabs.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {ordersWithoutRate.map(order => (
+                  <div key={order.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    <div
+                      className="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => setExpandedRateOrder(expandedRateOrder === order.id ? null : order.id)}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-blue-700 font-mono">{order.orderNo}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                          order.status === "PENDING_APPROVAL" ? "bg-amber-50 border-amber-300 text-amber-700" :
+                          order.status === "APPROVED" ? "bg-green-50 border-green-300 text-green-700" :
+                          order.status === "IN_PRODUCTION" ? "bg-blue-50 border-blue-300 text-blue-700" :
+                          order.status === "READY_FOR_DISPATCH" || order.status === "DISPATCHED" || order.status === "DELIVERED" ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+                          order.status === "CANCELLED" || order.status === "REJECTED" ? "bg-red-50 border-red-300 text-red-600" :
+                          "bg-gray-100 border-gray-200 text-gray-600"
+                        }`}>
+                          {order.status.replace(/_/g, " ")}
+                        </span>
+                        <span className="font-semibold text-gray-800 text-sm">{order.customerName}</span>
+                        {order.customerPhone && <span className="text-gray-400 text-xs">{order.customerPhone}</span>}
+                        {order.salesAgentName && (
+                          <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">{order.salesAgentName}</span>
+                        )}
+                        <span className="text-xs text-gray-400">{new Date(order.orderDate).toLocaleDateString("en-IN")}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className="text-sm font-bold text-gray-800">₹{order.totalAmount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                          {order.itemsWithNoRate.length} missing
+                        </span>
+                        {expandedRateOrder === order.id ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                      </div>
+                    </div>
+
+                    {expandedRateOrder === order.id && (
+                      <div className="border-t border-amber-100 px-4 py-3 space-y-2">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Products with no rate slabs</p>
+                        {order.itemsWithNoRate.map(item => (
+                          <div
+                            key={item.productId}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-blue-100 rounded px-1.5 py-0.5">{item.sku}</span>
+                                <span className="font-medium text-gray-900 text-sm">{item.productName}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {item.category && <span>{item.category} &middot; </span>}
+                                {item.gsm}gsm &middot; {item.sizeInches} &middot; {item.sides}
+                                <span className="ml-2 font-semibold text-gray-700">Qty: {item.quantity.toLocaleString("en-IN")}</span>
+                                <span className="ml-2 text-gray-500">@ {fmt(item.unitPrice)}</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setAddRateModal({ productId: item.productId, sku: item.sku, productName: item.productName, orderNo: order.orderNo });
+                                setModalRate({ minQuantity: "", maxQuantity: "", rateAmount: "" });
+                              }}
+                              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                            >
+                              <Plus size={12} /> Add Rate
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Settings Tab */}
         {activeTab === "settings" && (
           <div className="max-w-lg space-y-4">
@@ -1387,6 +1557,80 @@ export default function CostTablePage() {
                 {modalSaving ? "Saving..." : "Save Cost Slab"}
               </button>
               <button onClick={() => setAddCostModal(null)} className="px-4 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add Rate Modal */}
+      {addRateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Add Rate Slab</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  For order <strong className="text-amber-700">{addRateModal.orderNo}</strong>
+                </p>
+              </div>
+              <button onClick={() => setAddRateModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-blue-100 rounded px-1.5 py-0.5">{addRateModal.sku}</span>
+              <span className="text-sm font-medium text-gray-800">{addRateModal.productName}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Min Qty <span className="text-red-500">*</span></label>
+                <input
+                  type="number"
+                  value={modalRate.minQuantity}
+                  onChange={e => setModalRate(s => ({ ...s, minQuantity: e.target.value }))}
+                  placeholder="e.g. 500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Max Qty (blank = no limit)</label>
+                <input
+                  type="number"
+                  value={modalRate.maxQuantity}
+                  onChange={e => setModalRate(s => ({ ...s, maxQuantity: e.target.value }))}
+                  placeholder="leave blank"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Rate Amount (Rs.) <span className="text-red-500">*</span></label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={modalRate.rateAmount}
+                  onChange={e => setModalRate(s => ({ ...s, rateAmount: e.target.value }))}
+                  placeholder="e.g. 3500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              This rate slab applies to all orders of this product. You can manage all rate slabs in the Rate Calc section.
+            </p>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={saveModalRateSlab}
+                disabled={modalRateSaving || !modalRate.minQuantity || !modalRate.rateAmount}
+                className="flex-1 py-2.5 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {modalRateSaving ? "Saving..." : "Save Rate Slab"}
+              </button>
+              <button onClick={() => setAddRateModal(null)} className="px-4 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
                 Cancel
               </button>
             </div>
