@@ -8,6 +8,7 @@
     "start": "next start",
     "test:e2e": "node scripts/check-playwright-base-url.js && playwright test",
     "test:e2e:headed": "playwright test --headed",
+    "test:guards": "node scripts/check-production-sheets-unassign-guard.js",
     "lint": "eslint",
     "build:android": "CAPACITOR_BUILD=1 next build && npx cap sync android",
     "android:open": "npx cap open android",

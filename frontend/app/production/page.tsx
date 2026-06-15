@@ -712,6 +712,21 @@ export default function ProductionPage() {
     }
   }
 
+  async function unassignItemFromSheets(itemId: string) {
+    if (!confirm("Unassign from Sheets?")) return;
+    const res = await fetch(`${API_BASE_URL}/production/items/${itemId}/assign-category`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ productionCategory: null }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.message || "Failed to unassign from Sheets");
+      return;
+    }
+    await loadAll(true);
+  }
+
   async function updateSheetStatus(sheetId: string, status: string) {
     // Intercept COMPLETE → SETTING: must fill plate + print vendor info first
     const sheet = sheetsData.find(s => s.id === sheetId);
@@ -1504,7 +1519,15 @@ export default function ProductionPage() {
                                 {compatibleSheets.length === 0 ? (
                                   <div className="flex gap-2">
                                     <span className="flex-1 rounded-lg bg-slate-50 px-3 py-2 text-sm font-bold text-slate-400">No compatible sheet</span>
-                                    <button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
+                                    <button
+                                      type="button"
+                                      aria-label="Unassign from Sheets"
+                                      title="Unassign from Sheets"
+                                      onClick={() => void unassignItemFromSheets(item.id)}
+                                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
                                   </div>
                                 ) : (
                                   <div className="flex gap-2">
@@ -1518,6 +1541,15 @@ export default function ProductionPage() {
                                       const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
                                       openMultipleDialog(sel.value, pi);
                                     }} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white">Assign</button>
+                                    <button
+                                      type="button"
+                                      aria-label="Unassign from Sheets"
+                                      title="Unassign from Sheets"
+                                      onClick={() => void unassignItemFromSheets(item.id)}
+                                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-white text-red-500 hover:bg-red-50"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
                                   </div>
                                 )}
                               </div>
@@ -1572,7 +1604,18 @@ export default function ProductionPage() {
                             </td>
                             <td className="px-3 py-2">
                               {compatibleSheets.length === 0 ? (
-                                <div className="flex items-center gap-1"><span className="text-slate-400 text-xs">No sheets</span><button onClick={async () => { if (!confirm("Unassign from Sheets?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="text-red-400 hover:text-red-600 font-bold text-sm leading-none ml-1">✕</button></div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-slate-400 text-xs">No sheets</span>
+                                  <button
+                                    type="button"
+                                    aria-label="Unassign from Sheets"
+                                    title="Unassign from Sheets"
+                                    onClick={() => void unassignItemFromSheets(item.id)}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-red-400 hover:bg-red-50 hover:text-red-600"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               ) : (
                                 <div className="flex items-center gap-1">
                                   <select id={`sel-${item.id}`} defaultValue="" className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
@@ -1589,6 +1632,15 @@ export default function ProductionPage() {
                                     openMultipleDialog(sel.value, pi);
                                   }} className="inline-flex items-center gap-0.5 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-700">
                                     <Plus className="h-3 w-3" /> Assign
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="Unassign from Sheets"
+                                    title="Unassign from Sheets"
+                                    onClick={() => void unassignItemFromSheets(item.id)}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-red-400 hover:bg-red-50 hover:text-red-600"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
                                   </button>
                                 </div>
                               )}
