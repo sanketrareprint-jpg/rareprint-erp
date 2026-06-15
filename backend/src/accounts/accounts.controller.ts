@@ -136,6 +136,15 @@ export class AccountsController {
     return this.accountsService.rejectOrder(id, reason);
   }
 
+  @Patch(':id/return-to-accounts')
+  returnToAccounts(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.returnToAccounts(id, reason, req.user);
+  }
+
   @Patch(':id/approve-dispatch')
   approveDispatch(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.approveDispatch(id, req.user);

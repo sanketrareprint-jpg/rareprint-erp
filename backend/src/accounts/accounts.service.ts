@@ -17,6 +17,7 @@ import {
   PurchaseBillStatus,
 } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { CostTableService } from '../cost-table/cost-table.service';
 
 type AccountsUser = { id: string; role: string };
 
@@ -77,6 +78,7 @@ export class AccountsService {
   constructor(
     private prisma: PrismaService,
     private whatsapp: WhatsAppService,
+    private costTable: CostTableService,
   ) {}
 
   private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
@@ -433,6 +435,52 @@ export class AccountsService {
       throw new BadRequestException('Only pending accounts approval orders can be approved');
     }
 
+    // Block approval if any item has no cost slab
+    const productIds = order.items.map((i) => i.productId);
+    const allCostSlabs = await this.prisma.productCostSlab.findMany({
+      where: { productId: { in: productIds } },
+    });
+    const productsWithCost = new Set(allCostSlabs.map((s) => s.productId));
+    const missingCostItems = order.items.filter((i) => !productsWithCost.has(i.productId));
+    if (missingCostItems.length > 0) {
+      const skus = missingCostItems.map((i) => (i.product as any)?.sku ?? i.productId).join(', ');
+      throw new BadRequestException(
+        `Cannot approve: cost data is missing for ${missingCostItems.length} item(s) — ${skus}. Please add cost slabs in the Cost Table first.`,
+      );
+    }
+
+    // Block approval if any item's margin is below the minimum approval margin
+    const settings = this.costTable.getSettings();
+    const lowMarginItems: string[] = [];
+    for (const item of order.items) {
+      const qty = item.quantity;
+      const matchingSlab = allCostSlabs
+        .filter(
+          (s) =>
+            s.productId === item.productId &&
+            s.minQuantity <= qty &&
+            (s.maxQuantity == null || s.maxQuantity >= qty),
+        )
+        .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+      if (!matchingSlab) continue; // already caught by missingCostItems check
+
+      const rawCost = Number(matchingSlab.unitPrice);
+      const salePerUnit = Number(item.unitPrice);
+      // If the slab stores a total rather than per-unit price, divide it down
+      const costPerUnit = rawCost > salePerUnit ? rawCost / matchingSlab.minQuantity : rawCost;
+      const marginPct = salePerUnit > 0 ? ((salePerUnit - costPerUnit) / salePerUnit) * 100 : 0;
+
+      if (marginPct < settings.minApprovalMarginPct) {
+        const sku = (item.product as any)?.sku ?? item.productId;
+        lowMarginItems.push(`${sku} (margin: ${marginPct.toFixed(1)}%)`);
+      }
+    }
+    if (lowMarginItems.length > 0) {
+      throw new BadRequestException(
+        `Cannot approve: margin is below the minimum ${settings.minApprovalMarginPct}% for item(s) — ${lowMarginItems.join(', ')}. Adjust the sale price or cost slab.`,
+      );
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
       const approved = await tx.order.update({
         where: { id: orderId },
@@ -477,6 +525,38 @@ export class AccountsService {
     return this.prisma.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.CANCELLED },
+    });
+  }
+
+  // ── Return order to accounts (back to PENDING_APPROVAL) ──────────────────
+  async returnToAccounts(orderId: string, reason: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const RETURNABLE: OrderStatus[] = [
+      OrderStatus.APPROVED,
+      OrderStatus.IN_PRODUCTION,
+    ];
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!RETURNABLE.includes(order.status)) {
+      throw new BadRequestException(
+        `Only APPROVED or IN_PRODUCTION orders can be returned to accounts (current status: ${order.status})`,
+      );
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.PENDING_APPROVAL },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: OrderStatus.PENDING_APPROVAL,
+          changedById: user.id,
+          reason: reason || 'Returned to accounts for re-approval',
+        },
+      });
+      return updated;
     });
   }
 
