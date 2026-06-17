@@ -729,7 +729,6 @@ export class RateCalculatorService {
     }
 
     const totalParentSheets = Math.ceil(totalPieces / cutsPerSheet);
-    description += ' | ' + cutsPerSheet + ' cuts/sheet | Parent sheets needed: ' + totalParentSheets.toLocaleString();
 
     const paperRate  = this.getPaperRatePerSheet(rates, psize, paper);
     const paperCost  = totalParentSheets * paperRate;
