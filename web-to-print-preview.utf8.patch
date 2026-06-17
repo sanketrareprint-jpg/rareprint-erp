@@ -1,0 +1,982 @@
+﻿diff --git a/backend/src/storefront/storefront.controller.ts b/backend/src/storefront/storefront.controller.ts
+index 24cda4f..8fa60ce 100644
+--- a/backend/src/storefront/storefront.controller.ts
++++ b/backend/src/storefront/storefront.controller.ts
+@@ -1,5 +1,6 @@
+-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+-import { StorefrontService } from './storefront.service';
++import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
++import { AuthGuard } from '@nestjs/passport';
++import { StorefrontService } from './storefront.service';
+ 
+ @Controller('storefront')
+ export class StorefrontController {
+@@ -49,6 +50,28 @@ export class StorefrontController {
+   banners() {
+     return this.service.banners();
+   }
++
++  @Get('content')
++  content() {
++    return this.service.content();
++  }
++
++  @Put('content')
++  @UseGuards(AuthGuard('jwt'))
++  updateContent(@Body() body: any) {
++    return this.service.updateContent(body);
++  }
++
++  @Get('templates')
++  templates() {
++    return this.service.templates();
++  }
++
++  @Put('templates')
++  @UseGuards(AuthGuard('jwt'))
++  updateTemplates(@Body() body: any) {
++    return this.service.updateTemplates(body);
++  }
+ 
+   @Post('orders')
+   createOrder(@Body() body: any) {
+diff --git a/backend/src/storefront/storefront.service.ts b/backend/src/storefront/storefront.service.ts
+index bae06b6..ed2938d 100644
+--- a/backend/src/storefront/storefront.service.ts
++++ b/backend/src/storefront/storefront.service.ts
+@@ -2,22 +2,186 @@ import { BadRequestException, Injectable } from '@nestjs/common';
+ import { OrderStatus, PaymentMethod, PaymentStatus, PaymentVerificationStatus, Prisma, ProductSides, PrintingType } from '@prisma/client';
+ import { PrismaService } from '../prisma/prisma.service';
+ 
+-const fallbackCatalog = [
++const fallbackCatalog = [
+   'Medicine Paper Pouch',
+   'Premium Business Cards',
+   'Stickers And Labels',
+   'Flyers And Leaflets',
+   'Letterheads And Envelopes',
+   'Corporate Gifts',
+-];
++];
++
++const STOREFRONT_CONTENT_KEY = 'storefront.content.v1';
++const STOREFRONT_TEMPLATES_KEY = 'storefront.templates.v1';
++
++const defaultStorefrontContent = {
++  settings: {
++    couponText: 'Use coupon code FIRSTORDER and get 12% extra discount',
++    currency: 'INR',
++    advancePercent: 50,
++    whatsappNumber: '918004176377',
++  },
++  heroBanners: [
++    {
++      id: 'hero-clinic',
++      title: 'Custom Printing for Clinics',
++      subtitle: 'Prescription stickers, files, pouches, and healthcare stationery.',
++      href: '/web-to-print/category/prescription-stickers',
++      image: '',
++      active: true,
++      sortOrder: 1,
++    },
++    {
++      id: 'hero-labels',
++      title: 'Bulk Stickers and Labels',
++      subtitle: 'Glossy, paper, and product labels delivered across India.',
++      href: '/web-to-print/categories',
++      image: '',
++      active: true,
++      sortOrder: 2,
++    },
++    {
++      id: 'hero-bill-books',
++      title: 'Bill Books Delivered Fast',
++      subtitle: 'NCR books, letterheads, envelopes, and office print products.',
++      href: '/web-to-print/category/bill-book',
++      image: '',
++      active: true,
++      sortOrder: 3,
++    },
++  ],
++  promoBanners: [
++    {
++      id: 'promo-design',
++      title: 'Design Support Included',
++      subtitle: 'Upload artwork or ask our team to prepare your print file.',
++      href: '/web-to-print/design',
++      image: '',
++      active: true,
++      sortOrder: 1,
++    },
++  ],
++  rateLists: [
++    {
++      id: 'rate-prescription-sticker',
++      productSlug: 'prescription-sticker',
++      title: 'Prescription Sticker Rate List',
++      rows: [
++        { quantity: 1000, price: 450, label: '1,000 pcs' },
++        { quantity: 5000, price: 1650, label: '5,000 pcs' },
++        { quantity: 10000, price: 3000, label: '10,000 pcs' },
++      ],
++    },
++  ],
++  photos: [
++    { id: 'photo-sample-1', title: 'Medicine Pouch Sample', url: '', productSlug: 'medicine-paper-pouch', active: true },
++  ],
++};
++
++const defaultTemplates = [
++  {
++    id: 'clinic-visiting-card',
++    name: 'Clinic Visiting Card',
++    productType: 'visiting-card',
++    size: '3.5 x 2 in',
++    background: '#ffffff',
++    accent: '#0f766e',
++    fields: [
++      { key: 'businessName', label: 'Clinic / Doctor Name', placeholder: 'Dr. Asha Sharma' },
++      { key: 'tagline', label: 'Degree / Tagline', placeholder: 'MBBS, MD | General Physician' },
++      { key: 'phone', label: 'Phone', placeholder: '+91 98765 43210' },
++      { key: 'address', label: 'Address', placeholder: 'Main Road, Nagpur' },
++      { key: 'timing', label: 'Timing', placeholder: 'Mon-Sat 10 AM - 8 PM' },
++    ],
++  },
++  {
++    id: 'medical-store-pouch',
++    name: 'Medical Store Pouch',
++    productType: 'medicine-pouch',
++    size: '4.25 x 5.5 in',
++    background: '#f8fafc',
++    accent: '#dc2626',
++    fields: [
++      { key: 'businessName', label: 'Medical Store Name', placeholder: 'Prakash Medical Stores' },
++      { key: 'tagline', label: 'Tagline', placeholder: 'Complete health care center' },
++      { key: 'phone', label: 'Phone', placeholder: '+91 80041 76377' },
++      { key: 'address', label: 'Address', placeholder: 'Near City Center, Nagpur' },
++      { key: 'license', label: 'License / GST', placeholder: 'DL No. / GSTIN' },
++    ],
++  },
++  {
++    id: 'corporate-sticker',
++    name: 'Corporate Product Sticker',
++    productType: 'sticker',
++    size: '4 x 6 in',
++    background: '#fff7ed',
++    accent: '#1f2937',
++    fields: [
++      { key: 'businessName', label: 'Brand Name', placeholder: 'RarePrint Naturals' },
++      { key: 'tagline', label: 'Product Line', placeholder: 'Premium product label' },
++      { key: 'phone', label: 'Support Phone', placeholder: '+91 98765 43210' },
++      { key: 'address', label: 'Manufactured By', placeholder: 'Nagpur, Maharashtra' },
++      { key: 'website', label: 'Website', placeholder: 'www.example.com' },
++    ],
++  },
++];
+ 
+ function cleanSku(value: string) {
+   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32);
+ }
+ 
+-@Injectable()
+-export class StorefrontService {
+-  constructor(private readonly prisma: PrismaService) {}
++@Injectable()
++export class StorefrontService {
++  constructor(private readonly prisma: PrismaService) {}
++
++  private async readConfig<T>(key: string, fallback: T): Promise<T> {
++    const row = await this.prisma.systemConfig.findUnique({ where: { key } });
++    if (!row?.value) return fallback;
++    try {
++      return JSON.parse(row.value) as T;
++    } catch {
++      return fallback;
++    }
++  }
++
++  private async writeConfig<T>(key: string, value: T) {
++    await this.prisma.systemConfig.upsert({
++      where: { key },
++      update: { value: JSON.stringify(value) },
++      create: { key, value: JSON.stringify(value) },
++    });
++    return value;
++  }
++
++  async content() {
++    return this.readConfig(STOREFRONT_CONTENT_KEY, defaultStorefrontContent);
++  }
++
++  async updateContent(body: any) {
++    const next = {
++      ...defaultStorefrontContent,
++      ...(body ?? {}),
++      settings: {
++        ...defaultStorefrontContent.settings,
++        ...(body?.settings ?? {}),
++      },
++      heroBanners: Array.isArray(body?.heroBanners) ? body.heroBanners : defaultStorefrontContent.heroBanners,
++      promoBanners: Array.isArray(body?.promoBanners) ? body.promoBanners : defaultStorefrontContent.promoBanners,
++      rateLists: Array.isArray(body?.rateLists) ? body.rateLists : defaultStorefrontContent.rateLists,
++      photos: Array.isArray(body?.photos) ? body.photos : defaultStorefrontContent.photos,
++    };
++    return this.writeConfig(STOREFRONT_CONTENT_KEY, next);
++  }
++
++  async templates() {
++    const templates = await this.readConfig(STOREFRONT_TEMPLATES_KEY, defaultTemplates);
++    return { templates };
++  }
++
++  async updateTemplates(body: any) {
++    const templates = Array.isArray(body?.templates) ? body.templates : defaultTemplates;
++    return this.writeConfig(STOREFRONT_TEMPLATES_KEY, templates);
++  }
+ 
+   async catalog() {
+     const products = await this.prisma.product.findMany({
+@@ -72,11 +236,12 @@ export class StorefrontService {
+     const products = await this.mappedProducts();
+     const categories = await this.categories();
+     const media = products.filter((product) => product.name).slice(0, 8);
++    const content = await this.content();
+     return {
+-      settings: { couponText: 'Use coupon code FIRSTORDER and get 12% extra discount', currency: 'INR' },
++      settings: content.settings,
+       stories: categories.slice(0, 8).map((category: any) => ({ title: category.name, slug: category.slug, mediaType: 'image' })),
+-      heroBanners: this.buildBanners(media, 'hero'),
+-      promoBanners: this.buildBanners(media, 'promo'),
++      heroBanners: content.heroBanners?.length ? content.heroBanners : this.buildBanners(media, 'hero'),
++      promoBanners: content.promoBanners?.length ? content.promoBanners : this.buildBanners(media, 'promo'),
+       reels: this.buildReels(media),
+       rails: [
+         { title: 'Corporate Printing', products: products.slice(0, 8) },
+@@ -159,7 +324,11 @@ export class StorefrontService {
+ 
+   async banners() {
+     const products = await this.mappedProducts();
+-    return { hero: this.buildBanners(products, 'hero'), promo: this.buildBanners(products, 'promo') };
++    const content = await this.content();
++    return {
++      hero: content.heroBanners?.length ? content.heroBanners : this.buildBanners(products, 'hero'),
++      promo: content.promoBanners?.length ? content.promoBanners : this.buildBanners(products, 'promo'),
++    };
+   }
+ 
+   private async generateOrderNumber() {
+diff --git a/frontend/app/storefront/page.tsx b/frontend/app/storefront/page.tsx
+index 31860dc..d996b71 100644
+--- a/frontend/app/storefront/page.tsx
++++ b/frontend/app/storefront/page.tsx
+@@ -1,84 +1,311 @@
+ "use client";
+ 
+ import { DashboardShell } from "@/components/dashboard-shell";
++import { API_BASE_URL } from "@/lib/api";
++import { getAuthHeaders } from "@/lib/auth";
++import {
++  ExternalLink,
++  ImagePlus,
++  Loader2,
++  Plus,
++  Save,
++  SlidersHorizontal,
++  Table2,
++  Trash2,
++} from "lucide-react";
+ import Link from "next/link";
+-import { ExternalLink, Globe2, MonitorSmartphone, Store } from "lucide-react";
++import { useEffect, useMemo, useState } from "react";
++
++type Banner = { id: string; title: string; subtitle: string; href: string; image: string; active: boolean; sortOrder: number };
++type Photo = { id: string; title: string; url: string; productSlug: string; active: boolean };
++type RateRow = { quantity: number; price: number; label: string };
++type RateList = { id: string; productSlug: string; title: string; rows: RateRow[] };
++type TemplateField = { key: string; label: string; placeholder: string };
++type Template = { id: string; name: string; productType: string; size: string; background: string; accent: string; fields: TemplateField[] };
++type StorefrontContent = {
++  settings: { couponText: string; currency: string; advancePercent: number; whatsappNumber: string };
++  heroBanners: Banner[];
++  promoBanners: Banner[];
++  rateLists: RateList[];
++  photos: Photo[];
++};
++
++const blankBanner = (kind: string): Banner => ({
++  id: `${kind}-${Date.now()}`,
++  title: "New Campaign",
++  subtitle: "Short customer-facing offer line",
++  href: "/web-to-print/categories",
++  image: "",
++  active: true,
++  sortOrder: 1,
++});
++
++const blankTemplate = (): Template => ({
++  id: `template-${Date.now()}`,
++  name: "New Customer Form Template",
++  productType: "visiting-card",
++  size: "3.5 x 2 in",
++  background: "#ffffff",
++  accent: "#dc2626",
++  fields: [
++    { key: "businessName", label: "Business Name", placeholder: "Customer business name" },
++    { key: "phone", label: "Phone", placeholder: "+91 98765 43210" },
++  ],
++});
+ 
+ export default function StorefrontModulePage() {
++  const [content, setContent] = useState<StorefrontContent | null>(null);
++  const [templates, setTemplates] = useState<Template[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [saving, setSaving] = useState(false);
++  const [message, setMessage] = useState("");
++  const [tab, setTab] = useState<"slider" | "photos" | "rates" | "templates">("slider");
++
++  useEffect(() => {
++    Promise.all([
++      fetch(`${API_BASE_URL}/storefront/content`).then((res) => res.json()),
++      fetch(`${API_BASE_URL}/storefront/templates`).then((res) => res.json()),
++    ])
++      .then(([contentData, templateData]) => {
++        setContent(contentData);
++        setTemplates(templateData.templates ?? []);
++      })
++      .finally(() => setLoading(false));
++  }, []);
++
++  const activeHeroCount = useMemo(() => content?.heroBanners.filter((banner) => banner.active).length ?? 0, [content]);
++
++  async function saveAll() {
++    if (!content) return;
++    setSaving(true);
++    setMessage("");
++    try {
++      const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
++      const [contentRes, templateRes] = await Promise.all([
++        fetch(`${API_BASE_URL}/storefront/content`, { method: "PUT", headers, body: JSON.stringify(content) }),
++        fetch(`${API_BASE_URL}/storefront/templates`, { method: "PUT", headers, body: JSON.stringify({ templates }) }),
++      ]);
++      if (!contentRes.ok || !templateRes.ok) throw new Error("Save failed");
++      setMessage("Saved. The storefront can now read the latest slider, rates, photos, and templates.");
++    } catch {
++      setMessage("Could not save. Please check login and backend connection.");
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  if (loading || !content) {
++    return (
++      <DashboardShell>
++        <div className="grid h-full place-items-center bg-slate-100 text-slate-500">
++          <Loader2 className="h-8 w-8 animate-spin" />
++        </div>
++      </DashboardShell>
++    );
++  }
++
+   return (
+     <DashboardShell>
+-      <div className="h-full bg-slate-100">
+-        <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
+-          <div className="flex min-w-0 items-center gap-3">
+-            <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-red-600 text-white">
+-              <Store size={22} />
+-            </span>
+-            <div className="min-w-0">
+-              <h1 className="truncate text-xl font-black text-slate-900">RarePrint Storefront</h1>
+-              <p className="text-sm font-semibold text-slate-500">Customer web-to-print website launcher</p>
+-            </div>
++      <div className="min-h-full bg-slate-100 text-slate-900">
++        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
++          <div>
++            <h1 className="text-xl font-black">Storefront Manager</h1>
++            <p className="mt-1 text-sm font-semibold text-slate-500">Manage website slider, photos, rate list, and customer form templates.</p>
++          </div>
++          <div className="flex flex-wrap gap-2">
++            <Link href="/web-to-print" target="_blank" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50">
++              Open Website <ExternalLink className="h-4 w-4" />
++            </Link>
++            <button onClick={saveAll} disabled={saving} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60">
++              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
++              Save Changes
++            </button>
++          </div>
++        </div>
++
++        <div className="mx-auto max-w-7xl p-5">
++          <div className="grid gap-4 md:grid-cols-4">
++            <SummaryCard title="Active Slides" value={String(activeHeroCount)} />
++            <SummaryCard title="Photos" value={String(content.photos.length)} />
++            <SummaryCard title="Rate Lists" value={String(content.rateLists.length)} />
++            <SummaryCard title="Templates" value={String(templates.length)} />
++          </div>
++
++          {message && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">{message}</div>}
++
++          <div className="mt-5 flex flex-wrap gap-2">
++            <TabButton active={tab === "slider"} onClick={() => setTab("slider")} icon={<SlidersHorizontal className="h-4 w-4" />} label="Slider" />
++            <TabButton active={tab === "photos"} onClick={() => setTab("photos")} icon={<ImagePlus className="h-4 w-4" />} label="Photos" />
++            <TabButton active={tab === "rates"} onClick={() => setTab("rates")} icon={<Table2 className="h-4 w-4" />} label="Rate List" />
++            <TabButton active={tab === "templates"} onClick={() => setTab("templates")} icon={<SlidersHorizontal className="h-4 w-4" />} label="Templates" />
++          </div>
++
++          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
++            {tab === "slider" && (
++              <BannerEditor
++                title="Homepage Slider"
++                rows={content.heroBanners}
++                onAdd={() => setContent({ ...content, heroBanners: [...content.heroBanners, blankBanner("hero")] })}
++                onChange={(rows) => setContent({ ...content, heroBanners: rows })}
++              />
++            )}
++            {tab === "photos" && (
++              <PhotoEditor photos={content.photos} onChange={(photos) => setContent({ ...content, photos })} />
++            )}
++            {tab === "rates" && (
++              <RateEditor rateLists={content.rateLists} onChange={(rateLists) => setContent({ ...content, rateLists })} />
++            )}
++            {tab === "templates" && (
++              <TemplateEditor templates={templates} onChange={setTemplates} />
++            )}
+           </div>
+-          <Link
+-            href="/web-to-print"
+-            target="_blank"
+-            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-black text-white hover:bg-red-700"
+-          >
+-            Open Full Site
+-            <ExternalLink size={16} />
+-          </Link>
+         </div>
++        <style jsx global>{`
++          .input {
++            width: 100%;
++            border-radius: 0.5rem;
++            border: 1px solid #e2e8f0;
++            background: #ffffff;
++            padding: 0.5rem 0.75rem;
++            font-size: 0.875rem;
++            outline: none;
++          }
++          .input:focus {
++            border-color: #64748b;
++          }
++        `}</style>
++      </div>
++    </DashboardShell>
++  );
++}
++
++function SummaryCard({ title, value }: { title: string; value: string }) {
++  return <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase text-slate-400">{title}</p><p className="mt-2 text-2xl font-black">{value}</p></div>;
++}
++
++function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
++  return <button onClick={onClick} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-bold ${active ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{icon}{label}</button>;
++}
++
++function BannerEditor({ title, rows, onAdd, onChange }: { title: string; rows: Banner[]; onAdd: () => void; onChange: (rows: Banner[]) => void }) {
++  return (
++    <section>
++      <EditorHead title={title} onAdd={onAdd} addLabel="Add Slide" />
++      <div className="mt-3 space-y-3">
++        {rows.map((row, index) => (
++          <Panel key={row.id} onDelete={() => onChange(rows.filter((item) => item.id !== row.id))}>
++            <div className="grid gap-3 md:grid-cols-2">
++              <Input label="Title" value={row.title} onChange={(value) => onChange(update(rows, index, { title: value }))} />
++              <Input label="Link" value={row.href} onChange={(value) => onChange(update(rows, index, { href: value }))} />
++              <Input label="Subtitle" value={row.subtitle} onChange={(value) => onChange(update(rows, index, { subtitle: value }))} wide />
++              <Input label="Image URL" value={row.image} onChange={(value) => onChange(update(rows, index, { image: value }))} wide />
++              <Input label="Sort Order" value={String(row.sortOrder)} onChange={(value) => onChange(update(rows, index, { sortOrder: Number(value) || 1 }))} />
++              <Toggle label="Active" checked={row.active} onChange={(active) => onChange(update(rows, index, { active }))} />
++            </div>
++          </Panel>
++        ))}
++      </div>
++    </section>
++  );
++}
++
++function PhotoEditor({ photos, onChange }: { photos: Photo[]; onChange: (photos: Photo[]) => void }) {
++  return (
++    <section>
++      <EditorHead title="Product Photos" addLabel="Add Photo" onAdd={() => onChange([...photos, { id: `photo-${Date.now()}`, title: "New Photo", url: "", productSlug: "", active: true }])} />
++      <div className="mt-3 space-y-3">
++        {photos.map((photo, index) => (
++          <Panel key={photo.id} onDelete={() => onChange(photos.filter((item) => item.id !== photo.id))}>
++            <div className="grid gap-3 md:grid-cols-2">
++              <Input label="Title" value={photo.title} onChange={(value) => onChange(update(photos, index, { title: value }))} />
++              <Input label="Product Slug" value={photo.productSlug} onChange={(value) => onChange(update(photos, index, { productSlug: value }))} />
++              <Input label="Image URL" value={photo.url} onChange={(value) => onChange(update(photos, index, { url: value }))} wide />
++              <Toggle label="Active" checked={photo.active} onChange={(active) => onChange(update(photos, index, { active }))} />
++            </div>
++          </Panel>
++        ))}
++      </div>
++    </section>
++  );
++}
+ 
+-        <div className="mx-auto grid max-w-5xl gap-5 p-5 lg:grid-cols-[1.2fr_0.8fr]">
+-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+-            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-red-600 text-white">
+-              <Globe2 size={28} />
++function RateEditor({ rateLists, onChange }: { rateLists: RateList[]; onChange: (rateLists: RateList[]) => void }) {
++  return (
++    <section>
++      <EditorHead title="Rate Lists" addLabel="Add Rate List" onAdd={() => onChange([...rateLists, { id: `rate-${Date.now()}`, title: "New Rate List", productSlug: "", rows: [{ quantity: 1000, price: 0, label: "1,000 pcs" }] }])} />
++      <div className="mt-3 space-y-3">
++        {rateLists.map((rateList, index) => (
++          <Panel key={rateList.id} onDelete={() => onChange(rateLists.filter((item) => item.id !== rateList.id))}>
++            <div className="grid gap-3 md:grid-cols-2">
++              <Input label="Title" value={rateList.title} onChange={(value) => onChange(update(rateLists, index, { title: value }))} />
++              <Input label="Product Slug" value={rateList.productSlug} onChange={(value) => onChange(update(rateLists, index, { productSlug: value }))} />
+             </div>
+-            <h2 className="mt-5 text-2xl font-black text-slate-950">Launch Storefront Separately</h2>
+-            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-600">
+-              For best speed, open the customer storefront as a separate website instead of loading it inside the ERP.
+-              This keeps the ERP fast and gives customers a full-screen shopping experience.
+-            </p>
+-            <div className="mt-6 flex flex-wrap gap-3">
+-              <Link
+-                href="/web-to-print"
+-                target="_blank"
+-                className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-black text-white hover:bg-red-700"
+-              >
+-                Open Storefront Website
+-                <ExternalLink size={16} />
+-              </Link>
+-              <Link
+-                href="/web-to-print/categories"
+-                target="_blank"
+-                className="inline-flex min-h-12 items-center rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-800 hover:border-slate-500"
+-              >
+-                Open Product Categories
+-              </Link>
++            <div className="mt-3 space-y-2">
++              {rateList.rows.map((row, rowIndex) => (
++                <div key={rowIndex} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
++                  <input className="input" value={row.label} onChange={(event) => onChange(update(rateLists, index, { rows: update(rateList.rows, rowIndex, { label: event.target.value }) }))} />
++                  <input className="input" type="number" value={row.quantity} onChange={(event) => onChange(update(rateLists, index, { rows: update(rateList.rows, rowIndex, { quantity: Number(event.target.value) }) }))} />
++                  <input className="input" type="number" value={row.price} onChange={(event) => onChange(update(rateLists, index, { rows: update(rateList.rows, rowIndex, { price: Number(event.target.value) }) }))} />
++                  <button className="rounded-lg border border-red-200 px-3 text-red-600" onClick={() => onChange(update(rateLists, index, { rows: rateList.rows.filter((_, itemIndex) => itemIndex !== rowIndex) }))}><Trash2 className="h-4 w-4" /></button>
++                </div>
++              ))}
++              <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold" onClick={() => onChange(update(rateLists, index, { rows: [...rateList.rows, { quantity: 0, price: 0, label: "New qty" }] }))}><Plus className="h-3.5 w-3.5" /> Add Row</button>
+             </div>
+-          </section>
++          </Panel>
++        ))}
++      </div>
++    </section>
++  );
++}
+ 
+-          <aside className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+-            <div className="grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-700">
+-              <MonitorSmartphone size={24} />
++function TemplateEditor({ templates, onChange }: { templates: Template[]; onChange: (templates: Template[]) => void }) {
++  return (
++    <section>
++      <EditorHead title="Customer Form Templates" addLabel="Add Template" onAdd={() => onChange([...templates, blankTemplate()])} />
++      <div className="mt-3 space-y-3">
++        {templates.map((template, index) => (
++          <Panel key={template.id} onDelete={() => onChange(templates.filter((item) => item.id !== template.id))}>
++            <div className="grid gap-3 md:grid-cols-3">
++              <Input label="Template Name" value={template.name} onChange={(value) => onChange(update(templates, index, { name: value }))} />
++              <Input label="Product Type" value={template.productType} onChange={(value) => onChange(update(templates, index, { productType: value }))} />
++              <Input label="Size" value={template.size} onChange={(value) => onChange(update(templates, index, { size: value }))} />
++              <Input label="Background" value={template.background} onChange={(value) => onChange(update(templates, index, { background: value }))} />
++              <Input label="Accent" value={template.accent} onChange={(value) => onChange(update(templates, index, { accent: value }))} />
+             </div>
+-            <h3 className="mt-4 text-lg font-black text-slate-950">Recommended Hosting</h3>
+-            <div className="mt-4 space-y-4 text-sm text-slate-600">
+-              <div>
+-                <p className="font-black text-slate-900">Frontend website</p>
+-                <p className="mt-1 font-semibold">Deploy on Vercel for fastest customer pages.</p>
+-              </div>
+-              <div>
+-                <p className="font-black text-slate-900">ERP and backend</p>
+-                <p className="mt-1 font-semibold">Keep on Railway with database, orders, payments, and APIs.</p>
+-              </div>
+-              <div>
+-                <p className="font-black text-slate-900">Domain setup</p>
+-                <p className="mt-1 font-semibold">Use a separate domain like store.rareprint.in or rareprint.in.</p>
+-              </div>
++            <div className="mt-3 space-y-2">
++              {template.fields.map((field, fieldIndex) => (
++                <div key={fieldIndex} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
++                  <input className="input" value={field.key} onChange={(event) => onChange(update(templates, index, { fields: update(template.fields, fieldIndex, { key: event.target.value }) }))} />
++                  <input className="input" value={field.label} onChange={(event) => onChange(update(templates, index, { fields: update(template.fields, fieldIndex, { label: event.target.value }) }))} />
++                  <input className="input" value={field.placeholder} onChange={(event) => onChange(update(templates, index, { fields: update(template.fields, fieldIndex, { placeholder: event.target.value }) }))} />
++                  <button className="rounded-lg border border-red-200 px-3 text-red-600" onClick={() => onChange(update(templates, index, { fields: template.fields.filter((_, itemIndex) => itemIndex !== fieldIndex) }))}><Trash2 className="h-4 w-4" /></button>
++                </div>
++              ))}
++              <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold" onClick={() => onChange(update(templates, index, { fields: [...template.fields, { key: "newField", label: "New Field", placeholder: "Value" }] }))}><Plus className="h-3.5 w-3.5" /> Add Field</button>
+             </div>
+-          </aside>
+-        </div>
++          </Panel>
++        ))}
+       </div>
+-    </DashboardShell>
++    </section>
+   );
+ }
++
++function EditorHead({ title, addLabel, onAdd }: { title: string; addLabel: string; onAdd: () => void }) {
++  return <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-black">{title}</h2><button onClick={onAdd} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white"><Plus className="h-3.5 w-3.5" />{addLabel}</button></div>;
++}
++
++function Panel({ children, onDelete }: { children: React.ReactNode; onDelete: () => void }) {
++  return <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="flex justify-end"><button onClick={onDelete} className="mb-2 inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2 py-1 text-xs font-bold text-red-600"><Trash2 className="h-3.5 w-3.5" />Remove</button></div>{children}</div>;
++}
++
++function Input({ label, value, onChange, wide = false }: { label: string; value: string; onChange: (value: string) => void; wide?: boolean }) {
++  return <label className={wide ? "block md:col-span-2" : "block"}><span className="mb-1 block text-xs font-bold text-slate-500">{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} className="input" /></label>;
++}
++
++function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
++  return <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />{label}</label>;
++}
++
++function update<T>(rows: T[], index: number, patch: Partial<T>) {
++  return rows.map((row, itemIndex) => itemIndex === index ? { ...row, ...patch } : row);
++}
+diff --git a/frontend/app/web-to-print/components/HeroSliderClient.tsx b/frontend/app/web-to-print/components/HeroSliderClient.tsx
+index 4e9e981..3805a34 100644
+--- a/frontend/app/web-to-print/components/HeroSliderClient.tsx
++++ b/frontend/app/web-to-print/components/HeroSliderClient.tsx
+@@ -2,6 +2,7 @@
+ 
+ import Link from "next/link";
+ import { useEffect, useState } from "react";
++import { API_BASE_URL } from "@/lib/api";
+ import { ProductVisual } from "./ProductVisual";
+ 
+ type Slide = {
+@@ -12,23 +13,50 @@ type Slide = {
+ };
+ 
+ export function HeroSliderClient({ slides }: { slides: Slide[] }) {
++  const [managedSlides, setManagedSlides] = useState<Slide[]>(slides);
+   const [activeIndex, setActiveIndex] = useState(0);
+ 
+   useEffect(() => {
++    fetch(`${API_BASE_URL}/storefront/content`)
++      .then((res) => res.ok ? res.json() : null)
++      .then((data) => {
++        const rows = Array.isArray(data?.heroBanners) ? data.heroBanners : [];
++        const activeRows = rows
++          .filter((row: any) => row.active !== false)
++          .sort((a: any, b: any) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
++          .map((row: any) => ({
++            title: String(row.title ?? ""),
++            sub: String(row.subtitle ?? ""),
++            href: String(row.href ?? "/web-to-print/categories"),
++            image: row.image ?? null,
++          }))
++          .filter((row: Slide) => row.title);
++        if (activeRows.length) setManagedSlides(activeRows);
++      })
++      .catch(() => {});
++  }, []);
++
++  useEffect(() => {
++    if (managedSlides.length <= 1) return;
+     const timer = window.setInterval(() => {
+-      setActiveIndex((index) => (index + 1) % slides.length);
++      setActiveIndex((index) => (index + 1) % managedSlides.length);
+     }, 4000);
+     return () => window.clearInterval(timer);
+-  }, [slides.length]);
++  }, [managedSlides.length]);
+ 
+-  const active = slides[activeIndex];
++  const active = managedSlides[activeIndex] ?? managedSlides[0] ?? slides[0];
+ 
+   return (
+     <section className="bg-white py-4">
+       <div className="mx-auto max-w-7xl px-4">
+         <Link href={active.href} className="relative block min-h-[210px] overflow-hidden rounded-2xl bg-slate-950">
+           <div className="absolute inset-y-0 right-0 hidden w-1/2 opacity-40 sm:block">
+-            <ProductVisual label={active.title} />
++            {active.image ? (
++              // eslint-disable-next-line @next/next/no-img-element
++              <img src={active.image} alt="" className="h-full w-full object-cover" />
++            ) : (
++              <ProductVisual label={active.title} />
++            )}
+           </div>
+           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/25 to-transparent" />
+           <div className="relative z-10 flex min-h-[210px] max-w-md flex-col justify-end p-5 text-white sm:p-8">
+@@ -37,7 +65,7 @@ export function HeroSliderClient({ slides }: { slides: Slide[] }) {
+             <p className="mt-2 text-sm font-semibold leading-6 text-white/90">{active.sub}</p>
+           </div>
+           <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1.5">
+-            {slides.map((slide, index) => (
++            {managedSlides.map((slide, index) => (
+               <button
+                 key={slide.title}
+                 type="button"
+diff --git a/frontend/app/web-to-print/studio/[slug]/StudioClient.tsx b/frontend/app/web-to-print/studio/[slug]/StudioClient.tsx
+index ba7288a..e14a6c8 100644
+--- a/frontend/app/web-to-print/studio/[slug]/StudioClient.tsx
++++ b/frontend/app/web-to-print/studio/[slug]/StudioClient.tsx
+@@ -5,16 +5,18 @@ import {
+   AlignLeft,
+   AlignRight,
+   ChevronLeft,
+-  Download,
+-  Square,
+-  Trash2,
+-  Type,
+-} from "lucide-react";
+-import Link from "next/link";
+-import { useEffect, useRef, useState } from "react";
+-import { type Product } from "../../catalog";
++  Download,
++  Square,
++  Trash2,
++  Type,
++  Wand2,
++} from "lucide-react";
++import Link from "next/link";
++import { useEffect, useRef, useState } from "react";
++import { API_BASE_URL } from "@/lib/api";
++import { type Product } from "../../catalog";
+ 
+-type CanvasElement = {
++type CanvasElement = {
+   id: string;
+   type: "text" | "rect" | "image";
+   x: number;
+@@ -30,14 +32,28 @@ type CanvasElement = {
+   italic?: boolean;
+   align?: "left" | "center" | "right";
+   imageUrl?: string;
+-};
++};
++
++type TemplateField = { key: string; label: string; placeholder: string };
++type DesignTemplate = {
++  id: string;
++  name: string;
++  productType: string;
++  size: string;
++  background: string;
++  accent: string;
++  fields: TemplateField[];
++};
+ 
+ const CANVAS_W = 800;
+ const CANVAS_H = 500;
+ 
+-export function StudioClient({ product }: { product: Product }) {
+-  const canvasRef = useRef<HTMLCanvasElement>(null);
+-  const [elements, setElements] = useState<CanvasElement[]>([
++export function StudioClient({ product }: { product: Product }) {
++  const canvasRef = useRef<HTMLCanvasElement>(null);
++  const [templates, setTemplates] = useState<DesignTemplate[]>([]);
++  const [selectedTemplateId, setSelectedTemplateId] = useState("");
++  const [formData, setFormData] = useState<Record<string, string>>({});
++  const [elements, setElements] = useState<CanvasElement[]>([
+     { id: "bg", type: "rect", x: 0, y: 0, width: CANVAS_W, height: CANVAS_H, bgColor: "#FFFFFF" },
+     {
+       id: "title",
+@@ -83,7 +99,22 @@ export function StudioClient({ product }: { product: Product }) {
+   const [selected, setSelected] = useState<string | null>("title");
+   const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
+   const [tool, setTool] = useState<"select" | "text" | "rect">("select");
+-  const selectedEl = elements.find((element) => element.id === selected);
++  const selectedEl = elements.find((element) => element.id === selected);
++  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
++
++  useEffect(() => {
++    fetch(`${API_BASE_URL}/storefront/templates`)
++      .then((res) => res.ok ? res.json() : null)
++      .then((data) => {
++        const rows = Array.isArray(data?.templates) ? data.templates : [];
++        if (rows.length) {
++          setTemplates(rows);
++          setSelectedTemplateId(rows[0].id);
++          setFormData(Object.fromEntries(rows[0].fields.map((field: TemplateField) => [field.key, field.placeholder])));
++        }
++      })
++      .catch(() => {});
++  }, []);
+ 
+   function draw() {
+     const canvas = canvasRef.current;
+@@ -187,14 +218,110 @@ export function StudioClient({ product }: { product: Product }) {
+     setSelected(null);
+   }
+ 
+-  function downloadCanvas() {
++  function downloadCanvas() {
+     const canvas = canvasRef.current;
+     if (!canvas) return;
+     const link = document.createElement("a");
+     link.download = `rareprint-design-${product.slug}.png`;
+     link.href = canvas.toDataURL("image/png");
+     link.click();
+-  }
++  }
++
++  function chooseTemplate(templateId: string) {
++    const template = templates.find((row) => row.id === templateId);
++    setSelectedTemplateId(templateId);
++    if (!template) return;
++    setFormData(Object.fromEntries(template.fields.map((field) => [field.key, formData[field.key] || field.placeholder])));
++  }
++
++  function applyTemplate() {
++    const template = selectedTemplate;
++    if (!template) return;
++    const businessName = formData.businessName || formData.brandName || template.fields[0]?.placeholder || "Your Business Name";
++    const tagline = formData.tagline || formData.license || formData.website || "Premium printed by RarePrint";
++    const phone = formData.phone || "+91 98765 43210";
++    const address = formData.address || "Your address";
++    const extra = template.fields
++      .filter((field) => !["businessName", "tagline", "phone", "address"].includes(field.key))
++      .map((field) => formData[field.key])
++      .filter(Boolean)
++      .join("  |  ");
++
++    setElements([
++      { id: "bg", type: "rect", x: 0, y: 0, width: CANVAS_W, height: CANVAS_H, bgColor: template.background || "#FFFFFF" },
++      { id: "accent-top", type: "rect", x: 0, y: 0, width: CANVAS_W, height: 70, bgColor: template.accent || "#CC0000" },
++      { id: "accent-side", type: "rect", x: 0, y: 0, width: 32, height: CANVAS_H, bgColor: template.accent || "#CC0000" },
++      {
++        id: "title",
++        type: "text",
++        x: 70,
++        y: 105,
++        width: 620,
++        height: 70,
++        text: businessName,
++        fontSize: 42,
++        fontFamily: "Arial",
++        color: "#111827",
++        bold: true,
++        align: "left",
++      },
++      {
++        id: "sub",
++        type: "text",
++        x: 72,
++        y: 180,
++        width: 560,
++        height: 38,
++        text: tagline,
++        fontSize: 22,
++        fontFamily: "Arial",
++        color: template.accent || "#CC0000",
++        bold: true,
++        align: "left",
++      },
++      {
++        id: "phone",
++        type: "text",
++        x: 72,
++        y: 350,
++        width: 520,
++        height: 34,
++        text: phone,
++        fontSize: 24,
++        fontFamily: "Arial",
++        color: "#111827",
++        bold: true,
++        align: "left",
++      },
++      {
++        id: "address",
++        type: "text",
++        x: 72,
++        y: 395,
++        width: 620,
++        height: 30,
++        text: address,
++        fontSize: 16,
++        fontFamily: "Arial",
++        color: "#4b5563",
++        align: "left",
++      },
++      {
++        id: "extra",
++        type: "text",
++        x: 72,
++        y: 440,
++        width: 650,
++        height: 28,
++        text: extra,
++        fontSize: 14,
++        fontFamily: "Arial",
++        color: "#4b5563",
++        align: "left",
++      },
++    ]);
++    setSelected("title");
++  }
+ 
+   return (
+     <div className="flex h-screen flex-col bg-slate-100">
+@@ -209,8 +336,8 @@ export function StudioClient({ product }: { product: Product }) {
+         </button>
+       </div>
+ 
+-      <div className="flex flex-1 overflow-hidden">
+-        <div className="flex w-14 flex-col items-center gap-2 border-r border-slate-200 bg-white py-4">
++      <div className="flex flex-1 overflow-hidden">
++        <div className="flex w-14 flex-col items-center gap-2 border-r border-slate-200 bg-white py-4">
+           {[
+             { id: "select", icon: <Square className="h-5 w-5" />, label: "Select" },
+             { id: "text", icon: <Type className="h-5 w-5" />, label: "Text" },
+@@ -229,9 +356,40 @@ export function StudioClient({ product }: { product: Product }) {
+           <button title="Delete selected" onClick={deleteSelected} className="grid h-10 w-10 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+             <Trash2 className="h-5 w-5" />
+           </button>
+-        </div>
+-
+-        <div className="flex flex-1 items-center justify-center overflow-auto p-6">
++        </div>
++
++        <div className="w-80 overflow-y-auto border-r border-slate-200 bg-white p-4">
++          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Template Form</p>
++          <h2 className="mt-2 text-lg font-black text-slate-950">Fill fields, create preview</h2>
++          <div className="mt-4 space-y-3">
++            <label className="block">
++              <span className="mb-1 block text-xs font-bold text-slate-500">Template</span>
++              <select value={selectedTemplateId} onChange={(event) => chooseTemplate(event.target.value)} className="w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:border-slate-400">
++                {templates.length === 0 && <option>No templates loaded</option>}
++                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
++              </select>
++            </label>
++            {selectedTemplate?.fields.map((field) => (
++              <label key={field.key} className="block">
++                <span className="mb-1 block text-xs font-bold text-slate-500">{field.label}</span>
++                <input
++                  value={formData[field.key] ?? ""}
++                  placeholder={field.placeholder}
++                  onChange={(event) => setFormData((current) => ({ ...current, [field.key]: event.target.value }))}
++                  className="w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:border-slate-400"
++                />
++              </label>
++            ))}
++            <button onClick={applyTemplate} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800">
++              <Wand2 className="h-4 w-4" /> Create Design From Form
++            </button>
++            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">
++              This is the first template-based workflow: customer data is placed into a locked starter layout, then the design can still be edited manually.
++            </div>
++          </div>
++        </div>
++
++        <div className="flex flex-1 items-center justify-center overflow-auto p-6">
+           <canvas
+             ref={canvasRef}
+             width={CANVAS_W}
+

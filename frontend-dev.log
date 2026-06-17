@@ -1,0 +1,13 @@
+
+> frontend@0.1.0 dev
+> next dev -p 3001
+
+▲ Next.js 16.2.3 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.3:3001
+- Environments: .env.local
+✓ Ready in 1494ms
+
+○ Compiling /production ...
+ GET /production 200 in 11.0s (next.js: 10.4s, application-code: 569ms)
+ GET /production 200 in 11.0s (next.js: 10.2s, application-code: 726ms)
