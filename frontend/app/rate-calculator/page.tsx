@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing";
+type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing" | "nwbag";
 type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
@@ -254,7 +254,7 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     } else {
       if (inputParams.sheetsPerUnit) details.push(`Pages per Pad / Book: ${inputParams.sheetsPerUnit}`);
       if (inputParams.fsize) details.push(`Final Size: ${inputParams.fsize}`);
-      if (inputParams.parent) details.push(`Parent Sheet: ${formatParentSheet(inputParams.parent)}`);
+
       if (inputParams.paper) details.push(`Paper: ${formatPaperType(inputParams.paper)}`);
       if (inputParams.colors) details.push(`Printing Colors: ${inputParams.colors} color${inputParams.colors > 1 ? "s" : ""}`);
       if (inputParams.sides) details.push(`Printing Side: ${inputParams.sides === "double" ? "Double Side" : "Single Side"}`);
@@ -262,8 +262,6 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     }
   }
 
-  if (result.description) details.push(`Calculation Note: ${result.description}`);
-  if (result.multiplier) details.push(`Pricing Multiplier: x${result.multiplier}`);
   return details;
 }
 
@@ -302,7 +300,7 @@ function buildQuotationText({
 
   const perVal = result.perPiece ?? result.perSticker;
   if (perVal) lines.push(`Per Piece: ${fmt(perVal)}`);
-  lines.push("", "Notes:", "- Final amount includes margin and GST as calculated.", "- Artwork/design, delivery or special finishing can be confirmed separately if applicable.");
+  lines.push("", "Notes:", "- Shipping Charges Extra");
   return lines.join("\n");
 }
 
@@ -829,6 +827,24 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+function AccordionCategory({ title, icon, defaultOpen = false, children }: { title: string; icon: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden mb-2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-100 hover:bg-slate-200 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <span>{icon}</span> {title}
+        </span>
+        <span className="text-slate-400 text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <div className="p-2.5 space-y-1.5">{children}</div>}
+    </div>
+  );
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function RateCalculatorPage() {
   const [tab, setTab] = useState<Tab>("forward");
@@ -872,12 +888,40 @@ export default function RateCalculatorPage() {
   const [rStickerHalfCut, setRStickerHalfCut] = useState(false);
   const [rNonWovenSize, setRNonWovenSize] = useState("12x15");
   const [rNonWovenPrintMode, setRNonWovenPrintMode] = useState<"single" | "multicolor">("single");
+  const [rNonWovenPlateMode, setRNonWovenPlateMode] = useState<"1" | "2">("1");
+  const [rNonWovenPerPlateRate, setRNonWovenPerPlateRate] = useState<number | "">("");
   const [rDotMatrixSize, setRDotMatrixSize] = useState("4x6");
   const [rDotMatrixGsm, setRDotMatrixGsm] = useState(70);
   const [rCarbonCopy, setRCarbonCopy] = useState(false);
   const [rKeychainNumber, setRKeychainNumber] = useState("KC1");
   const [rPenNumber, setRPenNumber] = useState("PEN1");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
+
+  // ── NW Bag Cost Calculator State ──
+  const [nwBag, setNwBag] = useState({
+    description: "",
+    weightGm: "",
+    quantity: "",
+    ratePerKg: "",
+    printingCostPerBag: "",
+    plateMode: "1" as "1" | "2",
+    perPlateRate: "",
+  });
+  const nwCalc = (() => {
+    const wt = parseFloat(nwBag.weightGm) || 0;
+    const qty = parseFloat(nwBag.quantity) || 0;
+    const rkg = parseFloat(nwBag.ratePerKg) || 0;
+    const prt = parseFloat(nwBag.printingCostPerBag) || 0;
+    const plates = nwBag.plateMode === "2" ? 2 : 1;
+    const ppr = parseFloat(nwBag.perPlateRate) || 0;
+    if (!wt || !qty || !rkg) return null;
+    const fabricCost = (wt * qty / 1000) * rkg;
+    const printingCost = prt * qty;
+    const plateCost = plates * ppr;
+    const totalCost = fabricCost + printingCost + plateCost;
+    const costPerBag = qty > 0 ? totalCost / qty : 0;
+    return { fabricCost, printingCost, plateCost, totalCost, costPerBag, plates };
+  })();
 
   // Auto-set size/parent when product changes
   useEffect(() => {
@@ -907,6 +951,8 @@ export default function RateCalculatorPage() {
       setRQty(1000);
       setRNonWovenSize("12x15");
       setRNonWovenPrintMode("single");
+      setRNonWovenPlateMode("1");
+      setRNonWovenPerPlateRate("");
       return;
     }
     if (rProduct === "dotmatrixbill") {
@@ -1115,6 +1161,8 @@ export default function RateCalculatorPage() {
       halfCut: rProduct === "sticker" ? rStickerHalfCut : undefined,
       nonWovenSize: rNonWovenSize,
       nonWovenPrintMode: rNonWovenPrintMode,
+      nonWovenPlateMode: rNonWovenPlateMode,
+      nonWovenPerPlateRate: rNonWovenPerPlateRate !== "" ? rNonWovenPerPlateRate : undefined,
       dotMatrixSize: rDotMatrixSize,
       dotMatrixGsm: rDotMatrixGsm,
       carbonCopy: rCarbonCopy,
@@ -1184,6 +1232,7 @@ export default function RateCalculatorPage() {
   const ALL_TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: "forward",  label: "→ Forward" },
     { id: "reverse",  label: "↺ Reverse" },
+    { id: "nwbag",   label: "🧺 NW Bag Cost" },
     { id: "rates",    label: "⚙ Rates",    adminOnly: true },
     { id: "history",  label: "📋 History" },
     { id: "clubbing", label: "🤝 Clubbing", adminOnly: true },
@@ -1522,13 +1571,29 @@ export default function RateCalculatorPage() {
                       <Field label="Printing">
                         <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
                           <option value="single">Single Color</option>
-                          <option value="multicolor">Multicolor (+Rs.{nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)</option>
+                          <option value="multicolor">Multicolor (+₹{nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)</option>
                         </Select>
+                      </Field>
+                      <Field label="Plate Design">
+                        <Select value={rNonWovenPlateMode} onChange={e => setRNonWovenPlateMode(e.target.value as "1" | "2")}>
+                          <option value="1">1 Plate — Same design front &amp; back</option>
+                          <option value="2">2 Plates — Different design front &amp; back</option>
+                        </Select>
+                      </Field>
+                      <Field label={`Per Plate Rate (₹) — default ₹${nonWovenRates?.perPlateRate ?? 500}`}>
+                        <Input
+                          type="number"
+                          value={rNonWovenPerPlateRate}
+                          onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)}
+                          placeholder={String(nonWovenRates?.perPlateRate ?? 500)}
+                        />
                       </Field>
                     </div>
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} bags</strong> → base <strong>{fmt(nonWovenBaseRate)}</strong>/bag
-                      {nonWovenExtraRate > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraRate)}</strong>/bag</> : ""} × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
+                      <strong>{rQty.toLocaleString()} bags</strong> · base <strong>{fmt(nonWovenBaseRate)}</strong>/bag
+                      {nonWovenExtraRate > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraRate)}</strong>/bag</> : ""}
+                      {" "}+ <strong>{rNonWovenPlateMode} plate{rNonWovenPlateMode === "2" ? "s" : ""}</strong> × ₹{rNonWovenPerPlateRate || (nonWovenRates?.perPlateRate ?? 500)}
+                      {" "}× multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag (excl. plates)
                     </div>
                   </>
                 ) : rProduct === "dotmatrixbill" ? (
@@ -1724,6 +1789,146 @@ export default function RateCalculatorPage() {
             </div>
           </div>
         )}
+        {/* ── NW BAG COST CALCULATOR ── */}
+        {tab === "nwbag" && (
+          <div className="max-w-2xl space-y-4 pt-1">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+              <div>
+                <p className="text-sm font-bold text-slate-800">🧺 Non Woven Bag Cost Calculator</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Formula: (Weight/bag × Qty ÷ 1000 × Rate/kg) + (Printing/bag × Qty) + (Plates × Per plate rate)
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Bag Description / Size (optional)</label>
+                <input
+                  type="text"
+                  value={nwBag.description}
+                  onChange={e => setNwBag(s => ({ ...s, description: e.target.value }))}
+                  placeholder="e.g. 12×15 inch W-Cut Non Woven Bag"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Weight per Bag (gm) *</label>
+                  <input type="number" step="0.1" value={nwBag.weightGm}
+                    onChange={e => setNwBag(s => ({ ...s, weightGm: e.target.value }))}
+                    placeholder="e.g. 45"
+                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Size-wise fabric weight</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Total Quantity (bags) *</label>
+                  <input type="number" value={nwBag.quantity}
+                    onChange={e => setNwBag(s => ({ ...s, quantity: e.target.value }))}
+                    placeholder="e.g. 1000"
+                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Rate per KG (₹/kg) *</label>
+                  <input type="number" step="0.01" value={nwBag.ratePerKg}
+                    onChange={e => setNwBag(s => ({ ...s, ratePerKg: e.target.value }))}
+                    placeholder="e.g. 120"
+                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Non woven fabric cost/kg</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Printing Cost per Bag (₹)</label>
+                  <input type="number" step="0.01" value={nwBag.printingCostPerBag}
+                    onChange={e => setNwBag(s => ({ ...s, printingCostPerBag: e.target.value }))}
+                    placeholder="e.g. 2.50"
+                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Plate Configuration</p>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700">
+                    <input type="radio" name="nwPlateMode" value="1" checked={nwBag.plateMode === "1"}
+                      onChange={() => setNwBag(s => ({ ...s, plateMode: "1" }))} className="accent-blue-600" />
+                    1 Plate <span className="text-[10px] text-slate-400">(Same design front &amp; back)</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700">
+                    <input type="radio" name="nwPlateMode" value="2" checked={nwBag.plateMode === "2"}
+                      onChange={() => setNwBag(s => ({ ...s, plateMode: "2" }))} className="accent-blue-600" />
+                    2 Plates <span className="text-[10px] text-slate-400">(Different design front &amp; back)</span>
+                  </label>
+                </div>
+                <div className="w-44">
+                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Per Plate Rate (₹)</label>
+                  <input type="number" step="1" value={nwBag.perPlateRate}
+                    onChange={e => setNwBag(s => ({ ...s, perPlateRate: e.target.value }))}
+                    placeholder="e.g. 500"
+                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
+                </div>
+              </div>
+
+              <button onClick={() => setNwBag({ description: "", weightGm: "", quantity: "", ratePerKg: "", printingCostPerBag: "", plateMode: "1", perPlateRate: "" })}
+                className="text-[10px] text-slate-400 hover:text-slate-600 underline">
+                Clear all
+              </button>
+            </div>
+
+            {nwCalc && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+                <p className="text-sm font-bold text-green-800">
+                  📊 Cost Breakdown
+                  {nwBag.description && <span className="text-green-600 font-normal ml-2">— {nwBag.description}</span>}
+                </p>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs py-1.5 border-b border-green-100">
+                    <div>
+                      <span className="text-slate-700">Fabric Cost</span>
+                      <p className="text-slate-400">{nwBag.weightGm}gm × {Number(nwBag.quantity).toLocaleString("en-IN")} bags ÷ 1000 × ₹{nwBag.ratePerKg}/kg = {((parseFloat(nwBag.weightGm) * parseFloat(nwBag.quantity)) / 1000).toFixed(2)} kg</p>
+                    </div>
+                    <span className="font-semibold text-slate-800 ml-4">{fmt(nwCalc.fabricCost)}</span>
+                  </div>
+                  {nwCalc.printingCost > 0 && (
+                    <div className="flex justify-between text-xs py-1.5 border-b border-green-100">
+                      <div>
+                        <span className="text-slate-700">Printing Cost</span>
+                        <p className="text-slate-400">₹{nwBag.printingCostPerBag}/bag × {Number(nwBag.quantity).toLocaleString("en-IN")} bags</p>
+                      </div>
+                      <span className="font-semibold text-slate-800 ml-4">{fmt(nwCalc.printingCost)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs py-1.5 border-b border-green-100">
+                    <div>
+                      <span className="text-slate-700">Plate Cost</span>
+                      <p className="text-slate-400">{nwCalc.plates} plate{nwCalc.plates > 1 ? "s" : ""} × ₹{nwBag.perPlateRate || "0"} ({nwBag.plateMode === "2" ? "different design front & back" : "same design front & back"})</p>
+                    </div>
+                    <span className="font-semibold text-slate-800 ml-4">{fmt(nwCalc.plateCost)}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="rounded-lg bg-blue-600 text-white p-4 text-center">
+                    <div className="text-xs opacity-80 mb-1">Total Cost</div>
+                    <div className="text-2xl font-extrabold">{fmt(nwCalc.totalCost)}</div>
+                    <div className="text-xs opacity-70 mt-0.5">for {Number(nwBag.quantity).toLocaleString("en-IN")} bags</div>
+                  </div>
+                  <div className="rounded-lg bg-green-700 text-white p-4 text-center">
+                    <div className="text-xs opacity-80 mb-1">Cost per Bag</div>
+                    <div className="text-2xl font-extrabold">{fmt(nwCalc.costPerBag)}</div>
+                    <div className="text-xs opacity-70 mt-0.5">per piece</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!nwCalc && (nwBag.weightGm || nwBag.quantity || nwBag.ratePerKg) && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-700">
+                Fill in Weight per Bag, Quantity, and Rate per KG to see the cost breakdown.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── MASTER RATES ── */}
         {tab === "rates" && (
           ratesLoading ? (
@@ -1736,153 +1941,213 @@ export default function RateCalculatorPage() {
             </div>
           ) : rates ? (
             <>
-              {/* Multiplier */}
-              <Card title="💰 Selling Multiplier (covers Margin + GST)">
-                <Field label="Default Multiplier (×) — applied to total cost to get selling price">
-                  <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
-                </Field>
-                <p className="text-xs text-slate-400 mt-2">
-                  {"Example: cost ₹6,100 × " + (rates.multiplier ?? 1.67) + " = ₹" + (6100 * (rates.multiplier ?? 1.67)).toFixed(0) + " selling price"}
-                </p>
-              </Card>
-
-              {/* Paper — fully dynamic */}
-              <Card title="📄 Paper Rates (₹ per ream of 500 sheets)">
-                <DynamicPaperRates
-                  data={rates.paper ?? {}}
-                  onUpdate={d => updateRateSection("paper", d)}
-                />
-              </Card>
-
-              {/* Printing — structural, keep fixed */}
-              <Card title="🖨 Offset Printing Rates">
-                <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-700 mb-3">
-                  <strong>4-Color:</strong> billed per parent sheet (block rounding to 1000).{" "}
-                  <strong>1-Color / 2-Color:</strong> flat rate per 1,000 pieces.
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="4-Color — First 1,000 parent sheets (₹)">
-                    <Input type="number" value={rates.printing?.['4color']?.first1k ?? ""} onChange={e => updateRate("printing.4color.first1k", +e.target.value)} />
-                  </Field>
-                  <Field label="4-Color — Each next 1,000 sheets (₹)">
-                    <Input type="number" value={rates.printing?.['4color']?.nextK ?? ""} onChange={e => updateRate("printing.4color.nextK", +e.target.value)} />
-                  </Field>
-                  <Field label="1-Color — Flat per 1,000 pieces (₹)">
-                    <Input type="number" value={rates.printing?.['1color']?.flat ?? ""} onChange={e => updateRate("printing.1color.flat", +e.target.value)} />
-                  </Field>
-                  <Field label="2-Color — Flat per 1,000 pieces (₹)">
-                    <Input type="number" value={rates.printing?.['2color']?.flat ?? ""} onChange={e => updateRate("printing.2color.flat", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              {/* Plate & Punching */}
-              <Card title="🔲 Plate & Punching">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Plate Rate (₹/plate) — 1-color=1 plate, 4-color=4 plates">
-                    <Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} />
-                  </Field>
-                  <Field label="File Punching (₹/piece)">
-                    <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="PP Files">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Base costs are stored by quantity tier for single/double side, 300/350 micron and single/double creasing. These extras are applied per file before the selling multiplier.
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Field label="GST Extra (%)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? 18} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
-                  </Field>
-                  <Field label="Clip Extra (₹/file)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? 1.25} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
-                  </Field>
-                  <Field label="Pocket Extra (₹/side)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? 2.5} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
-                  </Field>
-                  <Field label="PP File Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="X-ray / CT Scan Bags">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Small bag is 10.5x16 inch X-ray bag. Big bag is 16x21 inch CT scan bag. Base costs are stored by quantity tier.
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Field label="GST Extra (%)">
-                    <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? 18} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
-                  </Field>
-                  <Field label="Bag Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="Sticker Rates">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  Half cutting is applied only when the Sticker calculator checkbox is selected. It is added on the selected sticker base cost before the auto multiplier.
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Field label="Half Cutting Extra (%)">
-                    <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
-                  </Field>
-                </div>
-              </Card>
-
-              <Card title="Non Woven Bag Rates">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  <Field label="Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
-                  </Field>
-                  <Field label="Multicolor Extra (₹/bag)">
-                    <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
-                  </Field>
-                </div>
-                <DynamicRateSection
-                  data={rates.nonWovenBag?.sizeRates ?? {}}
-                  onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), sizeRates: d } }))}
-                  step={0.01}
-                  addKeyPlaceholder="size (e.g. 12x15)"
-                  addValPlaceholder="₹/bag"
-                  formatLabel={k => k + " Bag"}
-                />
-              </Card>
-
-              <Card title="Dot Matrix Bill Rates">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  <Field label="Multiplier (×)">
-                    <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? 1.67} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
-                  </Field>
-                  <Field label="Carbon Copy Extra (₹/book)">
-                    <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? 8} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
-                  </Field>
-                </div>
-                <div className="space-y-2">
-                  {Object.entries(rates.dotMatrixBill?.sizeRates ?? {}).map(([size, gsmRates]) => (
-                    <div key={size} className="rounded-lg border border-slate-200 p-2">
-                      <p className="text-xs font-bold text-slate-600 mb-2">{size}</p>
-                      <DynamicRateSection
-                        data={gsmRates as Record<string, number>}
-                        onUpdate={d => setRates((prev: any) => ({ ...prev, dotMatrixBill: { ...(prev.dotMatrixBill ?? {}), sizeRates: { ...(prev.dotMatrixBill?.sizeRates ?? {}), [size]: d } } }))}
-                        step={0.01}
-                        addKeyPlaceholder="gsm"
-                        addValPlaceholder="₹/book"
-                        formatLabel={k => k + " GSM"}
-                      />
+              {/* ── CATEGORY: General ── */}
+              <AccordionCategory title="General" icon="⚙️" defaultOpen={true}>
+                <Card title="Selling Multiplier (covers Margin + GST)">
+                  <div className="flex items-end gap-3">
+                    <div className="w-32">
+                      <Field label="Default Multiplier (×)">
+                        <Input type="number" step="0.01" value={rates.multiplier ?? ""} onChange={e => updateRate("multiplier", +e.target.value)} />
+                      </Field>
                     </div>
-                  ))}
-                </div>
-              </Card>
+                    <p className="text-xs text-slate-400 pb-1">
+                      cost ₹6,100 × {rates.multiplier ?? 1.67} = ₹{(6100 * (rates.multiplier ?? 1.67)).toFixed(0)}
+                    </p>
+                  </div>
+                </Card>
+                <Card title="Plate & Punching">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Plate Rate (₹/plate)">
+                      <Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} />
+                    </Field>
+                    <Field label="File Punching (₹/piece)">
+                      <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+              </AccordionCategory>
 
-              <Card title="Keychain Rates">
-                <Field label="Multiplier (×)">
-                  <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? 1.67} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
-                </Field>
-                <div className="mt-3">
+              {/* ── CATEGORY: Paper ── */}
+              <AccordionCategory title="Paper" icon="📄" defaultOpen={false}>
+                <Card title="Paper Rates (₹ per ream of 500 sheets)">
+                  <DynamicPaperRates
+                    data={rates.paper ?? {}}
+                    onUpdate={d => updateRateSection("paper", d)}
+                  />
+                </Card>
+              </AccordionCategory>
+
+              {/* ── CATEGORY: Printing & Finishing ── */}
+              <AccordionCategory title="Printing & Finishing" icon="🖨️" defaultOpen={false}>
+                <Card title="Offset Printing Rates">
+                  <p className="text-[10px] text-blue-600 mb-2">4-Color: per parent sheet (rounds to 1000) · 1/2-Color: flat per 1,000 pcs</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Field label="4-Color 1st 1,000 sheets (₹)">
+                      <Input type="number" value={rates.printing?.['4color']?.first1k ?? ""} onChange={e => updateRate("printing.4color.first1k", +e.target.value)} />
+                    </Field>
+                    <Field label="4-Color next 1,000 sheets (₹)">
+                      <Input type="number" value={rates.printing?.['4color']?.nextK ?? ""} onChange={e => updateRate("printing.4color.nextK", +e.target.value)} />
+                    </Field>
+                    <Field label="1-Color per 1,000 pcs (₹)">
+                      <Input type="number" value={rates.printing?.['1color']?.flat ?? ""} onChange={e => updateRate("printing.1color.flat", +e.target.value)} />
+                    </Field>
+                    <Field label="2-Color per 1,000 pcs (₹)">
+                      <Input type="number" value={rates.printing?.['2color']?.flat ?? ""} onChange={e => updateRate("printing.2color.flat", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+                <Card title="Lamination (₹/100 sq in)">
+                  <p className="text-[10px] text-slate-400 mb-2">18×23 sheet = 414 sq in → per sheet = 4.14 × rate</p>
+                  <DynamicRateSection
+                    data={rates.lamination ?? {}}
+                    onUpdate={d => updateRateSection("lamination", d)}
+                    step={0.01}
+                    addKeyPlaceholder="type (e.g. matt, gloss)"
+                    addValPlaceholder="₹/100sqin"
+                    formatLabel={k => k.charAt(0).toUpperCase() + k.slice(1)}
+                  />
+                </Card>
+                <Card title="Gum Pad Binding (₹/pad)">
+                  <DynamicRateSection
+                    data={rates.padBinding ?? {}}
+                    onUpdate={d => updateRateSection("padBinding", d)}
+                    addKeyPlaceholder="size (e.g. A4, A5)"
+                    addValPlaceholder="₹/pad"
+                    formatLabel={k => k}
+                  />
+                </Card>
+                <Card title="Bill Book Binding (₹/book)">
+                  <DynamicRateSection
+                    data={rates.billBookBinding ?? {}}
+                    onUpdate={d => updateRateSection("billBookBinding", d)}
+                    addKeyPlaceholder="size (e.g. A5, A6)"
+                    addValPlaceholder="₹/book"
+                    formatLabel={k => k}
+                  />
+                </Card>
+                <Card title="Envelope Making (₹/piece)">
+                  <DynamicRateSection
+                    data={rates.envelope ?? {}}
+                    onUpdate={d => updateRateSection("envelope", d)}
+                    step={0.5}
+                    addKeyPlaceholder="key (e.g. env6x9)"
+                    addValPlaceholder="₹/pc"
+                  />
+                </Card>
+              </AccordionCategory>
+
+              {/* ── CATEGORY: Files & Bags ── */}
+              <AccordionCategory title="Files & Bags" icon="📁" defaultOpen={false}>
+                <Card title="PP Files">
+                  <p className="text-[10px] text-slate-400 mb-2">Base costs by qty tier. Extras applied per file before multiplier.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Field label="GST Extra (%)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? 18} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
+                    </Field>
+                    <Field label="Clip Extra (₹/file)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? 1.25} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
+                    </Field>
+                    <Field label="Pocket Extra (₹/side)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? 2.5} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
+                    </Field>
+                    <Field label="PP File Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+                <Card title="Non Woven Bag">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <Field label="Selling Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
+                    </Field>
+                    <Field label="Multicolor Extra (₹/bag)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
+                    </Field>
+                    <Field label="Fabric Rate (₹/kg)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.ratePerKg ?? 120} onChange={e => updateRate("nonWovenBag.ratePerKg", +e.target.value)} />
+                    </Field>
+                    <Field label="Printing Cost (₹/bag)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.printingCostPerBag ?? 2} onChange={e => updateRate("nonWovenBag.printingCostPerBag", +e.target.value)} />
+                    </Field>
+                    <Field label="Per Plate Rate (₹)">
+                      <Input type="number" step="1" value={rates.nonWovenBag?.perPlateRate ?? 500} onChange={e => updateRate("nonWovenBag.perPlateRate", +e.target.value)} />
+                    </Field>
+                  </div>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Selling Rate per Bag (₹/bag by size)</p>
+                  <DynamicRateSection
+                    data={rates.nonWovenBag?.sizeRates ?? {}}
+                    onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), sizeRates: d } }))}
+                    step={0.01}
+                    addKeyPlaceholder="size (e.g. 12x15)"
+                    addValPlaceholder="₹/bag"
+                    formatLabel={k => k + " Bag"}
+                  />
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5 mt-3">Bag Weight by Size (gm/bag)</p>
+                  <DynamicRateSection
+                    data={rates.nonWovenBag?.weightGm ?? {}}
+                    onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), weightGm: d } }))}
+                    step={0.1}
+                    addKeyPlaceholder="size (e.g. 12x15)"
+                    addValPlaceholder="gm/bag"
+                    formatLabel={k => k + " — weight"}
+                  />
+                </Card>
+                <Card title="X-ray / CT Scan Bags">
+                  <p className="text-[10px] text-slate-400 mb-2">Small = 10.5×16 X-ray · Big = 16×21 CT scan. Base costs by qty tier.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="GST Extra (%)">
+                      <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? 18} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
+                    </Field>
+                    <Field label="Bag Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+              </AccordionCategory>
+
+              {/* ── CATEGORY: Stationery & Gifts ── */}
+              <AccordionCategory title="Stationery & Gifts" icon="🖊️" defaultOpen={false}>
+                <Card title="Stickers">
+                  <p className="text-[10px] text-slate-400 mb-2">Half cut % added to base cost before auto multiplier (auto: under 500=×4, 500-1k=×3, 1k-3k=×2, 3k+=×1.67)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Half Cutting Extra (%)">
+                      <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+                <Card title="Dot Matrix Bills">
+                  <div className="grid grid-cols-2 gap-3 mb-2">
+                    <Field label="Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? 1.67} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
+                    </Field>
+                    <Field label="Carbon Copy Extra (₹/book)">
+                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? 8} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
+                    </Field>
+                  </div>
+                  <div className="space-y-1.5">
+                    {Object.entries(rates.dotMatrixBill?.sizeRates ?? {}).map(([size, gsmRates]) => (
+                      <div key={size} className="rounded border border-slate-200 bg-white p-2">
+                        <p className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase">{size}</p>
+                        <DynamicRateSection
+                          data={gsmRates as Record<string, number>}
+                          onUpdate={d => setRates((prev: any) => ({ ...prev, dotMatrixBill: { ...(prev.dotMatrixBill ?? {}), sizeRates: { ...(prev.dotMatrixBill?.sizeRates ?? {}), [size]: d } } }))}
+                          step={0.01}
+                          addKeyPlaceholder="gsm"
+                          addValPlaceholder="₹/book"
+                          formatLabel={k => k + " GSM"}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+                <Card title="Keychains">
+                  <div className="mb-2">
+                    <Field label="Multiplier (×)">
+                      <div className="w-24">
+                        <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? 1.67} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
+                      </div>
+                    </Field>
+                  </div>
                   <DynamicRateSection
                     data={rates.keychain?.numberRates ?? {}}
                     onUpdate={d => setRates((prev: any) => ({ ...prev, keychain: { ...(prev.keychain ?? {}), numberRates: d } }))}
@@ -1890,14 +2155,15 @@ export default function RateCalculatorPage() {
                     addKeyPlaceholder="number (e.g. KC6)"
                     addValPlaceholder="₹/pc"
                   />
-                </div>
-              </Card>
-
-              <Card title="Pen Rates">
-                <Field label="Multiplier (×)">
-                  <Input type="number" step="0.01" value={rates.pen?.multiplier ?? 1.67} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
-                </Field>
-                <div className="mt-3">
+                </Card>
+                <Card title="Pens">
+                  <div className="mb-2">
+                    <Field label="Multiplier (×)">
+                      <div className="w-24">
+                        <Input type="number" step="0.01" value={rates.pen?.multiplier ?? 1.67} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
+                      </div>
+                    </Field>
+                  </div>
                   <DynamicRateSection
                     data={rates.pen?.numberRates ?? {}}
                     onUpdate={d => setRates((prev: any) => ({ ...prev, pen: { ...(prev.pen ?? {}), numberRates: d } }))}
@@ -1905,57 +2171,8 @@ export default function RateCalculatorPage() {
                     addKeyPlaceholder="number (e.g. PEN6)"
                     addValPlaceholder="₹/pc"
                   />
-                </div>
-              </Card>
-
-              {/* Pad Binding — dynamic */}
-              <Card title="📎 Gum Pad Binding (₹/pad) — add/remove sizes">
-                <DynamicRateSection
-                  data={rates.padBinding ?? {}}
-                  onUpdate={d => updateRateSection("padBinding", d)}
-                  addKeyPlaceholder="size (e.g. A3, custom)"
-                  addValPlaceholder="₹/pad"
-                  formatLabel={k => k + " Pad"}
-                />
-              </Card>
-
-              {/* Bill Book Binding — dynamic */}
-              <Card title="📒 Bill Book Binding (₹/book) — add/remove sizes">
-                <DynamicRateSection
-                  data={rates.billBookBinding ?? {}}
-                  onUpdate={d => updateRateSection("billBookBinding", d)}
-                  addKeyPlaceholder="size (e.g. A5, A6)"
-                  addValPlaceholder="₹/book"
-                  formatLabel={k => k + " Bill Book"}
-                />
-              </Card>
-
-
-              {/* Lamination — dynamic */}
-              <Card title="✨ Lamination (₹/100 sq in) — add/remove types">
-                <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-xs text-slate-600 mb-3">
-                  {"Formula: (sheet area / 100) x rate x sheets. 18x23 sheet = 414 sq in, per sheet = 4.14 x rate"}
-                </div>
-                <DynamicRateSection
-                  data={rates.lamination ?? {}}
-                  onUpdate={d => updateRateSection("lamination", d)}
-                  step={0.01}
-                  addKeyPlaceholder="type (e.g. matt, uvspot, softtouch)"
-                  addValPlaceholder="r/100sqin"
-                  formatLabel={k => k.charAt(0).toUpperCase() + k.slice(1) + " Lamination"}
-                />
-              </Card>
-
-              {/* Envelope Making — dynamic */}
-              <Card title="Envelope Making (r/piece) — add/remove sizes">
-                <DynamicRateSection
-                  data={rates.envelope ?? {}}
-                  onUpdate={d => updateRateSection("envelope", d)}
-                  step={0.5}
-                  addKeyPlaceholder="key (e.g. env6x9, env5x7)"
-                  addValPlaceholder="r/pc"
-                />
-              </Card>
+                </Card>
+              </AccordionCategory>
 
               <button onClick={saveRates} className="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700">
                 Save All Rates
