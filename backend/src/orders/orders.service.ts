@@ -351,10 +351,9 @@ export class OrdersService {
   async create(
     dto: {
       customer: { customerId?: string; name: string; phone?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
-      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; customFields?: Record<string, unknown> }>;
+      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string }>;
       notes?: string;
       leadSource?: string;
-      customFields?: Record<string, unknown>;
       advanceAmount?: number;
       paymentAccountId?: string;
       paymentMethod?: string;
@@ -397,7 +396,6 @@ export class OrdersService {
       itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
       artworkNotes: i.artworkNotes ?? null,
       productionNotes: i.productionNotes ?? null,
-      customFields: i.customFields ?? {},
     })) as any[];
 
     const subtotal = itemsData.reduce(
@@ -457,7 +455,6 @@ export class OrdersService {
           customerId: customer.id,
           salesAgentId,
           leadSource: dto.leadSource ?? null,
-          customFields: dto.customFields ?? {},
           status: OrderStatus.PENDING_APPROVAL,
           paymentStatus,
           subtotal,
