@@ -287,11 +287,27 @@ export default function ProductionPage() {
     const params = new URLSearchParams(window.location.search);
     const order = params.get("order");
     const targetTab = params.get("tab");
+    const targetSubTab = params.get("subtab");
     if (targetTab === "unassigned" || targetTab === "inhouse" || targetTab === "clubbing" || targetTab === "sheets" || targetTab === "all") {
       setActiveTab(targetTab);
     }
+    if (targetSubTab) setSheetSubTab(targetSubTab);
     if (order) setSearch(order);
   }, []);
+
+  // Sync active tabs to URL so refresh restores position
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", activeTab);
+    if (activeTab === "sheets" && sheetSubTab) {
+      params.set("subtab", sheetSubTab);
+    } else {
+      params.delete("subtab");
+    }
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [activeTab, sheetSubTab]);
 
   // Load saved processing vendors from sessionStorage
   useEffect(() => {
