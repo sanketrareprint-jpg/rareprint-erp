@@ -254,7 +254,7 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     } else {
       if (inputParams.sheetsPerUnit) details.push(`Pages per Pad / Book: ${inputParams.sheetsPerUnit}`);
       if (inputParams.fsize) details.push(`Final Size: ${inputParams.fsize}`);
-      if (inputParams.parent) details.push(`Parent Sheet: ${formatParentSheet(inputParams.parent)}`);
+
       if (inputParams.paper) details.push(`Paper: ${formatPaperType(inputParams.paper)}`);
       if (inputParams.colors) details.push(`Printing Colors: ${inputParams.colors} color${inputParams.colors > 1 ? "s" : ""}`);
       if (inputParams.sides) details.push(`Printing Side: ${inputParams.sides === "double" ? "Double Side" : "Single Side"}`);
@@ -262,8 +262,6 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     }
   }
 
-  if (result.description) details.push(`Calculation Note: ${result.description}`);
-  if (result.multiplier) details.push(`Pricing Multiplier: x${result.multiplier}`);
   return details;
 }
 
@@ -302,7 +300,7 @@ function buildQuotationText({
 
   const perVal = result.perPiece ?? result.perSticker;
   if (perVal) lines.push(`Per Piece: ${fmt(perVal)}`);
-  lines.push("", "Notes:", "- Final amount includes margin and GST as calculated.", "- Artwork/design, delivery or special finishing can be confirmed separately if applicable.");
+  lines.push("", "Notes:", "- Shipping Charges Extra");
   return lines.join("\n");
 }
 
