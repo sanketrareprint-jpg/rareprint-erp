@@ -802,7 +802,7 @@ export class BigshipService {
               qty:               '1',
               amount:            String(declaredValue),
               totalAmount:       declaredValue,
-              collectableAmount: 0,  // COD set at order level via MasterOrderCollectableAmount
+              collectableAmount: codAmount,  // must be > 0 for COD at product level too
               categoryId:        '1',
             }],
           })),
@@ -1113,3 +1113,4 @@ async function generateInvoicePdf(params: {
 function sanitizePdfText(value: string): string {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
 }
+       
