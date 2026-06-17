@@ -352,15 +352,23 @@ export class RateCalculatorService {
     return { perSheet: normal, columns: normalCols, rows: normalRows, rotated: false };
   }
 
-  private getStickerClubbingBlock(width: number, height: number): { columns: number; rows: number; stickers: number; area: number } {
+  private getStickerClubbingBlock(width: number, height: number, qty: number): { columns: number; rows: number; stickers: number; area: number } {
     const stickerArea = width * height;
     if (stickerArea >= 6) return { columns: 1, rows: 1, stickers: 1, area: stickerArea };
 
-    const minBlockWidth = 5;
-    const columns = Math.max(1, Math.ceil(minBlockWidth / width));
-    const rows = Math.max(1, Math.ceil(6 / (columns * stickerArea)));
-    const stickers = columns * rows;
-    return { columns, rows, stickers, area: stickerArea * stickers };
+    // Stack vertically (1 column × N rows). Find minimum N where:
+    // 1. Block area >= 6 sq in
+    // 2. qty / N is an exact multiple of 1000 (so printed blocks = exact multiple of 1000)
+    const minRows = Math.max(1, Math.ceil(6 / stickerArea));
+    const maxSearch = Math.min(qty, 50);
+    for (let rows = minRows; rows <= maxSearch; rows++) {
+      if (qty % rows === 0 && (qty / rows) % 1000 === 0) {
+        return { columns: 1, rows, stickers: rows, area: stickerArea * rows };
+      }
+    }
+
+    // Fallback: use minimum rows to reach 6 sq in; caller rounds sets to nearest 1000
+    return { columns: 1, rows: minRows, stickers: minRows, area: stickerArea * minRows };
   }
 
   private getStickerMultiplier(cost: number): number {
@@ -470,8 +478,9 @@ export class RateCalculatorService {
       const multiplier = this.getStickerMultiplier(subtotal);
       const total = subtotal * multiplier;
       const area = width * height;
-      const clubbingBlock = width > 0 && height > 0 ? this.getStickerClubbingBlock(width, height) : null;
-      const clubbingSets = clubbingBlock ? Math.ceil(stickerQty / clubbingBlock.stickers) : 0;
+      const clubbingBlock = width > 0 && height > 0 ? this.getStickerClubbingBlock(width, height, stickerQty) : null;
+      const rawSets = clubbingBlock ? Math.ceil(stickerQty / clubbingBlock.stickers) : 0;
+      const clubbingSets = Math.ceil(rawSets / 1000) * 1000;
       const clubbingEligible = stickerQty >= 1000 && !!clubbingBlock && clubbingBlock.area >= 6;
       const clubbingCost = clubbingEligible && clubbingBlock ? (clubbingBlock.area * clubbingSets * 0.035) + 150 : null;
       const clubbingMultiplier = clubbingCost != null ? this.getStickerMultiplier(clubbingCost) : null;

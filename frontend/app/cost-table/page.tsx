@@ -569,10 +569,18 @@ export default function CostTablePage() {
         }),
       });
       if (res.ok) {
+        const savedProductId = addCostModal.productId;
         setAddCostModal(null);
         setModalSlab({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
-        await loadOrdersWithoutCost();
-        await load();
+        // Optimistically remove just this product from the local list — no full reload needed
+        setOrdersWithoutCost(prev =>
+          prev
+            .map(order => ({
+              ...order,
+              itemsWithNoCost: order.itemsWithNoCost.filter(item => item.productId !== savedProductId),
+            }))
+            .filter(order => order.itemsWithNoCost.length > 0)
+        );
       }
     } finally {
       setModalSaving(false);
