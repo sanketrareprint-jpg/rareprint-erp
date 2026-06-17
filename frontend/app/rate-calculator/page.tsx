@@ -184,13 +184,6 @@ function makeQuotationNumber() {
   return `RPQ-${date}-${time}${rand}`;
 }
 
-function formatParentSheet(parent?: string) {
-  if (parent === "1520") return "15x20 inch";
-  if (parent === "1823") return "18x23 inch";
-  if (parent === "1925") return "19x25 inch";
-  return parent || "";
-}
-
 function formatYesNo(value?: boolean) {
   return value ? "Yes" : "No";
 }
@@ -208,7 +201,7 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
       details.push("Product / Printing Details:");
       inputParams.layers.forEach((layer, index) => {
         details.push(
-          `Layer ${index + 1}: ${layer.qty.toLocaleString("en-IN")} pcs, ${layer.fsize}, ${formatParentSheet(layer.psize)} parent sheet, ${formatPaperType(layer.gsm)}, ${layer.colors} color, ${layer.sides === "double" ? "Double Side" : "Single Side"}`
+          `Layer ${index + 1}: ${layer.qty.toLocaleString("en-IN")} pcs, ${layer.fsize}, ${formatPaperType(layer.gsm)}, ${layer.colors} color, ${layer.sides === "double" ? "Double Side" : "Single Side"}`
         );
       });
     }
@@ -265,6 +258,32 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
   return details;
 }
 
+function sanitizeQuotationText(text: string) {
+  const cleanedLines = text
+    .split(/\r?\n/)
+    .filter(line => {
+      const trimmed = line.trim();
+      return !(
+        /^Parent Sheet:/i.test(trimmed) ||
+        /^Calculation Note:/i.test(trimmed) ||
+        /^Pricing Multiplier:/i.test(trimmed) ||
+        /^-\s*Final amount includes margin and GST as calculated\.?$/i.test(trimmed) ||
+        /^-\s*Artwork\/design, delivery or special finishing can be confirmed separately if applicable\.?$/i.test(trimmed)
+      );
+    });
+
+  const notesIndex = cleanedLines.findIndex(line => line.trim().toLowerCase() === "notes:");
+  if (notesIndex !== -1) {
+    return [
+      ...cleanedLines.slice(0, notesIndex),
+      "Notes:",
+      "- Shipping Charges Extra",
+    ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  return [...cleanedLines, "", "Notes:", "- Shipping Charges Extra"].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function buildQuotationText({
   quoteNumber,
   customer,
@@ -301,7 +320,7 @@ function buildQuotationText({
   const perVal = result.perPiece ?? result.perSticker;
   if (perVal) lines.push(`Per Piece: ${fmt(perVal)}`);
   lines.push("", "Notes:", "- Shipping Charges Extra");
-  return lines.join("\n");
+  return sanitizeQuotationText(lines.join("\n"));
 }
 
 function getStickerMultiplier(cost: number) {
@@ -467,9 +486,10 @@ function ResultCard({ result, perLabel = "Per Piece", desc, isAdmin = true }: {
 
 function QuotationCopyCard({ quote }: { quote: QuoteCopy }) {
   const [copied, setCopied] = useState(false);
+  const quoteText = sanitizeQuotationText(quote.text);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(quote.text);
+      await navigator.clipboard.writeText(quoteText);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -489,7 +509,7 @@ function QuotationCopyCard({ quote }: { quote: QuoteCopy }) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <textarea readOnly value={quote.text}
+      <textarea readOnly value={quoteText}
         className="h-36 w-full resize-none rounded border border-slate-200 bg-slate-50 p-2 text-xs leading-5 text-slate-700 outline-none" />
     </div>
   );
@@ -2237,11 +2257,11 @@ export default function RateCalculatorPage() {
                             <summary className="text-xs text-green-700 cursor-pointer hover:underline">Copy quotation</summary>
                             <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
                               <button
-                                onClick={() => navigator.clipboard.writeText(h.inputParams.quotationText)}
+                                onClick={() => navigator.clipboard.writeText(sanitizeQuotationText(h.inputParams.quotationText))}
                                 className="mb-2 rounded bg-slate-900 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-700">
                                 Copy Text
                               </button>
-                              <textarea readOnly value={h.inputParams.quotationText}
+                              <textarea readOnly value={sanitizeQuotationText(h.inputParams.quotationText)}
                                 className="h-32 w-full resize-none rounded border border-slate-200 bg-white p-2 text-xs leading-5 text-slate-700 outline-none" />
                             </div>
                           </details>
