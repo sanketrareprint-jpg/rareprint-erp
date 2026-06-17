@@ -210,11 +210,12 @@ export default function CreateOrderPage() {
         ? (needsDate ? `${leadSource}_${MONTHS[Number(leadMonth) - 1]}_${leadYear}` : leadSource)
         : undefined;
 
+      const customerPayload = Object.fromEntries(Object.entries(customer).filter(([, v]) => v !== ""));
       const res = await fetch(`${API_BASE_URL}/orders`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer,
+          customer: customerPayload,
           items: lineItems.map(i => ({
             productId:       i.productId,
             quantity:        i.quantity,

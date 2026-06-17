@@ -95,7 +95,7 @@ function EditOrderPageInner() {
       const res = await fetch(`${API_BASE_URL}/orders/${orderId}/edit`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ customer, notes: orderNotes, items: lineItems.map(i => ({ productId: i.productId, sizeInches: i.sizeInches, gsm: i.gsm, sides: i.sides, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal || i.quantity * i.unitPrice, artworkNotes: i.specialInstructions })) }),
+        body: JSON.stringify({ customer: Object.fromEntries(Object.entries(customer).filter(([, v]) => v !== "")), notes: orderNotes, items: lineItems.map(i => ({ productId: i.productId, sizeInches: i.sizeInches, gsm: i.gsm, sides: i.sides, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal || i.quantity * i.unitPrice, artworkNotes: i.specialInstructions })) }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.message || "Update failed"); return; }
       alert("Order updated!");
