@@ -44,6 +44,7 @@ const DEFAULT_RATES: any = {
   billBookBinding: { A4: 25, A8: 15 },
   punch: 2,
   lamination: { gloss: 0.34, matt: 0.50 },
+  envelopeWindow: 0.20,  // ₹ per envelope for window cutting (₹200/1000)
   envelope: {
     env4x5:     2,    // 4x5 medicine pouch
     env425x925: 2.5,  // 4.25x9.25 office (DL style)
@@ -463,7 +464,7 @@ export class RateCalculatorService {
 
   async calcReverse(dto: any) {
     const rates = await this.getRates();
-    const { product, qty, sheetsPerUnit = 100, fsize, paper, parent: psize = '1823', colors, sides, lam = 'none', multiplier: dtoMult, customer } = dto;
+    const { product, qty, sheetsPerUnit = 100, fsize, paper, parent: psize = '1823', colors, sides, lam = 'none', multiplier: dtoMult, customer, envelopeWindow = false } = dto;
 
     if (product === 'sticker') {
       const stickerQty = Number(qty ?? 0);
@@ -785,6 +786,12 @@ export class RateCalculatorService {
       const ec = (rates.envelope?.[fsize] ?? DEFAULT_RATES.envelope[fsize] ?? 3) * qty;
       subtotal += ec;
       breakdown.push({ label: 'Envelope Making (' + qty.toLocaleString() + ' pcs)', amount: ec });
+      if (envelopeWindow) {
+        const windowRate = rates.envelopeWindow ?? DEFAULT_RATES.envelopeWindow ?? 0.20;
+        const wc = windowRate * qty;
+        subtotal += wc;
+        breakdown.push({ label: 'Window Cutting (' + qty.toLocaleString() + ' pcs)', amount: wc });
+      }
     }
     if (lam && lam !== 'none') {
       const lc = this.getLamCost(rates, lam, psize, totalParentSheets);

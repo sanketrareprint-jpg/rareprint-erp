@@ -889,6 +889,7 @@ export default function RateCalculatorPage() {
   // ── Reverse State ──
   const [rCustomer, setRCustomer] = useState("");
   const [rProduct, setRProduct] = useState("pads");
+  const [rWindow, setRWindow] = useState(false);
   const [rQty, setRQty] = useState(50);
   const [rSheets, setRSheets] = useState(100);
   const [rSize, setRSize] = useState("A4");
@@ -1190,6 +1191,7 @@ export default function RateCalculatorPage() {
       penNumber: rPenNumber,
       multiplier: rProduct === "sticker" ? undefined : (rMult !== "" ? rMult : undefined),
       customer: rCustomer,
+      envelopeWindow: rProduct === "envelope" ? rWindow : undefined,
     };
     const r = await post("reverse", body);
     if (r) {
@@ -1728,6 +1730,14 @@ export default function RateCalculatorPage() {
                           <option value="double">Double Side</option>
                         </Select>
                       </Field>
+                      {rProduct === "envelope" && (
+                        <Field label="Window">
+                          <Select value={rWindow ? "yes" : "no"} onChange={e => setRWindow(e.target.value === "yes")}>
+                            <option value="no">No</option>
+                            <option value="yes">Yes (+₹200/1000)</option>
+                          </Select>
+                        </Field>
+                      )}
                       {["letterhead","pamphlet","visiting","file"].includes(rProduct) && (
                         <Field label="Lamination">
                           <Select value={rLam} onChange={e => setRLam(e.target.value as LamOption)}>
@@ -2046,6 +2056,12 @@ export default function RateCalculatorPage() {
                   />
                 </Card>
                 <Card title="Envelope Making (₹/piece)">
+                  <div className="mb-3">
+                    <Field label="Window Cutting (₹/envelope)">
+                      <Input type="number" step="0.01" value={rates.envelopeWindow ?? ""} onChange={e => updateRate("envelopeWindow", +e.target.value)} />
+                    </Field>
+                    <p className="text-[10px] text-slate-400 mt-1">Default ₹0.20/pc (₹200 per 1,000 envelopes)</p>
+                  </div>
                   <DynamicRateSection
                     data={rates.envelope ?? {}}
                     onUpdate={d => updateRateSection("envelope", d)}
