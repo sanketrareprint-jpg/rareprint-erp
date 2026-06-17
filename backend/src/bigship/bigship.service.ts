@@ -766,7 +766,7 @@ export class BigshipService {
     const token         = await this.getAuthToken();
     const declaredValue = Math.max(1, Math.round(input.subTotal));
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
-    const invoiceNo     = uniqueInvoiceNo(input.orderNumber, 'ORD');
+    const invoiceNo     = String(input.orderNumber);
     const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
     const shippingCity = cityFromPincode(input.billingPincode, input.billingCity);
     const shippingState = stateFromPincode(input.billingPincode);
@@ -1113,4 +1113,3 @@ async function generateInvoicePdf(params: {
 function sanitizePdfText(value: string): string {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
 }
-       
