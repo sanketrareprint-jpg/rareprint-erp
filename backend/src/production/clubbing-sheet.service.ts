@@ -668,9 +668,10 @@ export class ClubbingSheetService {
       if (targetStage) {
         const sheetItems = await tx.printSheetItem.findMany({
           where: { sheetId },
-          include: { orderItem: { select: { orderId: true, product: { select: { name: true } } } } },
+          include: { orderItem: { select: { orderId: true, product: { select: { name: true } }, order: { select: { status: true } } } } },
         });
         for (const si of sheetItems) {
+          if (!si.orderItem) continue;
           await tx.orderItem.update({
             where: { id: si.orderItemId },
             data: { itemProductionStage: targetStage as any },
@@ -678,8 +679,8 @@ export class ClubbingSheetService {
           await tx.statusLog.create({
             data: {
               orderId: si.orderItem.orderId,
-              fromStatus: OrderStatus.IN_PRODUCTION,
-              toStatus: OrderStatus.IN_PRODUCTION,
+              fromStatus: si.orderItem.order.status,
+              toStatus: si.orderItem.order.status,
               changedById: userId,
               reason: `Sheet ${updatedSheet.sheetNo}: ${sheet.status} → ${status}`,
               metadata: {
@@ -704,7 +705,7 @@ export class ClubbingSheetService {
       }
 
       return updatedSheet;
-    });
+    }, { timeout: 30000 });
   }
 
   async updateSheetStatusWithVendor(sheetId: string, data: { status: SheetStatus; vendorId: string; activityType: string; cost?: number; vendorInvoiceNo?: string; description?: string }, userId?: string) {
@@ -731,14 +732,15 @@ export class ClubbingSheetService {
 
       return this.prisma.$transaction(async (tx) => {
         const updatedSheet = await tx.printSheet.update({ where: { id: sheetId }, data: { status: data.status } });
-        const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId }, include: { orderItem: { select: { orderId: true, product: { select: { name: true } } } } } });
+        const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId }, include: { orderItem: { select: { orderId: true, product: { select: { name: true } }, order: { select: { status: true } } } } } });
         for (const si of sheetItems) {
+          if (!si.orderItem) continue;
           await tx.orderItem.update({ where: { id: si.orderItemId }, data: { itemProductionStage: 'PRINTING' } });
           await tx.statusLog.create({
             data: {
               orderId: si.orderItem.orderId,
-              fromStatus: OrderStatus.IN_PRODUCTION,
-              toStatus: OrderStatus.IN_PRODUCTION,
+              fromStatus: si.orderItem.order.status,
+              toStatus: si.orderItem.order.status,
               changedById: userId,
               reason: `Sheet ${updatedSheet.sheetNo}: ${sheet.status} → ${data.status}`,
               metadata: {
@@ -762,20 +764,21 @@ export class ClubbingSheetService {
           });
         }
         return updatedSheet;
-      });
+      }, { timeout: 30000 });
     }
 
     return this.prisma.$transaction(async (tx) => {
       const updatedSheet = await tx.printSheet.update({ where: { id: sheetId }, data: { status: data.status } });
       await tx.sheetStageVendor.create({ data: { sheetId, stage, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo } });
-      const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId }, include: { orderItem: { select: { orderId: true, product: { select: { name: true } } } } } });
+      const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId }, include: { orderItem: { select: { orderId: true, product: { select: { name: true } }, order: { select: { status: true } } } } } });
       for (const si of sheetItems) {
+        if (!si.orderItem) continue;
         await tx.orderItem.update({ where: { id: si.orderItemId }, data: { itemProductionStage: 'PRINTING' } });
         await tx.statusLog.create({
           data: {
             orderId: si.orderItem.orderId,
-            fromStatus: OrderStatus.IN_PRODUCTION,
-            toStatus: OrderStatus.IN_PRODUCTION,
+            fromStatus: si.orderItem.order.status,
+            toStatus: si.orderItem.order.status,
             changedById: userId,
             reason: `Sheet ${updatedSheet.sheetNo}: ${sheet.status} → ${data.status}`,
             metadata: {
@@ -799,7 +802,7 @@ export class ClubbingSheetService {
         });
       }
       return updatedSheet;
-    });
+    }, { timeout: 30000 });
   }
 
   async getSheetOrderItems() {
