@@ -409,6 +409,7 @@ export class RateCalculatorService {
     let subtotal = 0;
     const breakdown: any[] = [];
     let totalQty = 0;
+    let totalParentSheets = 0;
     let mainPsize = '1823';
 
     for (let i = 0; i < layers.length; i++) {
@@ -423,6 +424,7 @@ export class RateCalculatorService {
       const plateCost = this.getPlateCost(rates, colors, sidesMult);
       subtotal += paperCost + printCost + plateCost;
       totalQty = Math.max(totalQty, qty);
+      totalParentSheets = Math.max(totalParentSheets, parentSheets);
       const printLabel = colors === 4
         ? ('Layer ' + (i+1) + ': Printing (' + parentSheets.toLocaleString() + ' sheets, 4-color' + (sidesMult===2 ? ' x2 sides' : '') + ')')
         : ('Layer ' + (i+1) + ': Printing (' + (parentSheets*cutsPerSheet).toLocaleString() + ' impressions, ' + colors + '-color' + (sidesMult===2 ? ' x2 sides' : '') + ')');
@@ -434,9 +436,9 @@ export class RateCalculatorService {
     }
 
     if (lam && lam !== 'none') {
-      const lc = this.getLamCost(rates, lam, mainPsize, totalQty);
+      const lc = this.getLamCost(rates, lam, mainPsize, totalParentSheets);
       subtotal += lc;
-      breakdown.push({ label: 'Lamination (' + lam + ', ' + totalQty.toLocaleString() + ' sheets)', amount: lc });
+      breakdown.push({ label: 'Lamination (' + lam + ', ' + totalParentSheets.toLocaleString() + ' sheets)', amount: lc });
     }
     if (pads > 0 && padSize) {
       const pr = this.getPadRate(rates, padSize);
