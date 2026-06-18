@@ -66,15 +66,19 @@ export class ProductionController {
   getJobWorks(@Param('itemId') itemId: string) { return this.clubbingSheetService.getJobWorks(itemId); }
 
   @Post('clubbing/jobworks')
-  addJobWork(@Body() body: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }) {
-    return this.clubbingSheetService.addJobWork(body);
+  addJobWork(
+    @Body() body: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.clubbingSheetService.addJobWork(body, req.user.id);
   }
 
   @Patch('clubbing/jobworks/:id')
   updateJobWork(
     @Param('id') id: string,
-    @Body() body: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string },
-  ) { return this.clubbingSheetService.updateJobWork(id, body); }
+    @Body() body: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null },
+    @Req() req: Request & { user: JwtUser },
+  ) { return this.clubbingSheetService.updateJobWork(id, body, req.user.id); }
 
   @Delete('clubbing/jobworks/:id')
   deleteJobWork(@Param('id') id: string) { return this.clubbingSheetService.deleteJobWork(id); }

@@ -325,14 +325,80 @@ export class ClubbingSheetService {
     return this.prisma.jobWork.findMany({ where: { orderItemId }, include: { vendor: true }, orderBy: { createdAt: 'asc' } });
   }
 
-  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }) {
-    const item = await this.prisma.orderItem.findUnique({ where: { id: data.orderItemId } });
+  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }, userId?: string) {
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: data.orderItemId },
+      include: { order: { select: { id: true, status: true } } },
+    });
     if (!item) throw new NotFoundException('Order item not found');
-    return this.prisma.jobWork.create({ data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo }, include: { vendor: true } });
+    const vendor = await this.prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { name: true } });
+    const jobWork = await this.prisma.jobWork.create({
+      data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo },
+      include: { vendor: true },
+    });
+    await this.prisma.statusLog.create({
+      data: {
+        orderId: item.orderId,
+        fromStatus: item.order.status,
+        toStatus: item.order.status,
+        changedById: userId,
+        reason: `Vendor assigned: ${vendor?.name ?? data.vendorId} for ${data.description} (₹${data.cost})`,
+        metadata: {
+          eventType: 'VENDOR_ASSIGNED',
+          orderItemId: item.id,
+          jobWorkId: jobWork.id,
+          vendorId: data.vendorId,
+          vendorName: vendor?.name,
+          description: data.description,
+          cost: data.cost,
+          vendorInvoiceNo: data.vendorInvoiceNo,
+        },
+      },
+    });
+    return jobWork;
   }
 
-  async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string }) {
-    return this.prisma.jobWork.update({ where: { id: jobWorkId }, data: { ...data, completedAt: data.status === JobWorkStatus.COMPLETED ? new Date() : undefined }, include: { vendor: true } });
+  async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null }, userId?: string) {
+    const existing = await this.prisma.jobWork.findUnique({
+      where: { id: jobWorkId },
+      include: {
+        vendor: { select: { name: true } },
+        orderItem: { include: { order: { select: { id: true, status: true } } } },
+      },
+    });
+    if (!existing) throw new NotFoundException('Job work not found');
+    const { dueDate, ...rest } = data;
+    const updated = await this.prisma.jobWork.update({
+      where: { id: jobWorkId },
+      data: {
+        ...rest,
+        ...(dueDate !== undefined && { dueDate: parseIstDateOnly(dueDate) }),
+        completedAt: data.status === JobWorkStatus.COMPLETED ? new Date() : undefined,
+      },
+      include: { vendor: true },
+    });
+    // Log status changes
+    if (data.status && data.status !== existing.status) {
+      await this.prisma.statusLog.create({
+        data: {
+          orderId: existing.orderItem.orderId,
+          fromStatus: existing.orderItem.order.status,
+          toStatus: existing.orderItem.order.status,
+          changedById: userId,
+          reason: `Vendor job ${existing.status} → ${data.status}: ${existing.vendor.name} – ${existing.description}`,
+          metadata: {
+            eventType: 'VENDOR_JOB_STATUS_CHANGED',
+            jobWorkId,
+            orderItemId: existing.orderItemId,
+            vendorName: existing.vendor.name,
+            fromJobStatus: existing.status,
+            toJobStatus: data.status,
+            description: existing.description,
+          },
+        },
+      });
+    }
+    return updated;
   }
 
   async deleteJobWork(jobWorkId: string) {
@@ -372,7 +438,7 @@ export class ClubbingSheetService {
           // Resolved product details (prefer notes, fall back to product table)
           size, gsm, sides,
           designFiles: designFilesMap[i.id] ?? [],
-          jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, completedAt: j.completedAt?.toISOString() ?? null })),
+          jobWorks: i.jobWorks.map(j => ({ id: j.id, vendorName: j.vendor.name, vendorId: j.vendorId, description: j.description, cost: Number(j.cost), vendorInvoiceNo: j.vendorInvoiceNo, status: j.status, completedAt: j.completedAt?.toISOString() ?? null, dueDate: j.dueDate?.toISOString().split('T')[0] ?? null })),
         };
       }),
     }));

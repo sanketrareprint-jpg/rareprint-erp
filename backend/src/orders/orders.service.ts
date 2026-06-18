@@ -351,7 +351,7 @@ export class OrdersService {
   async create(
     dto: {
       customer: { customerId?: string; name: string; phone?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string };
-      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string }>;
+      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; offerCodeId?: string }>;
       notes?: string;
       leadSource?: string;
       advanceAmount?: number;
@@ -371,6 +371,38 @@ export class OrdersService {
 
     if (products.length !== productIds.length) {
       throw new NotFoundException('One or more products were not found');
+    }
+
+    // ── Validate offer codes ───────────────────────────────────────────────
+    const offerCodeIds = [...new Set(dto.items.map(i => i.offerCodeId).filter(Boolean))] as string[];
+    const offerCodes = offerCodeIds.length
+      ? await this.prisma.offerCode.findMany({ where: { id: { in: offerCodeIds }, isActive: true } })
+      : [];
+    const offerCodeMap = new Map(offerCodes.map(c => [c.id, c]));
+
+    for (const item of dto.items) {
+      if (item.offerCodeId) {
+        const code = offerCodeMap.get(item.offerCodeId);
+        if (!code) throw new BadRequestException(`Offer code not found or inactive`);
+        if (!code.productIds.includes(item.productId)) {
+          throw new BadRequestException(`Offer code "${code.code}" is not valid for the selected product`);
+        }
+      }
+    }
+
+    // ── Validate product min qty rules ────────────────────────────────────
+    const rules = await this.prisma.productRule.findMany({
+      where: { productId: { in: productIds }, isActive: true },
+    });
+    const ruleMap = new Map(rules.map(r => [r.productId, r]));
+    for (const item of dto.items) {
+      const rule = ruleMap.get(item.productId);
+      if (rule && item.quantity < rule.minQty) {
+        const prod = products.find(p => p.id === item.productId);
+        throw new BadRequestException(
+          `Minimum order quantity for "${prod?.name ?? item.productId}" is ${rule.minQty}. You entered ${item.quantity}.`,
+        );
+      }
     }
 
     const orderNumber = await this.generateOrderNumber();
@@ -396,6 +428,7 @@ export class OrdersService {
       itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
       artworkNotes: i.artworkNotes ?? null,
       productionNotes: i.productionNotes ?? null,
+      offerCodeId: i.offerCodeId ?? null,
     })) as any[];
 
     const subtotal = itemsData.reduce(
@@ -714,6 +747,27 @@ export class OrdersService {
     else paymentStatus = PaymentStatus.PENDING;
 
     await this.prisma.order.update({ where: { id: orderId }, data: { paymentStatus } });
+
+    await this.prisma.statusLog.create({
+      data: {
+        orderId,
+        fromStatus: order.status,
+        toStatus: order.status,
+        changedById: receivedById,
+        reason: `Payment received: ₹${data.amount} via ${data.method}${data.referenceNumber ? ' (Ref: ' + data.referenceNumber + ')' : ''}`,
+        metadata: {
+          eventType: 'PAYMENT_RECORDED',
+          paymentId: payment.id,
+          amount: data.amount,
+          method: data.method,
+          referenceNumber: data.referenceNumber,
+          paymentAccountName: payment.paymentAccount.name,
+          totalPaid,
+          balanceDue: grandTotal - totalPaid,
+          paymentStatus,
+        },
+      },
+    });
 
     if (order.customer.phone) {
       void this.whatsapp.sendPaymentReceived({
