@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
 import { AccountingNoteType, AccountingPartyType, GstTreatment, PaymentMethod } from '@prisma/client';
 
-type JwtUser = { id: string; role: string };
+type JwtUser = { id: string; role: string; email: string };
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('accounts')

@@ -19,7 +19,10 @@ import {
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CostTableService } from '../cost-table/cost-table.service';
 
-type AccountsUser = { id: string; role: string };
+type AccountsUser = { id: string; role: string; email: string };
+
+// Sanket is the super-admin — he can approve any order with no restrictions
+const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 
 type UpdatePendingPaymentDto = {
   amount?: number;
@@ -435,50 +438,59 @@ export class AccountsService {
       throw new BadRequestException('Only pending accounts approval orders can be approved');
     }
 
-    // Block approval if any item has no cost slab
-    const productIds = order.items.map((i) => i.productId);
-    const allCostSlabs = await this.prisma.productCostSlab.findMany({
-      where: { productId: { in: productIds } },
-    });
-    const productsWithCost = new Set(allCostSlabs.map((s) => s.productId));
-    const missingCostItems = order.items.filter((i) => !productsWithCost.has(i.productId));
-    if (missingCostItems.length > 0) {
-      const skus = missingCostItems.map((i) => (i.product as any)?.sku ?? i.productId).join(', ');
-      throw new BadRequestException(
-        `Cannot approve: cost data is missing for ${missingCostItems.length} item(s) — ${skus}. Please add cost slabs in the Cost Table first.`,
-      );
-    }
+    // Items with an offer code are free items — skip all cost/margin checks for them
+    const offerItems = new Set(order.items.filter((i) => (i as any).offerCodeId).map((i) => i.id));
+    const billableItems = order.items.filter((i) => !offerItems.has(i.id));
 
-    // Block approval if any item's margin is below the minimum approval margin
-    const settings = this.costTable.getSettings();
-    const lowMarginItems: string[] = [];
-    for (const item of order.items) {
-      const qty = item.quantity;
-      const matchingSlab = allCostSlabs
-        .filter(
-          (s) =>
-            s.productId === item.productId &&
-            s.minQuantity <= qty &&
-            (s.maxQuantity == null || s.maxQuantity >= qty),
-        )
-        .sort((a, b) => b.minQuantity - a.minQuantity)[0];
-      if (!matchingSlab) continue; // already caught by missingCostItems check
+    // Sanket (super-admin) can approve any order with no restrictions whatsoever
+    const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
 
-      const rawCost = Number(matchingSlab.unitPrice);
-      const salePerUnit = Number(item.unitPrice);
-      // If the slab stores a total rather than per-unit price, divide it down
-      const costPerUnit = rawCost > salePerUnit ? rawCost / matchingSlab.minQuantity : rawCost;
-      const marginPct = salePerUnit > 0 ? ((salePerUnit - costPerUnit) / salePerUnit) * 100 : 0;
+    // Block approval if any billable item has no cost slab
+    const productIds = billableItems.map((i) => i.productId);
+    const allCostSlabs = productIds.length
+      ? await this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } })
+      : [];
 
-      if (marginPct < settings.minApprovalMarginPct) {
-        const sku = (item.product as any)?.sku ?? item.productId;
-        lowMarginItems.push(`${sku} (margin: ${marginPct.toFixed(1)}%)`);
+    if (!isSuperAdmin) {
+      const productsWithCost = new Set(allCostSlabs.map((s) => s.productId));
+      const missingCostItems = billableItems.filter((i) => !productsWithCost.has(i.productId));
+      if (missingCostItems.length > 0) {
+        const skus = missingCostItems.map((i) => (i.product as any)?.sku ?? i.productId).join(', ');
+        throw new BadRequestException(
+          `Cannot approve: cost data is missing for ${missingCostItems.length} item(s) — ${skus}. Please add cost slabs in the Cost Table first.`,
+        );
       }
-    }
-    if (lowMarginItems.length > 0) {
-      throw new BadRequestException(
-        `Cannot approve: margin is below the minimum ${settings.minApprovalMarginPct}% for item(s) — ${lowMarginItems.join(', ')}. Adjust the sale price or cost slab.`,
-      );
+
+      // Block approval if any billable item's margin is below the minimum approval margin
+      const settings = this.costTable.getSettings();
+      const lowMarginItems: string[] = [];
+      for (const item of billableItems) {
+        const qty = item.quantity;
+        const matchingSlab = allCostSlabs
+          .filter(
+            (s) =>
+              s.productId === item.productId &&
+              s.minQuantity <= qty &&
+              (s.maxQuantity == null || s.maxQuantity >= qty),
+          )
+          .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+        if (!matchingSlab) continue;
+
+        const rawCost = Number(matchingSlab.unitPrice);
+        const salePerUnit = Number(item.unitPrice);
+        const costPerUnit = rawCost > salePerUnit ? rawCost / matchingSlab.minQuantity : rawCost;
+        const marginPct = salePerUnit > 0 ? ((salePerUnit - costPerUnit) / salePerUnit) * 100 : 0;
+
+        if (marginPct < settings.minApprovalMarginPct) {
+          const sku = (item.product as any)?.sku ?? item.productId;
+          lowMarginItems.push(`${sku} (margin: ${marginPct.toFixed(1)}%)`);
+        }
+      }
+      if (lowMarginItems.length > 0) {
+        throw new BadRequestException(
+          `Cannot approve: margin is below the minimum ${settings.minApprovalMarginPct}% for item(s) — ${lowMarginItems.join(', ')}. Adjust the sale price or cost slab.`,
+        );
+      }
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
