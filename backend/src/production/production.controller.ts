@@ -43,6 +43,12 @@ export class ProductionController {
     @Req() req: Request & { user: JwtUser },
   ) { return this.productionService.updateItemStage(itemId, stage, req.user.id); }
 
+  @Patch('items/:itemId/follow-up-date')
+  updateItemFollowUpDate(
+    @Param('itemId') itemId: string,
+    @Body('processingFollowUpDate') processingFollowUpDate?: string | null,
+  ) { return this.productionService.updateItemFollowUpDate(itemId, processingFollowUpDate); }
+
   @Patch('items/:itemId/assign-category')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('ADMIN', 'PRODUCTION', 'SALES_AGENT', 'ACCOUNTS', 'DISPATCH', 'AGENT')
@@ -109,6 +115,12 @@ export class ProductionController {
 
   @Get('sheets/order-items')
   getSheetOrderItems() { return this.clubbingSheetService.getSheetOrderItems(); }
+
+  @Patch('sheets/sheet-items/:id/due-date')
+  updateSheetItemDueDate(
+    @Param('id') id: string,
+    @Body('dueDate') dueDate?: string | null,
+  ) { return this.clubbingSheetService.updateSheetItemDueDate(id, dueDate); }
 
   @Delete('sheets/sheet-items/:id')
   removeItemFromSheet(@Param('id') id: string) { return this.clubbingSheetService.removeItemFromSheet(id); }
