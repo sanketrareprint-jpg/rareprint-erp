@@ -27,6 +27,7 @@ type DispatchOrder = {
   dispatchType?: DispatchMethod;
   paymentType?: "COD" | "PREPAID";
   isCod: boolean; codAmount: number | null;
+  latestShipment: { awbNumber: string | null; carrierName: string | null; trackingNumber: string | null; notes: string | null } | null;
 };
 
 type RateQuote = { rateId: string; carrierName: string; amount: number; currency: string; estimatedDays: number; };
@@ -95,8 +96,8 @@ export default function DispatchPage() {
   const router = useRouter();
   const [tab, setTab] = useState<"queue" | "history">("queue");
   const [markingId, setMarkingId] = useState<string | null>(null);
-  const [markModal, setMarkModal] = useState<{ orderId: string; orderNo: string } | null>(null);
-  const [markForm, setMarkForm] = useState({ awbNumber: "", carrierName: "", notes: "" });
+  const [markModal, setMarkModal] = useState<{ orderId: string; orderNo: string; isCod: boolean } | null>(null);
+  const [markForm, setMarkForm] = useState({ awbNumber: "", carrierName: "", notes: "", codAmount: "" });
   const [orders, setOrders] = useState<DispatchOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -232,12 +233,12 @@ export default function DispatchPage() {
       const res = await fetch(`${API_BASE_URL}/dispatch/mark-dispatched`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: markModal.orderId, ...markForm }),
+        body: JSON.stringify({ orderId: markModal.orderId, ...markForm, codAmount: markForm.codAmount ? parseFloat(markForm.codAmount) : undefined }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       alert(`✅ Order ${markModal.orderNo} marked as dispatched!`);
       setMarkModal(null);
-      setMarkForm({ awbNumber: "", carrierName: "", notes: "" });
+      setMarkForm({ awbNumber: "", carrierName: "", notes: "", codAmount: "" });
       await load();
     } finally { setMarkingId(null); }
   }
@@ -634,7 +635,17 @@ export default function DispatchPage() {
                           </span>
                         )}
                       <button
-                        onClick={() => { setMarkModal({ orderId: o.id, orderNo: o.orderNo }); setMarkForm({ awbNumber: "", carrierName: "", notes: "" }); }}
+                        onClick={() => {
+                          const s = o.latestShipment;
+                          const codMatch = s?.notes?.match(/COD:\s*₹?([\d.]+)/i);
+                          setMarkModal({ orderId: o.id, orderNo: o.orderNo, isCod: o.isCod });
+                          setMarkForm({
+                            awbNumber: s?.awbNumber || s?.trackingNumber || "",
+                            carrierName: s?.carrierName || "",
+                            notes: "",
+                            codAmount: codMatch ? codMatch[1] : (o.codAmount ? String(o.codAmount) : ""),
+                          });
+                        }}
                         className="ml-2 inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-green-700"
                         title="Already booked in Bigship? Mark as dispatched"
                       >
@@ -886,6 +897,18 @@ export default function DispatchPage() {
                 <label className="block text-xs font-medium text-slate-600 mb-1">Carrier / Courier Name</label>
                 <input value={markForm.carrierName} onChange={e => setMarkForm(f => ({ ...f, carrierName: e.target.value }))}
                   placeholder="e.g. Delhivery, Ekart" className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  COD Amount (₹) {markModal.isCod && <span className="text-amber-600 font-semibold">· COD Order</span>}
+                </label>
+                <input
+                  type="number"
+                  value={markForm.codAmount}
+                  onChange={e => setMarkForm(f => ({ ...f, codAmount: e.target.value }))}
+                  placeholder="Enter COD amount to collect"
+                  className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Notes (optional)</label>

@@ -151,7 +151,7 @@ export class DispatchController {
 
   @Post('mark-dispatched')
   markDispatched(
-    @Body() body: { orderId: string; awbNumber?: string; carrierName?: string; trackingNumber?: string; notes?: string },
+    @Body() body: { orderId: string; awbNumber?: string; carrierName?: string; trackingNumber?: string; notes?: string; codAmount?: number },
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.dispatchService.markManuallyDispatched(body.orderId, req.user.id, body);

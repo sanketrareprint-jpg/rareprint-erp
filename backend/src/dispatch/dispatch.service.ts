@@ -397,6 +397,11 @@ export class DispatchService {
           where: { verificationStatus: PaymentVerificationStatus.VERIFIED },
           select: { amount: true },
         },
+        shipments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { awbNumber: true, carrierName: true, trackingNumber: true, notes: true },
+        },
       },
     });
 
@@ -408,6 +413,7 @@ export class DispatchService {
       dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
       paymentType: 'COD' | 'PREPAID';
       isCod: boolean; codAmount: number | null; balanceDue: number;
+      latestShipment: { awbNumber: string | null; carrierName: string | null; trackingNumber: string | null; notes: string | null } | null;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
         productionNotes: string | null; weightKg: number;
@@ -439,6 +445,7 @@ export class DispatchService {
         isCod: paymentInfo.isCod,
         codAmount: paymentInfo.codAmount,
         balanceDue: paymentInfo.balanceDue,
+        latestShipment: o.shipments[0] ?? null,
         readyItems: readyItems.map((i) => {
           const { size, gsm, sides } = parseProductionNotes(i.productionNotes);
           return {
@@ -1059,7 +1066,7 @@ export class DispatchService {
   async markManuallyDispatched(
     orderId: string,
     userId: string,
-    input: { awbNumber?: string; carrierName?: string; trackingNumber?: string; notes?: string },
+    input: { awbNumber?: string; carrierName?: string; trackingNumber?: string; notes?: string; codAmount?: number },
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -1074,6 +1081,10 @@ export class DispatchService {
     const shipmentNumber = `MAN-${Date.now()}-${randomSuffix()}`;
     const carrierName = input.carrierName?.trim() || 'Manual';
     const trackingRef = input.awbNumber?.trim() || input.trackingNumber?.trim() || null;
+    const codPart = input.codAmount ? ` COD: ₹${input.codAmount}` : '';
+    const shipmentNotes = input.notes
+      ? `${input.notes}${codPart}`
+      : `Manually marked as dispatched via ${carrierName}${codPart}`;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.shipment.create({
@@ -1087,7 +1098,7 @@ export class DispatchService {
           trackingNumber: trackingRef,
           awbNumber: trackingRef,
           dispatchType: 'COURIER',
-          notes: input.notes || `Manually marked as dispatched via ${carrierName}`,
+          notes: shipmentNotes,
         },
       });
 
