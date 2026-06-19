@@ -375,29 +375,30 @@ export class OrdersService {
 
     // ── Validate offer codes ───────────────────────────────────────────────
     const offerCodeIds = [...new Set(dto.items.map(i => i.offerCodeId).filter(Boolean))] as string[];
-    const offerCodes = offerCodeIds.length
-      ? await this.prisma.offerCode.findMany({ where: { id: { in: offerCodeIds }, isActive: true } })
+    const prismaAny = this.prisma as any;
+    const offerCodes: any[] = offerCodeIds.length
+      ? await prismaAny.offerCode.findMany({ where: { id: { in: offerCodeIds }, isActive: true } })
       : [];
-    const offerCodeMap = new Map(offerCodes.map(c => [c.id, c]));
+    const offerCodeMap = new Map<string, any>(offerCodes.map(c => [c.id, c]));
 
     for (const item of dto.items) {
       if (item.offerCodeId) {
         const code = offerCodeMap.get(item.offerCodeId);
         if (!code) throw new BadRequestException(`Offer code not found or inactive`);
-        if (!code.productIds.includes(item.productId)) {
+        if (!(code.productIds as string[]).includes(item.productId)) {
           throw new BadRequestException(`Offer code "${code.code}" is not valid for the selected product`);
         }
       }
     }
 
     // ── Validate product min qty rules ────────────────────────────────────
-    const rules = await this.prisma.productRule.findMany({
+    const rules: any[] = await prismaAny.productRule.findMany({
       where: { productId: { in: productIds }, isActive: true },
     });
-    const ruleMap = new Map(rules.map(r => [r.productId, r]));
+    const ruleMap = new Map<string, any>(rules.map(r => [r.productId, r]));
     for (const item of dto.items) {
       const rule = ruleMap.get(item.productId);
-      if (rule && item.quantity < rule.minQty) {
+      if (rule && item.quantity < (rule.minQty as number)) {
         const prod = products.find(p => p.id === item.productId);
         throw new BadRequestException(
           `Minimum order quantity for "${prod?.name ?? item.productId}" is ${rule.minQty}. You entered ${item.quantity}.`,
