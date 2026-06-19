@@ -107,11 +107,15 @@ export class VirtualCeoService {
   // ─── Main Report Generator ────────────────────────────────────────────────
 
   async generateReport(): Promise<VirtualCeoReport> {
+    const safeCheck = async (fn: () => Promise<ActionItem[]>, name: string): Promise<ActionItem[]> => {
+      try { return await fn(); }
+      catch (e) { this.logger.error(`Virtual CEO: ${name} check failed`, e); return []; }
+    };
     const [accounts, production, dispatch, stock] = await Promise.all([
-      this.checkAccounts(),
-      this.checkProduction(),
-      this.checkDispatch(),
-      this.checkStock(),
+      safeCheck(() => this.checkAccounts(), 'accounts'),
+      safeCheck(() => this.checkProduction(), 'production'),
+      safeCheck(() => this.checkDispatch(), 'dispatch'),
+      safeCheck(() => this.checkStock(), 'stock'),
     ]);
 
     const all = [...accounts, ...production, ...dispatch, ...stock];

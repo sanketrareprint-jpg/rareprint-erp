@@ -16,8 +16,8 @@
  *   const data = await apiFetch<Report>("/reports/summary", {}, (msg) => setLoadError(msg));
  */
 
-import { API_BASE_URL, getAuthHeaders } from "@/lib/api";
-import { clearAuth } from "@/lib/auth";
+import { API_BASE_URL } from "@/lib/api";
+import { clearAuth, getAuthHeaders } from "@/lib/auth";
 
 type ApiFetchOptions = RequestInit & {
   /** Extra headers merged on top of auth headers */
