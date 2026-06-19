@@ -12,4 +12,4 @@ RUN npx prisma generate && npx nest build && find dist/ -name "*.js" | head -20
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["/bin/sh", "scripts/startup.sh"]
+CMD npx prisma db execute --file ./scripts/repair.sql --schema ./prisma/schema.prisma; node dist/src/main.js
