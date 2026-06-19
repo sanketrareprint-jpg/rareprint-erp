@@ -8,10 +8,14 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { PrismaExceptionFilter } from './prisma/prisma-exception.filter';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.useGlobalFilters(new PrismaExceptionFilter());
+  // Order matters: NestJS applies filters last-registered first.
+  // AllExceptionsFilter is the outermost catch-all; PrismaExceptionFilter
+  // handles known Prisma codes with more specific messages.
+  app.useGlobalFilters(new AllExceptionsFilter(), new PrismaExceptionFilter());
   app.use(require('express').json({ limit: '5mb' }));
   app.use(require('express').urlencoded({ limit: '5mb', extended: true }));
   app.useGlobalPipes(
