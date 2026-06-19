@@ -146,6 +146,3 @@ export class CostTableController {
     return this.svc.checkMargin(dto);
   }
 }
-vc.checkMargin(dto);
-  }
-}

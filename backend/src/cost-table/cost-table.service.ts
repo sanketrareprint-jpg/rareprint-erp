@@ -957,30 +957,3 @@ export class CostTableService {
     };
   }
 }
-  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      monthSet.add(key);
-      if (!agentMonthMap.has(o.salesAgentId)) agentMonthMap.set(o.salesAgentId, new Map());
-      const am = agentMonthMap.get(o.salesAgentId)!;
-      am.set(key, (am.get(key) ?? 0) + Number(o.grandTotal));
-    }
-
-    return {
-      year,
-      month,
-      availableMonths: Array.from(monthSet).sort().reverse(),
-      agents: agents.map((a: any) => {
-        const sale = agentSaleMap.get(a.id) ?? 0;
-        const bonus = this.calcBonus(sale);
-        const monthsWithData = Array.from(agentMonthMap.get(a.id)?.keys() ?? []).sort().reverse();
-        return {
-          id: a.id,
-          name: a.fullName,
-          category: a.salesAgentCategory,
-          saleTotal: Number(sale.toFixed(2)),
-          bonus,
-          monthsWithData,
-        };
-      }).filter((a: any) => a.monthsWithData.length > 0),
-    };
-  }
-}
