@@ -1,6 +1,6 @@
 FROM node:18
 
-# Cache bust: 2026-06-19b
+# Cache bust: 2026-06-19c
 WORKDIR /app
 
 COPY package*.json ./
@@ -12,4 +12,4 @@ RUN npx prisma generate && npx nest build && find dist/ -name "*.js" | head -20
 ENV PORT=8080
 EXPOSE 8080
 
-CMD node scripts/startup.js
+CMD ["/bin/sh", "scripts/startup.sh"]
