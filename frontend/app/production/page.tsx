@@ -432,6 +432,7 @@ export default function ProductionPage() {
     const res = await fetch(`${API_BASE_URL}/production/items/${itemId}/follow-up-date`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ processingFollowUpDate: processingFollowUpDate || null }),
+      keepalive: true,
     });
     if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
     await loadAll(true);
@@ -441,6 +442,7 @@ export default function ProductionPage() {
     const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks/${jwId}`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ dueDate: dueDate || null }),
+      keepalive: true,
     });
     if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
     await loadAll(true);
@@ -450,6 +452,7 @@ export default function ProductionPage() {
     const res = await fetch(`${API_BASE_URL}/production/sheets/sheet-items/${sheetItemId}/due-date`, {
       method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ dueDate: dueDate || null }),
+      keepalive: true,
     });
     if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
     await loadAll(true);
@@ -1035,7 +1038,7 @@ export default function ProductionPage() {
                       {item.itemProductionStage === "PROCESSING" && (
                         <div className="mt-2">
                           <label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label>
-                          <input type="date" defaultValue={dateInputValue(item.processingFollowUpDate)} onBlur={e => updateInhouseFollowUpDate(item.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
+                          <input type="date" key={item.processingFollowUpDate ?? "empty"} defaultValue={dateInputValue(item.processingFollowUpDate)} onChange={e => updateInhouseFollowUpDate(item.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
                         </div>
                       )}
                       {sheetAssignments.length > 0 && (
@@ -1114,7 +1117,7 @@ export default function ProductionPage() {
                           </td>
                           <td className="px-3 py-1.5">
                             {item.itemProductionStage === "PROCESSING" ? (
-                              <input type="date" defaultValue={dateInputValue(item.processingFollowUpDate)} onBlur={e => updateInhouseFollowUpDate(item.id, e.target.value)}
+                              <input type="date" key={item.processingFollowUpDate ?? "empty"} defaultValue={dateInputValue(item.processingFollowUpDate)} onChange={e => { if (e.target.value || e.target.value === "") updateInhouseFollowUpDate(item.id, e.target.value); }}
                                 className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
                             ) : <span className="text-slate-300 text-xs">—</span>}
                           </td>
@@ -1258,7 +1261,7 @@ export default function ProductionPage() {
                               <div className="mt-2 rounded-lg bg-orange-50 px-3 py-2 text-xs">
                                 <div className="flex justify-between gap-2"><span className="text-slate-500">Vendor</span><strong className="text-orange-700">{activeJw?.vendorName ?? completedJw?.vendorName ?? "—"}</strong></div>
                                 {clubSubTab === "in_progress" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Cost</span><strong>{activeJw?.cost > 0 ? fmt(activeJw.cost) : "—"}</strong></div>}
-                                {clubSubTab === "in_progress" && activeJw && <div className="mt-2"><label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label><input type="date" defaultValue={dateInputValue(activeJw.dueDate)} onBlur={e => updateJobWorkDueDate(activeJw.id, e.target.value)} className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-semibold outline-none" /></div>}
+                                {clubSubTab === "in_progress" && activeJw && <div className="mt-2"><label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label><input type="date" key={activeJw.dueDate ?? "empty"} defaultValue={dateInputValue(activeJw.dueDate)} onChange={e => updateJobWorkDueDate(activeJw.id, e.target.value)} className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-semibold outline-none" /></div>}
                                 {clubSubTab === "received" && <div className="mt-1 flex justify-between gap-2"><span className="text-slate-500">Invoice</span><strong>{completedJw?.vendorInvoiceNo ?? "—"}</strong></div>}
                               </div>
                             )}
@@ -1341,7 +1344,7 @@ export default function ProductionPage() {
                               )}
                               {clubSubTab === "in_progress" && (
                                 <td className="px-3 py-2">
-                                  {activeJw ? <input type="date" defaultValue={dateInputValue(activeJw.dueDate)} onBlur={e => updateJobWorkDueDate(activeJw.id, e.target.value)}
+                                  {activeJw ? <input type="date" key={activeJw.dueDate ?? "empty"} defaultValue={dateInputValue(activeJw.dueDate)} onChange={e => updateJobWorkDueDate(activeJw.id, e.target.value)}
                                     className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" /> : <span className="text-slate-300">—</span>}
                                 </td>
                               )}
@@ -1923,7 +1926,7 @@ export default function ProductionPage() {
                                   </div>
                                   <div className="mt-2">
                                     <label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label>
-                                    <input type="date" defaultValue={dateInputValue(si.dueDate)} onBlur={e => updateSheetItemDueDate(si.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
+                                    <input type="date" key={si.dueDate ?? "empty"} defaultValue={dateInputValue(si.dueDate)} onChange={e => updateSheetItemDueDate(si.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
                                   </div>
                                   <button
                                     onClick={async () => {
@@ -1993,7 +1996,7 @@ export default function ProductionPage() {
                                       </select>
                                     </td>
                                     <td className="px-3 py-2">
-                                      <input type="date" defaultValue={dateInputValue(si.dueDate)} onBlur={e => updateSheetItemDueDate(si.id, e.target.value)}
+                                      <input type="date" key={si.dueDate ?? "empty"} defaultValue={dateInputValue(si.dueDate)} onChange={e => updateSheetItemDueDate(si.id, e.target.value)}
                                         className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
                                     </td>
                                     <td className="px-3 py-2">
