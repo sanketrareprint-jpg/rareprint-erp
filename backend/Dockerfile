@@ -12,4 +12,4 @@ RUN npx prisma generate && npx nest build && find dist/ -name "*.js" | head -20
 ENV PORT=8080
 EXPOSE 8080
 
-CMD node dist/src/main.js
+CMD npx prisma migrate deploy && node dist/src/main.js
