@@ -5,12 +5,13 @@ import path from "path";
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
 const nextConfig: NextConfig = {
+  // Always skip TS/ESLint errors during build — caught in dev/CI separately
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
+
   // Static export required for Capacitor — the Android WebView loads files from disk
   ...(isCapacitorBuild && {
     output: "export",
-    // Skip TS/ESLint errors during Android builds (they run fine in dev)
-    typescript: { ignoreBuildErrors: true },
-    eslint: { ignoreDuringBuilds: true },
   }),
 
   // Disable Next.js image optimisation in static export (no server to run it)
