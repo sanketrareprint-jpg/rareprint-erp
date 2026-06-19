@@ -310,6 +310,7 @@ const GST_BANK_ACCOUNT = "0513102000013378";
 export default function AccountsPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pending");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Pending orders
   const [orders, setOrders] = useState<PendingOrder[]>([]);
@@ -403,8 +404,14 @@ export default function AccountsPage() {
   });
   const [savingAccounting, setSavingAccounting] = useState<string | null>(null);
 
+  const handleLoadError = useCallback((section: string, error: unknown) => {
+    console.error(`Failed to load ${section}`, error);
+    setLoadError(`${section} could not load. Please reload, or check the backend connection.`);
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const headers = getAuthHeaders();
       const [res, accountsRes] = await Promise.all([
@@ -414,27 +421,36 @@ export default function AccountsPage() {
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       setOrders(await res.json());
       if (accountsRes.ok) setPaymentAccounts(await accountsRes.json());
+    } catch (error) {
+      handleLoadError("Order approvals", error);
     } finally { setLoading(false); }
-  }, [router]);
+  }, [router, handleLoadError]);
 
   const loadDispatch = useCallback(async () => {
     setDispatchLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/pending-dispatch`, { headers: getAuthHeaders() });
       setDispatchOrders(await res.json());
+    } catch (error) {
+      handleLoadError("Dispatch approvals", error);
     } finally { setDispatchLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadVendors = useCallback(async () => {
     setVendorLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/vendor-statements`, { headers: getAuthHeaders() });
       setVendorEntries(await res.json());
+    } catch (error) {
+      handleLoadError("Vendor statements", error);
     } finally { setVendorLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadReceipts = useCallback(async () => {
     setReceiptsLoading(true);
+    setLoadError(null);
     try {
       const headers = getAuthHeaders();
       const [paymentsRes, accountsRes] = await Promise.all([
@@ -443,19 +459,25 @@ export default function AccountsPage() {
       ]);
       setPendingPayments(await paymentsRes.json());
       if (accountsRes.ok) setPaymentAccounts(await accountsRes.json());
+    } catch (error) {
+      handleLoadError("Pending receipts", error);
     } finally { setReceiptsLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadOutstanding = useCallback(async () => {
     setOutstandingLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/customer-outstanding`, { headers: getAuthHeaders() });
       if (res.ok) setOutstanding(await res.json());
+    } catch (error) {
+      handleLoadError("Customer outstanding", error);
     } finally { setOutstandingLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadCourierStatus = useCallback(async () => {
     setCourierMapLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/outstanding-order-shipments`, { headers: getAuthHeaders() });
       if (res.ok) {
@@ -464,11 +486,14 @@ export default function AccountsPage() {
         for (const item of data) { map[item.orderId] = item; }
         setOrderCourierMap(map);
       }
+    } catch (error) {
+      handleLoadError("Courier status", error);
     } finally { setCourierMapLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadAccounting = useCallback(async () => {
     setAccountingLoading(true);
+    setLoadError(null);
     try {
       const headers = getAuthHeaders();
       const [summaryRes, invoiceRes, billRes, noteRes, vendorRes, accountRes] = await Promise.all([
@@ -485,16 +510,21 @@ export default function AccountsPage() {
       if (noteRes.ok) setAccountingNotes(await noteRes.json());
       if (vendorRes.ok) setVendors(await vendorRes.json());
       if (accountRes.ok) setPaymentAccounts(await accountRes.json());
+    } catch (error) {
+      handleLoadError("Billing and GST", error);
     } finally { setAccountingLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadSampleOrders = useCallback(async () => {
     setSampleLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/sample-orders`, { headers: getAuthHeaders() });
       if (res.ok) setSampleOrders(await res.json());
+    } catch (error) {
+      handleLoadError("Sample kit orders", error);
     } finally { setSampleLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const approveSampleOrder = useCallback(async (orderId: string, paymentReceived: boolean) => {
     setSampleProcessing(orderId);
@@ -541,11 +571,14 @@ export default function AccountsPage() {
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-history`, { headers: getAuthHeaders() });
       if (res.ok) setReceiptHistory(await res.json());
+    } catch (error) {
+      handleLoadError("Receipt history", error);
     } finally { setHistoryLoading(false); }
-  }, []);
+  }, [handleLoadError]);
   useEffect(() => { if (tab === "vendors") void loadVendors(); if (tab === "receipt_history") void loadHistory(); }, [tab, loadVendors, loadHistory]);
 
   // ── Commission state ────────────────────────────────────────────────────
@@ -562,11 +595,14 @@ export default function AccountsPage() {
 
   const loadCommissionSummary = useCallback(async (year: number, month: number) => {
     setCommissionLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/cost-table/commission-summary?year=${year}&month=${month}`, { headers: getAuthHeaders() });
       if (res.ok) setCommissionSummary(await res.json());
+    } catch (error) {
+      handleLoadError("Commission summary", error);
     } finally { setCommissionLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   const loadCommissionSheet = useCallback(async (agentId: string, monthStr: string) => {
     const [y, m] = monthStr.split("-").map(Number);
@@ -575,8 +611,10 @@ export default function AccountsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${agentId}/commission?year=${y}&month=${m}`, { headers: getAuthHeaders() });
       if (res.ok) setCommissionSheet(await res.json());
+    } catch (error) {
+      handleLoadError("Commission sheet", error);
     } finally { setSheetLoading(false); }
-  }, []);
+  }, [handleLoadError]);
 
   useEffect(() => {
     if (tab === "commission") void loadCommissionSummary(commYear, commMonth);
@@ -1063,6 +1101,13 @@ await loadHistory();
             <h1 className="text-xl font-bold text-slate-900">Accounts</h1>
             <p className="text-xs text-slate-500 mt-0.5">Approve orders, dispatch, and manage vendor payments.</p>
           </div>
+
+          {loadError && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+              <span>{loadError}</span>
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="border-b border-slate-200">
