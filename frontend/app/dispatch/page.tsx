@@ -27,6 +27,7 @@ type DispatchOrder = {
   dispatchType?: DispatchMethod;
   paymentType?: "COD" | "PREPAID";
   isCod: boolean; codAmount: number | null;
+  isSample?: boolean; samplePaymentType?: string | null;
   latestShipment: { awbNumber: string | null; carrierName: string | null; trackingNumber: string | null; notes: string | null } | null;
 };
 
@@ -612,10 +613,15 @@ export default function DispatchPage() {
                       <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
                         <span className="font-bold text-slate-900 text-sm">{o.orderNo}</span>
                         <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
+                        {o.isSample && <span className="rounded-full bg-amber-200 text-amber-900 px-1.5 py-0.5 text-[10px] font-bold">📦 SAMPLE</span>}
                         {o.salesAgentName && <span className="text-[10px] text-blue-600 font-semibold">👤 {o.salesAgentName}</span>}
-                        {o.isCod
-                          ? <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">COD {o.codAmount ? fmt(o.codAmount) : ""}</span>
-                          : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
+                        {o.isSample && o.samplePaymentType
+                          ? o.samplePaymentType === "COD"
+                            ? <span className="rounded-full bg-orange-100 text-orange-800 px-1.5 py-0.5 text-[10px] font-bold">💵 COD</span>
+                            : <span className="rounded-full bg-green-100 text-green-800 px-1.5 py-0.5 text-[10px] font-bold">✅ PREPAID</span>
+                          : o.isCod
+                            ? <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">COD {o.codAmount ? fmt(o.codAmount) : ""}</span>
+                            : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
                         <span className="font-semibold text-slate-800 text-xs">{o.customerName}</span>
                         {o.customerPhone && <span className="text-[10px] text-slate-500">{o.customerPhone}</span>}
                         {o.shipTo && o.shipTo !== "—" && (

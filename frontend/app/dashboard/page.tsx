@@ -71,7 +71,11 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/dashboard/summary`, { headers: getAuthHeaders() });
+      const h = getAuthHeaders();
+      const [res, academyRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/dashboard/summary`, { headers: h }),
+        fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: h }).catch(() => null),
+      ]);
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
       const data = await res.json();
@@ -82,7 +86,6 @@ export default function DashboardPage() {
       setLeadData(data.leadData ?? null);
       setProductionKpis(data.productionKpis ?? null);
 
-      const academyRes = await fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: getAuthHeaders() }).catch(() => null);
       if (academyRes?.ok) {
         const academyData = await academyRes.json().catch(() => null);
         setAcademy(academyData?.leaderboard ?? []);

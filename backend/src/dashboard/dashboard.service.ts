@@ -218,27 +218,43 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     const istNow = new Date(now.getTime() + istOffsetMs);
     const startOfMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - istOffsetMs);
     const startOfNextMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 1) - istOffsetMs);
-    const orders = await this.prisma.order.findMany({
-      where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED } },
-      include: { payments: true, salesAgent: { select: { id: true, fullName: true, email: true } } },
-    });
+
+    const [allTimeGroups, monthGroups, allAgents] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['salesAgentId'],
+        where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED } },
+        _count: { _all: true },
+        _sum: { grandTotal: true },
+      }),
+      this.prisma.order.groupBy({
+        by: ['salesAgentId'],
+        where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: startOfMonth, lt: startOfNextMonth } },
+        _count: { _all: true },
+        _sum: { grandTotal: true },
+      }),
+      this.prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true, fullName: true, email: true, role: true },
+      }),
+    ]);
+
+    const agentMap = Object.fromEntries(allAgents.map(a => [a.id, a]));
     const map: Record<string, any> = {};
-    for (const o of orders) {
-      const id = o.salesAgentId!;
-      if (!map[id]) map[id] = { id, name: o.salesAgent?.fullName ?? id, email: o.salesAgent?.email ?? "", totalOrders: 0, monthOrders: 0, totalRevenue: 0, monthRevenue: 0, totalValue: 0 };
-     const orderValue = Number(o.grandTotal);
-      map[id].totalOrders++;
-      map[id].totalRevenue += orderValue;
-      map[id].totalValue += orderValue;
-      if (o.orderDate >= startOfMonth && o.orderDate < startOfNextMonth) { map[id].monthOrders++; map[id].monthRevenue += orderValue; }
+
+    for (const row of allTimeGroups) {
+      const id = row.salesAgentId!;
+      const agent = agentMap[id];
+      map[id] = { id, name: agent?.fullName ?? id, email: agent?.email ?? '', totalOrders: row._count._all, totalRevenue: Number(row._sum.grandTotal ?? 0), monthOrders: 0, monthRevenue: 0 };
     }
-    const allAgents = await this.prisma.user.findMany({
-      where: { isActive: true },
-      select: { id: true, fullName: true, email: true, role: true },
-    });
+    for (const row of monthGroups) {
+      const id = row.salesAgentId!;
+      if (!map[id]) { const agent = agentMap[id]; map[id] = { id, name: agent?.fullName ?? id, email: agent?.email ?? '', totalOrders: 0, totalRevenue: 0, monthOrders: 0, monthRevenue: 0 }; }
+      map[id].monthOrders = row._count._all;
+      map[id].monthRevenue = Number(row._sum.grandTotal ?? 0);
+    }
     for (const agent of allAgents) {
       if (!map[agent.id] && (agent.role === 'SALES_AGENT' || (agent.role as string) === 'AGENT')) {
-        map[agent.id] = { id: agent.id, name: agent.fullName, email: agent.email, totalOrders: 0, monthOrders: 0, totalRevenue: 0, monthRevenue: 0, totalValue: 0 };
+        map[agent.id] = { id: agent.id, name: agent.fullName, email: agent.email, totalOrders: 0, monthOrders: 0, totalRevenue: 0, monthRevenue: 0 };
       }
     }
     return Object.values(map).sort((a: any, b: any) => b.monthRevenue - a.monthRevenue || b.totalRevenue - a.totalRevenue);
@@ -571,36 +587,28 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const orders = await this.prisma.order.findMany({
-      where: {
-        leadSource: { not: null },
-        status: { not: OrderStatus.CANCELLED },
-      },
-      include: { payments: true },
-    });
-
-    const allTime:   Record<string, { count: number; revenue: number }> = {};
-    const thisMonth: Record<string, { count: number; revenue: number }> = {};
-
-    for (const o of orders) {
-      const src     = o.leadSource ?? 'UNKNOWN';
-      const revenue = o.payments.reduce((s, p) => s + Number(p.amount), 0);
-      const value   = Number(o.grandTotal);
-
-      if (!allTime[src]) allTime[src] = { count: 0, revenue: 0 };
-      allTime[src].count++;
-      allTime[src].revenue += revenue;
-
-      if (o.orderDate >= startOfMonth) {
-        if (!thisMonth[src]) thisMonth[src] = { count: 0, revenue: 0 };
-        thisMonth[src].count++;
-        thisMonth[src].revenue += revenue;
-      }
-    }
+    const [allTimeGroups, monthGroups] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['leadSource'],
+        where: { leadSource: { not: null }, status: { not: OrderStatus.CANCELLED } },
+        _count: { _all: true },
+        _sum: { grandTotal: true },
+      }),
+      this.prisma.order.groupBy({
+        by: ['leadSource'],
+        where: { leadSource: { not: null }, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: startOfMonth } },
+        _count: { _all: true },
+        _sum: { grandTotal: true },
+      }),
+    ]);
 
     return {
-      allTime:   Object.entries(allTime).map(([source, d]) => ({ source, ...d })).sort((a, b) => b.revenue - a.revenue),
-      thisMonth: Object.entries(thisMonth).map(([source, d]) => ({ source, ...d })).sort((a, b) => b.revenue - a.revenue),
+      allTime: allTimeGroups
+        .map(r => ({ source: r.leadSource ?? 'UNKNOWN', count: r._count._all, revenue: Number(r._sum.grandTotal ?? 0) }))
+        .sort((a, b) => b.revenue - a.revenue),
+      thisMonth: monthGroups
+        .map(r => ({ source: r.leadSource ?? 'UNKNOWN', count: r._count._all, revenue: Number(r._sum.grandTotal ?? 0) }))
+        .sort((a, b) => b.revenue - a.revenue),
     };
   }
 }

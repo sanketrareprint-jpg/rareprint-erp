@@ -413,6 +413,7 @@ export class DispatchService {
       dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
       paymentType: 'COD' | 'PREPAID';
       isCod: boolean; codAmount: number | null; balanceDue: number;
+      isSample: boolean; samplePaymentType: string | null;
       latestShipment: { awbNumber: string | null; carrierName: string | null; trackingNumber: string | null; notes: string | null } | null;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
@@ -428,6 +429,10 @@ export class DispatchService {
       if (readyItems.length === 0) continue;
 
       const paymentInfo = this.dispatchPaymentInfo(o);
+      const isSample = (o as any).isSample ?? false;
+      const samplePaymentType = (o as any).samplePaymentType ?? null;
+      // For sample orders, COD/PREPAID is decided by accounts; override notes-based detection
+      const effectiveIsCod = isSample ? samplePaymentType === 'COD' : paymentInfo.isCod;
 
       result.push({
         id: o.id,
@@ -441,10 +446,12 @@ export class DispatchService {
         totalItems: o.items.length,
         readyItemsCount: readyItems.length,
         dispatchType: parseDispatchType(o.notes),
-        paymentType: paymentInfo.isCod ? 'COD' : 'PREPAID',
-        isCod: paymentInfo.isCod,
-        codAmount: paymentInfo.codAmount,
+        paymentType: effectiveIsCod ? 'COD' : 'PREPAID',
+        isCod: effectiveIsCod,
+        codAmount: effectiveIsCod ? paymentInfo.codAmount : null,
         balanceDue: paymentInfo.balanceDue,
+        isSample,
+        samplePaymentType,
         latestShipment: o.shipments[0] ?? null,
         readyItems: readyItems.map((i) => {
           const { size, gsm, sides } = parseProductionNotes(i.productionNotes);

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Products – RarePrint</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== NAVBAR ===== -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo-icon">🖨</span>
+      <span class="brand-name">Rare<span class="brand-accent">Print</span></span>
+    </div>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="products.html" class="active">Products</a></li>
+      <li><a href="about.html">About Us</a></li>
+      <li><a href="contact.html">Contact Us</a></li>
+    </ul>
+    <a href="contact.html" class="btn btn-nav">Get a Quote</a>
+    <button class="hamburger" onclick="toggleMenu()">☰</button>
+  </nav>
+
+  <!-- ===== PAGE HEADER ===== -->
+  <section class="page-header">
+    <h1>Our Products</h1>
+    <p>Complete range of printing products for businesses of all sizes</p>
+  </section>
+
+  <!-- ===== FILTER TABS ===== -->
+  <section class="section">
+    <div class="filter-tabs">
+      <button class="tab active" onclick="filterProducts('all', this)">All Products</button>
+      <button class="tab" onclick="filterProducts('stationery', this)">Stationery</button>
+      <button class="tab" onclick="filterProducts('packaging', this)">Packaging</button>
+      <button class="tab" onclick="filterProducts('corporate', this)">Corporate Gifts</button>
+      <button class="tab" onclick="filterProducts('specialty', this)">Specialty</button>
+    </div>
+
+    <div class="products-full-grid" id="productsGrid">
+
+      <!-- VISITING CARDS -->
+      <div class="prod-item" id="visiting-cards" data-cat="stationery">
+        <div class="prod-icon">📇</div>
+        <div class="prod-info">
+          <h3>Visiting Cards</h3>
+          <p>Double-sided, single-sided. Matte / Gloss / Spot UV finish. Available in 300–400 GSM art card.</p>
+          <div class="prod-tags">
+            <span class="tag">Digital Print</span>
+            <span class="tag">Double Side</span>
+            <span class="tag">300 GSM+</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- LETTERHEAD -->
+      <div class="prod-item" id="letterhead" data-cat="stationery">
+        <div class="prod-icon">📝</div>
+        <div class="prod-info">
+          <h3>Letterheads & Letterpads</h3>
+          <p>Custom branded letterheads for corporate correspondence. A4/A5 sizes, single & double colour.</p>
+          <div class="prod-tags">
+            <span class="tag">Offset Print</span>
+            <span class="tag">A4 / A5</span>
+            <span class="tag">Bulk Available</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- PAMPHLETS -->
+      <div class="prod-item" data-cat="stationery">
+        <div class="prod-icon">📄</div>
+        <div class="prod-info">
+          <h3>Pamphlets & Leaflets</h3>
+          <p>Single and double-sided pamphlets for promotions. Available in A4, A5, A6, DL sizes.</p>
+          <div class="prod-tags">
+            <span class="tag">Digital / Offset</span>
+            <span class="tag">Multi-size</span>
+            <span class="tag">Full Colour</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- BILL BOOKS -->
+      <div class="prod-item" data-cat="stationery">
+        <div class="prod-icon">🧾</div>
+        <div class="prod-info">
+          <h3>Bill Books & Dot Matrix Bills</h3>
+          <p>Numbered bill books with carbon copy. Custom formats for GST invoices, delivery challans, receipts.</p>
+          <div class="prod-tags">
+            <span class="tag">Carbon Copy</span>
+            <span class="tag">Numbered</span>
+            <span class="tag">Custom Format</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- ENVELOPES -->
+      <div class="prod-item" id="packaging" data-cat="packaging">
+        <div class="prod-icon">✉️</div>
+        <div class="prod-info">
+          <h3>Envelopes</h3>
+          <p>Printed envelopes in standard and custom sizes. Regular, window, and readymade options available.</p>
+          <div class="prod-tags">
+            <span class="tag">Standard Sizes</span>
+            <span class="tag">Custom Print</span>
+            <span class="tag">Kraft / White</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- BOXES -->
+      <div class="prod-item" data-cat="packaging">
+        <div class="prod-icon">📦</div>
+        <div class="prod-info">
+          <h3>Custom Boxes</h3>
+          <p>Product packaging boxes with custom die-cut designs. Rigid, corrugated, and folding carton options.</p>
+          <div class="prod-tags">
+            <span class="tag">Die Cut</span>
+            <span class="tag">Custom Size</span>
+            <span class="tag">Branded</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- BAGS -->
+      <div class="prod-item" data-cat="packaging">
+        <div class="prod-icon">🛍️</div>
+        <div class="prod-info">
+          <h3>Non-Woven & PVC Bags</h3>
+          <p>D-cut non-woven bags, PVC bags, and X-ray bags. Ideal for retail, medical, and corporate use.</p>
+          <div class="prod-tags">
+            <span class="tag">Non-Woven</span>
+            <span class="tag">PVC</span>
+            <span class="tag">D-Cut / Loop</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- STICKERS -->
+      <div class="prod-item" id="stickers" data-cat="stationery">
+        <div class="prod-icon">🏷️</div>
+        <div class="prod-info">
+          <h3>Stickers & Labels</h3>
+          <p>Product labels, barcode stickers, transparent stickers, die-cut stickers in any shape and size.</p>
+          <div class="prod-tags">
+            <span class="tag">Die Cut</span>
+            <span class="tag">Transparent</span>
+            <span class="tag">Waterproof</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- CALENDARS -->
+      <div class="prod-item" id="calendar" data-cat="corporate">
+        <div class="prod-icon">🗓️</div>
+        <div class="prod-info">
+          <h3>Calendars</h3>
+          <p>Wall calendars, desk calendars, and pocket calendars. Custom branded for corporate gifting.</p>
+          <div class="prod-tags">
+            <span class="tag">Wall / Desk</span>
+            <span class="tag">Custom Branded</span>
+            <span class="tag">Gift Ready</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- KEYCHAINS -->
+      <div class="prod-item" data-cat="corporate">
+        <div class="prod-icon">🔑</div>
+        <div class="prod-info">
+          <h3>Keychains</h3>
+          <p>Custom printed keychains with your brand logo. Acrylic, metal, and rubber options available.</p>
+          <div class="prod-tags">
+            <span class="tag">Acrylic</span>
+            <span class="tag">Custom Logo</span>
+            <span class="tag">Corporate Gift</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- PENS -->
+      <div class="prod-item" data-cat="corporate">
+        <div class="prod-icon">🖊️</div>
+        <div class="prod-info">
+          <h3>Branded Pens</h3>
+          <p>Ballpoint and gel pens with custom printing. Perfect for events, trade shows, and corporate gifts.</p>
+          <div class="prod-tags">
+            <span class="tag">Custom Print</span>
+            <span class="tag">Bulk Orders</span>
+            <span class="tag">Multiple Colors</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- PAPER WEIGHTS -->
+      <div class="prod-item" data-cat="specialty">
+        <div class="prod-icon">🪨</div>
+        <div class="prod-info">
+          <h3>Acrylic & Plastic Paper Weights</h3>
+          <p>Custom printed paper weights for desk use. Acrylic and plastic options, double-sided print.</p>
+          <div class="prod-tags">
+            <span class="tag">Acrylic</span>
+            <span class="tag">Double Side</span>
+            <span class="tag">2×3 inch</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- FILES & FOLDERS -->
+      <div class="prod-item" id="files" data-cat="stationery">
+        <div class="prod-icon">📁</div>
+        <div class="prod-info">
+          <h3>Files & Folders</h3>
+          <p>PP files, document folders, reminder cards. Branded for offices, schools, and institutions.</p>
+          <div class="prod-tags">
+            <span class="tag">PP Files</span>
+            <span class="tag">Branded</span>
+            <span class="tag">Bulk</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+      <!-- DIAGNOSTIC BAGS -->
+      <div class="prod-item" data-cat="specialty">
+        <div class="prod-icon">🩺</div>
+        <div class="prod-info">
+          <h3>Diagnostic & X-Ray Bags</h3>
+          <p>Specialised bags for hospitals, diagnostic labs, and clinics. Custom sizes and printing.</p>
+          <div class="prod-tags">
+            <span class="tag">Medical Grade</span>
+            <span class="tag">Custom Size</span>
+            <span class="tag">Branded</span>
+          </div>
+          <a href="contact.html" class="btn btn-sm">Get Quote</a>
+        </div>
+      </div>
+
+    </div><!-- end grid -->
+  </section>
+
+  <!-- ===== CTA ===== -->
+  <section class="cta-section">
+    <h2>Can't find what you need?</h2>
+    <p>We handle all kinds of custom printing. Just tell us what you need.</p>
+    <a href="contact.html" class="btn btn-white">Ask for Custom Quote</a>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <div class="footer-brand">🖨 Rare<span>Print</span></div>
+        <p>Quality printing solutions for businesses across India.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Quick Links</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="products.html">Products</a></li>
+          <li><a href="about.html">About Us</a></li>
+          <li><a href="contact.html">Contact Us</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <p>📞 +91 98765 43210</p>
+        <p>✉️ sanket.rareprint@gmail.com</p>
+        <p>📍 Mumbai, Maharashtra</p>
+      </div>
+    </div>
+    <div class="footer-bottom"><p>© 2024 RarePrint. All rights reserved.</p></div>
+  </footer>
+
+  <script>
+    function toggleMenu() {
+      document.querySelector('.nav-links').classList.toggle('open');
+    }
+    function filterProducts(cat, btn) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.prod-item').forEach(item => {
+        if (cat === 'all' || item.dataset.cat === cat) {
+          item.style.display = 'flex';
+        } else {
+          item.style.display = 'none';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

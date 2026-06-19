@@ -109,6 +109,9 @@ export class CreateOrderDto {
   leadSource?: string;
 
   @IsOptional()
+  isSample?: boolean;
+
+  @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
 }

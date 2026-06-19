@@ -1550,6 +1550,108 @@ export class AccountsService {
     ...p,
     amount: Number(p.amount),
   }));
+  }));
 }
-   
+
+  // ── Sample Kit Methods ────────────────────────────────────────────────────
+
+  async getSampleOrders() {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        isSample: true,
+        status: { in: [OrderStatus.PENDING_APPROVAL, OrderStatus.READY_FOR_DISPATCH, OrderStatus.DISPATCHED] },
+      },
+      include: {
+        customer: { select: { businessName: true, phone: true, address: true, city: true, state: true, pincode: true } },
+        salesAgent: { select: { fullName: true } },
+        items: { include: { product: { select: { name: true, sku: true } } } },
+        payments: { select: { amount: true, verificationStatus: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return orders.map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      status: o.status,
+      samplePaymentType: (o as any).samplePaymentType ?? null,
+      paymentStatus: o.paymentStatus,
+      grandTotal: Number(o.grandTotal),
+      createdAt: o.createdAt,
+      customer: o.customer,
+      salesAgentName: o.salesAgent?.fullName ?? null,
+      itemCount: o.items.length,
+      items: o.items.map((i) => ({ productName: i.product.name, sku: i.product.sku, quantity: i.quantity })),
+      totalPaid: o.payments
+        .filter((p) => p.verificationStatus === 'VERIFIED')
+        .reduce((sum, p) => sum + Number(p.amount), 0),
+    }));
+  }
+
+  async approveSampleOrder(orderId: string, paymentReceived: boolean, user: AccountsUser) {
+    assertAccountsUser(user);
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true, salesAgent: { select: { fullName: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!(order as any).isSample) throw new BadRequestException('Order is not a sample order');
+    if (order.status !== OrderStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('Only orders in PENDING_APPROVAL status can be approved');
+    }
+
+    const paymentType = paymentReceived ? 'PREPAID' : 'COD';
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.READY_FOR_DISPATCH,
+          productionStage: 'READY_FOR_DISPATCH',
+          samplePaymentType: paymentType,
+        } as any,
+      });
+      await tx.orderItem.updateMany({
+        where: { orderId },
+        data: { itemProductionStage: 'READY_FOR_DISPATCH' } as any,
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: OrderStatus.PENDING_APPROVAL,
+          toStatus: OrderStatus.READY_FOR_DISPATCH,
+          changedById: user.id,
+          reason: `Accounts approved sample kit — dispatching as ${paymentType}`,
+        },
+      });
+      return result;
+    });
+
+    return { ...updated, samplePaymentType: paymentType };
+  }
+
+  async rejectSampleOrder(orderId: string, reason: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== OrderStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('Only PENDING_APPROVAL sample orders can be rejected');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: OrderStatus.PENDING_APPROVAL,
+          toStatus: OrderStatus.CANCELLED,
+          changedById: 'system',
+          reason: reason || 'Sample order rejected by accounts',
+        },
+      });
+      return updated;
+    });
+  }
+
 }

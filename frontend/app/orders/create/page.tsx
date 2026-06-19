@@ -8,7 +8,8 @@ import { useRouter } from "next/navigation";
 
 type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
-type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string> };
+type OfferCode = { id: string; code: string; description?: string; productIds: string[]; isActive: boolean };
+type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string>; offerCodeId?: string };
 type CustomerSearchRow = {
   id: string;
   businessName: string;
@@ -44,7 +45,7 @@ function fmt(n: number) {
 }
 
 function emptyLine(): LineItem {
-  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "", customFields: {} };
+  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "", customFields: {}, offerCodeId: "" };
 }
 
 const S = {
@@ -68,8 +69,10 @@ export default function CreateOrderPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
   const [orderFields, setOrderFields] = useState<CustomField[]>([]);
   const [itemFields, setItemFields] = useState<CustomField[]>([]);
+  const [offerCodes, setOfferCodes] = useState<OfferCode[]>([]);
   const [customOrderFields, setCustomOrderFields] = useState<Record<string, string>>({});
   const [orderNotes, setOrderNotes] = useState("");
+  const [isSample, setIsSample] = useState(false);
   const [leadSource, setLeadSource] = useState("");
   const [leadMonth, setLeadMonth] = useState(String(new Date().getMonth() + 1));
   const [leadYear, setLeadYear] = useState(String(CURRENT_YEAR));
@@ -77,9 +80,10 @@ export default function CreateOrderPage() {
   const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
 
   const load = useCallback(async () => {
-    const [res, cfgRes] = await Promise.all([
+    const [res, cfgRes, offerRes] = await Promise.all([
       fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
+      fetch(`${API_BASE_URL}/erp-config/offer-codes`, { headers: getAuthHeaders() }),
     ]);
     if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     setProducts(await res.json());
@@ -87,6 +91,10 @@ export default function CreateOrderPage() {
       const cfg = await cfgRes.json();
       setOrderFields(cfg.orderFields ?? []);
       setItemFields(cfg.itemFields ?? []);
+    }
+    if (offerRes.ok) {
+      const codes: OfferCode[] = await offerRes.json();
+      setOfferCodes(codes.filter(c => c.isActive));
     }
   }, [router]);
 
@@ -223,9 +231,11 @@ export default function CreateOrderPage() {
             artworkNotes:    i.specialInstructions || undefined,
             productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}, Sides: ${i.sides}`,
             customFields:    i.customFields,
+            offerCodeId:     i.offerCodeId || undefined,
           })),
           notes:      orderNotes || undefined,
           leadSource: leadSourceValue,
+          isSample:   isSample || undefined,
           customFields: customOrderFields,
         }),
       });
@@ -372,6 +382,30 @@ export default function CreateOrderPage() {
                 placeholder="Any additional notes or instructions..."
                 style={{ ...S.input, resize: "vertical" }} />
             </div>
+            <div className="create-order-section" style={{ ...S.section, background: isSample ? "#fef3c7" : "#f8fafc", border: isSample ? "2px solid #f59e0b" : "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }} onClick={() => setIsSample(v => !v)}>
+                <div style={{
+                  width: 44, height: 24, borderRadius: 12, background: isSample ? "#f59e0b" : "#cbd5e1",
+                  position: "relative", transition: "background 0.2s", flexShrink: 0,
+                }}>
+                  <div style={{
+                    position: "absolute", top: 3, left: isSample ? 23 : 3,
+                    width: 18, height: 18, borderRadius: "50%", background: "#fff",
+                    transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }} />
+                </div>
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: 14, color: isSample ? "#92400e" : "#475569", margin: 0 }}>
+                    📦 Sample Kit Order
+                  </p>
+                  <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                    {isSample
+                      ? "This order will go to Accounts for approval → then directly to Dispatch (PREPAID or COD based on payment)"
+                      : "Toggle on if this is a sample kit being sent to a customer"}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -440,11 +474,31 @@ export default function CreateOrderPage() {
                   </button>
                 ) : <div />}
               </div>
-              <div style={{ marginBottom: "8px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "6px", marginBottom: "8px", alignItems: "center" }}>
                 <input value={item.specialInstructions}
                   onChange={e => updateLine(idx, "specialInstructions", e.target.value)}
                   placeholder={`Item ${idx + 1} — special instructions (optional)`}
                   style={{ ...S.input, background: "#fffbeb", borderColor: "#fde68a", fontSize: "11px" }} />
+                {/* Offer code selector — only shown when active codes exist for this product */}
+                {(() => {
+                  const applicable = offerCodes.filter(oc => oc.productIds.length === 0 || oc.productIds.includes(item.productId));
+                  if (applicable.length === 0) return null;
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+                      <span style={{ fontSize: "10px", fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>Offer Code</span>
+                      <select
+                        value={item.offerCodeId ?? ""}
+                        onChange={e => setLineItems(prev => prev.map((li, i) => i === idx ? { ...li, offerCodeId: e.target.value } : li))}
+                        style={{ ...S.input, width: "auto", minWidth: "130px", background: item.offerCodeId ? "#f5f3ff" : "white", borderColor: item.offerCodeId ? "#a78bfa" : "#e2e8f0", color: item.offerCodeId ? "#5b21b6" : "#334155", fontWeight: item.offerCodeId ? 700 : 400, fontSize: "11px" }}
+                      >
+                        <option value="">— None —</option>
+                        {applicable.map(oc => (
+                          <option key={oc.id} value={oc.id}>{oc.code}{oc.description ? ` — ${oc.description}` : ""}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
               </div>
               {itemFields.length > 0 && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px", margin: "0 0 10px 0", padding: "8px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>

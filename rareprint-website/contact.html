@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Contact Us – RarePrint</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== NAVBAR ===== -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo-icon">🖨</span>
+      <span class="brand-name">Rare<span class="brand-accent">Print</span></span>
+    </div>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="products.html">Products</a></li>
+      <li><a href="about.html">About Us</a></li>
+      <li><a href="contact.html" class="active">Contact Us</a></li>
+    </ul>
+    <a href="contact.html" class="btn btn-nav">Get a Quote</a>
+    <button class="hamburger" onclick="toggleMenu()">☰</button>
+  </nav>
+
+  <!-- ===== PAGE HEADER ===== -->
+  <section class="page-header">
+    <h1>Contact Us</h1>
+    <p>We'd love to hear from you — get in touch for quotes, queries, or custom orders</p>
+  </section>
+
+  <!-- ===== CONTACT SECTION ===== -->
+  <section class="section">
+    <div class="contact-layout">
+
+      <!-- FORM -->
+      <div class="contact-form-wrap">
+        <h2>Send us a Message</h2>
+        <p>Fill the form below and we'll get back to you within 1 hour during business hours.</p>
+        <form class="contact-form" onsubmit="handleSubmit(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="name">Full Name *</label>
+              <input type="text" id="name" placeholder="Your name" required />
+            </div>
+            <div class="form-group">
+              <label for="phone">Phone Number *</label>
+              <input type="tel" id="phone" placeholder="+91 98765 43210" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label for="product">Product / Service Needed *</label>
+            <select id="product" required>
+              <option value="">-- Select a product --</option>
+              <option>Visiting Cards</option>
+              <option>Letterheads & Letterpads</option>
+              <option>Pamphlets & Leaflets</option>
+              <option>Bill Books</option>
+              <option>Envelopes</option>
+              <option>Custom Boxes</option>
+              <option>Non-Woven / PVC Bags</option>
+              <option>Stickers & Labels</option>
+              <option>Calendars</option>
+              <option>Keychains / Branded Pens</option>
+              <option>Files & Folders</option>
+              <option>Diagnostic / X-Ray Bags</option>
+              <option>Other / Custom</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="qty">Quantity</label>
+              <input type="number" id="qty" placeholder="e.g. 500" min="1" />
+            </div>
+            <div class="form-group">
+              <label for="deadline">Required By</label>
+              <input type="date" id="deadline" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="message">Additional Details / Requirements</label>
+            <textarea id="message" rows="4" placeholder="Describe your requirements, size, finish, design notes..."></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Send Enquiry →</button>
+        </form>
+        <div id="successMsg" class="success-msg" style="display:none;">
+          ✅ Thank you! Your enquiry has been received. We'll contact you within 1 hour.
+        </div>
+      </div>
+
+      <!-- INFO -->
+      <div class="contact-info-wrap">
+        <h2>Get in Touch</h2>
+        <div class="info-cards">
+          <div class="info-card">
+            <div class="info-icon">📍</div>
+            <div>
+              <h4>Our Address</h4>
+              <p>RarePrint, Mumbai, Maharashtra, India</p>
+            </div>
+          </div>
+          <div class="info-card">
+            <div class="info-icon">📞</div>
+            <div>
+              <h4>Call Us</h4>
+              <p>+91 98765 43210</p>
+              <p style="font-size:0.85rem;color:#666;">Mon–Sat, 9am to 7pm</p>
+            </div>
+          </div>
+          <div class="info-card">
+            <div class="info-icon">✉️</div>
+            <div>
+              <h4>Email Us</h4>
+              <p>sanket.rareprint@gmail.com</p>
+            </div>
+          </div>
+          <div class="info-card">
+            <div class="info-icon">💬</div>
+            <div>
+              <h4>WhatsApp</h4>
+              <p>+91 98765 43210</p>
+              <p style="font-size:0.85rem;color:#666;">Send artwork & requirements directly</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- BUSINESS HOURS -->
+        <div class="hours-card">
+          <h4>🕐 Business Hours</h4>
+          <table class="hours-table">
+            <tr><td>Monday – Friday</td><td>9:00 AM – 7:00 PM</td></tr>
+            <tr><td>Saturday</td><td>9:00 AM – 5:00 PM</td></tr>
+            <tr><td>Sunday</td><td>Closed</td></tr>
+          </table>
+        </div>
+
+        <!-- MAP placeholder -->
+        <div class="map-placeholder">
+          <div class="map-inner">
+            <span>📍</span>
+            <p>Mumbai, Maharashtra</p>
+            <small>Google Maps integration coming soon</small>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===== FAQ ===== -->
+  <section class="section bg-light">
+    <div class="section-header">
+      <h2>Frequently Asked Questions</h2>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">What is the minimum order quantity? <span>+</span></button>
+        <div class="faq-a">Most products have a minimum of 100 units. Visiting cards start from 100 pcs. For custom items, minimums vary — contact us for details.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">How long does printing take? <span>+</span></button>
+        <div class="faq-a">Standard orders: 2–4 working days. Express orders: 24 hours (extra charges apply). Same-day available for select products.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">Do you provide design services? <span>+</span></button>
+        <div class="faq-a">Yes! Our in-house design team can create or refine your artwork. Share your logo and requirements and we'll handle the rest.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">What file format should I send? <span>+</span></button>
+        <div class="faq-a">We accept PDF, AI, CDR, PSD (300 DPI). Send artwork in CMYK colour mode for best results.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">Do you offer pan-India delivery? <span>+</span></button>
+        <div class="faq-a">Yes, we ship across India via trusted courier partners. Delivery charges apply based on weight and location.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <div class="footer-brand">🖨 Rare<span>Print</span></div>
+        <p>Quality printing solutions for businesses across India.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Quick Links</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="products.html">Products</a></li>
+          <li><a href="about.html">About Us</a></li>
+          <li><a href="contact.html">Contact Us</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <p>📞 +91 98765 43210</p>
+        <p>✉️ sanket.rareprint@gmail.com</p>
+        <p>📍 Mumbai, Maharashtra</p>
+      </div>
+    </div>
+    <div class="footer-bottom"><p>© 2024 RarePrint. All rights reserved.</p></div>
+  </footer>
+
+  <script>
+    function toggleMenu() {
+      document.querySelector('.nav-links').classList.toggle('open');
+    }
+    function handleSubmit(e) {
+      e.preventDefault();
+      document.querySelector('.contact-form').style.display = 'none';
+      document.getElementById('successMsg').style.display = 'block';
+    }
+    function toggleFaq(btn) {
+      const ans = btn.nextElementSibling;
+      const open = ans.style.display === 'block';
+      document.querySelectorAll('.faq-a').forEach(a => a.style.display = 'none');
+      document.querySelectorAll('.faq-q span').forEach(s => s.textContent = '+');
+      if (!open) {
+        ans.style.display = 'block';
+        btn.querySelector('span').textContent = '−';
+      }
+    }
+  </script>
+</body>
+</html>

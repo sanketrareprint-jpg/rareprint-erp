@@ -335,6 +335,8 @@ export class OrdersService {
         } : {}),
         status: o.status,
         isTest: o.isTest,
+        isSample: (o as any).isSample ?? false,
+        samplePaymentType: (o as any).samplePaymentType ?? null,
         date: o.orderDate.toISOString(),
         itemDetails: buildItemDetails(o.items as any),
         items: o.items.map((i) => ({
@@ -354,6 +356,7 @@ export class OrdersService {
       items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; offerCodeId?: string }>;
       notes?: string;
       leadSource?: string;
+      isSample?: boolean;
       advanceAmount?: number;
       paymentAccountId?: string;
       paymentMethod?: string;
@@ -497,6 +500,7 @@ export class OrdersService {
           taxAmount: new Prisma.Decimal(0),
           shippingCharge: new Prisma.Decimal(0),
           notes: dto.notes,
+          isSample: dto.isSample ?? false,
           items: { create: itemsData },
         } as any,
       });

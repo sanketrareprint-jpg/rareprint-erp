@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
-import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText, Tag } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText, Tag, TicketPercent, PackageCheck, X, Edit2 } from "lucide-react";
 
 type CarrierCfg = {
   activeCarrier: "shiprocket" | "bigship";
@@ -45,6 +45,9 @@ type BigshipWarehouse = {
   isActive: boolean;
 };
 
+type OfferCode = { id: string; code: string; description?: string; productIds: string[]; isActive: boolean; createdAt: string };
+type ProductRule = { id: string; productId: string; minQty: number; isActive: boolean; product?: { id: string; name: string; sku: string } };
+type ProductOption = { id: string; name: string; sku: string };
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
 type ProductionStage = { id: string; label: string; substages: string[] };
 type ModuleOption = { key: string; label: string; href: string; fixed?: boolean; enabled: boolean };
@@ -74,6 +77,22 @@ export default function SettingsPage() {
   const [erpSaving, setErpSaving] = useState(false);
   const [erpSaved, setErpSaved] = useState(false);
 
+  // Offer codes
+  const [offerCodes, setOfferCodes] = useState<OfferCode[]>([]);
+  const [newCode, setNewCode] = useState("");
+  const [newCodeDesc, setNewCodeDesc] = useState("");
+  const [newCodeProductIds, setNewCodeProductIds] = useState<string[]>([]);
+  const [offerCodeSaving, setOfferCodeSaving] = useState(false);
+
+  // Product rules
+  const [productRules, setProductRules] = useState<ProductRule[]>([]);
+  const [ruleProductId, setRuleProductId] = useState("");
+  const [ruleMinQty, setRuleMinQty] = useState("");
+  const [ruleSaving, setRuleSaving] = useState(false);
+
+  // Products list for selectors
+  const [products, setProducts] = useState<ProductOption[]>([]);
+
   // Test connection state
   const [testing, setTesting]         = useState(false);
   const [testResult, setTestResult]   = useState<TestResult | null>(null);
@@ -98,13 +117,22 @@ export default function SettingsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [res, erpRes] = await Promise.all([
+      const [res, erpRes, offerRes, rulesRes, prodsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/carrier-config`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/erp-config/offer-codes`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/erp-config/product-rules`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/products?limit=500`, { headers: getAuthHeaders() }),
       ]);
       if (!res.ok) { setError("Could not load settings"); return; }
       const data: CarrierCfg = await res.json();
       if (erpRes.ok) setErpConfig(await erpRes.json());
+      if (offerRes.ok) setOfferCodes(await offerRes.json());
+      if (rulesRes.ok) setProductRules(await rulesRes.json());
+      if (prodsRes.ok) {
+        const pd = await prodsRes.json();
+        setProducts(Array.isArray(pd) ? pd : (pd.items ?? pd.data ?? []));
+      }
       setCfg(data);
       setActiveCarrier(data.activeCarrier);
       setBsUsername(data.bigship.username);
@@ -437,6 +465,195 @@ export default function SettingsPage() {
             </ConfigPanel>
           </section>
         )}
+
+        {/* ── Offer Codes ─────────────────────────────────────────────────── */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <TicketPercent size={18} className="text-indigo-500" />
+            <div>
+              <h2 className="font-semibold text-gray-900 text-base">Offer Codes</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Create codes for free or discounted items. Items with an offer code bypass the minimum margin approval check.</p>
+            </div>
+          </div>
+
+          {/* Existing codes */}
+          <div className="space-y-2">
+            {offerCodes.length === 0 && <p className="text-xs text-gray-400">No offer codes yet.</p>}
+            {offerCodes.map(oc => (
+              <div key={oc.id} className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-bold text-indigo-700 text-sm bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">{oc.code}</span>
+                    {oc.description && <span className="text-xs text-gray-500">{oc.description}</span>}
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${oc.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                      {oc.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {oc.productIds.map(pid => {
+                      const p = products.find(x => x.id === pid);
+                      return <span key={pid} className="text-xs bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-600">{p?.name ?? pid}</span>;
+                    })}
+                    {oc.productIds.length === 0 && <span className="text-xs text-gray-400">All products</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={async () => {
+                      await fetch(`${API_BASE_URL}/erp-config/offer-codes/${oc.id}`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !oc.isActive }) });
+                      setOfferCodes(prev => prev.map(c => c.id === oc.id ? { ...c, isActive: !c.isActive } : c));
+                    }}
+                    className="text-xs px-2 py-1 rounded border border-gray-200 hover:bg-gray-100 text-gray-600"
+                  >
+                    {oc.isActive ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Delete offer code "${oc.code}"?`)) return;
+                      await fetch(`${API_BASE_URL}/erp-config/offer-codes/${oc.id}`, { method: "DELETE", headers: getAuthHeaders() });
+                      setOfferCodes(prev => prev.filter(c => c.id !== oc.id));
+                    }}
+                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add new code form */}
+          <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
+            <p className="text-xs font-semibold text-indigo-800">Add New Offer Code</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Code *</label>
+                <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} placeholder="e.g. FREESTICKER" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Description</label>
+                <input value={newCodeDesc} onChange={e => setNewCodeDesc(e.target.value)} placeholder="e.g. Free sticker with order" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Valid for Products (leave empty = all products)</label>
+              <select
+                multiple
+                value={newCodeProductIds}
+                onChange={e => setNewCodeProductIds(Array.from(e.target.selectedOptions, o => o.value))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 min-h-[80px]"
+              >
+                {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+              </select>
+              <p className="text-xs text-gray-400">Hold Ctrl/Cmd to select multiple</p>
+            </div>
+            <button
+              disabled={!newCode.trim() || offerCodeSaving}
+              onClick={async () => {
+                setOfferCodeSaving(true);
+                try {
+                  const res = await fetch(`${API_BASE_URL}/erp-config/offer-codes`, {
+                    method: "POST",
+                    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                    body: JSON.stringify({ code: newCode.trim(), description: newCodeDesc.trim() || undefined, productIds: newCodeProductIds }),
+                  });
+                  if (res.ok) {
+                    const created: OfferCode = await res.json();
+                    setOfferCodes(prev => [created, ...prev]);
+                    setNewCode(""); setNewCodeDesc(""); setNewCodeProductIds([]);
+                  }
+                } finally { setOfferCodeSaving(false); }
+              }}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+            >
+              {offerCodeSaving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+              {offerCodeSaving ? "Adding..." : "Add Offer Code"}
+            </button>
+          </div>
+        </section>
+
+        {/* ── Product Rules (Min Qty) ──────────────────────────────────────── */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <PackageCheck size={18} className="text-indigo-500" />
+            <div>
+              <h2 className="font-semibold text-gray-900 text-base">Product Rules</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Set minimum order quantities per product. Orders below the minimum will be blocked at creation.</p>
+            </div>
+          </div>
+
+          {/* Existing rules */}
+          <div className="space-y-2">
+            {productRules.length === 0 && <p className="text-xs text-gray-400">No product rules yet.</p>}
+            {productRules.map(rule => (
+              <div key={rule.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800">{rule.product?.name ?? rule.productId}</p>
+                  {rule.product?.sku && <p className="text-xs text-gray-400">SKU: {rule.product.sku}</p>}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs bg-amber-50 border border-amber-100 text-amber-700 rounded px-2 py-1 font-semibold">Min qty: {rule.minQty}</span>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Delete min-qty rule for "${rule.product?.name ?? rule.productId}"?`)) return;
+                      await fetch(`${API_BASE_URL}/erp-config/product-rules/${rule.productId}`, { method: "DELETE", headers: getAuthHeaders() });
+                      setProductRules(prev => prev.filter(r => r.id !== rule.id));
+                    }}
+                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add / update rule */}
+          <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 p-4 space-y-3">
+            <p className="text-xs font-semibold text-amber-800">Set Minimum Quantity Rule</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Product *</label>
+                <select value={ruleProductId} onChange={e => setRuleProductId(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                  <option value="">— Select product —</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Minimum Qty *</label>
+                <input type="number" min="1" value={ruleMinQty} onChange={e => setRuleMinQty(e.target.value)} placeholder="e.g. 100" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+            </div>
+            <button
+              disabled={!ruleProductId || !ruleMinQty || Number(ruleMinQty) < 1 || ruleSaving}
+              onClick={async () => {
+                setRuleSaving(true);
+                try {
+                  const res = await fetch(`${API_BASE_URL}/erp-config/product-rules`, {
+                    method: "PUT",
+                    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                    body: JSON.stringify({ productId: ruleProductId, minQty: Number(ruleMinQty) }),
+                  });
+                  if (res.ok) {
+                    const saved: ProductRule = await res.json();
+                    // enrich with product name from local list
+                    const prod = products.find(p => p.id === saved.productId);
+                    const enriched = { ...saved, product: prod ? { id: prod.id, name: prod.name, sku: prod.sku } : saved.product };
+                    setProductRules(prev => {
+                      const exists = prev.findIndex(r => r.productId === saved.productId);
+                      return exists >= 0 ? prev.map((r, i) => i === exists ? enriched : r) : [enriched, ...prev];
+                    });
+                    setRuleProductId(""); setRuleMinQty("");
+                  }
+                } finally { setRuleSaving(false); }
+              }}
+              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+            >
+              {ruleSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              {ruleSaving ? "Saving..." : "Save Rule"}
+            </button>
+          </div>
+        </section>
 
         {/* ── Active Carrier Toggle ───────────────────────────────────────── */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">

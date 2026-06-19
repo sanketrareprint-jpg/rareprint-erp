@@ -163,6 +163,29 @@ export class AccountsController {
     return this.accountsService.approveDispatch(id, req.user);
   }
 
+  // ── Sample Kit endpoints ──────────────────────────────────────────────────
+  @Get('sample-orders')
+  getSampleOrders() {
+    return this.accountsService.getSampleOrders();
+  }
+
+  @Patch(':id/approve-sample')
+  approveSampleOrder(
+    @Param('id') id: string,
+    @Body('paymentReceived') paymentReceived: boolean,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.approveSampleOrder(id, paymentReceived, req.user);
+  }
+
+  @Patch(':id/reject-sample')
+  rejectSampleOrder(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    return this.accountsService.rejectSampleOrder(id, reason);
+  }
+
   @Patch(':id/reject-dispatch')
   rejectDispatch(@Param('id') id: string, @Body('reason') reason: string) {
     return this.accountsService.rejectDispatch(id, reason);
