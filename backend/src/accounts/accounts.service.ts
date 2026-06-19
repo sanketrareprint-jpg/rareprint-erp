@@ -1550,39 +1550,45 @@ export class AccountsService {
     ...p,
     amount: Number(p.amount),
   }));
-  }));
-}
+  }
 
   // ── Sample Kit Methods ────────────────────────────────────────────────────
 
   async getSampleOrders() {
-    const orders = await this.prisma.order.findMany({
+    const orders = await (this.prisma.order as any).findMany({
       where: {
         isSample: true,
         status: { in: [OrderStatus.PENDING_APPROVAL, OrderStatus.READY_FOR_DISPATCH, OrderStatus.DISPATCHED] },
       },
       include: {
-        customer: { select: { businessName: true, phone: true, address: true, city: true, state: true, pincode: true } },
+        customer: { select: { businessName: true, phone: true, billingAddress: true, city: true, state: true, pincode: true } },
         salesAgent: { select: { fullName: true } },
         items: { include: { product: { select: { name: true, sku: true } } } },
         payments: { select: { amount: true, verificationStatus: true } },
       },
       orderBy: { createdAt: 'desc' },
-    });
+    }) as any[];
 
-    return orders.map((o) => ({
+    return orders.map((o: any) => ({
       id: o.id,
       orderNumber: o.orderNumber,
       status: o.status,
-      samplePaymentType: (o as any).samplePaymentType ?? null,
+      samplePaymentType: o.samplePaymentType ?? null,
       paymentStatus: o.paymentStatus,
       grandTotal: Number(o.grandTotal),
       createdAt: o.createdAt,
-      customer: o.customer,
+      customer: {
+        businessName: o.customer?.businessName,
+        phone: o.customer?.phone,
+        address: o.customer?.billingAddress,
+        city: o.customer?.city,
+        state: o.customer?.state,
+        pincode: o.customer?.pincode,
+      },
       salesAgentName: o.salesAgent?.fullName ?? null,
       itemCount: o.items.length,
-      items: o.items.map((i) => ({ productName: i.product.name, sku: i.product.sku, quantity: i.quantity })),
-      totalPaid: o.payments
+      items: o.items.map((i: any) => ({ productName: i.product.name, sku: i.product.sku, quantity: i.quantity })),
+      totalPaid: (o.payments as any[])
         .filter((p) => p.verificationStatus === 'VERIFIED')
         .reduce((sum, p) => sum + Number(p.amount), 0),
     }));
