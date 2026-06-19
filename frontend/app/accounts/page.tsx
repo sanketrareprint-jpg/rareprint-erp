@@ -219,7 +219,46 @@ type CodForm = {
   courierOrderId: string;
 };
 
-type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors";
+type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "sample" | "receipts" | "receipt_history" | "vendors" | "commission";
+
+type SampleOrder = {
+  id: string;
+  orderNumber: string;
+  status: string;
+  samplePaymentType: string | null;
+  paymentStatus: string;
+  grandTotal: number;
+  createdAt: string;
+  customer: { businessName: string; phone?: string; address?: string; city?: string; state?: string; pincode?: string };
+  salesAgentName: string | null;
+  itemCount: number;
+  items: { productName: string; sku: string; quantity: number }[];
+  totalPaid: number;
+};
+
+// ── Commission types ──────────────────────────────────────────────────────
+type CommissionAgent = {
+  id: string; name: string; category: string | null;
+  saleTotal: number; bonus: number; monthsWithData: string[];
+};
+type CommissionSummary = {
+  year: number; month: number;
+  availableMonths: string[];
+  agents: CommissionAgent[];
+};
+type CommissionRow = {
+  date: string; invoiceNo: string; partyName: string;
+  itemName: string; description: string; transactionType: string;
+  quantity: number; amount: number;
+  commissionPct: number; commissionAmt: number; hasCost: boolean;
+};
+type CommissionSheet = {
+  userId: string; year: number; month: number;
+  agentName: string | null; agentCategory: string | null;
+  saleTotal: number; commissionTotal: number; commissionPct: number;
+  bonus: number; totalPayable: number;
+  rows: CommissionRow[];
+};
 
 function orderAge(dateStr: string): string {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
@@ -284,6 +323,14 @@ export default function AccountsPage() {
   const [dispatchLoading, setDispatchLoading] = useState(false);
   const [dispatchExpanded, setDispatchExpanded] = useState<string | null>(null);
   const [dispatchProcessing, setDispatchProcessing] = useState<string | null>(null);
+
+  // Sample Kit orders
+  const [sampleOrders, setSampleOrders] = useState<SampleOrder[]>([]);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [sampleProcessing, setSampleProcessing] = useState<string | null>(null);
+  const [samplePaymentChoice, setSamplePaymentChoice] = useState<Record<string, boolean>>({});
+  const [sampleRejectId, setSampleRejectId] = useState<string | null>(null);
+  const [sampleRejectReason, setSampleRejectReason] = useState("");
 
   // Pending payment receipts
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
@@ -441,9 +488,54 @@ export default function AccountsPage() {
     } finally { setAccountingLoading(false); }
   }, []);
 
+  const loadSampleOrders = useCallback(async () => {
+    setSampleLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/sample-orders`, { headers: getAuthHeaders() });
+      if (res.ok) setSampleOrders(await res.json());
+    } finally { setSampleLoading(false); }
+  }, []);
+
+  const approveSampleOrder = useCallback(async (orderId: string, paymentReceived: boolean) => {
+    setSampleProcessing(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${orderId}/approve-sample`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentReceived }),
+      });
+      if (res.ok) {
+        setSampleOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "READY_FOR_DISPATCH", samplePaymentType: paymentReceived ? "PREPAID" : "COD" } : o));
+      } else {
+        const b = await res.json();
+        alert(b.message || "Approval failed");
+      }
+    } finally { setSampleProcessing(null); }
+  }, []);
+
+  const rejectSampleOrder = useCallback(async (orderId: string, reason: string) => {
+    setSampleProcessing(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${orderId}/reject-sample`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (res.ok) {
+        setSampleOrders(prev => prev.filter(o => o.id !== orderId));
+        setSampleRejectId(null);
+        setSampleRejectReason("");
+      } else {
+        const b = await res.json();
+        alert(b.message || "Rejection failed");
+      }
+    } finally { setSampleProcessing(null); }
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "accounting") void loadAccounting(); }, [tab, loadAccounting]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
+  useEffect(() => { if (tab === "sample") void loadSampleOrders(); }, [tab, loadSampleOrders]);
   useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
   useEffect(() => { if (tab === "outstanding") { void loadOutstanding(); void loadCourierStatus(); } }, [tab, loadOutstanding, loadCourierStatus]);
 
@@ -455,6 +547,44 @@ export default function AccountsPage() {
     } finally { setHistoryLoading(false); }
   }, []);
   useEffect(() => { if (tab === "vendors") void loadVendors(); if (tab === "receipt_history") void loadHistory(); }, [tab, loadVendors, loadHistory]);
+
+  // ── Commission state ────────────────────────────────────────────────────
+  const [commissionSummary, setCommissionSummary] = useState<CommissionSummary | null>(null);
+  const [commissionLoading, setCommissionLoading] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<CommissionAgent | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const [commissionSheet, setCommissionSheet] = useState<CommissionSheet | null>(null);
+  const [sheetLoading, setSheetLoading] = useState(false);
+
+  const now = new Date();
+  const [commYear, setCommYear] = useState(now.getFullYear());
+  const [commMonth, setCommMonth] = useState(now.getMonth() + 1);
+
+  const loadCommissionSummary = useCallback(async (year: number, month: number) => {
+    setCommissionLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/commission-summary?year=${year}&month=${month}`, { headers: getAuthHeaders() });
+      if (res.ok) setCommissionSummary(await res.json());
+    } finally { setCommissionLoading(false); }
+  }, []);
+
+  const loadCommissionSheet = useCallback(async (agentId: string, monthStr: string) => {
+    const [y, m] = monthStr.split("-").map(Number);
+    setSheetLoading(true);
+    setCommissionSheet(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${agentId}/commission?year=${y}&month=${m}`, { headers: getAuthHeaders() });
+      if (res.ok) setCommissionSheet(await res.json());
+    } finally { setSheetLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "commission") void loadCommissionSummary(commYear, commMonth);
+  }, [tab, commYear, commMonth, loadCommissionSummary]);
+
+  useEffect(() => {
+    if (selectedAgent && selectedMonth) void loadCommissionSheet(selectedAgent.id, selectedMonth);
+  }, [selectedAgent, selectedMonth, loadCommissionSheet]);
 
   async function approveOrder(id: string) {
     setProcessing(id);
@@ -939,12 +1069,14 @@ await loadHistory();
             <div className="flex flex-wrap gap-0">
               {([
                 { key: "pending", label: "Order Approval", count: orders.length },
+                { key: "sample", label: "Sample Kit", count: sampleOrders.filter(o => o.status === "PENDING_APPROVAL").length },
                 { key: "accounting", label: "Billing & GST", count: salesInvoices.length + purchaseBills.length },
                 { key: "outstanding", label: "Customer Outstanding", count: outstanding.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
                 { key: "receipts", label: "Receipts Pending", count: pendingPayments.length },
                 { key: "receipt_history", label: "Receipt History", count: receiptHistory.length },
                 { key: "vendors", label: "Vendor Statements", count: vendorEntries.filter(e => !e.isPaid).length },
+                { key: "commission", label: "Commission", count: 0 },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
                   className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
@@ -1615,6 +1747,140 @@ await loadHistory();
             </div>
           )}
 
+          {/* ── SAMPLE KIT TAB ── */}
+          {tab === "sample" && (
+            <div className="space-y-4">
+              {/* Reject modal */}
+              {sampleRejectId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                  <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+                    <h3 className="text-lg font-bold text-slate-800 mb-3">Reject Sample Order</h3>
+                    <textarea
+                      className="w-full border border-slate-300 rounded-lg p-3 text-sm resize-none"
+                      rows={3} placeholder="Reason for rejection..."
+                      value={sampleRejectReason}
+                      onChange={e => setSampleRejectReason(e.target.value)}
+                    />
+                    <div className="flex gap-3 mt-4 justify-end">
+                      <button onClick={() => { setSampleRejectId(null); setSampleRejectReason(""); }}
+                        className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+                      <button
+                        onClick={() => rejectSampleOrder(sampleRejectId, sampleRejectReason)}
+                        disabled={sampleProcessing === sampleRejectId}
+                        className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                        {sampleProcessing === sampleRejectId ? "Rejecting..." : "Reject"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {sampleLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-amber-500" /></div>
+              ) : sampleOrders.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <Package className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm font-medium">No sample kit orders</p>
+                </div>
+              ) : (
+                <>
+                  {sampleOrders.filter(o => o.status === "PENDING_APPROVAL").length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-bold text-amber-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+                        Pending Accounts Approval
+                      </h3>
+                      <div className="space-y-3">
+                        {sampleOrders.filter(o => o.status === "PENDING_APPROVAL").map(o => (
+                          <div key={o.id} className="rounded-xl border-2 border-amber-200 bg-amber-50 p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-bold bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">📦 SAMPLE KIT</span>
+                                  <span className="font-bold text-slate-800">{o.orderNumber}</span>
+                                </div>
+                                <p className="text-sm font-semibold text-slate-700">{o.customer.businessName}</p>
+                                <p className="text-xs text-slate-500">{o.customer.phone} · {o.salesAgentName ?? "—"}</p>
+                                <p className="text-xs text-slate-500 mt-1">{[o.customer.address, o.customer.city, o.customer.state, o.customer.pincode].filter(Boolean).join(", ")}</p>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {o.items.map((item, idx) => (
+                                    <span key={idx} className="text-xs bg-white border border-amber-200 text-slate-600 px-2 py-0.5 rounded-full">
+                                      {item.productName} × {item.quantity}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-lg font-bold text-slate-800">₹{o.grandTotal.toLocaleString("en-IN")}</p>
+                                <p className="text-xs text-slate-500">{o.totalPaid > 0 ? `₹${o.totalPaid.toLocaleString("en-IN")} paid` : "No payment received"}</p>
+                              </div>
+                            </div>
+                            <div className="mt-4 p-3 bg-white rounded-lg border border-amber-200">
+                              <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Dispatch as</p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setSamplePaymentChoice(prev => ({ ...prev, [o.id]: true }))}
+                                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold border-2 transition-colors ${samplePaymentChoice[o.id] === true || (samplePaymentChoice[o.id] === undefined && o.totalPaid > 0) ? "border-green-500 bg-green-50 text-green-700" : "border-slate-200 bg-white text-slate-500"}`}>
+                                  ✅ Payment Received → PREPAID
+                                </button>
+                                <button
+                                  onClick={() => setSamplePaymentChoice(prev => ({ ...prev, [o.id]: false }))}
+                                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold border-2 transition-colors ${samplePaymentChoice[o.id] === false || (samplePaymentChoice[o.id] === undefined && o.totalPaid === 0) ? "border-orange-400 bg-orange-50 text-orange-700" : "border-slate-200 bg-white text-slate-500"}`}>
+                                  💵 No Payment → COD
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex gap-3 mt-3">
+                              <button
+                                onClick={() => approveSampleOrder(o.id, samplePaymentChoice[o.id] ?? o.totalPaid > 0)}
+                                disabled={sampleProcessing === o.id}
+                                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50">
+                                {sampleProcessing === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                                Approve & Send to Dispatch
+                              </button>
+                              <button
+                                onClick={() => setSampleRejectId(o.id)}
+                                disabled={sampleProcessing === o.id}
+                                className="px-4 py-2.5 rounded-lg border border-red-300 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50">
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {sampleOrders.filter(o => o.status !== "PENDING_APPROVAL").length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
+                        Approved / Dispatched
+                      </h3>
+                      <div className="space-y-2">
+                        {sampleOrders.filter(o => o.status !== "PENDING_APPROVAL").map(o => (
+                          <div key={o.id} className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${o.samplePaymentType === "PREPAID" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
+                                {o.samplePaymentType === "PREPAID" ? "✅ PREPAID" : "💵 COD"}
+                              </span>
+                              <div>
+                                <p className="font-semibold text-slate-800 text-sm">{o.orderNumber} · {o.customer.businessName}</p>
+                                <p className="text-xs text-slate-500">{o.items.map(i => `${i.productName} ×${i.quantity}`).join(", ")}</p>
+                              </div>
+                            </div>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${o.status === "DISPATCHED" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
+                              {o.status === "DISPATCHED" ? "Dispatched" : "Ready for Dispatch"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* ── RECEIPTS PENDING TAB ── */}
           {tab === "receipts" && (
             <div className="space-y-3">
@@ -1947,10 +2213,251 @@ await loadHistory();
               )}
             </div>
           )}
+
+          {/* ── Commission Tab ──────────────────────────────────────────────── */}
+          {tab === "commission" && (
+            <div className="space-y-4">
+              {/* Month picker */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap gap-4 items-center">
+                <span className="text-sm font-semibold text-slate-700">Commission Period:</span>
+                <select value={commMonth} onChange={e => { setCommMonth(Number(e.target.value)); setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none bg-white">
+                  {["January","February","March","April","May","June","July","August","September","October","November","December"].map((m, i) => (
+                    <option key={i+1} value={i+1}>{m}</option>
+                  ))}
+                </select>
+                <select value={commYear} onChange={e => { setCommYear(Number(e.target.value)); setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
+                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none bg-white">
+                  {[now.getFullYear()-1, now.getFullYear(), now.getFullYear()+1].map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+                {selectedAgent && (
+                  <button onClick={() => { setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
+                    className="ml-auto flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5">
+                    <X className="h-3 w-3" /> Back to Agents
+                  </button>
+                )}
+              </div>
+
+              {/* Agent list view */}
+              {!selectedAgent && (
+                commissionLoading ? (
+                  <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+                ) : !commissionSummary || commissionSummary.agents.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No sales agents with orders found</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {commissionSummary.agents.map(agent => (
+                      <div key={agent.id} className="rounded-xl border border-slate-200 bg-white p-5 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+                        onClick={() => { setSelectedAgent(agent); setSelectedMonth(`${commYear}-${String(commMonth).padStart(2,"0")}`); }}>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <p className="font-bold text-slate-800">{agent.name}</p>
+                            <span className={`inline-block mt-1 rounded-full px-2 py-0.5 text-xs font-bold ${
+                              agent.category === "A" ? "bg-purple-100 text-purple-700" :
+                              agent.category === "B" ? "bg-blue-100 text-blue-700" :
+                              agent.category === "C" ? "bg-green-100 text-green-700" :
+                              agent.category === "D" ? "bg-orange-100 text-orange-700" :
+                              "bg-slate-100 text-slate-500"
+                            }`}>
+                              Category {agent.category ?? "—"}
+                            </span>
+                          </div>
+                          <ChevronDown className="h-4 w-4 text-slate-400 mt-1" />
+                        </div>
+                        <div className="text-xs text-slate-500 mb-1">
+                          {agent.monthsWithData.length} month{agent.monthsWithData.length !== 1 ? "s" : ""} with data
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {agent.monthsWithData.slice(0, 6).map(m => (
+                            <button key={m} onClick={e => { e.stopPropagation(); setSelectedAgent(agent); setSelectedMonth(m); }}
+                              className={`text-xs px-2 py-0.5 rounded-full border font-mono transition-colors ${
+                                m === `${commYear}-${String(commMonth).padStart(2,"0")}`
+                                  ? "bg-blue-600 text-white border-blue-600"
+                                  : "border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600"
+                              }`}>
+                              {m}
+                            </button>
+                          ))}
+                          {agent.monthsWithData.length > 6 && (
+                            <span className="text-xs text-slate-400 px-1 py-0.5">+{agent.monthsWithData.length - 6} more</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {/* Commission sheet view */}
+              {selectedAgent && (
+                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                  {/* Sheet header */}
+                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-200 px-6 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs text-slate-500 mb-0.5">Sales Agent</p>
+                        <p className="text-xl font-bold text-slate-800">{selectedAgent.name}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                            selectedAgent.category === "A" ? "bg-purple-100 text-purple-700" :
+                            selectedAgent.category === "B" ? "bg-blue-100 text-blue-700" :
+                            selectedAgent.category === "C" ? "bg-green-100 text-green-700" :
+                            "bg-orange-100 text-orange-700"
+                          }`}>
+                            Category {selectedAgent.category ?? "—"}
+                          </span>
+                          <span className="text-xs text-slate-500">Commission: {
+                            selectedAgent.category === "A" ? "10% (15% stickers)" :
+                            selectedAgent.category === "B" ? "10%" :
+                            selectedAgent.category === "C" ? "12% (17% stickers)" :
+                            "Above-rate margin"
+                          }</span>
+                        </div>
+                      </div>
+                      {/* Month selector within sheet */}
+                      <div className="flex flex-wrap gap-1">
+                        {selectedAgent.monthsWithData.map(m => (
+                          <button key={m} onClick={() => setSelectedMonth(m)}
+                            className={`text-xs px-2.5 py-1 rounded-full border font-mono transition-colors ${
+                              m === selectedMonth
+                                ? "bg-green-600 text-white border-green-600"
+                                : "border-slate-200 text-slate-600 hover:border-green-400 hover:text-green-700"
+                            }`}>
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {sheetLoading ? (
+                    <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+                  ) : !commissionSheet || commissionSheet.rows.length === 0 ? (
+                    <div className="p-10 text-center text-slate-400">
+                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No sales data for {selectedMonth}</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Summary cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 border-b border-slate-200">
+                        <div className="p-4 border-r border-slate-100 text-center">
+                          <p className="text-xs text-slate-500 mb-1">Total Sales</p>
+                          <p className="text-base font-bold text-slate-800">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</p>
+                        </div>
+                        <div className="p-4 border-r border-slate-100 text-center">
+                          <p className="text-xs text-slate-500 mb-1">Commission ({commissionSheet.commissionPct}%)</p>
+                          <p className="text-base font-bold text-blue-700">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</p>
+                        </div>
+                        <div className="p-4 border-r border-slate-100 text-center">
+                          <p className="text-xs text-slate-500 mb-1">Bonus</p>
+                          <p className={`text-base font-bold ${commissionSheet.bonus > 0 ? "text-green-700" : "text-slate-400"}`}>
+                            ₹{commissionSheet.bonus.toLocaleString("en-IN")}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {commissionSheet.saleTotal < 115000 ? `Need ₹${(115000 - commissionSheet.saleTotal).toLocaleString("en-IN")} more` :
+                             commissionSheet.saleTotal < 200000 ? "₹1k (min met)" :
+                             commissionSheet.saleTotal < 300000 ? "₹2k (₹2L met)" : "₹3k+ tier"}
+                          </p>
+                        </div>
+                        <div className="p-4 text-center bg-green-50">
+                          <p className="text-xs text-green-700 mb-1 font-semibold">TOTAL PAYABLE</p>
+                          <p className="text-xl font-bold text-green-700">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</p>
+                        </div>
+                      </div>
+
+                      {/* Bonus tiers info */}
+                      <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 flex flex-wrap gap-3 text-xs text-amber-700">
+                        <span className="font-semibold">Bonus tiers:</span>
+                        <span className={commissionSheet.saleTotal >= 115000 ? "font-bold text-green-700" : ""}>₹1L 15K → ₹1,000</span>
+                        <span className={commissionSheet.saleTotal >= 200000 ? "font-bold text-green-700" : ""}>₹2L → ₹2,000</span>
+                        <span className={commissionSheet.saleTotal >= 300000 ? "font-bold text-green-700" : ""}>₹3L → ₹3,000</span>
+                        <span className="text-amber-500">(+₹1,000 per ₹1L above ₹1L)</span>
+                      </div>
+
+                      {/* Commission table */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-700 text-white">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left font-semibold">Date</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Invoice No.</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Party Name</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Item Name</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Description</th>
+                              <th className="px-3 py-2.5 text-center font-semibold">Txn Type</th>
+                              <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
+                              <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
+                              <th className="px-3 py-2.5 text-right font-semibold">Rate %</th>
+                              <th className="px-3 py-2.5 text-right font-semibold">Commission</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {commissionSheet.rows.map((row, i) => (
+                              <tr key={i} className={`hover:bg-slate-50 ${!row.hasCost ? "opacity-60" : ""}`}>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                                  {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                                </td>
+                                <td className="px-3 py-2 font-mono text-blue-700">{row.invoiceNo}</td>
+                                <td className="px-3 py-2 text-slate-700 max-w-[160px] truncate" title={row.partyName}>{row.partyName}</td>
+                                <td className="px-3 py-2 text-slate-700 max-w-[180px] truncate" title={row.itemName}>{row.itemName}</td>
+                                <td className="px-3 py-2 text-slate-500 max-w-[120px] truncate" title={row.description}>{row.description || "—"}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{row.transactionType}</span>
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-700">{row.quantity.toLocaleString("en-IN")}</td>
+                                <td className="px-3 py-2 text-right font-mono font-semibold text-slate-800">₹{row.amount.toLocaleString("en-IN")}</td>
+                                <td className="px-3 py-2 text-right">
+                                  {row.hasCost ? (
+                                    <span className="font-bold text-green-700">{row.commissionPct}%</span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono font-bold text-blue-700">
+                                  {row.hasCost ? `₹${row.commissionAmt.toLocaleString("en-IN")}` : <span className="text-slate-300 font-normal">No cost</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+                            <tr>
+                                     <td colSpan={7} className="px-3 py-3 text-xs font-bold text-slate-700">TOTAL</td>
+                              <td className="px-3 py-3 text-right font-bold text-slate-800 font-mono">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
+                              <td className="px-3 py-3 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
+                              <td className="px-3 py-3 text-right font-bold text-blue-700 font-mono">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</td>
+                            </tr>
+                            <tr className="bg-green-50 border-t border-green-200">
+                              <td colSpan={8} className="px-3 py-3 text-xs font-bold text-slate-700">BONUS</td>
+                              <td colSpan={2} className="px-3 py-3 text-right font-bold text-green-700 font-mono">₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
+                            </tr>
+                            <tr className="bg-green-100 border-t border-green-300">
+                              <td colSpan={8} className="px-3 py-3 text-sm font-bold text-green-800">TOTAL PAYABLE AMOUNT</td>
+                              <td colSpan={2} className="px-3 py-3 text-right text-lg font-bold text-green-800 font-mono">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                      {commissionSheet.rows.some(r => !r.hasCost) && (
+                        <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 text-xs text-amber-700">
+                          Some line items show no cost slab — commission excluded for those rows.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </DashboardShell>
 
-      {/* ── COD Booking Modal ── */}
+      {/* COD Booking Modal */}
       {codModalOrderId && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: "1rem" }}>
           <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "28rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
@@ -1966,15 +2473,11 @@ await loadHistory();
                 <X className="h-4 w-4" />
               </button>
             </div>
-
             <div className="space-y-3">
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Courier Platform</span>
-                <select
-                  value={codForm.courierPlatform}
-                  onChange={e => setCodForm(f => ({ ...f, courierPlatform: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
-                >
+                <select value={codForm.courierPlatform} onChange={e => setCodForm(f => ({ ...f, courierPlatform: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white">
                   <option value="BIGSHIP">BigShip</option>
                   <option value="SHIPROCKET">Shiprocket</option>
                   <option value="DELHIVERY">Delhivery</option>
@@ -1987,24 +2490,17 @@ await loadHistory();
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">AWB Number</span>
-                <input
-                  value={codForm.awbNumber}
-                  onChange={e => setCodForm(f => ({ ...f, awbNumber: e.target.value }))}
+                <input value={codForm.awbNumber} onChange={e => setCodForm(f => ({ ...f, awbNumber: e.target.value }))}
                   placeholder="e.g. 1234567890"
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400"
-                />
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400" />
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Platform Order ID</span>
-                <input
-                  value={codForm.courierOrderId}
-                  onChange={e => setCodForm(f => ({ ...f, courierOrderId: e.target.value }))}
+                <input value={codForm.courierOrderId} onChange={e => setCodForm(f => ({ ...f, courierOrderId: e.target.value }))}
                   placeholder="e.g. BigShip / Shiprocket order ID"
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400"
-                />
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400" />
               </label>
             </div>
-
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setCodModalOrderId(null)}
                 className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
@@ -2027,12 +2523,10 @@ await loadHistory();
                 <h2 className="text-sm font-bold text-slate-800">Edit Payment Receipt</h2>
                 <p className="text-xs text-slate-500 mt-0.5">{editingPayment.orderNo} · {editingPayment.customerName}</p>
               </div>
-              <button onClick={() => setEditingPayment(null)}
-                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+              <button onClick={() => setEditingPayment(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
                 <X className="h-4 w-4" />
               </button>
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Amount</span>
@@ -2048,39 +2542,32 @@ await loadHistory();
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Method</span>
-                <select value={editPaymentForm.method}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, method: e.target.value }))}
+                <select value={editPaymentForm.method} onChange={e => setEditPaymentForm(f => ({ ...f, method: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
                   {paymentMethods.map(method => <option key={method} value={method}>{method.replace("_", " ")}</option>)}
                 </select>
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Received In</span>
-                <select value={editPaymentForm.paymentAccountId}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))}
+                <select value={editPaymentForm.paymentAccountId} onChange={e => setEditPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
                   <option value="">Select account</option>
                   {paymentAccounts.map(account => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}{account.bankName ? ` (${account.bankName})` : ""}
-                    </option>
+                    <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` (${account.bankName})` : ""}</option>
                   ))}
                 </select>
               </label>
               <label className="block sm:col-span-2">
                 <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>
-                <input value={editPaymentForm.referenceNumber}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))}
+                <input value={editPaymentForm.referenceNumber} onChange={e => setEditPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
               </label>
               <label className="block sm:col-span-2">
                 <span className="text-[11px] font-semibold text-slate-600">Notes</span>
-                <textarea rows={3} value={editPaymentForm.notes}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, notes: e.target.value }))}
+                <textarea rows={3} value={editPaymentForm.notes} onChange={e => setEditPaymentForm(f => ({ ...f, notes: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 resize-none" />
               </label>
             </div>
-
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setEditingPayment(null)}
                 className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
@@ -2105,22 +2592,17 @@ await loadHistory();
                   <p style={{ fontSize: "11px", color: "#64748b", margin: "3px 0 0" }}>
                     {bankMatchPayment.orderNo} · {bankMatchPayment.customerName} · <strong style={{ color: "#16a34a" }}>{fmt(bankMatchPayment.amount)}</strong> · {new Date(bankMatchPayment.paymentDate).toLocaleDateString("en-IN")}
                   </p>
-                  <p style={{ fontSize: "10px", color: "#94a3b8", margin: "2px 0 0" }}>Showing credit entries for the same date and same amount only</p>
                 </div>
                 <button onClick={() => { setBankMatchPayment(null); setBankMatchResults([]); }}
-                  style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8", fontSize: "16px" }}>x</button>
+                  style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8" }}>x</button>
               </div>
             </div>
-
             <div style={{ overflowY: "auto", flex: 1, padding: "0.75rem 1rem" }}>
               {bankMatchLoading ? (
-                <div style={{ display: "flex", justifyContent: "center", padding: "2rem", fontSize: "12px", color: "#64748b" }}>
-                  Searching bank statement...
-                </div>
+                <div style={{ textAlign: "center", padding: "2rem", fontSize: "12px", color: "#64748b" }}>Searching bank statement...</div>
               ) : bankMatchResults.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "2rem" }}>
                   <p style={{ fontSize: "12px", color: "#94a3b8", margin: "0 0 8px" }}>No matching entries found in bank statement</p>
-                  <p style={{ fontSize: "11px", color: "#cbd5e1" }}>You can still verify manually using the UTR field.</p>
                   <button onClick={() => { verifyPayment(bankMatchPayment.id, utrDraft[bankMatchPayment.id] ?? bankMatchPayment.referenceNumber ?? ""); setBankMatchPayment(null); }}
                     style={{ marginTop: "12px", background: "#16a34a", color: "white", border: "none", borderRadius: "6px", padding: "6px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
                     Verify Manually
@@ -2144,14 +2626,14 @@ await loadHistory();
                         <td style={{ padding: "6px 8px", color: "#334155", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{txn.description}</td>
                         <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "#16a34a" }}>{fmt(txn.amount)}</td>
                         <td style={{ padding: "6px 8px" }}>
-                          <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "9999px", background: txn.reconcileStatus === "MATCHED_PAYMENT" ? "#dcfce7" : txn.reconcileStatus === "MANUAL_REVIEW" ? "#fef9c3" : "#f1f5f9", color: txn.reconcileStatus === "MATCHED_PAYMENT" ? "#15803d" : txn.reconcileStatus === "MANUAL_REVIEW" ? "#854d0e" : "#64748b", fontWeight: 600 }}>
-                            {txn.reconcileStatus === "MATCHED_PAYMENT" ? "Already Matched" : txn.reconcileStatus === "MANUAL_REVIEW" ? "Needs Review" : txn.reconcileStatus}
+                          <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "9999px", background: txn.reconcileStatus === "MATCHED_PAYMENT" ? "#dcfce7" : "#f1f5f9", color: txn.reconcileStatus === "MATCHED_PAYMENT" ? "#15803d" : "#64748b", fontWeight: 600 }}>
+                            {txn.reconcileStatus}
                           </span>
                         </td>
                         <td style={{ padding: "6px 8px" }}>
                           <button onClick={() => matchAndVerify(txn)} disabled={verifyingId === bankMatchPayment.id}
-                            style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer", opacity: verifyingId === bankMatchPayment.id ? 0.6 : 1 }}>
-                            {verifyingId === bankMatchPayment.id ? "..." : "Match"}
+                            style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                            Match
                           </button>
                         </td>
                       </tr>
@@ -2160,7 +2642,6 @@ await loadHistory();
                 </table>
               )}
             </div>
-
             <div style={{ padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
               <button onClick={() => { setBankMatchPayment(null); setBankMatchResults([]); }}
                 style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "5px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
@@ -2178,7 +2659,7 @@ await loadHistory();
             <h2 className="text-sm font-bold text-slate-800 mb-1">Reject Payment Receipt</h2>
             <p className="text-xs text-slate-500 mb-3">The sales agent will be notified with this reason.</p>
             <textarea value={rejectPaymentReason} onChange={e => setRejectPaymentReason(e.target.value)}
-              placeholder="Enter rejection reason (e.g. Amount mismatch, Receipt not received)..." rows={3}
+              placeholder="Enter rejection reason..." rows={3}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
             <div className="flex justify-end gap-2 mt-3">
               <button onClick={() => { setRejectPaymentId(null); setRejectPaymentReason(""); }}
@@ -2214,4 +2695,3 @@ await loadHistory();
     </>
   );
 }
-

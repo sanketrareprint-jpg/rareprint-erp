@@ -745,4 +745,242 @@ export class CostTableService {
       orders: orderBreakdown,
     };
   }
+
+ 
+  // ── Commission bonus calculation ──────────────────────────────────────────
+  private calcBonus(saleTotal: number): number {
+    if (saleTotal < 115000) return 0;
+    if (saleTotal < 200000) return 1000;
+    return Math.floor(saleTotal / 100000) * 1000;
+  }
+
+  // ── Per-item commission % helper ─────────────────────────────────────────
+  private commissionPctForLine(
+    category: string,
+    lineTotal: number,
+    rateTotal: number,
+    costTotal: number,
+    isSticker: boolean,
+  ): number {
+    if (lineTotal <= 0) return 0;
+    const profit = lineTotal - costTotal;
+    if (profit <= 0) return 0;
+    const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
+    if (category === 'D') {
+      const diff = Math.max(0, lineTotal - rateTotal);
+      return Number(((diff / lineTotal) * 100).toFixed(2));
+    }
+    if (discountPct > 5) {
+      const commAmt = profit / (category === 'C' ? 3.75 : 4);
+      return Number(((commAmt / lineTotal) * 100).toFixed(2));
+    }
+    if (category === 'A') return isSticker ? 15 : 10;
+    if (category === 'C') return isSticker ? 17 : 12;
+    return 10;
+  }
+
+  // ── Detailed commission sheet for one agent, any month ───────────────────
+  async getAgentCommissionSheet(userId: string, year: number, month: number) {
+    const from = new Date(year, month - 1, 1);
+    const to   = new Date(year, month, 1);
+
+    const orders = await (this.prisma as any).order.findMany({
+      where: {
+        salesAgentId: userId,
+        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        orderDate: { gte: from, lt: to },
+      },
+      orderBy: { orderDate: 'asc' },
+      include: {
+        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
+        customer: { select: { name: true } },
+        items: {
+          include: {
+            product: {
+              select: { id: true, name: true, category: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!orders.length) {
+      return { userId, year, month, agentName: null, agentCategory: null, saleTotal: 0, commissionTotal: 0, commissionPct: 0, bonus: 0, totalPayable: 0, rows: [] };
+    }
+
+    const agentName: string = orders[0].salesAgent?.fullName ?? 'Unknown';
+    const agentCategory: string = orders[0].salesAgent?.salesAgentCategory ?? 'B';
+
+    const productIds = Array.from(new Set(orders.flatMap((o: any) => o.items.map((i: any) => i.productId)))) as string[];
+
+    const [costSlabs, rateSlabs] = await Promise.all([
+      this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } }),
+      (this.prisma as any).productRateSlab?.findMany
+        ? (this.prisma as any).productRateSlab.findMany({ where: { productId: { in: productIds } } })
+        : [],
+    ]);
+
+    const costMap = costSlabs.reduce((m: Map<string, any[]>, s: any) => {
+      const arr = m.get(s.productId) ?? []; arr.push(s); m.set(s.productId, arr); return m;
+    }, new Map<string, any[]>());
+
+    const rateMap = (rateSlabs as any[]).reduce((m: Map<string, any[]>, s: any) => {
+      const arr = m.get(s.productId) ?? []; arr.push(s); m.set(s.productId, arr); return m;
+    }, new Map<string, any[]>());
+
+    const matchSlab = (slabs: any[], qty: number) =>
+      slabs.filter((s) => s.minQuantity <= qty && (s.maxQuantity == null || s.maxQuantity >= qty))
+           .sort((a: any, b: any) => b.minQuantity - a.minQuantity)[0] ?? null;
+
+    const isStickerItem = (item: any) =>
+      `${item.product?.name ?? ''} ${item.product?.category?.name ?? ''}`.toLowerCase().includes('sticker');
+
+    let saleTotal = 0;
+    let commissionTotal = 0;
+    const rows: any[] = [];
+
+    for (const order of orders) {
+      for (const item of order.items) {
+        const costSlab = matchSlab(costMap.get(item.productId) ?? [], item.quantity);
+        const lineTotal = Number(item.lineTotal);
+        saleTotal += lineTotal;
+
+        let costItemTotal = 0;
+        if (costSlab) {
+          const rawCost = Number(costSlab.unitPrice);
+          const unitPrice = Number(item.unitPrice);
+          const costPerUnit = rawCost > unitPrice ? rawCost / costSlab.minQuantity : rawCost;
+          costItemTotal = costPerUnit * item.quantity;
+        }
+
+        const rateSlab = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
+        const rateAmt  = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
+        const sticker  = isStickerItem(item);
+        const commPct  = this.commissionPctForLine(agentCategory, lineTotal, rateAmt, costItemTotal, sticker);
+        let   commAmt  = 0;
+
+        if (costSlab) {
+          const profit = lineTotal - costItemTotal;
+          if (profit > 0) {
+            const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
+            if (agentCategory === 'D') commAmt = Math.max(0, lineTotal - rateAmt);
+            else if (discountPct > 5) commAmt = profit / (agentCategory === 'C' ? 3.75 : 4);
+            else if (agentCategory === 'A') commAmt = rateAmt * (sticker ? 0.15 : 0.10);
+            else if (agentCategory === 'C') commAmt = rateAmt * (sticker ? 0.17 : 0.12);
+            else commAmt = rateAmt * 0.10;
+          }
+        }
+
+        commissionTotal += commAmt;
+        rows.push({
+          date: order.orderDate,
+          invoiceNo: order.orderNumber ?? order.id,
+          partyName: order.customer?.name ?? 'Unknown',
+          itemName: item.product?.name ?? item.description ?? '',
+          description: item.product?.category?.name ?? '',
+          transactionType: 'Sale',
+          quantity: item.quantity,
+          amount: Number(lineTotal.toFixed(2)),
+          commissionPct: commPct,
+          commissionAmt: Number(commAmt.toFixed(2)),
+          hasCost: !!costSlab,
+        });
+      }
+    }
+
+    const bonus = this.calcBonus(saleTotal);
+    return {
+      userId, year, month, agentName, agentCategory,
+      saleTotal: Number(saleTotal.toFixed(2)),
+      commissionTotal: Number(commissionTotal.toFixed(2)),
+      commissionPct: saleTotal > 0 ? Number(((commissionTotal / saleTotal) * 100).toFixed(2)) : 0,
+      bonus,
+      totalPayable: Number((commissionTotal + bonus).toFixed(2)),
+      rows,
+    };
+  }
+
+  // ── All agents summary for a given month ─────────────────────────────────
+  async getAllAgentsCommissionSummary(year: number, month: number) {
+    const from = new Date(year, month - 1, 1);
+    const to   = new Date(year, month, 1);
+
+    const agents = await (this.prisma as any).user.findMany({
+      where: { salesAgentCategory: { not: null } },
+      select: { id: true, fullName: true, salesAgentCategory: true },
+    });
+
+    const orderTotals = await (this.prisma as any).order.findMany({
+      where: {
+        salesAgentId: { in: agents.map((a: any) => a.id) },
+        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        orderDate: { gte: from, lt: to },
+      },
+      select: { salesAgentId: true, grandTotal: true },
+    });
+
+    const agentSaleMap = new Map<string, number>();
+    for (const row of orderTotals) {
+      agentSaleMap.set(row.salesAgentId, (agentSaleMap.get(row.salesAgentId) ?? 0) + Number(row.grandTotal));
+    }
+
+    const allOrders = await (this.prisma as any).order.findMany({
+      where: { status: { notIn: ['CANCELLED', 'REJECTED'] as any }, salesAgentId: { not: null } },
+      select: { salesAgentId: true, orderDate: true },
+      orderBy: { orderDate: 'asc' },
+    });
+
+    const agentMonthSet = new Map<string, Set<string>>();
+    for (const o of allOrders) {
+      if (!o.salesAgentId) continue;
+      const d = new Date(o.orderDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!agentMonthSet.has(o.salesAgentId)) agentMonthSet.set(o.salesAgentId, new Set());
+      agentMonthSet.get(o.salesAgentId)!.add(key);
+    }
+
+    const availableMonths = Array.from(
+      new Set(Array.from(agentMonthSet.values()).flatMap(s => Array.from(s)))
+    ).sort().reverse();
+
+    return {
+      year, month,
+      availableMonths,
+      agents: agents
+        .map((a: any) => {
+          const monthsWithData = Array.from(agentMonthSet.get(a.id) ?? []).sort().reverse();
+          if (!monthsWithData.length) return null;
+          const sale = agentSaleMap.get(a.id) ?? 0;
+          return { id: a.id, name: a.fullName, category: a.salesAgentCategory, saleTotal: Number(sale.toFixed(2)), bonus: this.calcBonus(sale), monthsWithData };
+        })
+        .filter(Boolean),
+    };
+  }
+}
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthSet.add(key);
+      if (!agentMonthMap.has(o.salesAgentId)) agentMonthMap.set(o.salesAgentId, new Map());
+      const am = agentMonthMap.get(o.salesAgentId)!;
+      am.set(key, (am.get(key) ?? 0) + Number(o.grandTotal));
+    }
+
+    return {
+      year,
+      month,
+      availableMonths: Array.from(monthSet).sort().reverse(),
+      agents: agents.map((a: any) => {
+        const sale = agentSaleMap.get(a.id) ?? 0;
+        const bonus = this.calcBonus(sale);
+        const monthsWithData = Array.from(agentMonthMap.get(a.id)?.keys() ?? []).sort().reverse();
+        return {
+          id: a.id,
+          name: a.fullName,
+          category: a.salesAgentCategory,
+          saleTotal: Number(sale.toFixed(2)),
+          bonus,
+          monthsWithData,
+        };
+      }).filter((a: any) => a.monthsWithData.length > 0),
+    };
+  }
 }

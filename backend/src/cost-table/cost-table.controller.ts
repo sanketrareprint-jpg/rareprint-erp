@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, UseGuards,
+  Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CostTableService } from './cost-table.service';
@@ -106,6 +106,34 @@ export class CostTableController {
     return this.svc.getAgentMonthCommission(userId);
   }
 
+  // ── Commission sheets (agent × month) ────────────────────────────────────
+
+  @Get('commission-summary')
+  getCommissionSummary(
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    const now = new Date();
+    return this.svc.getAllAgentsCommissionSummary(
+      year  ? Number(year) : now.getFullYear(),
+      month ? Number(month) : now.getMonth() + 1,
+    );
+  }
+
+  @Get('sales-agents/:userId/commission')
+  getAgentCommissionSheet(
+    @Param('userId') userId: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    const now = new Date();
+    return this.svc.getAgentCommissionSheet(
+      userId,
+      year ? Number(year) : now.getFullYear(),
+      month ? Number(month) : now.getMonth() + 1,
+    );
+  }
+
   // ── Margin & approval check ───────────────────────────────────────────────
 
   @Post('check-margin')
@@ -116,5 +144,8 @@ export class CostTableController {
     agentId?: string;
   }) {
     return this.svc.checkMargin(dto);
+  }
+}
+vc.checkMargin(dto);
   }
 }
