@@ -13,7 +13,7 @@ import { getAuthHeaders } from "@/lib/auth";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
-interface StoredUser { id: string; fullName: string; email: string; role: Role; }
+interface StoredUser { id: string; fullName?: string; email: string; role: Role; }
 type ErpConfig = {
   modules: Array<{ key: string; href: string; enabled: boolean; fixed?: boolean }>;
   roleAccess: Record<string, string[]>;
@@ -102,7 +102,10 @@ function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem("rareprint_user");
-    if (raw) return JSON.parse(raw) as StoredUser;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredUser>;
+      if (parsed.email && parsed.role) return parsed as StoredUser;
+    }
     const token = localStorage.getItem("rareprint_token");
     if (!token) return null;
     const payload = JSON.parse(atob(token.split(".")[1]));
@@ -153,7 +156,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // Fetch coin wallet for this user
   useEffect(() => {
     if (!user) return;
-    const isPrajakta = user.fullName.toUpperCase().includes("PRAJAKTA");
+    const isPrajakta = String(user.fullName ?? user.email ?? "").toUpperCase().includes("PRAJAKTA");
     if (!isPrajakta) return; // Only fetch for Prajakta for now
     fetch(`${API}/rewards/wallet`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
@@ -165,7 +168,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     if (!user) return;
     fetch(`${API}/erp-config`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.modules && data?.roleAccess) setErpConfig(data); })
+      .then(data => {
+        if (Array.isArray(data?.modules) && data?.roleAccess && typeof data.roleAccess === "object") setErpConfig(data);
+      })
       .catch(() => {/* keep built-in nav if config cannot load */});
   }, [user]);
 
@@ -181,8 +186,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     ? baseNavItems.filter((item) => {
         const key = MODULE_KEY_BY_HREF[item.href];
         if (!key) return true;
-        const module = erpConfig.modules.find((m) => m.key === key);
-        const roleKeys = erpConfig.roleAccess[role] ?? [];
+        const module = Array.isArray(erpConfig.modules) ? erpConfig.modules.find((m) => m.key === key) : null;
+        const roleKeys = Array.isArray(erpConfig.roleAccess?.[role]) ? erpConfig.roleAccess[role] : [];
         return Boolean(module?.enabled || module?.fixed) && roleKeys.includes(key);
       })
     : baseNavItems;

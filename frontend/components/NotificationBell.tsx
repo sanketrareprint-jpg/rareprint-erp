@@ -12,6 +12,10 @@ function getToken() {
   return localStorage.getItem(AUTH_KEY);
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
 interface Notification {
   id: string;
   type: string;
@@ -90,7 +94,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     if (!token) return;
     try {
       const cRes = await fetch(`${API}/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } });
-      if (cRes.ok) { const d = await cRes.json(); setUnreadCount(d.count); }
+      if (cRes.ok) { const d = await cRes.json(); setUnreadCount(Number(d?.count) || 0); }
     } catch {}
   };
 
@@ -99,7 +103,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     if (!token) return;
     try {
       const nRes = await fetch(`${API}/notifications`, { headers: { Authorization: `Bearer ${token}` } });
-      if (nRes.ok) setNotifications(await nRes.json());
+      if (nRes.ok) setNotifications(asArray<Notification>(await nRes.json()));
       await fetchUnreadCount();
     } catch {}
   };
@@ -109,7 +113,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     if (!token) return;
     try {
       const res = await fetch(`${API}/notifications/admin`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setAdminNotifs(await res.json());
+      if (res.ok) setAdminNotifs(asArray<Notification>(await res.json()));
     } catch {}
   };
 
@@ -118,7 +122,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     if (!token) return;
     try {
       const res = await fetch(`${API}/notifications/user-view?email=prajakta.rareprint@gmail.com`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setPrajaktaNotifs(await res.json());
+      if (res.ok) setPrajaktaNotifs(asArray<Notification>(await res.json()));
     } catch {}
   };
 
@@ -444,7 +448,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
                 {/* Product Details */}
                 {(n.productItems?.length || n.productDetails) && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
-                    {(n.productItems?.length ? n.productItems : n.productDetails ? [n.productDetails] : []).map(item =>
+                    {(Array.isArray(n.productItems) && n.productItems.length ? n.productItems : n.productDetails ? [n.productDetails] : []).map(item =>
                       renderProductDetails(item, Boolean(n.itemId && item.itemId === n.itemId))
                     )}
                   </div>
