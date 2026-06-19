@@ -419,7 +419,7 @@ export default function AccountsPage() {
         fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers }),
       ]);
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-      setOrders(await res.json());
+      if (res.ok) setOrders(await res.json());
       if (accountsRes.ok) setPaymentAccounts(await accountsRes.json());
     } catch (error) {
       handleLoadError("Order approvals", error);
@@ -431,7 +431,7 @@ export default function AccountsPage() {
     setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/pending-dispatch`, { headers: getAuthHeaders() });
-      setDispatchOrders(await res.json());
+      if (res.ok) setDispatchOrders(await res.json());
     } catch (error) {
       handleLoadError("Dispatch approvals", error);
     } finally { setDispatchLoading(false); }
@@ -442,7 +442,7 @@ export default function AccountsPage() {
     setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/vendor-statements`, { headers: getAuthHeaders() });
-      setVendorEntries(await res.json());
+      if (res.ok) setVendorEntries(await res.json());
     } catch (error) {
       handleLoadError("Vendor statements", error);
     } finally { setVendorLoading(false); }
@@ -457,7 +457,7 @@ export default function AccountsPage() {
         fetch(`${API_BASE_URL}/accounts/pending-payments`, { headers }),
         fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers }),
       ]);
-      setPendingPayments(await paymentsRes.json());
+      if (paymentsRes.ok) setPendingPayments(await paymentsRes.json());
       if (accountsRes.ok) setPaymentAccounts(await accountsRes.json());
     } catch (error) {
       handleLoadError("Pending receipts", error);
