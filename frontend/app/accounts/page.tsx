@@ -594,13 +594,21 @@ export default function AccountsPage() {
   const [commYear, setCommYear] = useState(now.getFullYear());
   const [commMonth, setCommMonth] = useState(now.getMonth() + 1);
 
+  const [commissionError, setCommissionError] = useState<string | null>(null);
   const loadCommissionSummary = useCallback(async (year: number, month: number) => {
     setCommissionLoading(true);
+    setCommissionError(null);
     setLoadError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/cost-table/commission-summary?year=${year}&month=${month}`, { headers: getAuthHeaders() });
-      if (res.ok) setCommissionSummary(await res.json());
+      if (res.ok) {
+        setCommissionSummary(await res.json());
+      } else {
+        const text = await res.text();
+        setCommissionError(`API error ${res.status}: ${text.slice(0, 200)}`);
+      }
     } catch (error) {
+      setCommissionError(String(error));
       handleLoadError("Commission summary", error);
     } finally { setCommissionLoading(false); }
   }, [handleLoadError]);
@@ -2290,6 +2298,12 @@ await loadHistory();
               {!selectedAgent && (
                 commissionLoading ? (
                   <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
+                ) : commissionError ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+                    <p className="text-sm font-semibold text-red-700 mb-1">Failed to load commission data</p>
+                    <p className="text-xs text-red-500 font-mono break-all">{commissionError}</p>
+                    <button onClick={() => loadCommissionSummary(commYear, commMonth)} className="mt-3 text-xs text-blue-600 underline">Retry</button>
+                  </div>
                 ) : !commissionSummary || commissionSummary.agents.length === 0 ? (
                   <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />

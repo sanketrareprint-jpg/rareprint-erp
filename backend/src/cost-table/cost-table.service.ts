@@ -905,55 +905,63 @@ export class CostTableService {
     const from = new Date(year, month - 1, 1);
     const to   = new Date(year, month, 1);
 
-    const agents = await (this.prisma as any).user.findMany({
-      where: { salesAgentCategory: { not: null } },
-      select: { id: true, fullName: true, salesAgentCategory: true },
-    });
-
-    const orderTotals = await (this.prisma as any).order.findMany({
-      where: {
-        salesAgentId: { in: agents.map((a: any) => a.id) },
-        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
-        orderDate: { gte: from, lt: to },
-      },
-      select: { salesAgentId: true, grandTotal: true },
-    });
-
-    const agentSaleMap = new Map<string, number>();
-    for (const row of orderTotals) {
-      agentSaleMap.set(row.salesAgentId, (agentSaleMap.get(row.salesAgentId) ?? 0) + Number(row.grandTotal));
-    }
-
+    // Start from orders (same approach as profitability) — avoids user-ID mismatch
     const allOrders = await (this.prisma as any).order.findMany({
-      where: { status: { notIn: ['CANCELLED', 'REJECTED'] as any }, salesAgentId: { not: null } },
-      select: { salesAgentId: true, orderDate: true },
+      where: {
+        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        salesAgentId: { not: null },
+      },
+      select: {
+        salesAgentId: true,
+        grandTotal: true,
+        orderDate: true,
+        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
+      },
       orderBy: { orderDate: 'asc' },
     });
 
-    const agentMonthSet = new Map<string, Set<string>>();
+    // Build per-agent aggregates directly from order data
+    const agentMap = new Map<string, {
+      id: string; name: string; category: string | null;
+      monthSet: Set<string>; selectedMonthSale: number;
+    }>();
+
     for (const o of allOrders) {
-      if (!o.salesAgentId) continue;
+      if (!o.salesAgentId || !o.salesAgent?.salesAgentCategory) continue;
       const d = new Date(o.orderDate);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!agentMonthSet.has(o.salesAgentId)) agentMonthSet.set(o.salesAgentId, new Set());
-      agentMonthSet.get(o.salesAgentId)!.add(key);
+
+      if (!agentMap.has(o.salesAgentId)) {
+        agentMap.set(o.salesAgentId, {
+          id: o.salesAgentId,
+          name: o.salesAgent.fullName,
+          category: o.salesAgent.salesAgentCategory,
+          monthSet: new Set(),
+          selectedMonthSale: 0,
+        });
+      }
+      const entry = agentMap.get(o.salesAgentId)!;
+      entry.monthSet.add(key);
+      if (d >= from && d < to) {
+        entry.selectedMonthSale += Number(o.grandTotal);
+      }
     }
 
     const availableMonths = Array.from(
-      new Set(Array.from(agentMonthSet.values()).flatMap(s => Array.from(s)))
+      new Set(Array.from(agentMap.values()).flatMap(a => Array.from(a.monthSet)))
     ).sort().reverse();
 
     return {
       year, month,
       availableMonths,
-      agents: agents
-        .map((a: any) => {
-          const monthsWithData = Array.from(agentMonthSet.get(a.id) ?? []).sort().reverse();
-          if (!monthsWithData.length) return null;
-          const sale = agentSaleMap.get(a.id) ?? 0;
-          return { id: a.id, name: a.fullName, category: a.salesAgentCategory, saleTotal: Number(sale.toFixed(2)), bonus: this.calcBonus(sale), monthsWithData };
-        })
-        .filter(Boolean),
+      agents: Array.from(agentMap.values()).map(a => ({
+        id: a.id,
+        name: a.name,
+        category: a.category,
+        saleTotal: Number(a.selectedMonthSale.toFixed(2)),
+        bonus: this.calcBonus(a.selectedMonthSale),
+        monthsWithData: Array.from(a.monthSet).sort().reverse(),
+      })),
     };
   }
 }
