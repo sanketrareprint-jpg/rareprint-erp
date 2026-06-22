@@ -793,7 +793,7 @@ export class CostTableService {
       orderBy: { orderDate: 'asc' },
       include: {
         salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
-        customer: { select: { name: true } },
+        customer: { select: { businessName: true } },
         items: {
           include: {
             product: {
@@ -875,7 +875,7 @@ export class CostTableService {
         rows.push({
           date: order.orderDate,
           invoiceNo: order.orderNumber ?? order.id,
-          partyName: order.customer?.name ?? 'Unknown',
+          partyName: order.customer?.businessName ?? 'Unknown',
           itemName: item.product?.name ?? item.description ?? '',
           description: item.product?.category?.name ?? '',
           transactionType: 'Sale',
