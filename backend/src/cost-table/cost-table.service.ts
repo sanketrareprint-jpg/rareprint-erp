@@ -637,7 +637,7 @@ export class CostTableService {
     const orders = await (this.prisma as any).order.findMany({
       where: {
         salesAgentId: userId,
-        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        status: { not: 'CANCELLED' as any },
         orderDate: { gte: from, lt: to },
       },
       include: {
@@ -787,7 +787,7 @@ export class CostTableService {
     const orders = await (this.prisma as any).order.findMany({
       where: {
         salesAgentId: userId,
-        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        status: { not: 'CANCELLED' as any },
         orderDate: { gte: from, lt: to },
       },
       orderBy: { orderDate: 'asc' },
@@ -908,7 +908,7 @@ export class CostTableService {
     // Start from orders (same approach as profitability) — avoids user-ID mismatch
     const allOrders = await (this.prisma as any).order.findMany({
       where: {
-        status: { notIn: ['CANCELLED', 'REJECTED'] as any },
+        status: { not: 'CANCELLED' as any },
         salesAgentId: { not: null },
       },
       select: {
