@@ -37,8 +37,10 @@ model User {
   callAnalyses       CallAnalysis[]        @relation("UserCallAnalyses")
   marketingContacts  MarketingContact[]    @relation("MarketingContactAgent")
   marketingCampaigns MarketingCampaign[]   @relation("MarketingCampaignCreator")
-  bankImports        BankImportSession[]   @relation("BankImports")
-  bankTxnReconciled  BankTransaction[]     @relation("BankTxnReconciledBy")
+  bankImports               BankImportSession[]        @relation("BankImports")
+  bankTxnReconciled         BankTransaction[]          @relation("BankTxnReconciledBy")
+  commissionsVerified       CommissionVerification[]   @relation("CommVerifBy")
+  commissionVerifications   CommissionVerification[]   @relation("CommVerifAgent")
 }
 
 model Customer {
@@ -595,6 +597,20 @@ model Commission {
   commissionRule   CommissionRule? @relation(fields: [commissionRuleId], references: [id])
   order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   salesAgent       User            @relation("CommissionSalesAgent", fields: [salesAgentId], references: [id])
+}
+
+model CommissionVerification {
+  id           String   @id @default(cuid())
+  agentId      String
+  year         Int
+  month        Int
+  verifiedById String
+  verifiedAt   DateTime @default(now())
+  notes        String?
+  agent        User     @relation("CommVerifAgent", fields: [agentId], references: [id])
+  verifiedBy   User     @relation("CommVerifBy", fields: [verifiedById], references: [id])
+
+  @@unique([agentId, year, month])
 }
 
 model ProductionJob {

@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query,
+  Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, Req,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CostTableService } from './cost-table.service';
@@ -132,6 +132,25 @@ export class CostTableController {
       year ? Number(year) : now.getFullYear(),
       month ? Number(month) : now.getMonth() + 1,
     );
+  }
+
+  @Post('sales-agents/:userId/commission/verify')
+  verifyCommission(
+    @Param('userId') userId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Req() req: any,
+  ) {
+    return this.svc.verifyCommission(userId, Number(year), Number(month), req.user.id);
+  }
+
+  @Delete('sales-agents/:userId/commission/verify')
+  unverifyCommission(
+    @Param('userId') userId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+  ) {
+    return this.svc.unverifyCommission(userId, Number(year), Number(month));
   }
 
   // ── Margin & approval check ───────────────────────────────────────────────

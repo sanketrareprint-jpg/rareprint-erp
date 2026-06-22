@@ -248,17 +248,22 @@ type CommissionSummary = {
   agents: CommissionAgent[];
 };
 type CommissionRow = {
-  date: string; invoiceNo: string; partyName: string;
-  itemName: string; description: string; transactionType: string;
+  orderId: string; date: string; invoiceNo: string; partyName: string;
+  itemName: string; category: string; transactionType: string;
+  gsm: number | null; sizeInches: string | null; printingType: string | null; sides: string | null;
+  orderStatus: string; courierName: string | null;
   quantity: number; amount: number;
-  commissionPct: number; commissionAmt: number; hasCost: boolean;
+  cost: number | null; grossProfit: number | null; marginPct: number | null;
+  commissionPct: number; commissionAmt: number; calcMethod: string; hasCost: boolean;
 };
+type CommissionVerification = { verifiedAt: string; verifiedBy: string };
 type CommissionSheet = {
   userId: string; year: number; month: number;
   agentName: string | null; agentCategory: string | null;
   saleTotal: number; commissionTotal: number; commissionPct: number;
   bonus: number; totalPayable: number;
   rows: CommissionRow[];
+  verification: CommissionVerification | null;
 };
 
 function orderAge(dateStr: string): string {
@@ -591,8 +596,17 @@ export default function AccountsPage() {
   const [sheetLoading, setSheetLoading] = useState(false);
 
   const now = new Date();
-  const [commYear, setCommYear] = useState(now.getFullYear());
-  const [commMonth, setCommMonth] = useState(now.getMonth() + 1);
+  const [commYear] = useState(now.getFullYear());
+  const [commMonth] = useState(now.getMonth() + 1);
+  const [verifying, setVerifying] = useState(false);
+
+  // Current logged-in user for role-based access
+  const [currentUser] = useState(() => {
+    if (typeof window === "undefined") return null;
+    try { return JSON.parse(localStorage.getItem("rareprint_user") ?? "null"); } catch { return null; }
+  });
+  const isAdmin = currentUser?.role === "ADMIN";
+  const canSeeDetails = currentUser?.role === "ADMIN" || currentUser?.role === "ACCOUNTS";
 
   const [commissionError, setCommissionError] = useState<string | null>(null);
   const loadCommissionSummary = useCallback(async (year: number, month: number) => {
@@ -620,10 +634,23 @@ export default function AccountsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${agentId}/commission?year=${y}&month=${m}`, { headers: getAuthHeaders() });
       if (res.ok) setCommissionSheet(await res.json());
+      else handleLoadError("Commission sheet", await res.text());
     } catch (error) {
       handleLoadError("Commission sheet", error);
     } finally { setSheetLoading(false); }
   }, [handleLoadError]);
+
+  const handleVerifyCommission = useCallback(async () => {
+    if (!selectedAgent || !selectedMonth) return;
+    const [y, m] = selectedMonth.split("-").map(Number);
+    setVerifying(true);
+    try {
+      const isVerified = !!commissionSheet?.verification;
+      const method = isVerified ? "DELETE" : "POST";
+      const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${selectedAgent.id}/commission/verify?year=${y}&month=${m}`, { method, headers: getAuthHeaders() });
+      if (res.ok) void loadCommissionSheet(selectedAgent.id, selectedMonth);
+    } catch { /* ignore */ } finally { setVerifying(false); }
+  }, [selectedAgent, selectedMonth, commissionSheet, loadCommissionSheet]);
 
   useEffect(() => {
     if (tab === "commission") void loadCommissionSummary(commYear, commMonth);
@@ -2271,28 +2298,6 @@ await loadHistory();
           {/* ── Commission Tab ──────────────────────────────────────────────── */}
           {tab === "commission" && (
             <div className="space-y-4">
-              {/* Month picker */}
-              <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap gap-4 items-center">
-                <span className="text-sm font-semibold text-slate-700">Commission Period:</span>
-                <select value={commMonth} onChange={e => { setCommMonth(Number(e.target.value)); setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none bg-white">
-                  {["January","February","March","April","May","June","July","August","September","October","November","December"].map((m, i) => (
-                    <option key={i+1} value={i+1}>{m}</option>
-                  ))}
-                </select>
-                <select value={commYear} onChange={e => { setCommYear(Number(e.target.value)); setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg outline-none bg-white">
-                  {[now.getFullYear()-1, now.getFullYear(), now.getFullYear()+1].map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-                {selectedAgent && (
-                  <button onClick={() => { setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
-                    className="ml-auto flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5">
-                    <X className="h-3 w-3" /> Back to Agents
-                  </button>
-                )}
-              </div>
 
               {/* Agent list view */}
               {!selectedAgent && (
@@ -2360,6 +2365,10 @@ await loadHistory();
                   <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-200 px-6 py-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
+                        <button onClick={() => { setSelectedAgent(null); setSelectedMonth(""); setCommissionSheet(null); }}
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 mb-2">
+                          <X className="h-3 w-3" /> Back to Agents
+                        </button>
                         <p className="text-xs text-slate-500 mb-0.5">Sales Agent</p>
                         <p className="text-xl font-bold text-slate-800">{selectedAgent.name}</p>
                         <div className="flex items-center gap-3 mt-1">
@@ -2394,6 +2403,51 @@ await loadHistory();
                       </div>
                     </div>
                   </div>
+
+                  {/* Verification status banner — visible to ADMIN and ACCOUNTS only */}
+                  {canSeeDetails && commissionSheet && (
+                    <div className={`px-6 py-3 flex items-center justify-between gap-4 border-b ${
+                      commissionSheet.verification
+                        ? "bg-green-50 border-green-200"
+                        : "bg-amber-50 border-amber-200"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {commissionSheet.verification ? (
+                          <>
+                            <span className="text-green-700 text-sm font-bold">✓ Verified</span>
+                            <span className="text-green-600 text-xs">
+                              by {commissionSheet.verification.verifiedBy} on{" "}
+                              {new Date(commissionSheet.verification.verifiedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-amber-700 text-sm font-bold">⚠ Not Verified</span>
+                            <span className="text-amber-600 text-xs">This commission sheet has not been verified yet</span>
+                          </>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <button
+                          onClick={handleVerifyCommission}
+                          disabled={verifying}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                            commissionSheet.verification
+                              ? "border-red-300 text-red-700 hover:bg-red-50"
+                              : "border-green-400 text-green-700 bg-white hover:bg-green-50"
+                          }`}>
+                          {verifying ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : commissionSheet.verification ? (
+                            <X className="h-3 w-3" />
+                          ) : (
+                            <Check className="h-3 w-3" />
+                          )}
+                          {verifying ? "Saving..." : commissionSheet.verification ? "Unverify" : "Verify"}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {sheetLoading ? (
                     <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
@@ -2449,11 +2503,17 @@ await loadHistory();
                               <th className="px-3 py-2.5 text-left font-semibold">Invoice No.</th>
                               <th className="px-3 py-2.5 text-left font-semibold">Party Name</th>
                               <th className="px-3 py-2.5 text-left font-semibold">Item Name</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Description</th>
+                              <th className="px-3 py-2.5 text-left font-semibold">Specs</th>
                               <th className="px-3 py-2.5 text-center font-semibold">Txn Type</th>
+                              {canSeeDetails && <th className="px-3 py-2.5 text-center font-semibold">Order Status</th>}
+                              {canSeeDetails && <th className="px-3 py-2.5 text-left font-semibold">Courier</th>}
                               <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
                               <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
+                              {canSeeDetails && <th className="px-3 py-2.5 text-right font-semibold">Cost</th>}
+                              {canSeeDetails && <th className="px-3 py-2.5 text-right font-semibold">Gross Profit</th>}
+                              {canSeeDetails && <th className="px-3 py-2.5 text-right font-semibold">Margin %</th>}
                               <th className="px-3 py-2.5 text-right font-semibold">Rate %</th>
+                              {canSeeDetails && <th className="px-3 py-2.5 text-center font-semibold">Calc Method</th>}
                               <th className="px-3 py-2.5 text-right font-semibold">Commission</th>
                             </tr>
                           </thead>
@@ -2464,14 +2524,70 @@ await loadHistory();
                                   {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}
                                 </td>
                                 <td className="px-3 py-2 font-mono text-blue-700">{row.invoiceNo}</td>
-                                <td className="px-3 py-2 text-slate-700 max-w-[160px] truncate" title={row.partyName}>{row.partyName}</td>
-                                <td className="px-3 py-2 text-slate-700 max-w-[180px] truncate" title={row.itemName}>{row.itemName}</td>
-                                <td className="px-3 py-2 text-slate-500 max-w-[120px] truncate" title={row.description}>{row.description || "—"}</td>
+                                <td className="px-3 py-2 text-slate-700 max-w-[140px] truncate" title={row.partyName}>{row.partyName}</td>
+                                <td className="px-3 py-2 text-slate-700 max-w-[140px] truncate" title={row.itemName}>{row.itemName}</td>
+                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                                  <div className="flex flex-col gap-0.5">
+                                    {row.sizeInches && <span className="font-semibold text-slate-800">{row.sizeInches}"</span>}
+                                    {row.gsm && <span className="text-slate-500">{row.gsm} GSM</span>}
+                                    {(row.printingType || row.sides) && (
+                                      <span className="text-slate-500 text-xs">
+                                        {row.printingType?.replace(/_/g, " ")}
+                                        {row.printingType && row.sides ? " · " : ""}
+                                        {row.sides === "SINGLE_SIDE" ? "Single Side" : row.sides === "DOUBLE_SIDE" ? "Double Side" : ""}
+                                      </span>
+                                    )}
+                                    {!row.sizeInches && !row.gsm && !row.printingType && !row.sides && <span className="text-slate-300">—</span>}
+                                  </div>
+                                </td>
                                 <td className="px-3 py-2 text-center">
                                   <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{row.transactionType}</span>
                                 </td>
+                                {canSeeDetails && (
+                                  <td className="px-3 py-2 text-center">
+                                    {row.orderStatus ? (
+                                      <span className={`rounded-full px-2 py-0.5 font-semibold text-xs whitespace-nowrap ${
+                                        row.orderStatus === "DELIVERED" ? "bg-green-100 text-green-700" :
+                                        row.orderStatus === "DISPATCHED" || row.orderStatus === "PARTIALLY_DISPATCHED" ? "bg-blue-100 text-blue-700" :
+                                        row.orderStatus === "IN_PRODUCTION" || row.orderStatus === "READY_FOR_DISPATCH" ? "bg-purple-100 text-purple-700" :
+                                        row.orderStatus === "CANCELLED" ? "bg-red-100 text-red-700" :
+                                        "bg-slate-100 text-slate-600"
+                                      }`}>
+                                        {row.orderStatus.replace(/_/g, " ")}
+                                      </span>
+                                    ) : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
+                                {canSeeDetails && (
+                                  <td className="px-3 py-2 text-slate-600 max-w-[100px] truncate" title={row.courierName ?? ""}>
+                                    {row.courierName || <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
                                 <td className="px-3 py-2 text-right font-mono text-slate-700">{row.quantity.toLocaleString("en-IN")}</td>
                                 <td className="px-3 py-2 text-right font-mono font-semibold text-slate-800">₹{row.amount.toLocaleString("en-IN")}</td>
+                                {canSeeDetails && (
+                                  <td className="px-3 py-2 text-right font-mono text-slate-600">
+                                    {row.cost != null ? `₹${row.cost.toLocaleString("en-IN")}` : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
+                                {canSeeDetails && (
+                                  <td className="px-3 py-2 text-right font-mono font-semibold">
+                                    {row.grossProfit != null ? (
+                                      <span className={row.grossProfit >= 0 ? "text-green-700" : "text-red-600"}>
+                                        ₹{row.grossProfit.toLocaleString("en-IN")}
+                                      </span>
+                                    ) : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
+                                {canSeeDetails && (
+                                  <td className="px-3 py-2 text-right font-semibold">
+                                    {row.marginPct != null ? (
+                                      <span className={row.marginPct >= 20 ? "text-green-700" : row.marginPct >= 10 ? "text-amber-600" : "text-red-600"}>
+                                        {row.marginPct.toFixed(1)}%
+                                      </span>
+                                    ) : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
                                 <td className="px-3 py-2 text-right">
                                   {row.hasCost ? (
                                     <span className="font-bold text-green-700">{row.commissionPct}%</span>
@@ -2479,6 +2595,13 @@ await loadHistory();
                                     <span className="text-slate-300">—</span>
                                   )}
                                 </td>
+                                {canSeeDetails && (
+                                  <td className="px-3 py-2 text-center">
+                                    {row.calcMethod ? (
+                                      <span className="rounded bg-slate-100 text-slate-600 px-1.5 py-0.5 font-mono text-xs">{row.calcMethod}</span>
+                                    ) : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
                                 <td className="px-3 py-2 text-right font-mono font-bold text-blue-700">
                                   {row.hasCost ? `₹${row.commissionAmt.toLocaleString("en-IN")}` : <span className="text-slate-300 font-normal">No cost</span>}
                                 </td>
@@ -2487,18 +2610,20 @@ await loadHistory();
                           </tbody>
                           <tfoot className="bg-slate-100 border-t-2 border-slate-300">
                             <tr>
-                                     <td colSpan={7} className="px-3 py-3 text-xs font-bold text-slate-700">TOTAL</td>
+                              <td colSpan={canSeeDetails ? 9 : 7} className="px-3 py-3 text-xs font-bold text-slate-700">TOTAL</td>
                               <td className="px-3 py-3 text-right font-bold text-slate-800 font-mono">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
+                              {canSeeDetails && <td colSpan={3} className="px-3 py-3"></td>}
                               <td className="px-3 py-3 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
+                              {canSeeDetails && <td className="px-3 py-3"></td>}
                               <td className="px-3 py-3 text-right font-bold text-blue-700 font-mono">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-50 border-t border-green-200">
-                              <td colSpan={8} className="px-3 py-3 text-xs font-bold text-slate-700">BONUS</td>
-                              <td colSpan={2} className="px-3 py-3 text-right font-bold text-green-700 font-mono">₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
+                              <td colSpan={canSeeDetails ? 16 : 9} className="px-3 py-3 text-xs font-bold text-slate-700">BONUS</td>
+                              <td className="px-3 py-3 text-right font-bold text-green-700 font-mono">₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-100 border-t border-green-300">
-                              <td colSpan={8} className="px-3 py-3 text-sm font-bold text-green-800">TOTAL PAYABLE AMOUNT</td>
-                              <td colSpan={2} className="px-3 py-3 text-right text-lg font-bold text-green-800 font-mono">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</td>
+                              <td colSpan={canSeeDetails ? 16 : 9} className="px-3 py-3 text-sm font-bold text-green-800">TOTAL PAYABLE AMOUNT</td>
+                              <td className="px-3 py-3 text-right text-lg font-bold text-green-800 font-mono">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</td>
                             </tr>
                           </tfoot>
                         </table>

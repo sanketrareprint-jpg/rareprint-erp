@@ -784,28 +784,33 @@ export class CostTableService {
     const from = new Date(year, month - 1, 1);
     const to   = new Date(year, month, 1);
 
-    const orders = await (this.prisma as any).order.findMany({
-      where: {
-        salesAgentId: userId,
-        status: { not: 'CANCELLED' as any },
-        orderDate: { gte: from, lt: to },
-      },
-      orderBy: { orderDate: 'asc' },
-      include: {
-        salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
-        customer: { select: { businessName: true } },
-        items: {
-          include: {
-            product: {
-              select: { id: true, name: true, category: { select: { name: true } } },
+    const [orders, verification] = await Promise.all([
+      (this.prisma as any).order.findMany({
+        where: {
+          salesAgentId: userId,
+          status: { not: 'CANCELLED' as any },
+          orderDate: { gte: from, lt: to },
+        },
+        orderBy: { orderDate: 'asc' },
+        include: {
+          salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
+          customer: { select: { businessName: true } },
+          shipments: { select: { carrierName: true, trackingNumber: true, status: true }, orderBy: { createdAt: 'desc' as any }, take: 1 },
+          items: {
+            include: {
+              product: { select: { id: true, name: true, gsm: true, sizeInches: true, printingType: true, sides: true, category: { select: { name: true } } } },
             },
           },
         },
-      },
-    });
+      }),
+      (this.prisma as any).commissionVerification?.findUnique?.({
+        where: { agentId_year_month: { agentId: userId, year, month } },
+        include: { verifiedBy: { select: { fullName: true } } },
+      }).catch(() => null),
+    ]);
 
     if (!orders.length) {
-      return { userId, year, month, agentName: null, agentCategory: null, saleTotal: 0, commissionTotal: 0, commissionPct: 0, bonus: 0, totalPayable: 0, rows: [] };
+      return { userId, year, month, agentName: null, agentCategory: null, saleTotal: 0, commissionTotal: 0, commissionPct: 0, bonus: 0, totalPayable: 0, rows: [], verification: null };
     }
 
     const agentName: string = orders[0].salesAgent?.fullName ?? 'Unknown';
@@ -840,17 +845,26 @@ export class CostTableService {
     const rows: any[] = [];
 
     for (const order of orders) {
+      const shipment = order.shipments?.[0] ?? null;
+      const courierName = shipment?.carrierName ?? null;
+      const orderStatus = order.status;
+
       for (const item of order.items) {
         const costSlab = matchSlab(costMap.get(item.productId) ?? [], item.quantity);
         const lineTotal = Number(item.lineTotal);
         saleTotal += lineTotal;
 
         let costItemTotal = 0;
+        let grossProfit: number | null = null;
+        let marginPct: number | null = null;
+
         if (costSlab) {
           const rawCost = Number(costSlab.unitPrice);
           const unitPrice = Number(item.unitPrice);
           const costPerUnit = rawCost > unitPrice ? rawCost / costSlab.minQuantity : rawCost;
           costItemTotal = costPerUnit * item.quantity;
+          grossProfit = lineTotal - costItemTotal;
+          marginPct = lineTotal > 0 ? Number(((grossProfit / lineTotal) * 100).toFixed(1)) : 0;
         }
 
         const rateSlab = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
@@ -858,31 +872,53 @@ export class CostTableService {
         const sticker  = isStickerItem(item);
         const commPct  = this.commissionPctForLine(agentCategory, lineTotal, rateAmt, costItemTotal, sticker);
         let   commAmt  = 0;
+        let   calcMethod = '';
 
-        if (costSlab) {
-          const profit = lineTotal - costItemTotal;
-          if (profit > 0) {
-            const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
-            if (agentCategory === 'D') commAmt = Math.max(0, lineTotal - rateAmt);
-            else if (discountPct > 5) commAmt = profit / (agentCategory === 'C' ? 3.75 : 4);
-            else if (agentCategory === 'A') commAmt = rateAmt * (sticker ? 0.15 : 0.10);
-            else if (agentCategory === 'C') commAmt = rateAmt * (sticker ? 0.17 : 0.12);
-            else commAmt = rateAmt * 0.10;
+        if (costSlab && grossProfit !== null && grossProfit > 0) {
+          const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
+          if (agentCategory === 'D') {
+            commAmt = Math.max(0, lineTotal - rateAmt);
+            calcMethod = `Sale − Rate (₹${lineTotal.toFixed(0)} − ₹${rateAmt.toFixed(0)})`;
+          } else if (discountPct > 5) {
+            commAmt = grossProfit / (agentCategory === 'C' ? 3.75 : 4);
+            calcMethod = `Profit ÷ ${agentCategory === 'C' ? '3.75' : '4'} (disc ${discountPct.toFixed(1)}%)`;
+          } else if (agentCategory === 'A') {
+            commAmt = rateAmt * (sticker ? 0.15 : 0.10);
+            calcMethod = `Rate × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'})`;
+          } else if (agentCategory === 'C') {
+            commAmt = rateAmt * (sticker ? 0.17 : 0.12);
+            calcMethod = `Rate × ${sticker ? '17' : '12'}% (${sticker ? 'sticker' : 'standard'})`;
+          } else {
+            commAmt = rateAmt * 0.10;
+            calcMethod = `Rate × 10%`;
           }
+        } else if (!costSlab) {
+          calcMethod = 'No cost data';
         }
 
         commissionTotal += commAmt;
         rows.push({
+          orderId: order.id,
           date: order.orderDate,
           invoiceNo: order.orderNumber ?? order.id,
           partyName: order.customer?.businessName ?? 'Unknown',
-          itemName: item.product?.name ?? item.description ?? '',
-          description: item.product?.category?.name ?? '',
+          itemName: item.product?.name ?? '',
+          category: item.product?.category?.name ?? '',
+          gsm: item.product?.gsm ?? null,
+          sizeInches: item.product?.sizeInches ?? null,
+          printingType: item.product?.printingType ?? null,
+          sides: item.product?.sides ?? null,
           transactionType: 'Sale',
+          orderStatus,
+          courierName,
           quantity: item.quantity,
           amount: Number(lineTotal.toFixed(2)),
+          cost: costSlab ? Number(costItemTotal.toFixed(2)) : null,
+          grossProfit: grossProfit !== null ? Number(grossProfit.toFixed(2)) : null,
+          marginPct,
           commissionPct: commPct,
           commissionAmt: Number(commAmt.toFixed(2)),
+          calcMethod,
           hasCost: !!costSlab,
         });
       }
@@ -897,7 +933,28 @@ export class CostTableService {
       bonus,
       totalPayable: Number((commissionTotal + bonus).toFixed(2)),
       rows,
+      verification: verification ? {
+        verifiedAt: verification.verifiedAt,
+        verifiedBy: verification.verifiedBy?.fullName ?? 'Unknown',
+      } : null,
     };
+  }
+
+  async verifyCommission(agentId: string, year: number, month: number, verifiedById: string) {
+    return (this.prisma as any).commissionVerification.upsert({
+      where: { agentId_year_month: { agentId, year, month } },
+      create: { id: require('crypto').randomUUID(), agentId, year, month, verifiedById },
+      update: { verifiedById, verifiedAt: new Date() },
+    });
+  }
+
+  async unverifyCommission(agentId: string, year: number, month: number) {
+    try {
+      await (this.prisma as any).commissionVerification.delete({
+        where: { agentId_year_month: { agentId, year, month } },
+      });
+    } catch { /* not found — that's fine */ }
+    return { success: true };
   }
 
   // ── All agents summary for a given month ─────────────────────────────────
