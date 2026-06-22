@@ -19,6 +19,32 @@ const { execSync } = require('child_process');
 // Each statement is safe to run even if the column/table already exists.
 // pg errors on individual statements are caught and logged, never fatal.
 const REPAIR_SQL = [
+  // Enum + columns (from migration 20260605000200_commission_profit_system)
+  `DO $$ BEGIN
+    CREATE TYPE "SalesAgentCategory" AS ENUM ('A', 'B', 'C', 'D');
+  EXCEPTION WHEN duplicate_object THEN null; END $$`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "salesAgentCategory" "SalesAgentCategory"`,
+  `CREATE TABLE IF NOT EXISTS "ProductRateSlab" (
+    "id" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "minQuantity" INTEGER NOT NULL,
+    "maxQuantity" INTEGER,
+    "rateAmount" DECIMAL(12,2) NOT NULL,
+    "effectiveFrom" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "effectiveTo" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ProductRateSlab_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "ProductRateSlab_productId_minQuantity_maxQuantity_idx"
+    ON "ProductRateSlab"("productId", "minQuantity", "maxQuantity")`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ProductRateSlab_productId_fkey') THEN
+      ALTER TABLE "ProductRateSlab" ADD CONSTRAINT "ProductRateSlab_productId_fkey"
+        FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+  END $$`,
+
   // Tables (from migration 20260619000100)
   `CREATE TABLE IF NOT EXISTS "OfferCode" (
     "id" TEXT NOT NULL,
@@ -113,6 +139,7 @@ function deployMigrations() {
 async function main() {
   await repairDatabase();
 
+  resolveMigration('20260605000200_commission_profit_system');
   resolveMigration('20260619000100_add_offer_code_and_product_rule');
   resolveMigration('20260619000200_add_sample_order_fields');
   resolveMigration('20260619000300_repair_missing_columns');
