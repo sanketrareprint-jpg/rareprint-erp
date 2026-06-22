@@ -8,6 +8,7 @@ import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
+  Lock, AlertTriangle,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
@@ -148,10 +149,25 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [coins, setCoins] = useState<number | null>(null);
   const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
+  const [vceoLocked, setVceoLocked] = useState(false);
+  const [vceoReviewRequired, setVceoReviewRequired] = useState(false);
 
   useEffect(() => {
     if (!user) router.replace("/login");
   }, [router, user]);
+
+  // Check Virtual CEO review / lock status for required reviewers
+  useEffect(() => {
+    if (!user) return;
+    fetch(`${API}/virtual-ceo/review-status`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { status?: string } | null) => {
+        if (!data) return;
+        if (data.status === "LOCKED") setVceoLocked(true);
+        if (data.status === "REVIEW_REQUIRED" || data.status === "REVIEW_PENDING") setVceoReviewRequired(true);
+      })
+      .catch(() => {/* silent */});
+  }, [user]);
 
   // Fetch coin wallet for this user
   useEffect(() => {
@@ -195,6 +211,54 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="erp-shell" style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+
+      {/* ── Virtual CEO: Account Locked overlay ── */}
+      {vceoLocked && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.92)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: 20, padding: "40px 48px",
+            maxWidth: 480, width: "90%", textAlign: "center",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+              <Lock size={32} color="#ef4444" />
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#1e293b", marginBottom: 8 }}>Account Temporarily Locked</div>
+            <div style={{ fontSize: 14, color: "#64748b", marginBottom: 20, lineHeight: 1.6 }}>
+              Your daily CEO review was not completed within the required 2-hour window.
+            </div>
+            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#dc2626", marginBottom: 4 }}>What to do?</div>
+              <div style={{ fontSize: 12, color: "#991b1b" }}>
+                Contact <strong>Sanket (Admin)</strong> to unlock your account from <strong>Virtual CEO → CEO Settings</strong>.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Virtual CEO: Review Required banner ── */}
+      {vceoReviewRequired && !vceoLocked && pathname !== "/virtual-ceo" && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 9998,
+          background: "#dc2626", color: "#fff",
+          padding: "10px 20px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700 }}>
+            <AlertTriangle size={16} />
+            ⚠️ Daily CEO review required — please complete it now to avoid account lock
+          </div>
+          <a href="/virtual-ceo" style={{ background: "#fff", color: "#dc2626", padding: "6px 16px", borderRadius: 8, fontWeight: 800, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>
+            Go to Virtual CEO →
+          </a>
+        </div>
+      )}
 
       <header className="erp-mobile-topbar">
         <button

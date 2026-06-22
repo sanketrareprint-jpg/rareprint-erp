@@ -1,5 +1,7 @@
 // backend/src/virtual-ceo/virtual-ceo.controller.ts
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Param, Body, UseGuards, Request, ForbiddenException,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VirtualCeoService } from './virtual-ceo.service';
 
@@ -19,5 +21,68 @@ export class VirtualCeoController {
   async triggerWhatsApp() {
     await this.svc.sendDailyWhatsAppReport();
     return { ok: true, message: 'WhatsApp report triggered' };
+  }
+
+  // ─── Review Tracking ──────────────────────────────────────────────────────
+
+  /** GET /virtual-ceo/review-status — get today's review status + task actions */
+  @Get('review-status')
+  async reviewStatus(@Request() req: { user: { id: string } }) {
+    const userId = req.user.id;
+    const [status, actions] = await Promise.all([
+      this.svc.getReviewStatus(userId),
+      this.svc.getTodayActions(userId),
+    ]);
+    return { ...status, ...actions };
+  }
+
+  /** POST /virtual-ceo/popup-shown — start 2-hour countdown */
+  @Post('popup-shown')
+  async popupShown(@Request() req: { user: { id: string } }) {
+    return this.svc.markPopupShown(req.user.id);
+  }
+
+  /** POST /virtual-ceo/task-action — save Updated/FollowUp action for a task */
+  @Post('task-action')
+  async taskAction(
+    @Request() req: { user: { id: string } },
+    @Body() body: { itemId: string; action: string | null },
+  ) {
+    return this.svc.saveTaskAction(req.user.id, body.itemId, body.action);
+  }
+
+  /** POST /virtual-ceo/complete-review — mark daily review as done */
+  @Post('complete-review')
+  async completeReview(@Request() req: { user: { id: string } }) {
+    return this.svc.completeReview(req.user.id);
+  }
+
+  // ─── Admin Endpoints ──────────────────────────────────────────────────────
+
+  /** GET /virtual-ceo/admin/lock-status — view locked/pending users */
+  @Get('admin/lock-status')
+  async adminLockStatus(@Request() req: { user: { role: string } }) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Admin only');
+    return this.svc.adminGetLockStatus();
+  }
+
+  /** POST /virtual-ceo/admin/unlock/:userId — unlock a user account */
+  @Post('admin/unlock/:userId')
+  async adminUnlock(
+    @Request() req: { user: { role: string } },
+    @Param('userId') userId: string,
+  ) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Admin only');
+    return this.svc.adminUnlockUser(userId);
+  }
+
+  /** PUT /virtual-ceo/admin/required-reviewers — set who must review daily */
+  @Put('admin/required-reviewers')
+  async setRequiredReviewers(
+    @Request() req: { user: { role: string } },
+    @Body() body: { userIds: string[] },
+  ) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Admin only');
+    return this.svc.setRequiredReviewers(body.userIds);
   }
 }

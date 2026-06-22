@@ -80,6 +80,213 @@ export class VirtualCeoService {
     private readonly whatsapp: WhatsAppService,
   ) {}
 
+  // ─── IST Date Helpers ─────────────────────────────────────────────────────────
+
+  private getTodayIST(): string {
+    const d = new Date(Date.now() + 330 * 60 * 1000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  }
+
+  private getYesterdayIST(): string {
+    const d = new Date(Date.now() + 330 * 60 * 1000 - 86400000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  }
+
+  // ─── Required Reviewers ───────────────────────────────────────────────────
+
+  private async getRequiredReviewers(): Promise<string[]> {
+    const row = await this.prisma.systemConfig.findUnique({ where: { key: 'vceo_required_reviewers' } });
+    if (!row?.value) return [];
+    try { return JSON.parse(row.value) as string[]; } catch { return []; }
+  }
+
+  async setRequiredReviewers(userIds: string[]) {
+    await this.prisma.systemConfig.upsert({
+      where: { key: 'vceo_required_reviewers' },
+      update: { value: JSON.stringify(userIds) },
+      create: { key: 'vceo_required_reviewers', value: JSON.stringify(userIds) },
+    });
+    return { requiredReviewers: userIds };
+  }
+
+  // ─── Review Status ────────────────────────────────────────────────────────
+
+  async getReviewStatus(userId: string) {
+    const reviewers = await this.getRequiredReviewers();
+    if (!reviewers.includes(userId)) return { status: 'OK' as const };
+
+    // Locked?
+    const lockRow = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_locked_${userId}` } });
+    if (lockRow) {
+      const lockData = JSON.parse(lockRow.value) as { lockedAt: string; reason: string };
+      return { status: 'LOCKED' as const, ...lockData };
+    }
+
+    // Pending deadline?
+    const pendingRow = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_pending_${userId}` } });
+    if (pendingRow) {
+      const pending = JSON.parse(pendingRow.value) as { deadlineAt: string; shownAt: string };
+      if (new Date() > new Date(pending.deadlineAt)) {
+        await this.lockAccount(userId, 'CEO review not completed within 2 hours');
+        return { status: 'LOCKED' as const, lockedAt: new Date().toISOString(), reason: 'CEO review not completed within 2 hours' };
+      }
+      return { status: 'REVIEW_PENDING' as const, deadlineAt: pending.deadlineAt };
+    }
+
+    // Today already completed?
+    const today = this.getTodayIST();
+    const todayRow = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_review_${userId}_${today}` } });
+    if (todayRow) {
+      const data = JSON.parse(todayRow.value) as { completedAt?: string };
+      if (data.completedAt) return { status: 'OK' as const, completedAt: data.completedAt };
+    }
+
+    // Yesterday missed?
+    const yesterday = this.getYesterdayIST();
+    const yRow = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_review_${userId}_${yesterday}` } });
+    const yesterdayDone = yRow ? (JSON.parse(yRow.value) as { completedAt?: string }).completedAt : null;
+
+    if (!yesterdayDone) {
+      return { status: 'REVIEW_REQUIRED' as const };
+    }
+
+    return { status: 'OK' as const };
+  }
+
+  async getTodayActions(userId: string) {
+    const today = this.getTodayIST();
+    const row = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_review_${userId}_${today}` } });
+    if (!row) return { taskActions: {} as Record<string, string>, completedAt: null as string | null };
+    const data = JSON.parse(row.value) as { taskActions?: Record<string, string>; completedAt?: string };
+    return { taskActions: data.taskActions ?? {}, completedAt: data.completedAt ?? null };
+  }
+
+  async markPopupShown(userId: string) {
+    const existing = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_pending_${userId}` } });
+    if (existing) {
+      // Already started, return existing deadline
+      const data = JSON.parse(existing.value) as { deadlineAt: string };
+      return { deadlineAt: data.deadlineAt };
+    }
+    const deadlineAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    await this.prisma.systemConfig.create({
+      data: { key: `vceo_pending_${userId}`, value: JSON.stringify({ deadlineAt, shownAt: new Date().toISOString() }) },
+    });
+    return { deadlineAt };
+  }
+
+  async saveTaskAction(userId: string, itemId: string, action: string | null) {
+    const today = this.getTodayIST();
+    const key = `vceo_review_${userId}_${today}`;
+    const row = await this.prisma.systemConfig.findUnique({ where: { key } });
+    const current = row ? (JSON.parse(row.value) as { taskActions?: Record<string, string>; completedAt?: string }) : {};
+    const taskActions = { ...(current.taskActions ?? {}) };
+    if (action) taskActions[itemId] = action;
+    else delete taskActions[itemId];
+    const next = { ...current, taskActions };
+    await this.prisma.systemConfig.upsert({
+      where: { key },
+      update: { value: JSON.stringify(next) },
+      create: { key, value: JSON.stringify(next) },
+    });
+    return { taskActions };
+  }
+
+  async completeReview(userId: string) {
+    const today = this.getTodayIST();
+    const key = `vceo_review_${userId}_${today}`;
+    const row = await this.prisma.systemConfig.findUnique({ where: { key } });
+    const current = row ? JSON.parse(row.value) : {};
+    await this.prisma.systemConfig.upsert({
+      where: { key },
+      update: { value: JSON.stringify({ ...current, completedAt: new Date().toISOString() }) },
+      create: { key, value: JSON.stringify({ ...current, completedAt: new Date().toISOString() }) },
+    });
+    await this.prisma.systemConfig.deleteMany({ where: { key: `vceo_pending_${userId}` } });
+    this.logger.log(`Virtual CEO: review completed by ${userId}`);
+    return { ok: true };
+  }
+
+  private async lockAccount(userId: string, reason: string) {
+    const lockedAt = new Date().toISOString();
+    await this.prisma.systemConfig.upsert({
+      where: { key: `vceo_locked_${userId}` },
+      update: { value: JSON.stringify({ lockedAt, reason }) },
+      create: { key: `vceo_locked_${userId}`, value: JSON.stringify({ lockedAt, reason }) },
+    });
+    await this.prisma.systemConfig.deleteMany({ where: { key: `vceo_pending_${userId}` } });
+    try {
+      await this.prisma.user.update({ where: { id: userId }, data: { isActive: false } });
+    } catch (e) {
+      this.logger.error(`Virtual CEO: could not deactivate user ${userId}`, e);
+    }
+    this.logger.warn(`Virtual CEO: locked account ${userId} — ${reason}`);
+  }
+
+  // ─── Cron: Enforce pending locks every hour ───────────────────────────────
+  @Cron('0 * * * *', { timeZone: 'Asia/Kolkata' })
+  async enforcePendingLocks() {
+    const rows = await this.prisma.systemConfig.findMany({
+      where: { key: { startsWith: 'vceo_pending_' } },
+    });
+    for (const row of rows) {
+      const data = JSON.parse(row.value) as { deadlineAt: string };
+      if (new Date() > new Date(data.deadlineAt)) {
+        const userId = row.key.replace('vceo_pending_', '');
+        await this.lockAccount(userId, 'CEO review not completed within 2 hours');
+      }
+    }
+  }
+
+  // ─── Admin: lock status ───────────────────────────────────────────────────
+
+  async adminGetLockStatus() {
+    const [locked, pending, reviewers] = await Promise.all([
+      this.prisma.systemConfig.findMany({ where: { key: { startsWith: 'vceo_locked_' } } }),
+      this.prisma.systemConfig.findMany({ where: { key: { startsWith: 'vceo_pending_' } } }),
+      this.getRequiredReviewers(),
+    ]);
+
+    const userIds = Array.from(new Set([
+      ...locked.map(r => r.key.replace('vceo_locked_', '')),
+      ...pending.map(r => r.key.replace('vceo_pending_', '')),
+      ...reviewers,
+    ]));
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, fullName: true, email: true, isActive: true },
+    });
+
+    return {
+      requiredReviewers: reviewers,
+      users: users.map(u => ({
+        ...u,
+        isRequiredReviewer: reviewers.includes(u.id),
+        lockData: (() => {
+          const r = locked.find(x => x.key === `vceo_locked_${u.id}`);
+          return r ? JSON.parse(r.value) as { lockedAt: string; reason: string } : null;
+        })(),
+        pendingData: (() => {
+          const r = pending.find(x => x.key === `vceo_pending_${u.id}`);
+          return r ? JSON.parse(r.value) as { deadlineAt: string; shownAt: string } : null;
+        })(),
+      })),
+    };
+  }
+
+  async adminUnlockUser(targetUserId: string) {
+    await this.prisma.systemConfig.deleteMany({ where: { key: `vceo_locked_${targetUserId}` } });
+    await this.prisma.systemConfig.deleteMany({ where: { key: `vceo_pending_${targetUserId}` } });
+    try {
+      await this.prisma.user.update({ where: { id: targetUserId }, data: { isActive: true } });
+    } catch (e) {
+      this.logger.error(`Virtual CEO: could not reactivate user ${targetUserId}`, e);
+    }
+    this.logger.log(`Virtual CEO: admin unlocked account ${targetUserId}`);
+    return { ok: true };
+  }
+
   // ─── Cron: Daily 10 AM IST (UTC 04:30) ─────────────────────────────────────
   @Cron('30 4 * * *', { timeZone: 'Asia/Kolkata' })
   async sendDailyWhatsAppReport() {
