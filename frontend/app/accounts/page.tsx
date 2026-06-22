@@ -1132,7 +1132,7 @@ await loadHistory();
   return (
     <>
       <DashboardShell>
-        <div className="p-4 lg:p-6 max-w-7xl mx-auto space-y-4">
+        <div className={`p-4 lg:p-6 space-y-4 ${tab === "commission" && selectedAgent ? "max-w-full" : "max-w-7xl mx-auto"}`}>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Accounts</h1>
             <p className="text-xs text-slate-500 mt-0.5">Approve orders, dispatch, and manage vendor payments.</p>
@@ -2496,62 +2496,58 @@ await loadHistory();
 
                       {/* Commission table */}
                       <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
+                        <table className="w-full" style={{ fontSize: "11px", borderCollapse: "collapse" }}>
                           <thead className="bg-slate-700 text-white">
                             <tr>
-                              <th className="px-3 py-2.5 text-left font-semibold">Date</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Invoice No.</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Party Name</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Item Name</th>
-                              <th className="px-3 py-2.5 text-left font-semibold">Specs</th>
-                              <th className="px-3 py-2.5 text-center font-semibold">Txn Type</th>
-                              {canSeeDetails && <th className="px-3 py-2.5 text-center font-semibold">Order Status</th>}
-                              {canSeeDetails && <th className="px-3 py-2.5 text-left font-semibold">Courier</th>}
-                              <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
-                              <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
-                              {canSeeDetails && <th className="px-3 py-2.5 text-right font-semibold">Cost</th>}
-                              {canSeeDetails && <th className="px-3 py-2.5 text-right font-semibold">Gross Profit</th>}
-                              {canSeeDetails && <th className="px-3 py-2.5 text-right font-semibold">Margin %</th>}
-                              <th className="px-3 py-2.5 text-right font-semibold">Rate %</th>
-                              {canSeeDetails && <th className="px-3 py-2.5 text-center font-semibold">Calc Method</th>}
-                              <th className="px-3 py-2.5 text-right font-semibold">Commission</th>
+                              <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Date</th>
+                              <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Invoice</th>
+                              <th className="px-2 py-2 text-left font-semibold">Party Name</th>
+                              <th className="px-2 py-2 text-left font-semibold">Item</th>
+                              <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Size / GSM / Print</th>
+                              {canSeeDetails && <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Order Status</th>}
+                              {canSeeDetails && <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Courier</th>}
+                              <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Qty</th>
+                              <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Amount</th>
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Cost</th>}
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Gr. Profit</th>}
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Margin</th>}
+                              <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Rate%</th>
+                              {canSeeDetails && <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Calc</th>}
+                              <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Commission</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {commissionSheet.rows.map((row, i) => (
                               <tr key={i} className={`hover:bg-slate-50 ${!row.hasCost ? "opacity-60" : ""}`}>
-                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
-                                  {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                                <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">
+                                  {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "2-digit" })}
                                 </td>
-                                <td className="px-3 py-2 font-mono text-blue-700">{row.invoiceNo}</td>
-                                <td className="px-3 py-2 text-slate-700 max-w-[140px] truncate" title={row.partyName}>{row.partyName}</td>
-                                <td className="px-3 py-2 text-slate-700 max-w-[140px] truncate" title={row.itemName}>{row.itemName}</td>
-                                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
-                                  <div className="flex flex-col gap-0.5">
+                                <td className="px-2 py-1.5 font-mono text-blue-700 whitespace-nowrap">{row.invoiceNo}</td>
+                                <td className="px-2 py-1.5 text-slate-700 max-w-[130px] truncate" title={row.partyName}>{row.partyName}</td>
+                                <td className="px-2 py-1.5 text-slate-700 max-w-[120px] truncate" title={row.itemName}>{row.itemName}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap">
+                                  <div className="flex flex-col" style={{ gap: "1px" }}>
                                     {row.sizeInches && <span className="font-semibold text-slate-800">{row.sizeInches}"</span>}
-                                    {row.gsm && <span className="text-slate-500">{row.gsm} GSM</span>}
-                                    {(row.printingType || row.sides) && (
-                                      <span className="text-slate-500 text-xs">
-                                        {row.printingType?.replace(/_/g, " ")}
-                                        {row.printingType && row.sides ? " · " : ""}
-                                        {row.sides === "SINGLE_SIDE" ? "Single Side" : row.sides === "DOUBLE_SIDE" ? "Double Side" : ""}
-                                      </span>
-                                    )}
+                                    <span className="text-slate-500">
+                                      {row.gsm ? `${row.gsm}GSM` : ""}
+                                      {row.gsm && row.printingType ? " · " : ""}
+                                      {row.printingType ?? ""}
+                                      {(row.gsm || row.printingType) && row.sides ? " · " : ""}
+                                      {row.sides === "SINGLE_SIDE" ? "1S" : row.sides === "DOUBLE_SIDE" ? "2S" : ""}
+                                    </span>
                                     {!row.sizeInches && !row.gsm && !row.printingType && !row.sides && <span className="text-slate-300">—</span>}
                                   </div>
                                 </td>
-                                <td className="px-3 py-2 text-center">
-                                  <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{row.transactionType}</span>
-                                </td>
                                 {canSeeDetails && (
-                                  <td className="px-3 py-2 text-center">
+                                  <td className="px-2 py-1.5">
                                     {row.orderStatus ? (
-                                      <span className={`rounded-full px-2 py-0.5 font-semibold text-xs whitespace-nowrap ${
-                                        row.orderStatus === "DELIVERED" ? "bg-green-100 text-green-700" :
-                                        row.orderStatus === "DISPATCHED" || row.orderStatus === "PARTIALLY_DISPATCHED" ? "bg-blue-100 text-blue-700" :
-                                        row.orderStatus === "IN_PRODUCTION" || row.orderStatus === "READY_FOR_DISPATCH" ? "bg-purple-100 text-purple-700" :
-                                        row.orderStatus === "CANCELLED" ? "bg-red-100 text-red-700" :
-                                        "bg-slate-100 text-slate-600"
+                                      <span className={`font-semibold whitespace-nowrap ${
+                                        row.orderStatus === "DELIVERED" ? "text-green-700" :
+                                        row.orderStatus === "DISPATCHED" || row.orderStatus === "PARTIALLY_DISPATCHED" ? "text-blue-700" :
+                                        row.orderStatus === "IN_PRODUCTION" || row.orderStatus === "READY_FOR_DISPATCH" ? "text-purple-700" :
+                                        row.orderStatus === "PENDING_DISPATCH_APPROVAL" ? "text-orange-600" :
+                                        row.orderStatus === "CANCELLED" ? "text-red-600" :
+                                        "text-slate-500"
                                       }`}>
                                         {row.orderStatus.replace(/_/g, " ")}
                                       </span>
@@ -2559,19 +2555,19 @@ await loadHistory();
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-3 py-2 text-slate-600 max-w-[100px] truncate" title={row.courierName ?? ""}>
+                                  <td className="px-2 py-1.5 text-slate-600 max-w-[80px] truncate" title={row.courierName ?? ""}>
                                     {row.courierName || <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
-                                <td className="px-3 py-2 text-right font-mono text-slate-700">{row.quantity.toLocaleString("en-IN")}</td>
-                                <td className="px-3 py-2 text-right font-mono font-semibold text-slate-800">₹{row.amount.toLocaleString("en-IN")}</td>
+                                <td className="px-2 py-1.5 text-right font-mono text-slate-700">{row.quantity.toLocaleString("en-IN")}</td>
+                                <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">₹{row.amount.toLocaleString("en-IN")}</td>
                                 {canSeeDetails && (
-                                  <td className="px-3 py-2 text-right font-mono text-slate-600">
+                                  <td className="px-2 py-1.5 text-right font-mono text-slate-500 whitespace-nowrap">
                                     {row.cost != null ? `₹${row.cost.toLocaleString("en-IN")}` : <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-3 py-2 text-right font-mono font-semibold">
+                                  <td className="px-2 py-1.5 text-right font-mono font-semibold whitespace-nowrap">
                                     {row.grossProfit != null ? (
                                       <span className={row.grossProfit >= 0 ? "text-green-700" : "text-red-600"}>
                                         ₹{row.grossProfit.toLocaleString("en-IN")}
@@ -2580,7 +2576,7 @@ await loadHistory();
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-3 py-2 text-right font-semibold">
+                                  <td className="px-2 py-1.5 text-right font-semibold whitespace-nowrap">
                                     {row.marginPct != null ? (
                                       <span className={row.marginPct >= 20 ? "text-green-700" : row.marginPct >= 10 ? "text-amber-600" : "text-red-600"}>
                                         {row.marginPct.toFixed(1)}%
@@ -2588,7 +2584,7 @@ await loadHistory();
                                     ) : <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
-                                <td className="px-3 py-2 text-right">
+                                <td className="px-2 py-1.5 text-right whitespace-nowrap">
                                   {row.hasCost ? (
                                     <span className="font-bold text-green-700">{row.commissionPct}%</span>
                                   ) : (
@@ -2596,34 +2592,33 @@ await loadHistory();
                                   )}
                                 </td>
                                 {canSeeDetails && (
-                                  <td className="px-3 py-2 text-center">
-                                    {row.calcMethod ? (
-                                      <span className="rounded bg-slate-100 text-slate-600 px-1.5 py-0.5 font-mono text-xs">{row.calcMethod}</span>
-                                    ) : <span className="text-slate-300">—</span>}
+                                  <td className="px-2 py-1.5 text-slate-500 max-w-[140px] truncate" title={row.calcMethod}>
+                                    {row.calcMethod || <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
-                                <td className="px-3 py-2 text-right font-mono font-bold text-blue-700">
-                                  {row.hasCost ? `₹${row.commissionAmt.toLocaleString("en-IN")}` : <span className="text-slate-300 font-normal">No cost</span>}
+                                <td className="px-2 py-1.5 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                                  {row.hasCost ? `₹${row.commissionAmt.toLocaleString("en-IN")}` : <span className="text-slate-300 font-normal">—</span>}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
-                          <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+                          <tfoot className="bg-slate-100 border-t-2 border-slate-300" style={{ fontSize: "11px" }}>
                             <tr>
-                              <td colSpan={canSeeDetails ? 9 : 7} className="px-3 py-3 text-xs font-bold text-slate-700">TOTAL</td>
-                              <td className="px-3 py-3 text-right font-bold text-slate-800 font-mono">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
-                              {canSeeDetails && <td colSpan={3} className="px-3 py-3"></td>}
-                              <td className="px-3 py-3 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
-                              {canSeeDetails && <td className="px-3 py-3"></td>}
-                              <td className="px-3 py-3 text-right font-bold text-blue-700 font-mono">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</td>
+                              {/* Date Invoice Party Item Specs [Status Courier] Qty = 6 or 8 */}
+                              <td colSpan={canSeeDetails ? 8 : 6} className="px-2 py-2 font-bold text-slate-700">TOTAL</td>
+                              <td className="px-2 py-2 text-right font-bold text-slate-800 font-mono whitespace-nowrap">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
+                              {canSeeDetails && <td colSpan={3} className="px-2 py-2"></td>}
+                              <td className="px-2 py-2 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
+                              {canSeeDetails && <td className="px-2 py-2"></td>}
+                              <td className="px-2 py-2 text-right font-bold text-blue-700 font-mono whitespace-nowrap">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-50 border-t border-green-200">
-                              <td colSpan={canSeeDetails ? 16 : 9} className="px-3 py-3 text-xs font-bold text-slate-700">BONUS</td>
-                              <td className="px-3 py-3 text-right font-bold text-green-700 font-mono">₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
+                              <td colSpan={canSeeDetails ? 14 : 8} className="px-2 py-2 font-bold text-slate-700">BONUS</td>
+                              <td className="px-2 py-2 text-right font-bold text-green-700 font-mono whitespace-nowrap">₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-100 border-t border-green-300">
-                              <td colSpan={canSeeDetails ? 16 : 9} className="px-3 py-3 text-sm font-bold text-green-800">TOTAL PAYABLE AMOUNT</td>
-                              <td className="px-3 py-3 text-right text-lg font-bold text-green-800 font-mono">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</td>
+                              <td colSpan={canSeeDetails ? 14 : 8} className="px-2 py-2 font-bold text-green-800">TOTAL PAYABLE</td>
+                              <td className="px-2 py-2 text-right font-bold text-green-800 font-mono whitespace-nowrap text-sm">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</td>
                             </tr>
                           </tfoot>
                         </table>
