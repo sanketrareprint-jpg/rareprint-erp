@@ -796,6 +796,7 @@ export class CostTableService {
           salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
           customer: { select: { businessName: true } },
           shipments: { select: { carrierName: true, trackingNumber: true, status: true }, orderBy: { createdAt: 'desc' as any }, take: 1 },
+          payments: { select: { amount: true, verificationStatus: true } },
           items: {
             include: {
               product: { select: { id: true, name: true, gsm: true, sizeInches: true, printingType: true, sides: true, category: { select: { name: true } } } },
@@ -848,6 +849,10 @@ export class CostTableService {
       const shipment = order.shipments?.[0] ?? null;
       const courierName = shipment?.carrierName ?? null;
       const orderStatus = order.status;
+      const paidAmount = (order.payments ?? [])
+        .filter((p: any) => p.verificationStatus === 'VERIFIED')
+        .reduce((s: number, p: any) => s + Number(p.amount), 0);
+      const balanceDue = Math.max(0, Number(order.grandTotal) - paidAmount);
 
       for (const item of order.items) {
         const costSlab = matchSlab(costMap.get(item.productId) ?? [], item.quantity);
@@ -920,6 +925,7 @@ export class CostTableService {
           commissionAmt: Number(commAmt.toFixed(2)),
           calcMethod,
           hasCost: !!costSlab,
+          balanceDue: Number(balanceDue.toFixed(2)),
         });
       }
     }

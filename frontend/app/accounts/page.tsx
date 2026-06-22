@@ -254,7 +254,7 @@ type CommissionRow = {
   orderStatus: string; courierName: string | null;
   quantity: number; amount: number;
   cost: number | null; grossProfit: number | null; marginPct: number | null;
-  commissionPct: number; commissionAmt: number; calcMethod: string; hasCost: boolean;
+  commissionPct: number; commissionAmt: number; calcMethod: string; hasCost: boolean; balanceDue: number;
 };
 type CommissionVerification = { verifiedAt: string; verifiedBy: string };
 type CommissionSheet = {
@@ -2512,7 +2512,7 @@ await loadHistory();
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Gr. Profit</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Margin</th>}
                               <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Rate%</th>
-                              {canSeeDetails && <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Calc</th>}
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Balance Due</th>}
                               <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Commission</th>
                             </tr>
                           </thead>
@@ -2578,7 +2578,7 @@ await loadHistory();
                                 {canSeeDetails && (
                                   <td className="px-2 py-1.5 text-right font-semibold whitespace-nowrap">
                                     {row.marginPct != null ? (
-                                      <span className={row.marginPct >= 20 ? "text-green-700" : row.marginPct >= 10 ? "text-amber-600" : "text-red-600"}>
+                                      <span className={row.marginPct >= 35 ? "text-green-700" : row.marginPct >= 25 ? "text-amber-600" : "text-red-600"}>
                                         {row.marginPct.toFixed(1)}%
                                       </span>
                                     ) : <span className="text-slate-300">—</span>}
@@ -2592,8 +2592,12 @@ await loadHistory();
                                   )}
                                 </td>
                                 {canSeeDetails && (
-                                  <td className="px-2 py-1.5 text-slate-500 max-w-[140px] truncate" title={row.calcMethod}>
-                                    {row.calcMethod || <span className="text-slate-300">—</span>}
+                                  <td className="px-2 py-1.5 text-right font-mono font-semibold whitespace-nowrap">
+                                    {row.balanceDue > 0 ? (
+                                      <span className="text-red-600">₹{row.balanceDue.toLocaleString("en-IN")}</span>
+                                    ) : (
+                                      <span className="text-green-600">✓ Paid</span>
+                                    )}
                                   </td>
                                 )}
                                 <td className="px-2 py-1.5 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
