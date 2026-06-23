@@ -287,6 +287,59 @@ export class VirtualCeoService {
     return { ok: true };
   }
 
+  // ─── Admin: review history for a user ────────────────────────────────────
+  async adminGetReviewHistory(userId: string) {
+    const rows = await this.prisma.systemConfig.findMany({
+      where: { key: { startsWith: `vceo_review_${userId}_` } },
+      orderBy: { key: 'desc' },
+    });
+    return rows.map(r => {
+      const date = r.key.replace(`vceo_review_${userId}_`, '');
+      let data: Record<string, string> = {};
+      try { data = JSON.parse(r.value); } catch {}
+      return { date, completedAt: data.completedAt ?? null };
+    });
+  }
+
+  // ─── Admin: all users review history (cross-user, last N days) ────────────
+  async adminGetAllReviewHistory(days = 30) {
+    const rows = await this.prisma.systemConfig.findMany({
+      where: { key: { startsWith: 'vceo_review_' } },
+      orderBy: { key: 'desc' },
+    });
+    // Get unique userIds
+    const userIdSet = new Set(rows.map(r => {
+      const parts = r.key.replace('vceo_review_', '').split('_');
+      // key format: vceo_review_{userId}_{YYYY-MM-DD}  — userId has no underscores normally
+      // date is last part (YYYY-MM-DD) = 10 chars
+      return parts.slice(0, -1).join('_');
+    }));
+    const userIds = Array.from(userIdSet);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, fullName: true, email: true, role: true },
+    });
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    // Build per-user history
+    const historyMap = new Map<string, Array<{ date: string; completedAt: string | null }>>();
+    for (const r of rows) {
+      const withoutPrefix = r.key.replace('vceo_review_', '');
+      const date = withoutPrefix.slice(-10); // last 10 chars = YYYY-MM-DD
+      const uid = withoutPrefix.slice(0, -11); // remove _ + date
+      let data: Record<string, string> = {};
+      try { data = JSON.parse(r.value); } catch {}
+      if (!historyMap.has(uid)) historyMap.set(uid, []);
+      historyMap.get(uid)!.push({ date, completedAt: data.completedAt ?? null });
+    }
+
+    return Array.from(historyMap.entries()).map(([uid, history]) => ({
+      userId: uid,
+      user: userMap.get(uid) ?? { id: uid, fullName: 'Unknown', email: '', role: '' },
+      history: history.sort((a, b) => b.date.localeCompare(a.date)),
+    }));
+  }
+
   // ─── Cron: Daily 10 AM IST (UTC 04:30) ─────────────────────────────────────
   @Cron('30 4 * * *', { timeZone: 'Asia/Kolkata' })
   async sendDailyWhatsAppReport() {

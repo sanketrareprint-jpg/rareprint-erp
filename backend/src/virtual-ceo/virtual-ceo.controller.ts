@@ -76,6 +76,23 @@ export class VirtualCeoController {
     return this.svc.adminUnlockUser(userId);
   }
 
+  /** GET /virtual-ceo/admin/review-history — all users review history */
+  @Get('admin/review-history')
+  async allReviewHistory(@Request() req: { user: { role: string } }) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Admin only');
+    return this.svc.adminGetAllReviewHistory();
+  }
+
+  /** GET /virtual-ceo/admin/review-history/:userId — single user history */
+  @Get('admin/review-history/:userId')
+  async userReviewHistory(
+    @Request() req: { user: { role: string } },
+    @Param('userId') userId: string,
+  ) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Admin only');
+    return this.svc.adminGetReviewHistory(userId);
+  }
+
   /** PUT /virtual-ceo/admin/required-reviewers — set who must review daily */
   @Put('admin/required-reviewers')
   async setRequiredReviewers(

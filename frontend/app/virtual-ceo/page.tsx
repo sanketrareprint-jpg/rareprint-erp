@@ -312,25 +312,36 @@ function LockedScreen({ lockedAt, reason }: { lockedAt?: string; reason?: string
 
 // ─── Admin CEO Settings Panel ─────────────────────────────────────────────────
 
+type ReviewHistoryEntry = { date: string; completedAt: string | null };
+type UserReviewHistory = {
+  userId: string;
+  user: { id: string; fullName: string; email: string; role: string };
+  history: ReviewHistoryEntry[];
+};
+
 function CeoSettingsPanel() {
   const [lockData, setLockData] = useState<AdminLockData | null>(null);
   const [loading, setLoading] = useState(true);
   const [allUsers, setAllUsers] = useState<Array<{ id: string; fullName: string; email: string; role: string }>>([]);
   const [unlocking, setUnlocking] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [reviewHistory, setReviewHistory] = useState<UserReviewHistory[]>([]);
+  const [selectedHistoryUser, setSelectedHistoryUser] = useState<string>("all");
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [lockRes, usersRes] = await Promise.all([
+      const [lockRes, usersRes, historyRes] = await Promise.all([
         fetch(`${API_BASE_URL}/virtual-ceo/admin/lock-status`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/users`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/virtual-ceo/admin/review-history`, { headers: getAuthHeaders() }),
       ]);
       if (lockRes.ok) setLockData(await lockRes.json());
       if (usersRes.ok) {
         const data = await usersRes.json();
         setAllUsers(Array.isArray(data) ? data : (data.users ?? []));
       }
+      if (historyRes.ok) setReviewHistory(await historyRes.json());
     } finally { setLoading(false); }
   }, []);
 
@@ -435,6 +446,82 @@ function CeoSettingsPanel() {
           <CheckCircle2 size={18} /> All required reviewers are active — no accounts locked
         </div>
       )}
+
+      {/* ── Review Submission History ── */}
+      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: "#1e293b", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+          <ClipboardCheck size={16} color="#6366f1" /> Report Submission History
+        </div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+          Complete history of daily CEO report submissions per user.
+        </div>
+
+        {/* User filter */}
+        <div style={{ marginBottom: 14 }}>
+          <select
+            value={selectedHistoryUser}
+            onChange={e => setSelectedHistoryUser(e.target.value)}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, background: "#fff", outline: "none", minWidth: 200 }}
+          >
+            <option value="all">All Users</option>
+            {reviewHistory.map(u => (
+              <option key={u.userId} value={u.userId}>{u.user.fullName || u.user.email}</option>
+            ))}
+          </select>
+        </div>
+
+        {reviewHistory.length === 0 ? (
+          <div style={{ color: "#94a3b8", fontSize: 13, textAlign: "center", padding: 20 }}>No submission history found</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {reviewHistory
+              .filter(u => selectedHistoryUser === "all" || u.userId === selectedHistoryUser)
+              .map(u => (
+                <div key={u.userId} style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
+                  {/* User header */}
+                  <div style={{ background: "#f8fafc", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid #e2e8f0" }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 700, color: "#1e293b", fontSize: 14 }}>{u.user.fullName || "Unknown"}</span>
+                      <span style={{ fontSize: 11, color: "#64748b", marginLeft: 8 }}>{u.user.email}</span>
+                      <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 8 }}>· {u.user.role}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>
+                      {u.history.filter(h => h.completedAt).length} / {u.history.length} submitted
+                    </div>
+                  </div>
+
+                  {/* Date grid */}
+                  <div style={{ padding: "12px 14px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {u.history.length === 0 ? (
+                      <span style={{ fontSize: 12, color: "#94a3b8" }}>No records</span>
+                    ) : u.history.map(h => (
+                      <div key={h.date} style={{
+                        display: "flex", flexDirection: "column", alignItems: "center",
+                        padding: "8px 12px", borderRadius: 8,
+                        background: h.completedAt ? "#f0fdf4" : "#fef2f2",
+                        border: `1px solid ${h.completedAt ? "#bbf7d0" : "#fecaca"}`,
+                        minWidth: 90,
+                      }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: h.completedAt ? "#15803d" : "#dc2626" }}>
+                          {h.completedAt ? "✓" : "✗"}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#1e293b", marginTop: 2 }}>{h.date}</span>
+                        {h.completedAt && (
+                          <span style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                            {new Date(h.completedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+                          </span>
+                        )}
+                        {!h.completedAt && (
+                          <span style={{ fontSize: 10, color: "#dc2626", marginTop: 2 }}>Missed</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
 
       {/* Required reviewers */}
       <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20 }}>
