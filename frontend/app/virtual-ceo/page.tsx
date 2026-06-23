@@ -6,8 +6,8 @@ import { getAuthHeaders } from "@/lib/auth";
 import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Send,
   DollarSign, Factory, Truck, Package, BarChart2,
-  Zap, Tag, CheckCheck, RotateCcw, Lock, Shield, UserCheck, Users,
-  Unlock,
+  Zap, Tag, CheckCheck, Lock, Shield, UserCheck, Users,
+  Unlock, ClipboardCheck,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -118,13 +118,18 @@ function useCountdown(deadlineAt: string | undefined) {
 
 // ─── Mandatory Review Modal ───────────────────────────────────────────────────
 
+// Mandatory items = Accounts + Production + Dispatch (Stock is optional)
+function mandatoryItems(items: ActionItem[]) {
+  return items.filter(i => i.department !== "STOCK");
+}
+
 function ReviewModal({
   allItems, taskActions, deadlineAt, onAction, onComplete, onExpired,
 }: {
   allItems: ActionItem[];
   taskActions: Record<string, string>;
   deadlineAt: string | undefined;
-  onAction: (itemId: string, action: "updated" | "followup" | null) => void;
+  onAction: (itemId: string, action: "updated" | null) => void;
   onComplete: () => void;
   onExpired: () => void;
 }) {
@@ -138,10 +143,10 @@ function ReviewModal({
     }
   }, [expired, onExpired]);
 
-  const tagged = allItems.filter(i => taskActions[i.id]);
-  const done = tagged.length;
-  const total = allItems.length;
-  const allTagged = done >= total && total > 0;
+  const required = mandatoryItems(allItems);
+  const done  = required.filter(i => taskActions[i.id] === "updated").length;
+  const total = required.length;
+  const allDone = done >= total;
   const timerColor = pct > 50 ? "#10b981" : pct > 20 ? "#f59e0b" : "#ef4444";
 
   return (
@@ -153,32 +158,21 @@ function ReviewModal({
     }}>
       <div style={{
         background: "#fff", borderRadius: 16, width: "100%", maxWidth: 780,
-        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
-        margin: "auto",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.4)", margin: "auto",
       }}>
         {/* Header */}
-        <div style={{
-          background: "linear-gradient(135deg, #1e293b 0%, #334155 100%)",
-          borderRadius: "16px 16px 0 0", padding: "20px 24px",
-        }}>
+        <div style={{ background: "linear-gradient(135deg, #1e293b 0%, #334155 100%)", borderRadius: "16px 16px 0 0", padding: "20px 24px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: "50%",
-              background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            }}>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Shield size={22} color="#fff" />
             </div>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>Daily CEO Review Required</div>
-              <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                Review each task and mark it as Updated or Follow Up before continuing
-              </div>
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>Click <strong style={{ color: "#4ade80" }}>✓ Updated</strong> on each task to confirm you have seen it</div>
             </div>
           </div>
-
           {/* Timer */}
-          <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 10, padding: "12px 16px" }}>
+          <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <span style={{ color: "#94a3b8", fontSize: 12, fontWeight: 600 }}>⏱ Time Remaining</span>
               <span style={{ color: timerColor, fontSize: 22, fontWeight: 800, fontFamily: "monospace" }}>{label}</span>
@@ -187,96 +181,90 @@ function ReviewModal({
               <div style={{ height: "100%", width: `${pct}%`, background: timerColor, borderRadius: 3, transition: "width 1s linear, background 0.3s" }} />
             </div>
           </div>
-
-          {/* Progress */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12 }}>
-            <span style={{ color: "#94a3b8", fontSize: 12 }}>Tasks reviewed: <strong style={{ color: "#fff" }}>{done}/{total}</strong></span>
-            {allTagged && (
-              <button
-                onClick={onComplete}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "8px 18px", borderRadius: 8, border: "none",
-                  background: "#10b981", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                }}
-              >
-                <CheckCheck size={16} /> Mark Review Complete ✅
-              </button>
-            )}
+          {/* Progress + Submit */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>
+              Seen: <strong style={{ color: "#fff" }}>{done}/{total}</strong> tasks
+              {total < allItems.length && <span style={{ color: "#64748b" }}> · Stock & Costs optional</span>}
+            </span>
+            <button
+              onClick={onComplete}
+              disabled={!allDone}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 18px", borderRadius: 8, border: "none",
+                background: allDone ? "#10b981" : "#334155",
+                color: allDone ? "#fff" : "#64748b",
+                fontWeight: 700, fontSize: 13,
+                cursor: allDone ? "pointer" : "not-allowed",
+              }}
+            >
+              <ClipboardCheck size={16} /> Submit Report
+            </button>
           </div>
         </div>
 
         {/* Task list */}
         <div style={{ padding: 20, maxHeight: "65vh", overflowY: "auto" }}>
-          {total === 0 && (
+          {total === 0 ? (
             <div style={{ textAlign: "center", padding: 40, color: "#64748b" }}>
               <CheckCircle2 size={32} color="#10b981" />
-              <div style={{ marginTop: 8, fontWeight: 600 }}>No action items today!</div>
+              <div style={{ marginTop: 8, fontWeight: 600 }}>No mandatory tasks today!</div>
               <button onClick={onComplete} style={{ marginTop: 12, padding: "8px 20px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>
-                Complete Review ✅
+                Submit Report ✅
               </button>
             </div>
-          )}
-          {allItems.map(item => {
-            const cfg = PRIORITY_CONFIG[item.priority];
-            const action = taskActions[item.id];
-            return (
-              <div key={item.id} style={{
-                background: action ? (action === "updated" ? "#f0fdf4" : "#fffbeb") : cfg.bg,
-                border: `1px solid ${action ? (action === "updated" ? "#bbf7d0" : "#fde68a") : cfg.color + "33"}`,
-                borderLeft: `4px solid ${action ? (action === "updated" ? "#10b981" : "#f59e0b") : cfg.color}`,
-                borderRadius: 10, padding: "12px 14px", marginBottom: 8,
-              }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
-                      <span style={{ background: cfg.badge, color: "#fff", padding: "1px 8px", borderRadius: 99, fontSize: 10, fontWeight: 700 }}>{cfg.label}</span>
-                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>{item.category}</span>
-                      {item.orderNo && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e0e7ff", color: "#4338ca" }}>#{item.orderNo}</span>}
-                      {action === "updated" && <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 8px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", display: "flex", alignItems: "center", gap: 3 }}><CheckCheck size={10} /> Updated</span>}
-                      {action === "followup" && <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 8px", borderRadius: 99, background: "#fef9c3", color: "#ca8a04", display: "flex", alignItems: "center", gap: 3 }}><RotateCcw size={10} /> Follow Up</span>}
+          ) : (
+            allItems.map(item => {
+              const cfg = PRIORITY_CONFIG[item.priority];
+              const seen = taskActions[item.id] === "updated";
+              const isOptional = item.department === "STOCK";
+              return (
+                <div key={item.id} style={{
+                  background: seen ? "#f0fdf4" : cfg.bg,
+                  border: `1px solid ${seen ? "#bbf7d0" : cfg.color + "33"}`,
+                  borderLeft: `4px solid ${seen ? "#10b981" : isOptional ? "#94a3b8" : cfg.color}`,
+                  borderRadius: 10, padding: "10px 14px", marginBottom: 8,
+                  opacity: isOptional && !seen ? 0.75 : 1,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                        <span style={{ background: seen ? "#10b981" : cfg.badge, color: "#fff", padding: "1px 8px", borderRadius: 99, fontSize: 10, fontWeight: 700 }}>
+                          {seen ? "SEEN ✓" : cfg.label}
+                        </span>
+                        <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>{item.category}</span>
+                        {item.orderNo && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e0e7ff", color: "#4338ca" }}>#{item.orderNo}</span>}
+                        {isOptional && <span style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic" }}>optional</span>}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>{item.title}</div>
+                      <div style={{ fontSize: 11, color: "#475569" }}>{item.detail}</div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", marginBottom: 2 }}>{item.title}</div>
-                    <div style={{ fontSize: 12, color: "#475569" }}>{item.detail}</div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
                     <button
-                      onClick={() => onAction(item.id, action === "updated" ? null : "updated")}
+                      onClick={() => onAction(item.id, seen ? null : "updated")}
                       style={{
-                        padding: "5px 10px", borderRadius: 6, border: `1px solid ${action === "updated" ? "#16a34a" : "#cbd5e1"}`,
-                        background: action === "updated" ? "#16a34a" : "#fff",
-                        color: action === "updated" ? "#fff" : "#475569",
-                        fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                        padding: "6px 14px", borderRadius: 6,
+                        border: `1px solid ${seen ? "#16a34a" : "#cbd5e1"}`,
+                        background: seen ? "#16a34a" : "#fff",
+                        color: seen ? "#fff" : "#475569",
+                        fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0,
                         display: "flex", alignItems: "center", gap: 4,
                       }}
                     >
-                      <CheckCheck size={11} /> Updated
-                    </button>
-                    <button
-                      onClick={() => onAction(item.id, action === "followup" ? null : "followup")}
-                      style={{
-                        padding: "5px 10px", borderRadius: 6, border: `1px solid ${action === "followup" ? "#ca8a04" : "#cbd5e1"}`,
-                        background: action === "followup" ? "#ca8a04" : "#fff",
-                        color: action === "followup" ? "#fff" : "#475569",
-                        fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
-                        display: "flex", alignItems: "center", gap: 4,
-                      }}
-                    >
-                      <RotateCcw size={11} /> Follow Up
+                      <CheckCheck size={11} /> {seen ? "Seen ✓" : "Updated"}
                     </button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
-        {/* Footer */}
-        {!allTagged && total > 0 && (
-          <div style={{ padding: "12px 20px", borderTop: "1px solid #f1f5f9", background: "#f8fafc", borderRadius: "0 0 16px 16px" }}>
-            <div style={{ fontSize: 12, color: "#64748b", textAlign: "center" }}>
-              Tag all {total} tasks as <strong>Updated</strong> or <strong>Follow Up</strong> to complete the review
-            </div>
+        {!allDone && total > 0 && (
+          <div style={{ padding: "10px 20px", borderTop: "1px solid #f1f5f9", background: "#f8fafc", borderRadius: "0 0 16px 16px", textAlign: "center" }}>
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              Click <strong>✓ Updated</strong> on all {total} tasks to unlock Submit Report
+            </span>
           </div>
         )}
       </div>
@@ -509,7 +497,7 @@ function ActionCard({
   selectedTagId?: string;
   onTagChange: (itemId: string, tagId: string) => void;
   taskAction?: string;
-  onTaskAction: (itemId: string, action: "updated" | "followup" | null) => void;
+  onTaskAction: (itemId: string, action: "updated" | null) => void;
 }) {
   const cfg = PRIORITY_CONFIG[item.priority];
   const ageLabel = item.ageDays != null ? `${item.ageDays}d` : item.ageHours != null ? `${item.ageHours}h` : null;
@@ -549,12 +537,7 @@ function ActionCard({
             )}
             {taskAction === "updated" && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 99, background: "#dcfce7", color: "#16a34a" }}>
-                <CheckCheck size={10} /> Updated
-              </span>
-            )}
-            {taskAction === "followup" && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 99, background: "#fef9c3", color: "#ca8a04" }}>
-                <RotateCcw size={10} /> Follow Up
+                <CheckCheck size={10} /> Seen ✓
               </span>
             )}
           </div>
@@ -566,35 +549,21 @@ function ActionCard({
 
         {/* Right side controls */}
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, alignItems: "flex-end" }}>
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: 4 }}>
-            <button
-              onClick={() => onTaskAction(item.id, taskAction === "updated" ? null : "updated")}
-              title="Mark as Updated"
-              style={{
-                padding: "5px 9px", borderRadius: 6, border: `1px solid ${taskAction === "updated" ? "#16a34a" : "#cbd5e1"}`,
-                background: taskAction === "updated" ? "#16a34a" : "#fff",
-                color: taskAction === "updated" ? "#fff" : "#64748b",
-                fontSize: 11, fontWeight: 700, cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 3,
-              }}
-            >
-              <CheckCheck size={11} /> Updated
-            </button>
-            <button
-              onClick={() => onTaskAction(item.id, taskAction === "followup" ? null : "followup")}
-              title="Mark as Follow Up"
-              style={{
-                padding: "5px 9px", borderRadius: 6, border: `1px solid ${taskAction === "followup" ? "#ca8a04" : "#cbd5e1"}`,
-                background: taskAction === "followup" ? "#ca8a04" : "#fff",
-                color: taskAction === "followup" ? "#fff" : "#64748b",
-                fontSize: 11, fontWeight: 700, cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 3,
-              }}
-            >
-              <RotateCcw size={11} /> Follow Up
-            </button>
-          </div>
+          {/* Updated button */}
+          <button
+            onClick={() => onTaskAction(item.id, taskAction === "updated" ? null : "updated")}
+            title="Mark as seen"
+            style={{
+              padding: "5px 12px", borderRadius: 6,
+              border: `1px solid ${taskAction === "updated" ? "#16a34a" : "#cbd5e1"}`,
+              background: taskAction === "updated" ? "#16a34a" : "#fff",
+              color: taskAction === "updated" ? "#fff" : "#64748b",
+              fontSize: 11, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 3,
+            }}
+          >
+            <CheckCheck size={11} /> {taskAction === "updated" ? "Seen ✓" : "Updated"}
+          </button>
           {/* Tag selector */}
           {tags.length > 0 && (
             <select
@@ -629,7 +598,7 @@ function DepartmentSection({
   onNavigate: (url: string) => void; tags: VirtualCeoTag[];
   cardTags: Record<string, string>; onTagChange: (itemId: string, tagId: string) => void;
   taskActions: Record<string, string>;
-  onTaskAction: (itemId: string, action: "updated" | "followup" | null) => void;
+  onTaskAction: (itemId: string, action: "updated" | null) => void;
 }) {
   const high   = items.filter(i => i.priority === "HIGH").length;
   const medium = items.filter(i => i.priority === "MEDIUM").length;
@@ -755,7 +724,7 @@ export default function VirtualCeoPage() {
     }
   }, [reviewStatus?.status]);
 
-  const handleTaskAction = async (itemId: string, action: "updated" | "followup" | null) => {
+  const handleTaskAction = async (itemId: string, action: "updated" | null) => {
     const next = { ...taskActions };
     if (action) next[itemId] = action; else delete next[itemId];
     setTaskActions(next);
@@ -836,7 +805,6 @@ export default function VirtualCeoPage() {
   );
 
   const allItems = [...report.accounts, ...report.production, ...report.dispatch, ...report.stock];
-  const urgentItems = allItems.filter(i => i.priority === "HIGH");
   const tags = erpConfig?.virtualCeoTags ?? [];
   const cardTags = erpConfig?.virtualCeoCardTags ?? {};
 
@@ -910,20 +878,50 @@ export default function VirtualCeoPage() {
         {sentOk === true && <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: "#15803d", fontSize: 13, fontWeight: 600 }}>✅ WhatsApp report sent to Prajakta & Sanket!</div>}
         {sentOk === false && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: "#dc2626", fontSize: 13, fontWeight: 600 }}>❌ WhatsApp send failed. Check phone numbers in environment variables.</div>}
 
-        {/* ── Review progress banner (when in normal OK state) ── */}
-        {reviewStatus?.status === "OK" && !reviewStatus.completedAt && allItems.length > 0 && (
-          <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-            <Users size={16} color="#0284c7" />
-            <div style={{ flex: 1, fontSize: 13, color: "#0284c7" }}>
-              <strong>{Object.keys(taskActions).length}/{allItems.length}</strong> tasks tagged today · Use the <strong>Updated</strong> / <strong>Follow Up</strong> buttons on each task card
+        {/* ── Submit Report bar ── */}
+        {(() => {
+          const mandatory = mandatoryItems(allItems);
+          const seenCount = mandatory.filter(i => taskActions[i.id] === "updated").length;
+          const total = mandatory.length;
+          const allSeen = seenCount >= total && total > 0;
+          const alreadyDone = reviewStatus?.status === "OK" && !!reviewStatus.completedAt;
+          if (alreadyDone) return (
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, color: "#15803d", fontWeight: 700, fontSize: 13 }}>
+              <CheckCheck size={16} /> Today&apos;s CEO report submitted ✅
             </div>
-            {Object.keys(taskActions).length >= allItems.length && allItems.length > 0 && (
-              <button onClick={handleCompleteReview} style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: "#10b981", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                Complete Review ✅
+          );
+          return (
+            <div style={{ background: allSeen ? "#f0fdf4" : "#f8fafc", border: `1px solid ${allSeen ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: allSeen ? "#15803d" : "#1e293b" }}>
+                  {allSeen ? "All tasks reviewed — ready to submit!" : `Review progress: ${seenCount}/${total} tasks seen`}
+                </div>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                  Click <strong>✓ Updated</strong> on each task card below to confirm you have seen it. Stock & Costs are optional.
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div style={{ width: 120, height: 6, background: "#e2e8f0", borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
+                <div style={{ height: "100%", width: `${total > 0 ? (seenCount / total) * 100 : 0}%`, background: allSeen ? "#10b981" : "#6366f1", borderRadius: 3, transition: "width 0.3s" }} />
+              </div>
+              <button
+                onClick={handleCompleteReview}
+                disabled={!allSeen}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 18px", borderRadius: 8, border: "none",
+                  background: allSeen ? "#10b981" : "#cbd5e1",
+                  color: allSeen ? "#fff" : "#94a3b8",
+                  fontWeight: 700, fontSize: 13,
+                  cursor: allSeen ? "pointer" : "not-allowed",
+                  flexShrink: 0,
+                }}
+              >
+                <ClipboardCheck size={15} /> Submit Report
               </button>
-            )}
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {/* ── Summary Cards ── */}
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
@@ -960,21 +958,6 @@ export default function VirtualCeoPage() {
         {/* ── Daily Schedule Tab ── */}
         {tab === "daily" && (
           <div>
-            {urgentItems.length > 0 && (
-              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "16px 18px", marginBottom: 20 }}>
-                <div style={{ fontWeight: 700, color: "#ef4444", fontSize: 15, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                  <AlertTriangle size={16} /> {urgentItems.length} Urgent Items — Act Now
-                </div>
-                {urgentItems.map(item => (
-                  <ActionCard key={item.id} item={item} onNavigate={navigate} tags={tags}
-                    selectedTagId={cardTags[item.id]} onTagChange={updateCardTag}
-                    taskAction={taskActions[item.id]} onTaskAction={handleTaskAction}
-                  />
-                ))}
-                {tagSavingId && <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Saving tag...</div>}
-              </div>
-            )}
-
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))", gap: 16 }}>
               {(["ACCOUNTS", "PRODUCTION", "DISPATCH", "STOCK"] as const).map(dept => {
                 const cfg = DEPT_CONFIG[dept];
