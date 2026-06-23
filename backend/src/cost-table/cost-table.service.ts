@@ -756,13 +756,13 @@ export class CostTableService {
 
   // ── Per-item commission % helper ─────────────────────────────────────────
   private commissionPctForLine(
-    category: string,
+    category: string | null,
     lineTotal: number,
     rateTotal: number,
     costTotal: number,
     isSticker: boolean,
   ): number {
-    if (lineTotal <= 0) return 0;
+    if (!category || lineTotal <= 0) return 0;
     const profit = lineTotal - costTotal;
     if (profit <= 0) return 0;
     const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
@@ -815,7 +815,7 @@ export class CostTableService {
     }
 
     const agentName: string = orders[0].salesAgent?.fullName ?? 'Unknown';
-    const agentCategory: string = orders[0].salesAgent?.salesAgentCategory ?? 'B';
+    const agentCategory: string = orders[0].salesAgent?.salesAgentCategory ?? null;
 
     const productIds = Array.from(new Set(orders.flatMap((o: any) => o.items.map((i: any) => i.productId)))) as string[];
 
@@ -879,7 +879,9 @@ export class CostTableService {
         let   commAmt  = 0;
         let   calcMethod = '';
 
-        if (costSlab && grossProfit !== null && grossProfit > 0) {
+        if (!agentCategory) {
+          calcMethod = 'No category';
+        } else if (costSlab && grossProfit !== null && grossProfit > 0) {
           const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
           if (agentCategory === 'D') {
             commAmt = Math.max(0, lineTotal - rateAmt);
@@ -990,7 +992,7 @@ export class CostTableService {
     }>();
 
     for (const o of allOrders) {
-      if (!o.salesAgentId || !o.salesAgent?.salesAgentCategory) continue;
+      if (!o.salesAgentId || !o.salesAgent) continue;
       const d = new Date(o.orderDate);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
