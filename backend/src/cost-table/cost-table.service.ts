@@ -614,10 +614,17 @@ export class CostTableService {
   }
 
   async getSalesAgents() {
-    return this.prisma.user.findMany({
-      where: { isActive: true, role: 'SALES_AGENT' as any },
+    // Return every user who has ever been a salesAgent on an order (any role)
+    const agentOrders = await (this.prisma as any).order.findMany({
+      where: { salesAgentId: { not: null } },
+      select: { salesAgentId: true },
+      distinct: ['salesAgentId'],
+    });
+    const ids = agentOrders.map((o: any) => o.salesAgentId).filter(Boolean) as string[];
+    return (this.prisma as any).user.findMany({
+      where: { id: { in: ids }, isActive: true },
       orderBy: { fullName: 'asc' },
-      select: { id: true, fullName: true, email: true, salesAgentCategory: true } as any,
+      select: { id: true, fullName: true, email: true, salesAgentCategory: true },
     });
   }
 
@@ -685,12 +692,22 @@ export class CostTableService {
     const isSticker = (item: any) =>
       `${item.product?.name ?? ''} ${item.product?.category?.name ?? ''}`.toLowerCase().includes('sticker');
 
-    let commissionTotal = 0;
+    const category: string | null = orders[0]?.salesAgent?.salesAgentCategory ?? null;
+
+    // Pass 1: saleTotal for threshold check
     let saleTotal = 0;
+    for (const order of orders) {
+      for (const item of order.items) {
+        saleTotal += Number(item.lineTotal);
+      }
+    }
+    const belowThreshold = saleTotal < 115000;
+
+    let commissionTotal = 0;
+    saleTotal = 0;
     const orderBreakdown: any[] = [];
 
     for (const order of orders) {
-      const category: string = order.salesAgent?.salesAgentCategory ?? 'B';
       let orderCommission = 0;
       let hasAll = true;
 
@@ -710,7 +727,13 @@ export class CostTableService {
         const rateTotal   = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
         const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
 
-        if (category === 'D') {
+        if (!category) {
+          // no commission for uncategorized agents
+        } else if (belowThreshold && category === 'A') {
+          orderCommission += rateTotal * 0.07;
+        } else if (belowThreshold && category === 'B') {
+          orderCommission += rateTotal * 0.05;
+        } else if (category === 'D') {
           orderCommission += Math.max(0, lineTotal - rateTotal);
         } else if (discountPct > 5) {
           orderCommission += profit / (category === 'C' ? 3.75 : 4);
@@ -761,10 +784,14 @@ export class CostTableService {
     rateTotal: number,
     costTotal: number,
     isSticker: boolean,
+    belowThreshold = false,
   ): number {
     if (!category || lineTotal <= 0) return 0;
     const profit = lineTotal - costTotal;
     if (profit <= 0) return 0;
+    // Below ₹1.15L monthly threshold: flat reduced rates for A and B
+    if (belowThreshold && category === 'A') return 7;
+    if (belowThreshold && category === 'B') return 5;
     const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
     if (category === 'D') {
       const diff = Math.max(0, lineTotal - rateTotal);
@@ -841,10 +868,17 @@ export class CostTableService {
     const isStickerItem = (item: any) =>
       `${item.product?.name ?? ''} ${item.product?.category?.name ?? ''}`.toLowerCase().includes('sticker');
 
-    let saleTotal = 0;
+    // ── Pass 1: compute saleTotal to determine threshold ─────────────────────
+    const saleTotal = orders.reduce((sum: number, o: any) =>
+      sum + o.items.reduce((s: number, it: any) => s + Number(it.lineTotal), 0), 0);
+
+    // A/B reduced rate applies when monthly sales < ₹1,15,000
+    const belowThreshold = saleTotal < 115000;
+
     let commissionTotal = 0;
     const rows: any[] = [];
 
+    // ── Pass 2: compute commission per line ───────────────────────────────────
     for (const order of orders) {
       const shipment = order.shipments?.[0] ?? null;
       const courierName = shipment?.carrierName ?? null;
@@ -857,7 +891,6 @@ export class CostTableService {
       for (const item of order.items) {
         const costSlab = matchSlab(costMap.get(item.productId) ?? [], item.quantity);
         const lineTotal = Number(item.lineTotal);
-        saleTotal += lineTotal;
 
         let costItemTotal = 0;
         let grossProfit: number | null = null;
@@ -875,12 +908,16 @@ export class CostTableService {
         const rateSlab = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
         const rateAmt  = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
         const sticker  = isStickerItem(item);
-        const commPct  = this.commissionPctForLine(agentCategory, lineTotal, rateAmt, costItemTotal, sticker);
+        const commPct  = this.commissionPctForLine(agentCategory, lineTotal, rateAmt, costItemTotal, sticker, belowThreshold);
         let   commAmt  = 0;
         let   calcMethod = '';
 
         if (!agentCategory) {
           calcMethod = 'No category';
+        } else if (belowThreshold && (agentCategory === 'A' || agentCategory === 'B') && costSlab && grossProfit !== null && grossProfit > 0) {
+          const pct = agentCategory === 'A' ? 7 : 5;
+          commAmt = rateAmt * (pct / 100);
+          calcMethod = `Rate × ${pct}% (below ₹1.15L)`;
         } else if (costSlab && grossProfit !== null && grossProfit > 0) {
           const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
           if (agentCategory === 'D') {

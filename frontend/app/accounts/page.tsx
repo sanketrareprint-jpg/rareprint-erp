@@ -2485,6 +2485,19 @@ await loadHistory();
                         </div>
                       </div>
 
+                      {/* Below-threshold rate warning */}
+                      {commissionSheet.saleTotal < 115000 && (commissionSheet.agentCategory === "A" || commissionSheet.agentCategory === "B") && (
+                        <div className="px-4 py-2 bg-orange-50 border-b border-orange-200 flex items-center gap-2 text-xs text-orange-700">
+                          <span className="font-bold">⚠ Below ₹1,15,000 threshold —</span>
+                          <span>
+                            {commissionSheet.agentCategory === "A"
+                              ? "Category A rate reduced to 7% (normal: 10%/15%)"
+                              : "Category B rate reduced to 5% (normal: 10%)"}
+                          </span>
+                          <span className="ml-auto text-orange-500">Need ₹{(115000 - commissionSheet.saleTotal).toLocaleString("en-IN")} more for full rate</span>
+                        </div>
+                      )}
+
                       {/* Bonus tiers info */}
                       <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 flex flex-wrap gap-3 text-xs text-amber-700">
                         <span className="font-semibold">Bonus tiers:</span>
