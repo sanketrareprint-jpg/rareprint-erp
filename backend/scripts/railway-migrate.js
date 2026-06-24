@@ -12,19 +12,15 @@ function run(command, args, options = {}) {
     shell: process.platform === 'win32',
     stdio: options.capture ? 'pipe' : 'inherit',
   });
-
   if (!options.allowFailure && result.status !== 0) {
     process.exit(result.status ?? 1);
   }
-
   return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 }
 
 for (const migration of RECOVERABLE_MIGRATIONS) {
   console.log(`Checking recoverable migration ${migration} before deploy...`);
-  run('npx', ['prisma', 'migrate', 'resolve', '--applied', migration], {
-    allowFailure: true,
-  });
+  run('npx', ['prisma', 'migrate', 'resolve', '--applied', migration], { allowFailure: true });
 }
 
 run('npx', ['prisma', 'migrate', 'deploy']);
