@@ -1187,7 +1187,7 @@ export default function RateCalculatorPage() {
     const body = {
       product: rProduct, qty: rQty, sheetsPerUnit: rSheets,
       fsize: rSize, paper: rPaper, parent: rParent,
-      colors: rColors, sides: rSides, lam: rLam,
+      colors: rColors, sides: rSides, lam: ["letterhead","pamphlet","visiting","file"].includes(rProduct) ? rLam : "none",
       micron: rPpMicron, creasing: rPpCreasing, printSide: rSides,
       clip: rPpClip, pocketSides: rPpPocketSides,
       bagSize: rBagSize,
