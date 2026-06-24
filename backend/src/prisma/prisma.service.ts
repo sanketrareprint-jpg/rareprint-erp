@@ -8,7 +8,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // Ensure paperType column exists on Product table (safe to run repeatedly)
     await this.$executeRawUnsafe(
       `ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "paperType" TEXT`,
-    ).catch(() => {/* ignore if already exists or insufficient permissions */});
+    ).catch(() => { /* ignore if column already exists */ });
   }
   async onModuleDestroy() {
     await this.$disconnect();
