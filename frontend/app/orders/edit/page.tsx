@@ -161,12 +161,9 @@ function EditOrderPageInner() {
                 </div>
                 <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
                 <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} style={S.input} />
-                <select value={item.paperType || ""} onChange={e => updateLine(idx, "paperType", e.target.value)} style={{ ...S.input, fontSize: "11px" }}>
-                  <option value="">-</option>
-                  {["Bond","Maplitho","Art","Ivory","Kraft","NCR","PP","Synthetic"].map(pt => (
-                    <option key={pt} value={pt}>{pt}</option>
-                  ))}
-                </select>
+                <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
+                  {item.paperType || "-"}
+                </div>
                 <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
                   <option value="SINGLE_SIDE">Single</option>
                   <option value="DOUBLE_SIDE">Double</option>
