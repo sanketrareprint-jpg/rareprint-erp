@@ -3,6 +3,7 @@ const { spawnSync } = require('node:child_process');
 const RECOVERABLE_MIGRATIONS = [
   '20260520000100_performance_indexes',
   '20260520000300_sheet_performance_indexes',
+  '20260624000100_add_paper_type_to_product',
 ];
 
 function run(command, args, options = {}) {
