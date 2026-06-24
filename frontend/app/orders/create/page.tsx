@@ -413,14 +413,14 @@ export default function CreateOrderPage() {
         {/* Products */}
         <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Products / Line Items</p>
-          <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 90px 28px", gap: "6px", marginBottom: "4px" }}>
-            {["Product","Size","GSM","Sides","Qty","Rate/Unit","Amount",""].map(h => (
+          <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px" }}>
+            {["Product","Size","GSM","Paper","Sides","Qty","Rate/Unit","Amount",""].map(h => (
               <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
             ))}
           </div>
           {lineItems.map((item, idx) => (
             <div key={idx}>
-              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
                 <div className="create-order-product-picker" style={{ position: "relative" }}>
                   <input
                     type="text"
@@ -457,6 +457,12 @@ export default function CreateOrderPage() {
                 </div>
                 <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
                 <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} placeholder="70" style={S.input} />
+                <select value={item.paperType || ""} onChange={e => updateLine(idx, "paperType", e.target.value)} style={{ ...S.input, fontSize: "11px" }}>
+                  <option value="">-</option>
+                  {["Bond","Maplitho","Art","Ivory","Kraft","NCR","PP","Synthetic"].map(pt => (
+                    <option key={pt} value={pt}>{pt}</option>
+                  ))}
+                </select>
                 <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
                   <option value="SINGLE_SIDE">Single</option>
                   <option value="DOUBLE_SIDE">Double</option>
