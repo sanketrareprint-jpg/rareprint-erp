@@ -126,4 +126,46 @@ async function repairDatabase() {
   }
 }
 
-// ── 2. Mark stuck migrations as applied ─────────────�
+// ── 2. Mark stuck migrations as applied ──────────────────────────────────────
+function resolveMigration(name) {
+  try {
+    execSync(`npx prisma migrate resolve --applied ${name}`, { stdio: 'pipe' });
+    console.log(`[startup] Resolved migration: ${name}`);
+  } catch (err) {
+    // Already applied or not in DB — both are fine
+    console.log(`[startup] migrate resolve skipped for ${name} (already OK)`);
+  }
+}
+
+// ── 3. Run pending migrations ─────────────────────────────────────────────────
+function deployMigrations() {
+  try {
+    execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+    console.log('[startup] prisma migrate deploy complete');
+  } catch (err) {
+    console.error('[startup] prisma migrate deploy failed — continuing anyway');
+    // The repair pass above already added the critical columns, so the
+    // server can still operate even if the migration table is messy.
+  }
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+async function main() {
+  await repairDatabase();
+
+  resolveMigration('20260605000200_commission_profit_system');
+  resolveMigration('20260619000100_add_offer_code_and_product_rule');
+  resolveMigration('20260619000200_add_sample_order_fields');
+  resolveMigration('20260619000300_repair_missing_columns');
+
+  deployMigrations();
+
+  console.log('[startup] Starting NestJS server...');
+  // Replace this process with the server — logs and signals work normally
+  require('child_process').spawnSync('node', ['dist/src/main.js'], { stdio: 'inherit' });
+}
+
+main().catch((err) => {
+  console.error('[startup] Fatal error:', err);
+  process.exit(1);
+});

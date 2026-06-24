@@ -30,6 +30,8 @@ type QuoteInputParams = {
   creasing?: string;
   clip?: boolean;
   pocketSides?: number;
+  fileClip?: boolean;
+  filePocket?: boolean;
   bagSize?: string;
   stickerW?: number;
   stickerH?: number;
@@ -214,6 +216,11 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     details.push("Product Details:");
     details.push(`Product Type: ${productLabel}`);
     if (inputParams.qty) details.push(`Quantity: ${inputParams.qty.toLocaleString("en-IN")}`);
+
+    if (inputParams.product === "file") {
+      details.push(`File Clip: ${inputParams.fileClip !== false ? "Yes" : "No"}`);
+      details.push(`Pocket: ${inputParams.filePocket ? "Yes" : "No"}`);
+    }
 
     if (inputParams.product === "sticker") {
       const sticker = result.sticker;
@@ -902,6 +909,8 @@ export default function RateCalculatorPage() {
   const [rPpCreasing, setRPpCreasing] = useState("single");
   const [rPpClip, setRPpClip] = useState(true);
   const [rPpPocketSides, setRPpPocketSides] = useState(0);
+  const [rFileClip, setRFileClip] = useState(true);
+  const [rFilePocket, setRFilePocket] = useState(false);
   const [rBagSize, setRBagSize] = useState("small");
   const [rStickerW, setRStickerW] = useState(2);
   const [rStickerH, setRStickerH] = useState(3);
@@ -992,6 +1001,10 @@ export default function RateCalculatorPage() {
       setRQty(1000);
       setRPenNumber("PEN1");
       return;
+    }
+    if (rProduct === "file") {
+      setRFileClip(true);
+      setRFilePocket(false);
     }
     if (cfg?.fixedSize)   setRSize(cfg.fixedSize);
     if (cfg?.fixedParent) setRParent(cfg.fixedParent);
@@ -1192,6 +1205,8 @@ export default function RateCalculatorPage() {
       multiplier: rProduct === "sticker" ? undefined : (rMult !== "" ? rMult : undefined),
       customer: rCustomer,
       envelopeWindow: rProduct === "envelope" ? rWindow : undefined,
+      clip: rProduct === "file" ? rFileClip : undefined,
+      filePocket: rProduct === "file" ? rFilePocket : undefined,
     };
     const r = await post("reverse", body);
     if (r) {
@@ -1749,6 +1764,22 @@ export default function RateCalculatorPage() {
                           </Select>
                         </Field>
                       )}
+                      {rProduct === "file" && (
+                        <Field label={`File Clip (+₹${rates?.fileClip ?? 1}/file)`}>
+                          <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
+                            <input type="checkbox" checked={rFileClip} onChange={e => setRFileClip(e.target.checked)} />
+                            Add clip
+                          </label>
+                        </Field>
+                      )}
+                      {rProduct === "file" && (
+                        <Field label={`Pocket (+₹${rates?.filePocket ?? 2.2}/file)`}>
+                          <Select value={rFilePocket ? "yes" : "no"} onChange={e => setRFilePocket(e.target.value === "yes")}>
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                          </Select>
+                        </Field>
+                      )}
                     </div>
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                       {rProduct === "pads" || rProduct === "billbook"
@@ -1986,12 +2017,18 @@ export default function RateCalculatorPage() {
                   </div>
                 </Card>
                 <Card title="Plate & Punching">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <Field label="Plate Rate (₹/plate)">
                       <Input type="number" value={rates.plate ?? ""} onChange={e => updateRate("plate", +e.target.value)} />
                     </Field>
                     <Field label="File Punching (₹/piece)">
                       <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
+                    </Field>
+                    <Field label="File Clip (₹/file)">
+                      <Input type="number" step="0.01" value={rates.fileClip ?? 1} onChange={e => updateRate("fileClip", +e.target.value)} />
+                    </Field>
+                    <Field label="File Pocket (₹/file)">
+                      <Input type="number" step="0.01" value={rates.filePocket ?? 2.2} onChange={e => updateRate("filePocket", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>

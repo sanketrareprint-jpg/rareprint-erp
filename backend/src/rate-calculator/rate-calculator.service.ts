@@ -43,6 +43,8 @@ const DEFAULT_RATES: any = {
   padBinding: { A4: 15, A5: 10, A6: 7, A8: 5, '1/3A4': 8 },
   billBookBinding: { A4: 25, A8: 15 },
   punch: 2,
+  fileClip: 1,
+  filePocket: 2.2,
   lamination: { gloss: 0.34, matt: 0.50 },
   envelopeWindow: 0.20,  // ₹ per envelope for window cutting (₹200/1000)
   envelope: {
@@ -781,6 +783,22 @@ export class RateCalculatorService {
       const pu = (rates.punch ?? DEFAULT_RATES.punch) * qty;
       subtotal += pu;
       breakdown.push({ label: 'File Punching (' + qty.toLocaleString() + ' pcs)', amount: pu });
+
+      const clipSelected = dto.clip !== false;
+      if (clipSelected) {
+        const clipRate = Number(rates.fileClip ?? DEFAULT_RATES.fileClip ?? 1);
+        const clipCost = clipRate * qty;
+        subtotal += clipCost;
+        breakdown.push({ label: 'File Clip (' + qty.toLocaleString() + ' pcs x Rs.' + clipRate + ')', amount: clipCost });
+      }
+
+      const pocketSelected = dto.filePocket === true;
+      if (pocketSelected) {
+        const pocketRate = Number(rates.filePocket ?? DEFAULT_RATES.filePocket ?? 2.2);
+        const pocketCost = pocketRate * qty;
+        subtotal += pocketCost;
+        breakdown.push({ label: 'Pocket (' + qty.toLocaleString() + ' pcs x Rs.' + pocketRate + ')', amount: pocketCost });
+      }
     }
     if (product === 'envelope') {
       const ec = (rates.envelope?.[fsize] ?? DEFAULT_RATES.envelope[fsize] ?? 3) * qty;
