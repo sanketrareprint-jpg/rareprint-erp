@@ -599,6 +599,9 @@ export default function AccountsPage() {
   const [commYear] = useState(now.getFullYear());
   const [commMonth] = useState(now.getMonth() + 1);
   const [verifying, setVerifying] = useState(false);
+  const [editingCommRow, setEditingCommRow] = useState<number | null>(null);
+  const [editCommValue, setEditCommValue] = useState<string>("");
+  const [commOverrides, setCommOverrides] = useState<Record<number, number>>({});
 
   // Current logged-in user for role-based access
   const [currentUser] = useState(() => {
@@ -607,6 +610,14 @@ export default function AccountsPage() {
   });
   const isAdmin = currentUser?.role === "ADMIN";
   const canSeeDetails = currentUser?.role === "ADMIN" || currentUser?.role === "ACCOUNTS";
+
+  // Commission override totals (recomputed whenever commOverrides or commissionSheet changes)
+  const adjCommTotal = commissionSheet
+    ? commissionSheet.rows.reduce((sum: number, row, i: number) =>
+        sum + (row.hasCost ? (commOverrides[i] ?? row.commissionAmt) : 0), 0)
+    : 0;
+  const adjTotalPayable = commissionSheet ? adjCommTotal + commissionSheet.bonus : 0;
+  const hasCommOverrides = Object.keys(commOverrides).length > 0;
 
   const [commissionError, setCommissionError] = useState<string | null>(null);
   const loadCommissionSummary = useCallback(async (year: number, month: number) => {
@@ -631,6 +642,8 @@ export default function AccountsPage() {
     const [y, m] = monthStr.split("-").map(Number);
     setSheetLoading(true);
     setCommissionSheet(null);
+    setCommOverrides({});
+    setEditingCommRow(null);
     try {
       const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${agentId}/commission?year=${y}&month=${m}`, { headers: getAuthHeaders() });
       if (res.ok) setCommissionSheet(await res.json());
@@ -2509,7 +2522,7 @@ await loadHistory();
 
                       {/* Commission table */}
                       <div className="overflow-x-auto">
-                        <table className="w-full" style={{ fontSize: "11px", borderCollapse: "collapse" }}>
+                        <table className="w-full" style={{ fontSize: "12px", borderCollapse: "collapse" }}>
                           <thead className="bg-slate-700 text-white">
                             <tr>
                               <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Date</th>
@@ -2572,8 +2585,8 @@ await loadHistory();
                                     {row.courierName || <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
-                                <td className="px-2 py-1.5 text-right font-mono text-slate-700">{row.quantity.toLocaleString("en-IN")}</td>
-                                <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">₹{row.amount.toLocaleString("en-IN")}</td>
+                                <td className="px-2 py-1.5 text-right font-mono text-slate-700" style={{ fontSize: "13px" }}>{row.quantity.toLocaleString("en-IN")}</td>
+                                <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap" style={{ fontSize: "13px" }}>₹{row.amount.toLocaleString("en-IN")}</td>
                                 {canSeeDetails && (
                                   <td className="px-2 py-1.5 text-right font-mono text-slate-500 whitespace-nowrap">
                                     {row.cost != null ? `₹${row.cost.toLocaleString("en-IN")}` : <span className="text-slate-300">—</span>}
@@ -2613,29 +2626,101 @@ await loadHistory();
                                     )}
                                   </td>
                                 )}
-                                <td className="px-2 py-1.5 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
-                                  {row.hasCost ? `₹${row.commissionAmt.toLocaleString("en-IN")}` : <span className="text-slate-300 font-normal">—</span>}
+                                <td className="px-2 py-1.5 text-right font-mono font-bold text-blue-700 whitespace-nowrap" style={{ fontSize: "13px" }}>
+                                  {row.hasCost ? (
+                                    editingCommRow === i ? (
+                                      <div className="flex items-center gap-1 justify-end">
+                                        <span className="text-slate-400 text-xs">₹</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          className="w-24 text-right border border-blue-400 rounded px-1 py-0.5 font-mono outline-none bg-white text-blue-800"
+                                          style={{ fontSize: "12px" }}
+                                          value={editCommValue}
+                                          onChange={e => setEditCommValue(e.target.value)}
+                                          autoFocus
+                                          onKeyDown={e => {
+                                            if (e.key === "Enter") {
+                                              const v = parseFloat(editCommValue);
+                                              if (!isNaN(v) && v >= 0) setCommOverrides(prev => ({ ...prev, [i]: v }));
+                                              setEditingCommRow(null);
+                                            }
+                                            if (e.key === "Escape") setEditingCommRow(null);
+                                          }}
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            const v = parseFloat(editCommValue);
+                                            if (!isNaN(v) && v >= 0) setCommOverrides(prev => ({ ...prev, [i]: v }));
+                                            setEditingCommRow(null);
+                                          }}
+                                          className="text-green-600 hover:text-green-800 p-0.5"
+                                          title="Save"
+                                        ><Check className="h-3 w-3" /></button>
+                                        <button
+                                          onClick={() => setEditingCommRow(null)}
+                                          className="text-red-400 hover:text-red-600 p-0.5"
+                                          title="Cancel"
+                                        ><X className="h-3 w-3" /></button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1 justify-end group">
+                                        <span className={commOverrides[i] != null ? "text-purple-700" : ""}>
+                                          ₹{(commOverrides[i] ?? row.commissionAmt).toLocaleString("en-IN")}
+                                          {commOverrides[i] != null && <span className="text-purple-400 text-xs ml-0.5">✎</span>}
+                                        </span>
+                                        {isAdmin && (
+                                          <button
+                                            onClick={() => {
+                                              setEditingCommRow(i);
+                                              setEditCommValue(String(commOverrides[i] ?? row.commissionAmt));
+                                            }}
+                                            className="opacity-0 group-hover:opacity-100 ml-0.5 text-slate-300 hover:text-blue-500 transition-opacity"
+                                            title="Edit commission"
+                                          ><Pencil className="h-3 w-3" /></button>
+                                        )}
+                                      </div>
+                                    )
+                                  ) : (
+                                    <span className="text-slate-300 font-normal">—</span>
+                                  )}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
-                          <tfoot className="bg-slate-100 border-t-2 border-slate-300" style={{ fontSize: "11px" }}>
+                          <tfoot className="bg-slate-100 border-t-2 border-slate-300" style={{ fontSize: "12px" }}>
                             <tr>
                               {/* Date Invoice Party Item Specs [Status Courier] Qty = 6 or 8 */}
                               <td colSpan={canSeeDetails ? 8 : 6} className="px-2 py-2 font-bold text-slate-700">TOTAL</td>
-                              <td className="px-2 py-2 text-right font-bold text-slate-800 font-mono whitespace-nowrap">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
+                              <td className="px-2 py-2 text-right font-bold text-slate-800 font-mono whitespace-nowrap" style={{ fontSize: "13px" }}>₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
                               {canSeeDetails && <td colSpan={3} className="px-2 py-2"></td>}
                               <td className="px-2 py-2 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
                               {canSeeDetails && <td className="px-2 py-2"></td>}
-                              <td className="px-2 py-2 text-right font-bold text-blue-700 font-mono whitespace-nowrap">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</td>
+                              <td className="px-2 py-2 text-right font-bold font-mono whitespace-nowrap" style={{ fontSize: "13px" }}>
+                                <span className={hasCommOverrides ? "text-purple-700" : "text-blue-700"}>
+                                  ₹{adjCommTotal.toLocaleString("en-IN")}
+                                </span>
+                                {hasCommOverrides && isAdmin && (
+                                  <button
+                                    onClick={() => setCommOverrides({})}
+                                    className="ml-1 text-xs text-slate-400 hover:text-red-500"
+                                    title="Reset all commission overrides"
+                                  >reset</button>
+                                )}
+                              </td>
                             </tr>
                             <tr className="bg-green-50 border-t border-green-200">
                               <td colSpan={canSeeDetails ? 14 : 8} className="px-2 py-2 font-bold text-slate-700">BONUS</td>
-                              <td className="px-2 py-2 text-right font-bold text-green-700 font-mono whitespace-nowrap">₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
+                              <td className="px-2 py-2 text-right font-bold text-green-700 font-mono whitespace-nowrap" style={{ fontSize: "13px" }}>₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-100 border-t border-green-300">
                               <td colSpan={canSeeDetails ? 14 : 8} className="px-2 py-2 font-bold text-green-800">TOTAL PAYABLE</td>
-                              <td className="px-2 py-2 text-right font-bold text-green-800 font-mono whitespace-nowrap text-sm">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</td>
+                              <td className="px-2 py-2 text-right font-bold font-mono whitespace-nowrap" style={{ fontSize: "14px" }}>
+                                <span className={hasCommOverrides ? "text-purple-800" : "text-green-800"}>
+                                  ₹{adjTotalPayable.toLocaleString("en-IN")}
+                                </span>
+                              </td>
                             </tr>
                           </tfoot>
                         </table>
