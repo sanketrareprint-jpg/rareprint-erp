@@ -179,6 +179,15 @@ export class CostTableService {
             effectiveTo: true,
           },
         },
+        rateSlabs: {
+          orderBy: { minQuantity: 'asc' },
+          select: {
+            id: true,
+            minQuantity: true,
+            maxQuantity: true,
+            rateAmount: true,
+          },
+        } as any,
       },
     });
   }

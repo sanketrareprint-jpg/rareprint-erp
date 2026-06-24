@@ -22,6 +22,13 @@ type CostSlab = {
   effectiveTo: string | null;
 };
 
+type RateSlab = {
+  id: string;
+  minQuantity: number;
+  maxQuantity: number | null;
+  rateAmount: number;
+};
+
 type Product = {
   id: string;
   sku: string;
@@ -32,6 +39,7 @@ type Product = {
   sides: string;
   category: { name: string };
   costSlabs: CostSlab[];
+  rateSlabs: RateSlab[];
 };
 
 type Settings = {
@@ -860,6 +868,7 @@ export default function CostTablePage() {
                                   <th className="text-left pb-2 font-medium">Max Qty</th>
                                   <th className="text-left pb-2 font-medium">Cost / Unit</th>
                                   <th className="text-left pb-2 font-medium">Setup Cost</th>
+                                  <th className="text-left pb-2 font-medium text-blue-600">Sale Rate</th>
                                   <th className="text-left pb-2 font-medium">Effective From</th>
                                   <th className="pb-2" />
                                 </tr>
@@ -885,6 +894,12 @@ export default function CostTablePage() {
                                           <input type="number" step="0.01" placeholder="0" value={editForm.setupCost ?? ""} onChange={e => setEditForm(f => ({ ...f, setupCost: e.target.value ? Number(e.target.value) : null }))}
                                             className="w-24 border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                                         </td>
+                                        <td className="py-1.5 pr-2 text-blue-600 text-xs font-medium">
+                                          {(() => {
+                                            const r = (product.rateSlabs ?? []).find(rs => rs.minQuantity <= slab.minQuantity && (rs.maxQuantity == null || rs.maxQuantity >= slab.minQuantity));
+                                            return r ? fmt(r.rateAmount) : <span className="text-gray-300">—</span>;
+                                          })()}
+                                        </td>
                                         <td className="py-1.5 pr-2 text-gray-400 text-xs">{new Date(slab.effectiveFrom).toLocaleDateString("en-IN")}</td>
                                         <td className="py-1.5">
                                           <div className="flex gap-1">
@@ -899,6 +914,12 @@ export default function CostTablePage() {
                                         <td className="py-2 pr-2 text-gray-600">{slab.maxQuantity ? slab.maxQuantity.toLocaleString("en-IN") : "∞"}</td>
                                         <td className="py-2 pr-2 font-semibold text-gray-900">{fmt(slab.unitPrice)}</td>
                                         <td className="py-2 pr-2 text-gray-500">{slab.setupCost ? fmt(slab.setupCost) : "—"}</td>
+                                        <td className="py-2 pr-2 font-semibold text-blue-600">
+                                          {(() => {
+                                            const r = (product.rateSlabs ?? []).find(rs => rs.minQuantity <= slab.minQuantity && (rs.maxQuantity == null || rs.maxQuantity >= slab.minQuantity));
+                                            return r ? fmt(r.rateAmount) : <span className="text-gray-300 font-normal">—</span>;
+                                          })()}
+                                        </td>
                                         <td className="py-2 pr-2 text-gray-400 text-xs">{new Date(slab.effectiveFrom).toLocaleDateString("en-IN")}</td>
                                         <td className="py-2">
                                           <div className="flex gap-1">
