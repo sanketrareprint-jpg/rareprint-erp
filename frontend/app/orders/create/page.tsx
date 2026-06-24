@@ -6,10 +6,10 @@ import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
+type Product = { id: string; name: string; sku: string; gsm: number; paperType?: string; sizeInches: string; sides: string; };
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
 type OfferCode = { id: string; code: string; description?: string; productIds: string[]; isActive: boolean };
-type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string>; offerCodeId?: string };
+type LineItem = { productId: string; sizeInches: string; gsm: number; paperType: string; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string>; offerCodeId?: string };
 type CustomerSearchRow = {
   id: string;
   businessName: string;
@@ -45,7 +45,7 @@ function fmt(n: number) {
 }
 
 function emptyLine(): LineItem {
-  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "", customFields: {}, offerCodeId: "" };
+  return { productId: "", sizeInches: "", gsm: 0, paperType: "", sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "", customFields: {}, offerCodeId: "" };
 }
 
 const S = {
@@ -164,6 +164,7 @@ export default function CreateOrderPage() {
         item.productId  = value;
         item.sizeInches = prod?.sizeInches ?? "";
         item.gsm        = prod?.gsm ?? 0;
+        item.paperType  = prod?.paperType ?? "";
         item.sides      = prod?.sides ?? "SINGLE_SIDE";
       } else if (field === "lineTotal" && typeof value === "number") {
         item.lineTotal  = value;
@@ -229,7 +230,7 @@ export default function CreateOrderPage() {
             quantity:        i.quantity,
             unitPrice:       i.unitPrice || (i.lineTotal / i.quantity),
             artworkNotes:    i.specialInstructions || undefined,
-            productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}, Sides: ${i.sides}`,
+            productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}${i.paperType ? `, Paper: ${i.paperType}` : ""}, Sides: ${i.sides}`,
             customFields:    i.customFields,
             offerCodeId:     i.offerCodeId || undefined,
           })),
@@ -424,7 +425,7 @@ export default function CreateOrderPage() {
                   <input
                     type="text"
                     placeholder="Search product..."
-                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM` : "")}
+                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
                     onFocus={() => { setProductSearch(s => ({ ...s, [idx]: "" })); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
                     onBlur={() => setTimeout(() => { setProductDropdownOpen(s => ({ ...s, [idx]: false })); setProductSearch(s => { const n = {...s}; delete n[idx]; return n; }); }, 200)}
@@ -448,7 +449,7 @@ export default function CreateOrderPage() {
                             onMouseEnter={e => (e.currentTarget.style.background = "#f0f9ff")}
                             onMouseLeave={e => (e.currentTarget.style.background = "white")}
                           >
-                            {p.name} | {p.sizeInches} | {p.gsm} GSM | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
+                            {p.name} | {p.sizeInches} | {p.gsm} GSM{p.paperType ? ` | ${p.paperType}` : ""} | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
                           </div>
                         ))}
                     </div>

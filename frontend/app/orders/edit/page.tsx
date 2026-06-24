@@ -5,8 +5,8 @@ import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-type Product = { id: string; name: string; sku: string; gsm: number; sizeInches: string; sides: string; };
-type LineItem = { productId: string; sizeInches: string; gsm: number; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
+type Product = { id: string; name: string; sku: string; gsm: number; paperType?: string; sizeInches: string; sides: string; };
+type LineItem = { productId: string; sizeInches: string; gsm: number; paperType: string; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; };
 const S = {
   input: { width: "100%", borderRadius: "6px", border: "1px solid #e2e8f0", padding: "6px 10px", fontSize: "12px", boxSizing: "border-box" as const, background: "white" },
   label: { display: "block", fontSize: "11px", fontWeight: 600, color: "#64748b", marginBottom: "3px", textTransform: "uppercase" as const, letterSpacing: "0.03em" },
@@ -62,6 +62,7 @@ function EditOrderPageInner() {
             productId: i.productId ?? "",
             sizeInches: i.sizeInches ?? "",
             gsm: i.gsm ?? 0,
+            paperType: i.paperType ?? "",
             sides: i.sides ?? "SINGLE_SIDE",
             quantity: i.quantity ?? 1,
             unitPrice: Number(i.unitPrice) ?? 0,
@@ -82,7 +83,7 @@ function EditOrderPageInner() {
       if (field === "lineTotal") next[idx].lineTotal = value;
       if (field === "productId") {
         const p = products.find(x => x.id === value);
-        if (p) { next[idx].sizeInches = p.sizeInches; next[idx].gsm = p.gsm; next[idx].sides = p.sides; }
+        if (p) { next[idx].sizeInches = p.sizeInches; next[idx].gsm = p.gsm; next[idx].paperType = p.paperType ?? ""; next[idx].sides = p.sides; }
       }
       return next;
     });
@@ -140,7 +141,7 @@ function EditOrderPageInner() {
               <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 80px 70px 90px 90px 100px 100px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
                 <div className="create-order-product-picker" style={{ position: "relative" }}>
                   <input type="text" placeholder="Search product..."
-                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM` : "")}
+                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
                     onFocus={() => { setProductSearch(s => ({ ...s, [idx]: "" })); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
                     onBlur={() => setTimeout(() => { setProductDropdownOpen(s => ({ ...s, [idx]: false })); setProductSearch(s => { const n = {...s}; delete n[idx]; return n; }); }, 200)}
@@ -152,7 +153,7 @@ function EditOrderPageInner() {
                           style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9" }}
                           onMouseEnter={e => (e.currentTarget.style.background = "#f0f9ff")}
                           onMouseLeave={e => (e.currentTarget.style.background = "white")}>
-                          {p.name} | {p.sizeInches} | {p.gsm} GSM | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
+                          {p.name} | {p.sizeInches} | {p.gsm} GSM{p.paperType ? ` | ${p.paperType}` : ""} | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
                         </div>
                       ))}
                     </div>

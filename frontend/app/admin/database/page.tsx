@@ -21,7 +21,7 @@ const TABLE_COLUMNS: Record<string, string[]> = {
   user: ["fullName","email","phone","passwordHash","role","isActive"],
   customer: ["businessName","contactPerson","phone","email","shippingAddress","billingAddress","gstNumber","panNumber","city","state","pincode"],
   productCategory: ["name","slug","description"],
-  product: ["sku","name","description","categoryId","gsm","sizeInches","openSizeInches","printingType","sides","weightPerUnitGrams","isActive"],
+  product: ["sku","name","description","categoryId","gsm","paperType","sizeInches","openSizeInches","printingType","sides","weightPerUnitGrams","isActive"],
   productCostSlab: ["productId","minQty","maxQty","unitCost","setupCost"],
   commissionRule: ["name","type","value","isActive"],
   paymentAccount: ["name","accountType","bankName","accountNumber","ifscCode","upiId","isActive"],
@@ -34,6 +34,7 @@ const TABLE_COLUMNS: Record<string, string[]> = {
 const PROTECTED = ["user", "order", "payment"];
 const PRINTING_TYPE_OPTIONS = ["OFFSET", "DIGITAL", "SCREEN", "FLEX"];
 const PRODUCT_SIDE_OPTIONS = ["SINGLE_SIDE", "DOUBLE_SIDE"];
+const PAPER_TYPE_OPTIONS = ["Bond", "Maplitho", "Art", "Ivory", "Kraft", "NCR", "PP", "Synthetic", "Other"];
 
 type ProductCategoryOption = {
   id: string;
@@ -314,6 +315,15 @@ export default function AdminDbPage() {
         <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
           <option value="">Select printing type</option>
           {PRINTING_TYPE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+      );
+    }
+
+    if (activeTable === "product" && col === "paperType") {
+      return (
+        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
+          <option value="">Select paper type</option>
+          {PAPER_TYPE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
         </select>
       );
     }
