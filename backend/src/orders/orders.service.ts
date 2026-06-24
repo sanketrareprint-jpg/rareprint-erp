@@ -238,6 +238,22 @@ export class OrdersService {
     return String(next);
   }
 
+  private async generateSampleNumber(): Promise<string> {
+    // Generate S-001, S-002, ... for sample orders — completely separate from invoice sequence.
+    const result = await this.prisma.$queryRaw<{ max: string | null }[]>`
+      SELECT MAX(CAST(NULLIF(REGEXP_REPLACE("orderNumber", '[^0-9]', '', 'g'), '') AS INTEGER))::text AS max
+      FROM "Order"
+      WHERE "isSample" = true
+        AND "orderNumber" ~ '^S-[0-9]+$'
+    `;
+    const maxNum = parseInt(result[0]?.max ?? '0', 10);
+    const next = (isNaN(maxNum) ? 0 : maxNum) + 1;
+    const candidate = `S-${String(next).padStart(3, '0')}`;
+    const exists = await this.prisma.order.findUnique({ where: { orderNumber: candidate } });
+    if (exists) return `S-${Date.now()}`;
+    return candidate;
+  }
+
   async findAllForTable(query: OrderListQuery = {}) {
     const { page, limit, skip } = paging(query);
     const mf = marginFilter(query);
@@ -424,7 +440,9 @@ export class OrdersService {
       }
     }
 
-    const orderNumber = await this.generateOrderNumber();
+    const orderNumber = (dto.isSample ?? false)
+      ? await this.generateSampleNumber()
+      : await this.generateOrderNumber();
 
     const shippingParts = [
       dto.customer.address,

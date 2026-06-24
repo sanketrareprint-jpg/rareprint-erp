@@ -84,7 +84,7 @@ export class CostTableService {
 
   private async profitRows(start: Date, end: Date) {
     const orders = await this.prisma.order.findMany({
-      where: { orderDate: { gte: start, lt: end }, status: { not: 'CANCELLED' as any } },
+      where: { orderDate: { gte: start, lt: end }, status: { not: 'CANCELLED' as any }, isSample: false },
       include: {
         salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } as any },
         items: {
@@ -646,6 +646,7 @@ export class CostTableService {
         salesAgentId: userId,
         status: { not: 'CANCELLED' as any },
         orderDate: { gte: from, lt: to },
+        isSample: false,
       },
       include: {
         salesAgent: { select: { id: true, fullName: true, salesAgentCategory: true } },
@@ -817,6 +818,7 @@ export class CostTableService {
           salesAgentId: userId,
           status: { not: 'CANCELLED' as any },
           orderDate: { gte: from, lt: to },
+          isSample: false,
         },
         orderBy: { orderDate: 'asc' },
         include: {
@@ -1012,6 +1014,7 @@ export class CostTableService {
       where: {
         status: { not: 'CANCELLED' as any },
         salesAgentId: { not: null },
+        isSample: false,
       },
       select: {
         salesAgentId: true,
