@@ -14,7 +14,7 @@ const ALLOWED_TABLES = [
 
 const STRING_FIELDS = [
   'phone','email','name','fullName','address','city','state','pincode','role','status',
-  'sku','description','sizeInches','sides','printingType','openSizeInches','passwordHash',
+  'sku','description','sizeInches','sides','printingType','openSizeInches','paperType','passwordHash',
   'notes','slug','type','category','unit','uom','businessName','contactName',
   'gstNumber','panNumber','ifscCode','accountNumber','bankName','accountType',
   'orderNumber','label','tag','code','title','prefix','color','remark','remarks',
