@@ -72,27 +72,18 @@ function dateKey(date: Date | string | null | undefined): string {
 }
 
 function buildImportKey(
-  row: Pick<
-    RawBankRow,
-    | 'txnDate'
-    | 'txnDateTime'
-    | 'valueDate'
-    | 'description'
-    | 'chequeNo'
-    | 'crDr'
-    | 'amount'
-    | 'balance'
-  >,
+  row: Pick<RawBankRow, 'srl' | 'txnDate' | 'crDr' | 'amount' | 'description'>,
 ): string {
+  // Stable key: uses only bank-assigned fields that never change across re-exports.
+  // Deliberately excludes `balance` (shifts when any earlier txn is corrected) and
+  // `txnDateTime` (often null in some exports, present in others → different hash
+  // for the same real transaction).
   const rawKey = [
-    dateKey(row.txnDateTime),
+    String(row.srl),
     dateKey(row.txnDate),
-    dateKey(row.valueDate),
-    normalizeText(row.description),
-    normalizeText(row.chequeNo),
     row.crDr,
     moneyKey(row.amount),
-    moneyKey(row.balance),
+    normalizeText(row.description),
   ].join('|');
 
   return createHash('sha256').update(rawKey).digest('hex');
@@ -190,33 +181,14 @@ export class BankStatementService {
 
     // Application-level dedup. Running balance is not unique: a debit followed by
     // a credit can return to the same balance, so use the full row fingerprint.
+    // Read stored importKeys directly — never recompute from stored fields,
+    // because Prisma/Postgres datetime normalization can produce a different
+    // hash than what was originally stored.
     const existing = await this.prisma.bankTransaction.findMany({
       where: { accountNumber },
-      select: {
-        txnDate: true,
-        txnDateTime: true,
-        valueDate: true,
-        description: true,
-        chequeNo: true,
-        crDr: true,
-        amount: true,
-        balance: true,
-      },
+      select: { importKey: true },
     });
-    const existingImportKeys = new Set(
-      existing.map((r) =>
-        buildImportKey({
-          txnDate: r.txnDate,
-          txnDateTime: r.txnDateTime,
-          valueDate: r.valueDate,
-          description: r.description,
-          chequeNo: r.chequeNo ?? '',
-          crDr: r.crDr,
-          amount: Number(r.amount),
-          balance: Number(r.balance),
-        }),
-      ),
-    );
+    const existingImportKeys = new Set(existing.map((r) => r.importKey));
     const rowsSeenInFile = new Set<string>();
     const newRows = rows.filter((r) => {
       const importKey = buildImportKey(r);
