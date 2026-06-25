@@ -726,6 +726,118 @@ function DepartmentSection({
   );
 }
 
+// ─── Production Section Grouping ─────────────────────────────────────────────
+
+const PROD_SECTIONS = [
+  { key: "Unassigned",  label: "📋 Unassigned",  color: "#94a3b8", categories: ["Unassigned Jobs"] },
+  { key: "Inhouse",     label: "🏭 Inhouse",      color: "#6366f1", categories: ["Inhouse Printing", "Delayed Printing", "Inhouse Processing"] },
+  { key: "Clubbing",    label: "🤝 Clubbing",     color: "#8b5cf6", categories: ["Clubbing — Assign Vendor", "Clubbing — Vendor Follow-up"] },
+  { key: "Sheets",      label: "📄 Sheets",       color: "#0ea5e9", categories: ["Sheet Production", "Sheet Processing Follow-up"] },
+  { key: "Overdue",     label: "⚠️ Overdue",      color: "#ef4444", categories: ["Overdue Orders"] },
+] as const;
+
+// Within each section, categories appear in workflow order
+const CATEGORY_STAGE_IDX: Record<string, number> = {
+  "Unassigned Jobs": 0,
+  "Inhouse Printing": 0,
+  "Delayed Printing": 1,
+  "Inhouse Processing": 2,
+  "Clubbing — Assign Vendor": 0,
+  "Clubbing — Vendor Follow-up": 1,
+  "Sheet Production": 0,
+  "Sheet Processing Follow-up": 1,
+  "Overdue Orders": 0,
+};
+
+function ProductionGroupedView({
+  items, onNavigate, tags, cardTags, onTagChange, taskActions, onTaskAction,
+}: {
+  items: ActionItem[];
+  onNavigate: (url: string) => void;
+  tags: VirtualCeoTag[];
+  cardTags: Record<string, string>;
+  onTagChange: (itemId: string, tagId: string) => void;
+  taskActions: Record<string, string>;
+  onTaskAction: (itemId: string, action: "updated" | null) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+        <CheckCircle2 size={24} color="#10b981" style={{ marginBottom: 6 }} />
+        <div style={{ fontWeight: 600 }}>Production</div>
+        <div>All clear! ✅</div>
+      </div>
+    );
+  }
+
+  // Build section → sorted items map
+  const sectionMap = new Map<string, ActionItem[]>();
+  for (const s of PROD_SECTIONS) sectionMap.set(s.key, []);
+
+  for (const item of items) {
+    const sec = PROD_SECTIONS.find(s => s.categories.includes(item.category as never));
+    const key = sec?.key ?? "Other";
+    if (!sectionMap.has(key)) sectionMap.set(key, []);
+    sectionMap.get(key)!.push(item);
+  }
+
+  // Sort each section: HIGH priority first within same stage, then by stage idx
+  for (const [, sItems] of sectionMap) {
+    sItems.sort((a, b) => {
+      const stageA = CATEGORY_STAGE_IDX[a.category] ?? 99;
+      const stageB = CATEGORY_STAGE_IDX[b.category] ?? 99;
+      if (stageA !== stageB) return stageA - stageB;
+      const PRIO = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+      return PRIO[a.priority] - PRIO[b.priority];
+    });
+  }
+
+  const totalHigh   = items.filter(i => i.priority === "HIGH").length;
+  const totalMedium = items.filter(i => i.priority === "MEDIUM").length;
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      {/* Section header */}
+      <div style={{ background: "#8b5cf610", borderBottom: "2px solid #8b5cf630", padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
+        <Factory size={20} color="#8b5cf6" />
+        <span style={{ fontWeight: 700, fontSize: 15, color: "#1e293b", flex: 1 }}>Production</span>
+        <div style={{ display: "flex", gap: 6 }}>
+          {totalHigh   > 0 && <span style={{ background: "#ef4444", color: "#fff", padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{totalHigh} urgent</span>}
+          {totalMedium > 0 && <span style={{ background: "#f59e0b", color: "#fff", padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{totalMedium} medium</span>}
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 14px" }}>
+        {PROD_SECTIONS.map(sec => {
+          const secItems = sectionMap.get(sec.key) ?? [];
+          if (secItems.length === 0) return null;
+          const secHigh = secItems.filter(i => i.priority === "HIGH").length;
+          return (
+            <div key={sec.key} style={{ marginBottom: 16 }}>
+              {/* Sub-section header */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 10px", borderRadius: 8, marginBottom: 8,
+                background: sec.color + "12", borderLeft: `3px solid ${sec.color}`,
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: sec.color, flex: 1 }}>{sec.label}</span>
+                {secHigh > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: "#ef4444", color: "#fff", padding: "1px 6px", borderRadius: 99 }}>{secHigh} urgent</span>}
+                <span style={{ fontSize: 10, color: "#94a3b8" }}>{secItems.length} item{secItems.length > 1 ? "s" : ""}</span>
+              </div>
+              {secItems.map(item => (
+                <ActionCard key={item.id} item={item} onNavigate={onNavigate} tags={tags}
+                  selectedTagId={cardTags[item.id]} onTagChange={onTagChange}
+                  taskAction={taskActions[item.id]} onTaskAction={onTaskAction}
+                />
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SummaryCard({ label, value, color, icon: Icon }: { label: string; value: number; color: string; icon: React.ElementType }) {
   return (
     <div style={{ background: "#fff", border: `1px solid ${color}30`, borderTop: `4px solid ${color}`, borderRadius: 10, padding: "16px 18px", flex: 1, minWidth: 120, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
@@ -1046,16 +1158,21 @@ export default function VirtualCeoPage() {
         {tab === "daily" && (
           <div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))", gap: 16 }}>
-              {(["ACCOUNTS", "PRODUCTION", "DISPATCH", "STOCK"] as const).map(dept => {
-                const cfg = DEPT_CONFIG[dept];
-                const deptItems = allItems.filter(i => i.department === dept);
-                return (
-                  <DepartmentSection key={dept} title={cfg.label} icon={cfg.icon} color={cfg.color}
-                    items={deptItems} onNavigate={navigate} tags={tags} cardTags={cardTags}
-                    onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
-                  />
-                );
-              })}
+              <DepartmentSection title="Accounts" icon={DEPT_CONFIG.ACCOUNTS.icon} color={DEPT_CONFIG.ACCOUNTS.color}
+                items={report.accounts} onNavigate={navigate} tags={tags} cardTags={cardTags}
+                onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
+              />
+              <ProductionGroupedView items={report.production} onNavigate={navigate} tags={tags}
+                cardTags={cardTags} onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
+              />
+              <DepartmentSection title="Dispatch" icon={DEPT_CONFIG.DISPATCH.icon} color={DEPT_CONFIG.DISPATCH.color}
+                items={report.dispatch} onNavigate={navigate} tags={tags} cardTags={cardTags}
+                onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
+              />
+              <DepartmentSection title="Stock & Costs" icon={DEPT_CONFIG.STOCK.icon} color={DEPT_CONFIG.STOCK.color}
+                items={report.stock} onNavigate={navigate} tags={tags} cardTags={cardTags}
+                onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
+              />
             </div>
 
             {/* Industry Standard Reports */}
@@ -1113,9 +1230,8 @@ export default function VirtualCeoPage() {
           />
         )}
         {tab === "production" && (
-          <DepartmentSection title="Production" icon={DEPT_CONFIG.PRODUCTION.icon} color={DEPT_CONFIG.PRODUCTION.color}
-            items={report.production} onNavigate={navigate} tags={tags} cardTags={cardTags}
-            onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
+          <ProductionGroupedView items={report.production} onNavigate={navigate} tags={tags}
+            cardTags={cardTags} onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
           />
         )}
         {tab === "dispatch" && (
