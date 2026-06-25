@@ -220,7 +220,7 @@ type CodForm = {
   courierOrderId: string;
 };
 
-type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "sample" | "receipts" | "receipt_history" | "vendors" | "commission";
+type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors" | "commission";
 
 type SampleOrder = {
   id: string;
@@ -230,6 +230,7 @@ type SampleOrder = {
   paymentStatus: string;
   grandTotal: number;
   createdAt: string;
+  notes?: string | null;
   customer: { businessName: string; phone?: string; address?: string; city?: string; state?: string; pincode?: string };
   salesAgentName: string | null;
   itemCount: number;
@@ -338,6 +339,7 @@ export default function AccountsPage() {
   const [samplePaymentChoice, setSamplePaymentChoice] = useState<Record<string, boolean>>({});
   const [sampleRejectId, setSampleRejectId] = useState<string | null>(null);
   const [sampleRejectReason, setSampleRejectReason] = useState("");
+  const [sampleTrackingInputs, setSampleTrackingInputs] = useState<Record<string, string>>({});
 
   // Pending payment receipts
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
@@ -568,10 +570,27 @@ export default function AccountsPage() {
     } finally { setSampleProcessing(null); }
   }, []);
 
+  const dispatchSampleOrder = useCallback(async (orderId: string, trackingNumber?: string) => {
+    setSampleProcessing(orderId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${orderId}/dispatch-sample`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ trackingNumber: trackingNumber || undefined }),
+      });
+      if (res.ok) {
+        setSampleOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "DISPATCHED", notes: trackingNumber ? `Tracking: ${trackingNumber}` : o.notes } : o));
+        setSampleTrackingInputs(prev => { const n = { ...prev }; delete n[orderId]; return n; });
+      } else {
+        const b = await res.json();
+        alert(b.message || "Dispatch failed");
+      }
+    } finally { setSampleProcessing(null); }
+  }, []);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "accounting") void loadAccounting(); }, [tab, loadAccounting]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
-  useEffect(() => { if (tab === "sample") void loadSampleOrders(); }, [tab, loadSampleOrders]);
   useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
   useEffect(() => { if (tab === "outstanding") { void loadOutstanding(); void loadCourierStatus(); } }, [tab, loadOutstanding, loadCourierStatus]);
 
@@ -1163,7 +1182,6 @@ await loadHistory();
             <div className="flex flex-wrap gap-0">
               {([
                 { key: "pending", label: "Order Approval", count: orders.length },
-                { key: "sample", label: "Sample Kit", count: sampleOrders.filter(o => o.status === "PENDING_APPROVAL").length },
                 { key: "accounting", label: "Billing & GST", count: salesInvoices.length + purchaseBills.length },
                 { key: "outstanding", label: "Customer Outstanding", count: outstanding.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
@@ -1843,7 +1861,7 @@ await loadHistory();
 
           {/* ── SAMPLE KIT TAB ── */}
           {tab === "sample" && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* Reject modal */}
               {sampleRejectId && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -1878,11 +1896,12 @@ await loadHistory();
                 </div>
               ) : (
                 <>
+                  {/* ── SECTION 1: PENDING APPROVAL ── */}
                   {sampleOrders.filter(o => o.status === "PENDING_APPROVAL").length > 0 && (
                     <div>
                       <h3 className="text-sm font-bold text-amber-700 uppercase tracking-wide mb-3 flex items-center gap-2">
                         <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
-                        Pending Accounts Approval
+                        Pending Accounts Approval ({sampleOrders.filter(o => o.status === "PENDING_APPROVAL").length})
                       </h3>
                       <div className="space-y-3">
                         {sampleOrders.filter(o => o.status === "PENDING_APPROVAL").map(o => (
@@ -1892,10 +1911,11 @@ await loadHistory();
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="text-xs font-bold bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">📦 SAMPLE KIT</span>
                                   <span className="font-bold text-slate-800">{o.orderNumber}</span>
+                                  <span className="text-xs text-slate-400">{new Date(o.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</span>
                                 </div>
                                 <p className="text-sm font-semibold text-slate-700">{o.customer.businessName}</p>
                                 <p className="text-xs text-slate-500">{o.customer.phone} · {o.salesAgentName ?? "—"}</p>
-                                <p className="text-xs text-slate-500 mt-1">{[o.customer.address, o.customer.city, o.customer.state, o.customer.pincode].filter(Boolean).join(", ")}</p>
+                                <p className="text-xs text-slate-500 mt-0.5">{[o.customer.address, o.customer.city, o.customer.state, o.customer.pincode].filter(Boolean).join(", ")}</p>
                                 <div className="flex flex-wrap gap-1 mt-2">
                                   {o.items.map((item, idx) => (
                                     <span key={idx} className="text-xs bg-white border border-amber-200 text-slate-600 px-2 py-0.5 rounded-full">
@@ -1915,12 +1935,12 @@ await loadHistory();
                                 <button
                                   onClick={() => setSamplePaymentChoice(prev => ({ ...prev, [o.id]: true }))}
                                   className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold border-2 transition-colors ${samplePaymentChoice[o.id] === true || (samplePaymentChoice[o.id] === undefined && o.totalPaid > 0) ? "border-green-500 bg-green-50 text-green-700" : "border-slate-200 bg-white text-slate-500"}`}>
-                                  ✅ Payment Received → PREPAID
+                                  ✅ PREPAID
                                 </button>
                                 <button
                                   onClick={() => setSamplePaymentChoice(prev => ({ ...prev, [o.id]: false }))}
                                   className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold border-2 transition-colors ${samplePaymentChoice[o.id] === false || (samplePaymentChoice[o.id] === undefined && o.totalPaid === 0) ? "border-orange-400 bg-orange-50 text-orange-700" : "border-slate-200 bg-white text-slate-500"}`}>
-                                  💵 No Payment → COD
+                                  💵 COD
                                 </button>
                               </div>
                             </div>
@@ -1930,7 +1950,7 @@ await loadHistory();
                                 disabled={sampleProcessing === o.id}
                                 className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50">
                                 {sampleProcessing === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
-                                Approve & Send to Dispatch
+                                Approve → Ready for Dispatch
                               </button>
                               <button
                                 onClick={() => setSampleRejectId(o.id)}
@@ -1944,27 +1964,91 @@ await loadHistory();
                       </div>
                     </div>
                   )}
-                  {sampleOrders.filter(o => o.status !== "PENDING_APPROVAL").length > 0 && (
+
+                  {/* ── SECTION 2: READY FOR DISPATCH ── */}
+                  {sampleOrders.filter(o => o.status === "READY_FOR_DISPATCH" || o.status === "APPROVED").length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-bold text-blue-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
+                        Ready for Dispatch ({sampleOrders.filter(o => o.status === "READY_FOR_DISPATCH" || o.status === "APPROVED").length})
+                      </h3>
+                      <div className="space-y-3">
+                        {sampleOrders.filter(o => o.status === "READY_FOR_DISPATCH" || o.status === "APPROVED").map(o => (
+                          <div key={o.id} className="rounded-xl border-2 border-blue-200 bg-blue-50 p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${o.samplePaymentType === "PREPAID" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
+                                    {o.samplePaymentType === "PREPAID" ? "✅ PREPAID" : "💵 COD"}
+                                  </span>
+                                  <span className="font-bold text-slate-800">{o.orderNumber}</span>
+                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">📦 SAMPLE KIT</span>
+                                </div>
+                                <p className="text-sm font-semibold text-slate-700">{o.customer.businessName}</p>
+                                <p className="text-xs text-slate-500">{o.customer.phone} · {o.salesAgentName ?? "—"}</p>
+                                <p className="text-xs text-slate-600 font-medium mt-0.5">📍 {[o.customer.address, o.customer.city, o.customer.state, o.customer.pincode].filter(Boolean).join(", ")}</p>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {o.items.map((item, idx) => (
+                                    <span key={idx} className="text-xs bg-white border border-blue-200 text-slate-600 px-2 py-0.5 rounded-full">
+                                      {item.productName} × {item.quantity}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-lg font-bold text-slate-800">₹{o.grandTotal.toLocaleString("en-IN")}</p>
+                                <p className="text-xs text-slate-500">{o.totalPaid > 0 ? `₹${o.totalPaid.toLocaleString("en-IN")} paid` : "No payment received"}</p>
+                              </div>
+                            </div>
+                            <div className="mt-4 flex gap-2">
+                              <input
+                                type="text"
+                                placeholder="Tracking / AWB number (optional)"
+                                value={sampleTrackingInputs[o.id] ?? ""}
+                                onChange={e => setSampleTrackingInputs(prev => ({ ...prev, [o.id]: e.target.value }))}
+                                className="flex-1 border border-blue-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                              <button
+                                onClick={() => dispatchSampleOrder(o.id, sampleTrackingInputs[o.id])}
+                                disabled={sampleProcessing === o.id}
+                                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+                                {sampleProcessing === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                                Mark Dispatched
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── SECTION 3: DISPATCHED HISTORY ── */}
+                  {sampleOrders.filter(o => o.status === "DISPATCHED").length > 0 && (
                     <div>
                       <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
                         <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
-                        Approved / Dispatched
+                        Dispatched ({sampleOrders.filter(o => o.status === "DISPATCHED").length})
                       </h3>
                       <div className="space-y-2">
-                        {sampleOrders.filter(o => o.status !== "PENDING_APPROVAL").map(o => (
-                          <div key={o.id} className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${o.samplePaymentType === "PREPAID" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
-                                {o.samplePaymentType === "PREPAID" ? "✅ PREPAID" : "💵 COD"}
-                              </span>
-                              <div>
-                                <p className="font-semibold text-slate-800 text-sm">{o.orderNumber} · {o.customer.businessName}</p>
-                                <p className="text-xs text-slate-500">{o.items.map(i => `${i.productName} ×${i.quantity}`).join(", ")}</p>
+                        {sampleOrders.filter(o => o.status === "DISPATCHED").map(o => (
+                          <div key={o.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${o.samplePaymentType === "PREPAID" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
+                                  {o.samplePaymentType === "PREPAID" ? "✅ PREPAID" : "💵 COD"}
+                                </span>
+                                <div>
+                                  <p className="font-semibold text-slate-800 text-sm">{o.orderNumber} · {o.customer.businessName}</p>
+                                  <p className="text-xs text-slate-500">{o.items.map(i => `${i.productName} ×${i.quantity}`).join(", ")}</p>
+                                  {o.notes && o.notes.startsWith("Tracking:") && (
+                                    <p className="text-xs text-blue-600 font-medium mt-0.5">🚚 {o.notes}</p>
+                                  )}
+                                </div>
                               </div>
+                              <span className="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                                ✅ Dispatched
+                              </span>
                             </div>
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${o.status === "DISPATCHED" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
-                              {o.status === "DISPATCHED" ? "Dispatched" : "Ready for Dispatch"}
-                            </span>
                           </div>
                         ))}
                       </div>

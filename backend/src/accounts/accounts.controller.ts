@@ -186,6 +186,15 @@ export class AccountsController {
     return this.accountsService.rejectSampleOrder(id, reason);
   }
 
+  @Patch(':id/dispatch-sample')
+  dispatchSampleOrder(
+    @Param('id') id: string,
+    @Body('trackingNumber') trackingNumber: string | undefined,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.dispatchSampleOrder(id, trackingNumber, req.user as any);
+  }
+
   @Patch(':id/reject-dispatch')
   rejectDispatch(@Param('id') id: string, @Body('reason') reason: string) {
     return this.accountsService.rejectDispatch(id, reason);

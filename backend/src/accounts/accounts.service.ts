@@ -1558,7 +1558,7 @@ export class AccountsService {
     const orders = await (this.prisma.order as any).findMany({
       where: {
         isSample: true,
-        status: { in: [OrderStatus.PENDING_APPROVAL, OrderStatus.READY_FOR_DISPATCH, OrderStatus.DISPATCHED] },
+        status: { in: [OrderStatus.PENDING_APPROVAL, OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION, OrderStatus.READY_FOR_DISPATCH, OrderStatus.DISPATCHED] },
       },
       include: {
         customer: { select: { businessName: true, phone: true, billingAddress: true, city: true, state: true, pincode: true } },
@@ -1577,6 +1577,7 @@ export class AccountsService {
       paymentStatus: o.paymentStatus,
       grandTotal: Number(o.grandTotal),
       createdAt: o.createdAt,
+      notes: o.notes ?? null,
       customer: {
         businessName: o.customer?.businessName,
         phone: o.customer?.phone,
@@ -1654,6 +1655,32 @@ export class AccountsService {
           toStatus: OrderStatus.CANCELLED,
           changedById: 'system',
           reason: reason || 'Sample order rejected by accounts',
+        },
+      });
+      return updated;
+    });
+  }
+
+  async dispatchSampleOrder(orderId: string, trackingNumber: string | undefined, user: AccountsUser) {
+    assertAccountsUser(user);
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!(order as any).isSample) throw new BadRequestException('Not a sample order');
+    if (order.status !== OrderStatus.READY_FOR_DISPATCH) {
+      throw new BadRequestException('Order must be in READY_FOR_DISPATCH status to dispatch');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.DISPATCHED, notes: trackingNumber ? `Tracking: ${trackingNumber}` : order.notes } as any,
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: OrderStatus.READY_FOR_DISPATCH,
+          toStatus: OrderStatus.DISPATCHED,
+          changedById: user.id,
+          reason: trackingNumber ? `Sample kit dispatched — tracking: ${trackingNumber}` : 'Sample kit dispatched',
         },
       });
       return updated;

@@ -525,7 +525,8 @@ export class OrdersService {
           customerId: customer.id,
           salesAgentId,
           leadSource: dto.leadSource ?? null,
-          status: OrderStatus.PENDING_APPROVAL,
+          // Sample kit orders skip accounts approval and go directly to dispatch
+          status: (dto.isSample ?? false) ? OrderStatus.READY_FOR_DISPATCH : OrderStatus.PENDING_APPROVAL,
           paymentStatus,
           subtotal,
           grandTotal,
@@ -534,9 +535,18 @@ export class OrdersService {
           shippingCharge: new Prisma.Decimal(0),
           notes: dto.notes,
           isSample: dto.isSample ?? false,
+          samplePaymentType: (dto.isSample ?? false) ? (advance > 0 ? 'PREPAID' : 'COD') : null,
           items: { create: itemsData },
         } as any,
       });
+
+      // For sample orders, mark all items as READY_FOR_DISPATCH immediately
+      if (dto.isSample ?? false) {
+        await tx.orderItem.updateMany({
+          where: { orderId: order.id },
+          data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH } as any,
+        });
+      }
 
       if (advance > 0 && dto.paymentAccountId) {
         await tx.payment.create({
@@ -550,13 +560,14 @@ export class OrdersService {
         });
       }
 
+      const toStatus = (dto.isSample ?? false) ? OrderStatus.READY_FOR_DISPATCH : OrderStatus.PENDING_APPROVAL;
       await tx.statusLog.create({
         data: {
           orderId: order.id,
           fromStatus: null,
-          toStatus: OrderStatus.PENDING_APPROVAL,
+          toStatus,
           changedById: salesAgentId,
-          reason: 'Order created; pending accounts',
+          reason: (dto.isSample ?? false) ? 'Sample kit order — sent directly to dispatch' : 'Order created; pending accounts',
         },
       });
 
