@@ -325,15 +325,26 @@ export class ClubbingSheetService {
     return this.prisma.jobWork.findMany({ where: { orderItemId }, include: { vendor: true }, orderBy: { createdAt: 'asc' } });
   }
 
-  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string }, userId?: string) {
+  private async generatePoNumber(): Promise<string> {
+    const result = await this.prisma.$queryRaw<{ max: string | null }[]>`
+      SELECT MAX(CAST("poNumber" AS INTEGER)) AS max FROM "JobWork"
+      WHERE "poNumber" ~ '^[0-9]+$'
+    `;
+    const lastNum = parseInt(result[0]?.max ?? '0', 10);
+    const next = (isNaN(lastNum) ? 0 : lastNum) + 1;
+    return String(next).padStart(4, '0');
+  }
+
+  async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string; dueDate?: string | null }, userId?: string) {
     const item = await this.prisma.orderItem.findUnique({
       where: { id: data.orderItemId },
       include: { order: { select: { id: true, status: true } } },
     });
     if (!item) throw new NotFoundException('Order item not found');
     const vendor = await this.prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { name: true } });
+    const poNumber = await this.generatePoNumber();
     const jobWork = await this.prisma.jobWork.create({
-      data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo },
+      data: { poNumber, orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null },
       include: { vendor: true },
     });
     await this.prisma.statusLog.create({
