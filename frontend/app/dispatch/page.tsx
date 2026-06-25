@@ -177,7 +177,15 @@ export default function DispatchPage() {
     fetch(`${API_BASE_URL}/dispatch/warehouses`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : [])
       .then((data: Warehouse[]) => {
-        if (Array.isArray(data) && data.length > 0) setWarehouses(data);
+        if (Array.isArray(data) && data.length > 0) {
+          // Put RAZA ENVELOP FACTORY 3 first as default pickup location
+          const sorted = [...data].sort((a, b) => {
+            const aIsRaza = a.name.toUpperCase().includes("RAZA") ? -1 : 0;
+            const bIsRaza = b.name.toUpperCase().includes("RAZA") ? -1 : 0;
+            return aIsRaza - bIsRaza;
+          });
+          setWarehouses(sorted);
+        }
       })
       .catch(() => {});
   }, []);
