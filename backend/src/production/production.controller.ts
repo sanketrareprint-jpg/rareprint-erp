@@ -21,6 +21,7 @@ class RolesGuard implements CanActivate {
 }
 import { ClubbingSheetService } from './clubbing-sheet.service';
 import { ProductionService } from './production.service';
+import { GmailDraftService } from './gmail-draft.service';
 
 type JwtUser = { id: string };
 
@@ -30,7 +31,16 @@ export class ProductionController {
   constructor(
     private readonly productionService: ProductionService,
     private readonly clubbingSheetService: ClubbingSheetService,
+    private readonly gmailDraftService: GmailDraftService,
   ) {}
+
+  // ── Gmail Draft ───────────────────────────────────────────────────────────
+  @Post('send-vendor-draft')
+  createVendorDraft(
+    @Body() body: { to: string; subject: string; body: string },
+  ) {
+    return this.gmailDraftService.createDraft(body.to, body.subject, body.body);
+  }
 
   // ── Inhouse ──────────────────────────────────────────────────────────────
   @Get('orders')

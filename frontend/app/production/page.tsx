@@ -412,6 +412,67 @@ export default function ProductionPage() {
   async function sendToVendor() {
     if (!sendDialog || !sendVendorId) { alert("Please select a vendor"); return; }
     setSendingSend(true);
+
+    // ── Build URLs BEFORE any await so browser allows window.open ────────────
+    const selectedVendor = vendorsData.find(v => v.id === sendVendorId);
+    const vendorName = selectedVendor?.name ?? "Vendor";
+    const vendorEmail = selectedVendor?.email ?? "";
+    const { size, gsm, sides, quantity, productName, orderNo, customerName, orderDate } = sendDialog;
+    const sidesLabel = sides === "SINGLE_SIDE" ? "Single Side" : sides === "DOUBLE_SIDE" ? "Double Side" : (sides ?? "—");
+    const dueDateStr = sendDueDate ? new Date(sendDueDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "Not specified";
+    const subject = `Job Work Order — Order #${orderNo} | ${productName}`;
+    const emailBody = [
+      `Dear ${vendorName},`,
+      ``,
+      `Please find below the job work details for Order #${orderNo}:`,
+      ``,
+      `Customer       : ${customerName ?? "—"}`,
+      `Order Date     : ${orderDate ? new Date(orderDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}`,
+      ``,
+      `────────────────────────────────`,
+      `Product        : ${productName}`,
+      `Size           : ${size ?? "—"}`,
+      `GSM            : ${gsm ?? "—"}`,
+      `Sides          : ${sidesLabel}`,
+      `Quantity       : ${quantity ?? "—"}`,
+      `────────────────────────────────`,
+      ``,
+      `Description    : ${sendDesc || "Job Work"}`,
+      `Schedule Date  : ${dueDateStr}`,
+      ``,
+      `Kindly confirm receipt and expected delivery date.`,
+      ``,
+      `Regards,`,
+      `Rareprint Team`,
+      `purchase.rareprint@gmail.com`,
+    ].join("\n");
+
+    const rawPhone = (selectedVendor?.phone ?? "").replace(/\D/g, "");
+    const waPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+    const waText = [
+      `*Job Work Order — #${orderNo}*`,
+      ``,
+      `Dear ${vendorName},`,
+      `Please find below the job work details:`,
+      ``,
+      `*Customer:* ${customerName ?? "—"}`,
+      `*Product:* ${productName}`,
+      `*Size:* ${size ?? "—"}`,
+      `*GSM:* ${gsm ?? "—"}`,
+      `*Sides:* ${sidesLabel}`,
+      `*Qty:* ${quantity ?? "—"}`,
+      `*Description:* ${sendDesc || "Job Work"}`,
+      `*Schedule Date:* ${dueDateStr}`,
+      ``,
+      `Kindly confirm receipt. Thank you!`,
+      `— Rareprint`,
+    ].join("\n");
+
+    // Open WhatsApp NOW (synchronous, within user gesture — browser won't block)
+    if (waPhone.length >= 10) {
+      window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waText)}`, "_blank");
+    }
+
     try {
       const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
@@ -424,69 +485,17 @@ export default function ProductionPage() {
         body: JSON.stringify({ stage: "PRINTING" }),
       });
 
-      // ── Open Gmail draft with product details ──────────────────────────────
-      const selectedVendor = vendorsData.find(v => v.id === sendVendorId);
-      const vendorName = selectedVendor?.name ?? "Vendor";
-      const vendorEmail = selectedVendor?.email ?? "";
-      const { size, gsm, sides, quantity, productName, orderNo, customerName, orderDate } = sendDialog;
-      const sidesLabel = sides === "SINGLE_SIDE" ? "Single Side" : sides === "DOUBLE_SIDE" ? "Double Side" : (sides ?? "—");
-      const dueDateStr = sendDueDate ? new Date(sendDueDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "Not specified";
-      const subject = `Job Work Order — Order #${orderNo} | ${productName}`;
-      const body = [
-        `Dear ${vendorName},`,
-        ``,
-        `Please find below the job work details for Order #${orderNo}:`,
-        ``,
-        `Customer       : ${customerName ?? "—"}`,
-        `Order Date     : ${orderDate ? new Date(orderDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}`,
-        ``,
-        `────────────────────────────────`,
-        `Product        : ${productName}`,
-        `Size           : ${size ?? "—"}`,
-        `GSM            : ${gsm ?? "—"}`,
-        `Sides          : ${sidesLabel}`,
-        `Quantity       : ${quantity ?? "—"}`,
-        `────────────────────────────────`,
-        ``,
-        `Description    : ${sendDesc || "Job Work"}`,
-        `Schedule Date  : ${dueDateStr}`,
-        ``,
-        `Kindly confirm receipt and expected delivery date.`,
-        ``,
-        `Regards,`,
-        `Rareprint Team`,
-        `purchase.rareprint@gmail.com`,
-      ].join("\n");
-
-      // ── Gmail draft ───────────────────────────────────────────────────────
-      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(vendorEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      window.open(gmailUrl, "_blank");
-
-      // ── WhatsApp message ──────────────────────────────────────────────────
-      const rawPhone = (selectedVendor?.phone ?? "").replace(/\D/g, "");
-      const waPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
-      if (waPhone.length >= 10) {
-        const waText = [
-          `*Job Work Order — #${orderNo}*`,
-          ``,
-          `Dear ${vendorName},`,
-          `Please find below the job work details:`,
-          ``,
-          `*Customer:* ${customerName ?? "—"}`,
-          `*Product:* ${productName}`,
-          `*Size:* ${size ?? "—"}`,
-          `*GSM:* ${gsm ?? "—"}`,
-          `*Sides:* ${sidesLabel}`,
-          `*Qty:* ${quantity ?? "—"}`,
-          `*Description:* ${sendDesc || "Job Work"}`,
-          `*Schedule Date:* ${dueDateStr}`,
-          ``,
-          `Kindly confirm receipt. Thank you!`,
-          `— Rareprint`,
-        ].join("\n");
-        window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waText)}`, "_blank");
+      // Create Gmail draft via backend API (no popup needed)
+      if (vendorEmail) {
+        try {
+          await fetch(`${API_BASE_URL}/production/send-vendor-draft`, {
+            method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify({ to: vendorEmail, subject, body: emailBody }),
+          });
+        } catch {
+          console.warn("Gmail draft creation failed — continuing");
+        }
       }
-      // ─────────────────────────────────────────────────────────────────────
 
       setSendDialog(null); setSendVendorId(""); setSendDesc(""); setSendDueDate("");
       await loadAll(true);
