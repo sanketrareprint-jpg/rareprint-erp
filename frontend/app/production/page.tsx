@@ -46,7 +46,7 @@ type ProductionOrder = {
   status: string; productionStage: string;
   orderDate: string; notes?: string; items: OrderItem[];
 };
-type Vendor = { id: string; name: string; phone?: string; };
+type Vendor = { id: string; name: string; phone?: string; email?: string | null; };
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; dueDate?: string | null; completedAt?: string; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; size?: string | null; gsm?: string | null; sides?: string | null; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
@@ -182,7 +182,7 @@ export default function ProductionPage() {
   // Clubbing sub-tabs
   const [clubSubTab, setClubSubTab] = useState<"unassigned"|"in_progress"|"received">("unassigned");
   // Send dialog (assign vendor)
-  const [sendDialog, setSendDialog] = useState<{ itemId: string; productName: string; orderNo: string } | null>(null);
+  const [sendDialog, setSendDialog] = useState<{ itemId: string; productName: string; orderNo: string; size?: string | null; gsm?: string | null; sides?: string | null; quantity?: number; customerName?: string; orderDate?: string } | null>(null);
   const [sendVendorId, setSendVendorId] = useState("");
   const [sendDesc, setSendDesc] = useState("");
   const [sendDueDate, setSendDueDate] = useState("");
@@ -423,6 +423,71 @@ export default function ProductionPage() {
         method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ stage: "PRINTING" }),
       });
+
+      // ── Open Gmail draft with product details ──────────────────────────────
+      const selectedVendor = vendorsData.find(v => v.id === sendVendorId);
+      const vendorName = selectedVendor?.name ?? "Vendor";
+      const vendorEmail = selectedVendor?.email ?? "";
+      const { size, gsm, sides, quantity, productName, orderNo, customerName, orderDate } = sendDialog;
+      const sidesLabel = sides === "SINGLE_SIDE" ? "Single Side" : sides === "DOUBLE_SIDE" ? "Double Side" : (sides ?? "—");
+      const dueDateStr = sendDueDate ? new Date(sendDueDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "Not specified";
+      const subject = `Job Work Order — Order #${orderNo} | ${productName}`;
+      const body = [
+        `Dear ${vendorName},`,
+        ``,
+        `Please find below the job work details for Order #${orderNo}:`,
+        ``,
+        `Customer       : ${customerName ?? "—"}`,
+        `Order Date     : ${orderDate ? new Date(orderDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}`,
+        ``,
+        `────────────────────────────────`,
+        `Product        : ${productName}`,
+        `Size           : ${size ?? "—"}`,
+        `GSM            : ${gsm ?? "—"}`,
+        `Sides          : ${sidesLabel}`,
+        `Quantity       : ${quantity ?? "—"}`,
+        `────────────────────────────────`,
+        ``,
+        `Description    : ${sendDesc || "Job Work"}`,
+        `Schedule Date  : ${dueDateStr}`,
+        ``,
+        `Kindly confirm receipt and expected delivery date.`,
+        ``,
+        `Regards,`,
+        `Rareprint Team`,
+        `purchase.rareprint@gmail.com`,
+      ].join("\n");
+
+      // ── Gmail draft ───────────────────────────────────────────────────────
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(vendorEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.open(gmailUrl, "_blank");
+
+      // ── WhatsApp message ──────────────────────────────────────────────────
+      const rawPhone = (selectedVendor?.phone ?? "").replace(/\D/g, "");
+      const waPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+      if (waPhone.length >= 10) {
+        const waText = [
+          `*Job Work Order — #${orderNo}*`,
+          ``,
+          `Dear ${vendorName},`,
+          `Please find below the job work details:`,
+          ``,
+          `*Customer:* ${customerName ?? "—"}`,
+          `*Product:* ${productName}`,
+          `*Size:* ${size ?? "—"}`,
+          `*GSM:* ${gsm ?? "—"}`,
+          `*Sides:* ${sidesLabel}`,
+          `*Qty:* ${quantity ?? "—"}`,
+          `*Description:* ${sendDesc || "Job Work"}`,
+          `*Schedule Date:* ${dueDateStr}`,
+          ``,
+          `Kindly confirm receipt. Thank you!`,
+          `— Rareprint`,
+        ].join("\n");
+        window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waText)}`, "_blank");
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       setSendDialog(null); setSendVendorId(""); setSendDesc(""); setSendDueDate("");
       await loadAll(true);
     } finally { setSendingSend(false); }
@@ -1278,7 +1343,7 @@ export default function ProductionPage() {
                             <div className="mt-2 flex gap-2">
                               {clubSubTab === "unassigned" && (
                                 <>
-                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
+                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo, size: item.size, gsm: item.gsm, sides: item.sides, quantity: item.quantity, customerName: item.customerName, orderDate: item.orderDate }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
                                   <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="flex-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                                 </>
                               )}
@@ -1357,7 +1422,7 @@ export default function ProductionPage() {
                               <td className="px-3 py-2">
                                 {clubSubTab === "unassigned" && (
                                   <div className="flex gap-1">
-                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }}
+                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo, size: item.size, gsm: item.gsm, sides: item.sides, quantity: item.quantity, customerName: item.customerName, orderDate: item.orderDate }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }}
                                       className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
                                       Send →
                                     </button>
