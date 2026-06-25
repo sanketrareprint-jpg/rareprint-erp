@@ -41,6 +41,7 @@ model User {
   bankTxnReconciled         BankTransaction[]          @relation("BankTxnReconciledBy")
   commissionsVerified       CommissionVerification[]   @relation("CommVerifBy")
   commissionVerifications   CommissionVerification[]   @relation("CommVerifAgent")
+  activitySessions          UserActivitySession[]       @relation("UserActivitySessions")
 }
 
 model Customer {
@@ -1675,4 +1676,19 @@ enum InHouseStickerTxType {
   STOCK_IN // sheets added to stock
   USED // sheets consumed for in-house jobs
   ADJUSTMENT // manual correction
+}
+
+// ── User Activity Tracking ───────────────────────────────────────────────────
+model UserActivitySession {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("UserActivitySessions", fields: [userId], references: [id], onDelete: Cascade)
+  page          String   @default("/")
+  startedAt     DateTime @default(now())
+  lastPingAt    DateTime @default(now())
+  activeSeconds Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([startedAt])
 }

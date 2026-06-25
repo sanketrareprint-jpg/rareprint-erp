@@ -33,6 +33,7 @@ import { BankStatementModule } from './bank-statement/bank-statement.module';
 import { CarrierConfigModule } from './carrier-config/carrier-config.module';
 import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
 import { ErpConfigModule } from './erp-config/erp-config.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { ErpConfigModule } from './erp-config/erp-config.module';
     CarrierConfigModule,
     ErpConfigModule,
     VirtualCeoModule,
+    ActivityModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
