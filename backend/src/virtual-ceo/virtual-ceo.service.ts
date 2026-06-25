@@ -473,32 +473,30 @@ export class VirtualCeoService {
       });
     }
 
-    // 4. Orders with balance due (partially paid, approved/in-production)
-    const partialOrders = await this.prisma.order.findMany({
+    // 4. Orders ready for dispatch (production complete, awaiting shipment)
+    const readyForDispatch = await this.prisma.order.findMany({
       where: {
-        status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION, OrderStatus.READY_FOR_DISPATCH] },
-        paymentStatus: 'PARTIALLY_PAID',
+        productionStage: OrderProductionStage.READY_FOR_DISPATCH,
+        status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.IN_PRODUCTION, OrderStatus.APPROVED] },
+        shipments: { none: {} },
       },
-      include: {
-        customer: { select: { businessName: true } },
-        payments: { select: { amount: true } },
-      },
+      include: { customer: { select: { businessName: true } } },
       orderBy: { updatedAt: 'asc' },
-      take: 20,
+      take: 30,
     });
 
-    for (const o of partialOrders) {
-      const paid = o.payments.reduce((s, p) => s + Number(p.amount), 0);
-      const balance = Number(o.grandTotal) - paid;
+    for (const o of readyForDispatch) {
+      const days = ageDays(o.updatedAt);
       items.push({
-        id: `acc-balance-${o.id}`,
+        id: `acc-rfd-${o.id}`,
         department: 'ACCOUNTS',
-        priority: 'MEDIUM',
-        category: 'Balance Payment',
-        title: `Balance due on ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — ₹${balance.toLocaleString('en-IN')} outstanding of ₹${Number(o.grandTotal).toLocaleString('en-IN')}`,
+        priority: days > 2 ? 'HIGH' : 'MEDIUM',
+        category: 'Ready for Dispatch',
+        title: `Ready to dispatch — ${o.orderNumber}`,
+        detail: `${o.customer.businessName} — ready ${Math.round(days)}d, no shipment booked`,
         orderNo: o.orderNumber,
-        actionUrl: '/accounts',
+        ageDays: Math.round(days),
+        actionUrl: '/dispatch',
       });
     }
 
