@@ -595,8 +595,8 @@ function ActionCard({
       border: `1px solid ${cfg.color}33`,
       borderLeft: `4px solid ${cfg.color}`,
       borderRadius: 10,
-      padding: "12px 14px",
-      marginBottom: 8,
+      padding: "14px 16px",
+      marginBottom: 10,
     }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -711,7 +711,7 @@ function DepartmentSection({
           {low > 0    && <span style={{ background: "#10b981", color: "#fff", padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{low} low</span>}
         </div>
       </div>
-      <div style={{ padding: "12px 14px" }}>
+      <div style={{ padding: "14px 16px" }}>
         {(["HIGH", "MEDIUM", "LOW"] as const).flatMap(p =>
           items.filter(i => i.priority === p).map(item => (
             <ActionCard key={item.id} item={item} onNavigate={onNavigate} tags={tags}
@@ -806,21 +806,21 @@ function ProductionGroupedView({
         </div>
       </div>
 
-      <div style={{ padding: "12px 14px" }}>
+      <div style={{ padding: "16px 18px" }}>
         {PROD_SECTIONS.map(sec => {
           const secItems = sectionMap.get(sec.key) ?? [];
           if (secItems.length === 0) return null;
           const secHigh = secItems.filter(i => i.priority === "HIGH").length;
           return (
-            <div key={sec.key} style={{ marginBottom: 16 }}>
+            <div key={sec.key} style={{ marginBottom: 20 }}>
               {/* Sub-section header */}
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
-                padding: "6px 10px", borderRadius: 8, marginBottom: 8,
+                padding: "8px 12px", borderRadius: 8, marginBottom: 10,
                 background: sec.color + "12", borderLeft: `3px solid ${sec.color}`,
               }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: sec.color, flex: 1 }}>{sec.label}</span>
-                {secHigh > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: "#ef4444", color: "#fff", padding: "1px 6px", borderRadius: 99 }}>{secHigh} urgent</span>}
+                {secHigh > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: "#ef4444", color: "#fff", padding: "2px 7px", borderRadius: 99 }}>{secHigh} urgent</span>}
                 <span style={{ fontSize: 10, color: "#94a3b8" }}>{secItems.length} item{secItems.length > 1 ? "s" : ""}</span>
               </div>
               {secItems.map(item => (
@@ -1154,7 +1154,7 @@ export default function VirtualCeoPage() {
         {/* ── Daily Schedule Tab ── */}
         {tab === "daily" && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(520px, 1fr))", gap: 24 }}>
               <DepartmentSection title="Accounts" icon={DEPT_CONFIG.ACCOUNTS.icon} color={DEPT_CONFIG.ACCOUNTS.color}
                 items={report.accounts} onNavigate={navigate} tags={tags} cardTags={cardTags}
                 onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
