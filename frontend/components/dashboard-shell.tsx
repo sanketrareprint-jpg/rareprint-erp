@@ -8,9 +8,10 @@ import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
-  Lock, AlertTriangle,
+  Lock, AlertTriangle, Activity,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { useActivityTracker } from "@/lib/useActivityTracker";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
@@ -46,6 +47,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Bank Stmt",  href: "/bank-statement",   icon: Landmark },
     { label: "Settings",   href: "/settings",         icon: Settings },
     { label: "Virtual CEO", href: "/virtual-ceo",     icon: Bot },
+    { label: "Activity",   href: "/admin/activity",   icon: Activity },
   ],
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -147,6 +149,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const [user] = useState<StoredUser | null>(() => getStoredUser());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useActivityTracker(); // Track active time when cursor is moving
   const [coins, setCoins] = useState<number | null>(null);
   const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
   const [vceoLocked, setVceoLocked] = useState(false);
