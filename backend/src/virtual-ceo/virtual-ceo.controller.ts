@@ -23,6 +23,13 @@ export class VirtualCeoController {
     return { ok: true, message: 'WhatsApp report triggered' };
   }
 
+  /** GET /virtual-ceo/trigger-envelope-list — manual trigger of the daily Raza Envelope pending list */
+  @Get('trigger-envelope-list')
+  async triggerEnvelopeList() {
+    const result = await this.svc.sendDailyEnvelopeList();
+    return { ok: true, ...result };
+  }
+
   // ─── Review Tracking ──────────────────────────────────────────────────────
 
   /** GET /virtual-ceo/review-status — get today's review status + task actions */

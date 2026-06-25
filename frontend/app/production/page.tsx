@@ -322,6 +322,38 @@ export default function ProductionPage() {
     } catch {}
   }, []);
 
+  // Auto-default Raza Envelope as vendor for ENVELOPE items that have no vendor set
+  useEffect(() => {
+    if (!vendorsData.length || !sheetsData.length) return;
+    const razaVendor = vendorsData.find(v =>
+      v.name.toLowerCase().includes("raza")
+    );
+    if (!razaVendor) return;
+
+    const envelopeIds: string[] = [];
+    for (const sheet of sheetsData) {
+      if (sheet.status !== "PROCESSING" && sheet.status !== "DONE") continue;
+      for (const si of sheet.items ?? []) {
+        const name = (si.orderItem?.product?.name ?? "").toUpperCase();
+        if (name.includes("ENVELOPE")) {
+          envelopeIds.push(si.orderItem.id);
+        }
+      }
+    }
+    if (envelopeIds.length === 0) return;
+
+    setProcessingItemVendors(prev => {
+      const needsUpdate = envelopeIds.some(id => !prev[id]);
+      if (!needsUpdate) return prev;
+      const updated = { ...prev };
+      for (const id of envelopeIds) {
+        if (!updated[id]) updated[id] = razaVendor.id;
+      }
+      try { sessionStorage.setItem("procVendors", JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, [vendorsData, sheetsData]);
+
   async function updateItemStage(itemId: string, stage: ProductionStage) {
     setUpdatingItemId(itemId);
     try {

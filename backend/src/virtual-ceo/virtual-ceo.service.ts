@@ -775,7 +775,10 @@ export class VirtualCeoService {
       const followUpDate = (si as any).dueDate as Date | null ?? null;
       if (!isDueOrOverdueIST(followUpDate)) continue;
       const days = ageDays(si.sheet.updatedAt);
-      if (!followUpDate && days < 2) continue;
+      const isEnvelope = si.orderItem.product.name.toUpperCase().includes('ENVELOPE');
+      // ENVELOPE items are handled by the daily Raza Envelope WhatsApp — show in CEO report only after 3d
+      const minDays = isEnvelope ? 3 : 2;
+      if (!followUpDate && days < minDays) continue;
       const dueDateStr = followUpDate ? ` · Follow-up: ${followUpDate.toLocaleDateString('en-IN')}` : '';
       items.push({
         id: `prod-sheet-proc-${si.id}`,
@@ -1045,5 +1048,137 @@ export class VirtualCeoService {
     lines.push(`_Open the RarePrint ERP to take action ✅_`);
 
     return lines.join('\n');
+  }
+
+  // ─── Cron: Daily 9 AM IST — Envelope Pending List to Raza Envelope ───────────
+  @Cron('0 9 * * *', { timeZone: 'Asia/Kolkata' })
+  async sendDailyEnvelopeList() {
+    this.logger.log('Sending daily envelope pending list to Raza Envelope');
+    try {
+      // Find Raza Envelope vendor
+      const razaVendor = await this.prisma.vendor.findFirst({
+        where: { name: { contains: 'Raza', mode: 'insensitive' } },
+        select: { id: true, name: true, phone: true },
+      });
+
+      if (!razaVendor?.phone) {
+        this.logger.warn('Raza Envelope vendor not found or has no phone — skipping daily list');
+        return { sent: false, reason: 'vendor_not_found' };
+      }
+
+      // All PROCESSING sheets with their items
+      const sheets = await this.prisma.printSheet.findMany({
+        where: { status: SheetStatus.PROCESSING },
+        select: {
+          id: true,
+          sheetNo: true,
+          gsm: true,
+          sizeInches: true,
+          updatedAt: true,
+          items: {
+            select: {
+              id: true,
+              quantityOnSheet: true,
+              dueDate: true,
+              orderItem: {
+                select: {
+                  id: true,
+                  itemProductionStage: true,
+                  product: { select: { name: true } },
+                  order: {
+                    select: {
+                      orderNumber: true,
+                      customer: { select: { businessName: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Collect ENVELOPE items only (exclude items already READY_FOR_DISPATCH)
+      type EnvItem = {
+        sheetNo: string; gsm: number; sizeInches: string;
+        orderNo: string; customerName: string;
+        qty: number; dueDate: Date | null; daysInStage: number;
+      };
+      const envelopeItems: EnvItem[] = [];
+
+      for (const sheet of sheets) {
+        const daysInStage = Math.floor(
+          (Date.now() - new Date(sheet.updatedAt).getTime()) / 86_400_000,
+        );
+        for (const si of sheet.items) {
+          const productName = si.orderItem.product.name;
+          if (!productName.toUpperCase().includes('ENVELOPE')) continue;
+          if (si.orderItem.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH) continue;
+
+          envelopeItems.push({
+            sheetNo: sheet.sheetNo,
+            gsm: sheet.gsm,
+            sizeInches: sheet.sizeInches,
+            orderNo: si.orderItem.order.orderNumber,
+            customerName: si.orderItem.order.customer.businessName,
+            qty: si.quantityOnSheet,
+            dueDate: si.dueDate ?? null,
+            daysInStage,
+          });
+        }
+      }
+
+      if (envelopeItems.length === 0) {
+        this.logger.log('No pending envelope items — skipping WhatsApp');
+        return { sent: false, reason: 'no_items', razaPhone: razaVendor.phone };
+      }
+
+      // Build message
+      const dateStr = new Date().toLocaleDateString('en-IN', {
+        weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+        timeZone: 'Asia/Kolkata',
+      });
+
+      const lines: string[] = [
+        `📋 *Envelope Pending List*`,
+        `📅 ${dateStr}`,
+        ``,
+      ];
+
+      // Group by sheet
+      const bySheet = new Map<string, EnvItem[]>();
+      for (const item of envelopeItems) {
+        if (!bySheet.has(item.sheetNo)) bySheet.set(item.sheetNo, []);
+        bySheet.get(item.sheetNo)!.push(item);
+      }
+
+      for (const [sheetNo, items] of bySheet) {
+        const { gsm, sizeInches } = items[0];
+        lines.push(`*Sheet ${sheetNo} — ${gsm} GSM ${sizeInches}*`);
+        for (const item of items) {
+          const due = item.dueDate
+            ? new Date(item.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
+            : '—';
+          const age = item.daysInStage > 0 ? ` | ${item.daysInStage}d` : '';
+          lines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | Due: ${due}${age}`);
+        }
+        lines.push('');
+      }
+
+      lines.push(`Total: ${envelopeItems.length} envelope item(s) pending`);
+      lines.push(`Please confirm schedule 🙏`);
+
+      const message = lines.join('\n');
+      const ok = await this.whatsapp.sendTextMessage(razaVendor.phone, message);
+      this.logger.log(
+        ok
+          ? `✅ Envelope daily list sent to ${razaVendor.name} (${razaVendor.phone}): ${envelopeItems.length} items`
+          : `❌ Envelope daily list failed for ${razaVendor.phone}`,
+      );
+      return { sent: ok, itemCount: envelopeItems.length, razaPhone: razaVendor.phone };
+    } catch (err) {
+      this.logger.error('Envelope daily list error', err);
+      return { sent: false, reason: String(err) };
+    }
   }
 }
