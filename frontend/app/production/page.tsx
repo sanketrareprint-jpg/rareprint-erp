@@ -182,7 +182,7 @@ export default function ProductionPage() {
   // Clubbing sub-tabs
   const [clubSubTab, setClubSubTab] = useState<"unassigned"|"in_progress"|"received">("unassigned");
   // Send dialog (assign vendor)
-  const [sendDialog, setSendDialog] = useState<{ itemId: string; productName: string; orderNo: string; size?: string | null; gsm?: string | null; sides?: string | null; quantity?: number; customerName?: string; orderDate?: string } | null>(null);
+  const [sendDialog, setSendDialog] = useState<{ itemId: string; productName: string; orderNo: string; size?: string | null; gsm?: string | null; sides?: string | null; quantity?: number; customerName?: string; orderDate?: string; designFiles?: DesignFile[] } | null>(null);
   const [sendVendorId, setSendVendorId] = useState("");
   const [sendDesc, setSendDesc] = useState("");
   const [sendDueDate, setSendDueDate] = useState("");
@@ -468,33 +468,73 @@ export default function ProductionPage() {
       `— Rareprint`,
     ].join("\n");
 
-    // Open WhatsApp NOW (synchronous, within user gesture — browser won't block)
-    if (waPhone.length >= 10) {
-      window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waText)}`, "_blank");
-    }
-
     try {
-      const res = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
+      // Create job work — response includes auto-generated poNumber
+      const jwRes = await fetch(`${API_BASE_URL}/production/clubbing/jobworks`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ orderItemId: sendDialog.itemId, vendorId: sendVendorId, description: sendDesc || "Job Work", cost: 0, dueDate: sendDueDate || null }),
       });
-      if (!res.ok) { alert("Failed to send to vendor"); return; }
+      if (!jwRes.ok) { alert("Failed to send to vendor"); return; }
+      const jwData = await jwRes.json().catch(() => ({}));
+      const poNumber: string = jwData?.poNumber ?? orderNo;
+
       // Set item stage to PRINTING
       await fetch(`${API_BASE_URL}/production/items/${sendDialog.itemId}/stage`, {
         method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ stage: "PRINTING" }),
       });
 
-      // Create Gmail draft via backend API (no popup needed)
-      if (vendorEmail) {
-        try {
-          await fetch(`${API_BASE_URL}/production/send-vendor-draft`, {
-            method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify({ to: vendorEmail, subject, body: emailBody }),
-          });
-        } catch {
-          console.warn("Gmail draft creation failed — continuing");
-        }
+      // Gmail draft + WhatsApp via AiSensy — both handled by backend
+      try {
+        const capturedDesignFiles = sendDialog?.designFiles ?? [];
+        await fetch(`${API_BASE_URL}/production/send-vendor-draft`, {
+          method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: vendorEmail,
+            subject: `PO #${poNumber} — ${productName} | Order #${orderNo}`,
+            body: [
+              `Dear ${vendorName},`,
+              ``,
+              `Please find the Purchase Order details for PO #${poNumber}:`,
+              ``,
+              `Customer       : ${customerName ?? "—"}`,
+              `Order Date     : ${orderDate ? new Date(orderDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}`,
+              ``,
+              `────────────────────────────────`,
+              `PO Number      : ${poNumber}`,
+              `Order #        : ${orderNo}`,
+              `Product        : ${productName}`,
+              `Size           : ${size ?? "—"}`,
+              `GSM            : ${gsm ?? "—"}`,
+              `Sides          : ${sidesLabel}`,
+              `Quantity       : ${quantity ?? "—"}`,
+              `────────────────────────────────`,
+              ``,
+              `Description    : ${sendDesc || "Job Work"}`,
+              `Schedule Date  : ${dueDateStr}`,
+              capturedDesignFiles.length > 0 ? `\nDesign Files   : ${capturedDesignFiles.length} file(s) attached` : "",
+              ``,
+              `Kindly confirm receipt and expected delivery date.`,
+              ``,
+              `Regards,`,
+              `Rareprint Team`,
+              `purchase.rareprint@gmail.com`,
+            ].filter(l => l !== undefined).join("\n"),
+            vendorPhone: rawPhone,
+            vendorName,
+            orderNo,
+            poNumber,
+            productName,
+            size: size ?? "—",
+            gsm: gsm ?? "—",
+            sides: sidesLabel,
+            quantity: String(quantity ?? "—"),
+            scheduleDate: dueDateStr,
+            designFiles: capturedDesignFiles.map(f => ({ filename: f.filename, originalName: f.originalName })),
+          }),
+        });
+      } catch {
+        console.warn("Vendor notifications failed — continuing");
       }
 
       setSendDialog(null); setSendVendorId(""); setSendDesc(""); setSendDueDate("");
@@ -1352,7 +1392,7 @@ export default function ProductionPage() {
                             <div className="mt-2 flex gap-2">
                               {clubSubTab === "unassigned" && (
                                 <>
-                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo, size: item.size, gsm: item.gsm, sides: item.sides, quantity: item.quantity, customerName: item.customerName, orderDate: item.orderDate }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
+                                  <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo, size: item.size, gsm: item.gsm, sides: item.sides, quantity: item.quantity, customerName: item.customerName, orderDate: item.orderDate, designFiles: item.designFiles ?? [] }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }} className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white">Send</button>
                                   <button onClick={async () => { if (!confirm("Unassign from Clubbing?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="flex-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                                 </>
                               )}
@@ -1431,7 +1471,7 @@ export default function ProductionPage() {
                               <td className="px-3 py-2">
                                 {clubSubTab === "unassigned" && (
                                   <div className="flex gap-1">
-                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo, size: item.size, gsm: item.gsm, sides: item.sides, quantity: item.quantity, customerName: item.customerName, orderDate: item.orderDate }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }}
+                                    <button onClick={() => { setSendDialog({ itemId: item.id, productName: item.productName, orderNo: item.orderNo, size: item.size, gsm: item.gsm, sides: item.sides, quantity: item.quantity, customerName: item.customerName, orderDate: item.orderDate, designFiles: item.designFiles ?? [] }); setSendVendorId(""); setSendDesc(""); setSendDueDate(""); }}
                                       className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-1 text-xs font-semibold text-white hover:bg-orange-700">
                                       Send →
                                     </button>

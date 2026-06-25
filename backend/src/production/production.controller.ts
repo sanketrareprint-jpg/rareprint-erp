@@ -42,17 +42,23 @@ export class ProductionController {
     @Body() body: {
       to: string; subject: string; body: string;
       vendorPhone?: string; vendorName?: string;
-      orderNo?: string; productName?: string;
+      orderNo?: string; poNumber?: string; productName?: string;
       size?: string; gsm?: string; sides?: string;
       quantity?: string; scheduleDate?: string;
+      designFiles?: { filename: string; originalName: string }[];
     },
   ) {
     const results: Record<string, unknown> = {};
 
-    // Gmail draft
+    // Gmail draft with design file attachments
     if (body.to) {
       try {
-        results.gmail = await this.gmailDraftService.createDraft(body.to, body.subject, body.body);
+        results.gmail = await this.gmailDraftService.createDraft(
+          body.to,
+          body.subject,
+          body.body,
+          body.designFiles ?? [],
+        );
       } catch (e) {
         results.gmailError = String(e);
       }
@@ -68,7 +74,7 @@ export class ProductionController {
         size: body.size ?? '—',
         gsm: body.gsm ?? '—',
         sides: body.sides ?? '—',
-        poNumber: body.orderNo ?? '—',
+        poNumber: body.poNumber ?? body.orderNo ?? '—',
         quantity: body.quantity ?? '—',
         scheduleDate: body.scheduleDate ?? 'Not specified',
       });

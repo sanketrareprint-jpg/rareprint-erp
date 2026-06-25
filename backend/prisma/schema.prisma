@@ -218,6 +218,7 @@ model Vendor {
 // ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
 model JobWork {
   id              String        @id @default(cuid())
+  poNumber        String?       @unique // auto-generated e.g. JW-2025-001
   orderItemId     String
   vendorId        String
   description     String
