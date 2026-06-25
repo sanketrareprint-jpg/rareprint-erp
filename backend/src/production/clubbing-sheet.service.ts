@@ -233,6 +233,14 @@ export class ClubbingSheetService {
     return /^\d+$/.test(sheetNo) ? Number(sheetNo) : 0;
   }
 
+  /** Returns next sheet number continuing the shared 13XX series across manual + auto sheets */
+  private async nextSheetNo(tx?: Parameters<Parameters<typeof this.prisma.$transaction>[0]>[0]): Promise<string> {
+    const db = (tx ?? this.prisma) as typeof this.prisma;
+    const sheets = await db.printSheet.findMany({ select: { sheetNo: true } });
+    const max = Math.max(1299, ...sheets.map(s => this.getAutoSheetSequence(s.sheetNo)));
+    return String(max + 1);
+  }
+
   private buildCandidateQuantities(items: AutoItem[], pattern: AutoPattern) {
     const candidates = new Set<number>();
     for (const item of items) {
@@ -513,8 +521,7 @@ export class ClubbingSheetService {
   }
 
   async createSheet(data: { gsm: number; quality: SheetQuality; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; printing: ProductSides }) {
-    const count = await this.prisma.printSheet.count();
-    const sheetNo = `SHT-${new Date().getFullYear()}-${String(count + 1).padStart(3, '0')}`;
+    const sheetNo = await this.nextSheetNo();
     const [w, h] = data.sizeInches.split('x').map(Number);
     if (!w || !h) throw new BadRequestException('Invalid size format. Use WxH e.g. 18x23');
     return this.prisma.printSheet.create({ data: { sheetNo, ...data, actualPrintedQuantity: data.actualPrintedQuantity ?? null, areaSqInches: w * h } });
@@ -565,13 +572,10 @@ export class ClubbingSheetService {
     let skippedWaiting = 0;
 
     await this.prisma.$transaction(async (tx) => {
-      const existingAutoSheets = await tx.printSheet.findMany({
-        where: { createdBySource: 'AUTO' },
-        select: { sheetNo: true },
-      });
+      const allSheets = await tx.printSheet.findMany({ select: { sheetNo: true } });
       let autoSheetSequence = Math.max(
-        AUTO_SHEET_SEQUENCE_START - 1,
-        ...existingAutoSheets.map(sheet => this.getAutoSheetSequence(sheet.sheetNo)),
+        1299,
+        ...allSheets.map(sheet => this.getAutoSheetSequence(sheet.sheetNo)),
       );
       for (const [, groupItems] of groups) {
         const working = groupItems.map(item => ({ ...item }));
