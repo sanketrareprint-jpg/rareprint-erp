@@ -488,6 +488,8 @@ export class ClubbingSheetService {
         usedAreaSqInches: true,
         createdBySource: true,
         createdAt: true,
+        updatedAt: true,
+        actualPrintedQuantity: true,
         items: {
           orderBy: { createdAt: 'asc' },
           select: {
@@ -495,6 +497,8 @@ export class ClubbingSheetService {
             multiple: true,
             quantityOnSheet: true,
             areaSqInches: true,
+            dueDate: true,
+            createdAt: true,
             orderItem: {
               select: {
                 id: true,

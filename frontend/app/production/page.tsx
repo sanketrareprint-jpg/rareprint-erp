@@ -50,9 +50,9 @@ type Vendor = { id: string; name: string; phone?: string; email?: string | null;
 type JobWork = { id: string; vendorId: string; vendorName: string; description: string; cost: number; vendorInvoiceNo?: string; status: string; dueDate?: string | null; completedAt?: string; };
 type ClubbingItem = { id: string; productName: string; quantity: number; productionNotes?: string; artworkNotes?: string; itemProductionStage: string; size?: string | null; gsm?: string | null; sides?: string | null; jobWorks: JobWork[]; designFiles?: DesignFile[]; };
 type ClubbingOrder = { id: string; orderNo: string; customerName: string; customerPhone?: string; salesAgentName?: string; orderDate: string; items: ClubbingItem[]; };
-type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; dueDate?: string | null; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
+type SheetItem = { id: string; multiple: number; quantityOnSheet: number; areaSqInches: number; dueDate?: string | null; createdAt?: string; itemProductionStage?: string; orderItem: { id: string; itemProductionStage?: string; product: { name: string; sizeInches: string; gsm: number; }; order: { orderNumber: string; orderDate?: string; customer: { businessName: string; }; salesAgent?: { fullName: string | null } | null } } };
 type StageVendor = { id: string; stage: string; vendorId: string; cost: number; description?: string; vendorInvoiceNo?: string; vendor: { name: string }; };
-type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
+type PrintSheet = { id: string; sheetNo: string; gsm: number; quality: string; quantity: number; actualPrintedQuantity?: number | null; sizeInches: string; areaSqInches: number; printing: string; status: string; usedAreaSqInches: number; createdBySource?: string; createdAt?: string; updatedAt?: string; created_at?: string; createdOn?: string; createdDate?: string; items: SheetItem[]; stageVendors: StageVendor[]; };
 type PlaceableItem = { id: string; productName: string; sku: string; gsm: number; openSizeInches: string; quantity: number; orderNo: string; customerName: string; };
 
 function parseNotes(notes?: string) {
@@ -230,6 +230,11 @@ export default function ProductionPage() {
   });
   const [savingSetting, setSavingSetting] = useState(false);
   const [processingVendorFilter, setProcessingVendorFilter] = useState("");
+  const [processingSearch, setProcessingSearch] = useState("");
+  const [processingSheetFilter, setProcessingSheetFilter] = useState("");
+  const [processingProductFilter, setProcessingProductFilter] = useState("");
+  const [processingSizeFilter, setProcessingSizeFilter] = useState("");
+  const [processingGsmFilter, setProcessingGsmFilter] = useState("");
   const [processingItemVendors, setProcessingItemVendors] = useState<Record<string, string>>({});
 
   const [ordersData, setOrdersData] = useState<ProductionOrder[]>([]);
@@ -1948,32 +1953,110 @@ export default function ProductionPage() {
                         return updated;
                       });
                     };
+                    {/* stage age helper */}
+                    const stageAge = (updatedAt?: string) => {
+                      if (!updatedAt) return null;
+                      const days = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 86400000);
+                      if (days === 0) return "Today";
+                      return `${days}d in stage`;
+                    };
+                    const stageAgeColor = (updatedAt?: string) => {
+                      if (!updatedAt) return "bg-slate-100 text-slate-500";
+                      const days = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 86400000);
+                      if (days >= 7) return "bg-red-100 text-red-700";
+                      if (days >= 3) return "bg-orange-100 text-orange-700";
+                      return "bg-slate-100 text-slate-600";
+                    };
+                    // Sort: oldest stage first
+                    const sortedItems = [...allItems].sort((a, b) => {
+                      const ta = a.sheet.updatedAt ? new Date(a.sheet.updatedAt).getTime() : 0;
+                      const tb = b.sheet.updatedAt ? new Date(b.sheet.updatedAt).getTime() : 0;
+                      return ta - tb;
+                    });
                     return (
                       <div className="space-y-3">
-                        <div className="sticky top-12 z-20 flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                          <label className="text-xs font-semibold text-slate-600">Filter by Vendor:</label>
-                          <select value={processingVendorFilter} onChange={e => setProcessingVendorFilter(e.target.value)}
-                            className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none bg-white">
-                            <option value="">All Vendors</option>
-                            {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                          </select>
-                          {processingVendorFilter && <button onClick={() => setProcessingVendorFilter("")} className="text-xs text-slate-400 hover:text-slate-600">x Clear</button>}
-                          <span className="text-xs text-slate-400 ml-2">{allItems.length} items pending</span>
+                        {/* ── Filter bar ── */}
+                        <div className="sticky top-12 z-20 rounded-xl border border-slate-200 bg-white shadow-sm p-3 space-y-2">
+                          {/* Row 1: Search */}
+                          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                            <svg className="h-3.5 w-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <input
+                              type="text" placeholder="Search order no, customer, product, agent..."
+                              value={processingSearch} onChange={e => setProcessingSearch(e.target.value)}
+                              className="bg-transparent text-xs outline-none w-full text-slate-700 placeholder-slate-400"
+                            />
+                            {processingSearch && <button onClick={() => setProcessingSearch("")} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>}
+                          </div>
+                          {/* Row 2: Dropdowns */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select value={processingSheetFilter} onChange={e => setProcessingSheetFilter(e.target.value)}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
+                              <option value="">All Sheets</option>
+                              {Array.from(new Set(allItems.map(si => si.sheet.sheetNo))).sort((a, b) => Number(a) - Number(b)).map(no => (
+                                <option key={no} value={no}>Sheet {no}</option>
+                              ))}
+                            </select>
+                            <select value={processingProductFilter} onChange={e => setProcessingProductFilter(e.target.value)}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
+                              <option value="">All Products</option>
+                              {Array.from(new Set(allItems.map(si => si.orderItem.product.name))).sort().map(name => (
+                                <option key={name} value={name}>{name}</option>
+                              ))}
+                            </select>
+                            <select value={processingGsmFilter} onChange={e => setProcessingGsmFilter(e.target.value)}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
+                              <option value="">All GSM</option>
+                              {Array.from(new Set(allItems.map(si => String(si.sheet.gsm)))).sort((a, b) => Number(a) - Number(b)).map(g => (
+                                <option key={g} value={g}>{g} GSM</option>
+                              ))}
+                            </select>
+                            <select value={processingSizeFilter} onChange={e => setProcessingSizeFilter(e.target.value)}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
+                              <option value="">All Sizes</option>
+                              {Array.from(new Set(allItems.map(si => si.orderItem.product.sizeInches))).sort().map(s => (
+                                <option key={s} value={s}>{s}"</option>
+                              ))}
+                            </select>
+                            <select value={processingVendorFilter} onChange={e => setProcessingVendorFilter(e.target.value)}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
+                              <option value="">All Vendors</option>
+                              {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                            </select>
+                            {(processingSearch || processingVendorFilter || processingSheetFilter || processingProductFilter || processingSizeFilter || processingGsmFilter) && (
+                              <button onClick={() => { setProcessingSearch(""); setProcessingVendorFilter(""); setProcessingSheetFilter(""); setProcessingProductFilter(""); setProcessingSizeFilter(""); setProcessingGsmFilter(""); }}
+                                className="text-xs font-semibold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-100 hover:bg-red-50 whitespace-nowrap">
+                                ✕ Clear All
+                              </button>
+                            )}
+                            <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">{allItems.length} items pending</span>
+                          </div>
                         </div>
                         {allItems.length === 0 ? (
                           <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All items are ready for dispatch.</div>
                         ) : (
                           <>
                           <div className="space-y-3 md:hidden">
-                            {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
+                            {sortedItems.filter(si => {
+                                    const q = processingSearch.toLowerCase().trim();
+                                    if (q && !si.orderItem.order.orderNumber.toLowerCase().includes(q) && !si.orderItem.order.customer.businessName.toLowerCase().includes(q) && !si.orderItem.product.name.toLowerCase().includes(q) && !si.orderItem.order.salesAgent?.fullName?.toLowerCase().includes(q)) return false;
+                                    if (processingSheetFilter && si.sheet.sheetNo !== processingSheetFilter) return false;
+                                    if (processingProductFilter && si.orderItem.product.name !== processingProductFilter) return false;
+                                    if (processingGsmFilter && String(si.sheet.gsm) !== processingGsmFilter) return false;
+                                    if (processingSizeFilter && si.orderItem.product.sizeInches !== processingSizeFilter) return false;
+                                    if (processingVendorFilter && getItemVendor(si.orderItem.id) !== processingVendorFilter) return false;
+                                    return true;
+                                  }).map(si => (
                               <div key={si.id} className="overflow-hidden rounded-xl border border-orange-100 bg-white shadow-sm">
                                 <div className="bg-orange-700 px-3 py-2 text-white">
                                   <div className="flex items-center justify-between gap-3">
                                     <div>
                                       <p className="text-base font-bold">{si.orderItem.order.orderNumber}</p>
-                                      <p className="text-xs text-orange-100">Sheet {si.sheet.sheetNo}</p>
+                                      <p className="text-xs text-orange-100">Sheet {si.sheet.sheetNo} · {si.sheet.gsm} GSM</p>
                                     </div>
-                                    {si.orderItem.order.orderDate && <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span>}
+                                    <div className="flex flex-col items-end gap-1">
+                                      {si.orderItem.order.orderDate && <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span>}
+                                      {stageAge(si.sheet.updatedAt) && <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${stageAgeColor(si.sheet.updatedAt)}`}>{stageAge(si.sheet.updatedAt)}</span>}
+                                    </div>
                                   </div>
                                   <p className="mt-2 truncate text-sm font-semibold">{si.orderItem.order.customer.businessName}</p>
                                 </div>
@@ -2015,39 +2098,51 @@ export default function ProductionPage() {
                             ))}
                           </div>
                           <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto md:block">
-                            <table className="w-full min-w-[1180px] table-fixed text-xs">
+                            <table className="w-full min-w-[1260px] table-fixed text-xs">
                               <colgroup>
-                                <col className="w-[10%]" />
+                                <col className="w-[8%]" />
                                 <col className="w-[5%]" />
-                                <col className="w-[5%]" />
-                                <col className="w-[24%]" />
-                                <col className="w-[11%]" />
+                                <col className="w-[6%]" />
+                                <col className="w-[6%]" />
+                                <col className="w-[20%]" />
+                                <col className="w-[9%]" />
+                                <col className="w-[12%]" />
+                                <col className="w-[4%]" />
+                                <col className="w-[4%]" />
                                 <col className="w-[13%]" />
-                                <col className="w-[5%]" />
-                                <col className="w-[5%]" />
-                                <col className="w-[14%]" />
-                                <col className="w-[8%]" />
-                                <col className="w-[8%]" />
+                                <col className="w-[7%]" />
+                                <col className="w-[6%]" />
                               </colgroup>
                               <thead><tr className="border-b border-slate-100 bg-slate-50">
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Sheet No</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Order</th>
-                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Age</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Order Age</th>
+                                <th className="px-3 py-2 text-left font-semibold text-orange-600">Stage Age ↑</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Agent</th>
-                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
-                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Product</th>
+                                <th className="px-3 py-2 text-left font-semibold text-slate-600">Size</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Qty</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Processing Vendor</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Schedule</th>
                                 <th className="px-3 py-2 text-left font-semibold text-slate-600">Action</th>
                               </tr></thead>
                               <tbody>
-                                {allItems.filter(si => !processingVendorFilter || getItemVendor(si.orderItem.id) === processingVendorFilter).map(si => (
-                                  <tr key={si.id} className="border-b border-slate-50 hover:bg-slate-50">
+                                {sortedItems.filter(si => {
+                                    const q = processingSearch.toLowerCase().trim();
+                                    if (q && !si.orderItem.order.orderNumber.toLowerCase().includes(q) && !si.orderItem.order.customer.businessName.toLowerCase().includes(q) && !si.orderItem.product.name.toLowerCase().includes(q) && !si.orderItem.order.salesAgent?.fullName?.toLowerCase().includes(q)) return false;
+                                    if (processingSheetFilter && si.sheet.sheetNo !== processingSheetFilter) return false;
+                                    if (processingProductFilter && si.orderItem.product.name !== processingProductFilter) return false;
+                                    if (processingGsmFilter && String(si.sheet.gsm) !== processingGsmFilter) return false;
+                                    if (processingSizeFilter && si.orderItem.product.sizeInches !== processingSizeFilter) return false;
+                                    if (processingVendorFilter && getItemVendor(si.orderItem.id) !== processingVendorFilter) return false;
+                                    return true;
+                                  }).map(si => (
+                                  <tr key={si.id} className="border-b border-slate-50 hover:bg-orange-50">
                                     <td className="px-3 py-2 font-bold text-cyan-700 whitespace-nowrap">{displaySheetNo(si.sheet.sheetNo)}</td>
                                     <td className="px-3 py-2 font-bold text-blue-700">{si.orderItem.order.orderNumber}</td>
                                     <td className="px-3 py-2 whitespace-nowrap">{si.orderItem.order.orderDate ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(si.orderItem.order.orderDate)}`}>{orderAge(si.orderItem.order.orderDate)}</span> : <span className="text-slate-300">—</span>}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap">{si.sheet.updatedAt ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${stageAgeColor(si.sheet.updatedAt)}`}>{stageAge(si.sheet.updatedAt)}</span> : <span className="text-slate-300">—</span>}</td>
                                     <td className="px-3 py-2 text-slate-700">{si.orderItem.order.customer.businessName}</td>
                                     <td className="px-3 py-2 text-slate-600">{si.orderItem.order.salesAgent?.fullName ? <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">{si.orderItem.order.salesAgent.fullName}</span> : <span className="text-slate-300">—</span>}</td>
                                     <td className="px-3 py-2 font-semibold text-slate-800">{si.orderItem.product.name}</td>
