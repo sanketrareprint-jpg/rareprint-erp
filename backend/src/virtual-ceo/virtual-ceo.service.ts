@@ -826,12 +826,17 @@ export class VirtualCeoService {
   private async checkDispatch(): Promise<ActionItem[]> {
     const items: ActionItem[] = [];
 
-    // 1. Orders READY_FOR_DISPATCH > 2 days, no shipment initiated
+    // 1. Orders READY_FOR_DISPATCH with no active shipment (show all — exclude only DISPATCHED/DELIVERED)
     const readyNotBooked = await this.prisma.order.findMany({
       where: {
         productionStage: OrderProductionStage.READY_FOR_DISPATCH,
         status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.IN_PRODUCTION, OrderStatus.APPROVED] },
-        shipments: { none: {} },
+        // Include orders with no shipments OR only cancelled/returned shipments
+        shipments: {
+          none: {
+            status: { notIn: [ShipmentStatus.CANCELLED, ShipmentStatus.RETURNED] as any },
+          },
+        },
       },
       include: { customer: { select: { businessName: true } } },
       orderBy: { updatedAt: 'asc' },
@@ -839,14 +844,13 @@ export class VirtualCeoService {
 
     for (const o of readyNotBooked) {
       const days = ageDays(o.updatedAt);
-      if (days < 2) continue;
       items.push({
         id: `disp-notbooked-${o.id}`,
         department: 'DISPATCH',
-        priority: days > 3 ? 'HIGH' : 'MEDIUM',
-        category: 'Booking Pending',
-        title: `Book shipment — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — ready ${Math.round(days)} days, no booking initiated`,
+        priority: days > 3 ? 'HIGH' : days > 1 ? 'MEDIUM' : 'LOW',
+        category: 'Dispatch Pending',
+        title: `Dispatch pending — ${o.orderNumber}`,
+        detail: `${o.customer.businessName} — ready ${Math.round(days)}d, no shipment booked`,
         orderNo: o.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/dispatch',
