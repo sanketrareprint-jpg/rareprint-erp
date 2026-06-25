@@ -1,6 +1,32 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+
+function getMimeType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    pdf: 'application/pdf',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', tiff: 'image/tiff', tif: 'image/tiff',
+    svg: 'image/svg+xml',
+    ai: 'application/postscript', eps: 'application/postscript',
+    psd: 'image/vnd.adobe.photoshop',
+    zip: 'application/zip', rar: 'application/x-rar-compressed',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  };
+  return map[ext] ?? 'application/octet-stream';
+}
+
+const UPLOADS_DIR = join(process.cwd(), 'uploads', 'designs');
+
+export interface DraftAttachment {
+  filename: string;     // stored filename on disk
+  originalName: string; // display name in email
+}
 
 @Injectable()
 export class GmailDraftService {
@@ -21,26 +47,62 @@ export class GmailDraftService {
   }
 
   /**
-   * Creates a Gmail draft in the purchase.rareprint@gmail.com inbox.
-   * Returns the draft ID.
+   * Creates a Gmail draft with optional file attachments.
    */
-  async createDraft(to: string, subject: string, body: string): Promise<{ draftId: string }> {
+  async createDraft(
+    to: string,
+    subject: string,
+    body: string,
+    attachments: DraftAttachment[] = [],
+  ): Promise<{ draftId: string }> {
     const auth = this.getOAuth2Client();
     const gmail = google.gmail({ version: 'v1', auth });
 
     const from = this.config.get('GMAIL_FROM') ?? 'purchase.rareprint@gmail.com';
+    const boundary = `----=_RareprintBoundary_${Date.now()}`;
 
-    // RFC 2822 message
+    // Build MIME parts
+    const parts: string[] = [];
+
+    // Body part
+    parts.push(
+      `--${boundary}\r\n` +
+      `Content-Type: text/plain; charset=utf-8\r\n` +
+      `Content-Transfer-Encoding: quoted-printable\r\n\r\n` +
+      `${body}\r\n`,
+    );
+
+    // Attachment parts
+    for (const att of attachments) {
+      const filePath = join(UPLOADS_DIR, att.filename);
+      if (!existsSync(filePath)) {
+        this.logger.warn(`Attachment not found, skipping: ${filePath}`);
+        continue;
+      }
+      const fileBuffer = readFileSync(filePath);
+      const b64 = fileBuffer.toString('base64');
+      const mimeType = getMimeType(att.originalName);
+      parts.push(
+        `--${boundary}\r\n` +
+        `Content-Type: ${mimeType}; name="${att.originalName}"\r\n` +
+        `Content-Transfer-Encoding: base64\r\n` +
+        `Content-Disposition: attachment; filename="${att.originalName}"\r\n\r\n` +
+        `${b64}\r\n`,
+      );
+    }
+
+    parts.push(`--${boundary}--`);
+
     const rawMessage = [
       `From: ${from}`,
       `To: ${to}`,
       `Subject: ${subject}`,
-      `Content-Type: text/plain; charset=utf-8`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
       ``,
-      body,
+      ...parts,
     ].join('\r\n');
 
-    // Base64URL encode
     const encoded = Buffer.from(rawMessage)
       .toString('base64')
       .replace(/\+/g, '-')
@@ -52,7 +114,7 @@ export class GmailDraftService {
       requestBody: { message: { raw: encoded } },
     });
 
-    this.logger.log(`Gmail draft created: ${res.data.id} → TO: ${to}`);
+    this.logger.log(`Gmail draft created: ${res.data.id} → TO: ${to} | attachments: ${attachments.length}`);
     return { draftId: res.data.id ?? '' };
   }
 }

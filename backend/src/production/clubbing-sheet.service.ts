@@ -326,13 +326,20 @@ export class ClubbingSheetService {
   }
 
   private async generatePoNumber(): Promise<string> {
-    const result = await this.prisma.$queryRaw<{ max: string | null }[]>`
-      SELECT MAX(CAST("poNumber" AS INTEGER)) AS max FROM "JobWork"
-      WHERE "poNumber" ~ '^[0-9]+$'
-    `;
-    const lastNum = parseInt(result[0]?.max ?? '0', 10);
-    const next = (isNaN(lastNum) ? 0 : lastNum) + 1;
-    return String(next).padStart(4, '0');
+    try {
+      const result = await this.prisma.$queryRaw<{ maxnum: bigint | null }[]>`
+        SELECT MAX(
+          CASE WHEN "poNumber" ~ '^[0-9]+$'
+          THEN CAST("poNumber" AS BIGINT)
+          ELSE NULL END
+        ) AS maxnum FROM "JobWork"
+      `;
+      const lastNum = Number(result[0]?.maxnum ?? 0);
+      return String(lastNum + 1).padStart(4, '0');
+    } catch {
+      // Fallback: use timestamp-based unique number
+      return String(Date.now()).slice(-6);
+    }
   }
 
   async addJobWork(data: { orderItemId: string; vendorId: string; description: string; cost: number; vendorInvoiceNo?: string; dueDate?: string | null }, userId?: string) {
