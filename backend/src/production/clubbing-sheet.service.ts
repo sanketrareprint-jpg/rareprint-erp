@@ -343,7 +343,8 @@ export class ClubbingSheetService {
     if (!item) throw new NotFoundException('Order item not found');
     const vendor = await this.prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { name: true } });
     const poNumber = await this.generatePoNumber();
-    const jobWork = await this.prisma.jobWork.create({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jobWork = await (this.prisma.jobWork.create as any)({
       data: { poNumber, orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null },
       include: { vendor: true },
     });
