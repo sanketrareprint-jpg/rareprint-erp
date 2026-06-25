@@ -459,17 +459,18 @@ export class VirtualCeoService {
     });
 
     for (const o of pendingDispatchApproval) {
+      const days = ageDays(o.updatedAt);
       const hours = ageHours(o.updatedAt);
       items.push({
         id: `acc-dispatch-${o.id}`,
         department: 'ACCOUNTS',
-        priority: hours > 3 ? 'HIGH' : 'MEDIUM',
+        priority: days >= 1 ? 'HIGH' : 'MEDIUM',
         category: 'Dispatch Approval',
         title: `Approve dispatch for ${o.orderNumber}`,
         detail: `${o.customer.businessName} — waiting ${fmtAge(hours)} for dispatch approval`,
         orderNo: o.orderNumber,
-        ageHours: Math.round(hours),
-        actionUrl: '/dispatch',
+        ageDays: Math.round(days),
+        actionUrl: '/accounts',
       });
     }
 
