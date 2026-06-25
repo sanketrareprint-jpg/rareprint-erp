@@ -350,11 +350,12 @@ export class ClubbingSheetService {
     if (!item) throw new NotFoundException('Order item not found');
     const vendor = await this.prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { name: true } });
     const poNumber = await this.generatePoNumber();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const jobWork = await (this.prisma.jobWork.create as any)({
-      data: { poNumber, orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null },
+    const jobWork = await this.prisma.jobWork.create({
+      data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null },
       include: { vendor: true },
     });
+    // Set poNumber via raw SQL — Prisma client doesn't know about it yet (no migration file)
+    await this.prisma.$executeRaw`UPDATE "JobWork" SET "poNumber" = ${poNumber} WHERE id = ${jobWork.id}`;
     await this.prisma.statusLog.create({
       data: {
         orderId: item.orderId,
@@ -374,7 +375,7 @@ export class ClubbingSheetService {
         },
       },
     });
-    return jobWork;
+    return { ...jobWork, poNumber };
   }
 
   async updateJobWork(jobWorkId: string, data: { status?: JobWorkStatus; description?: string; cost?: number; vendorInvoiceNo?: string; dueDate?: string | null }, userId?: string) {
