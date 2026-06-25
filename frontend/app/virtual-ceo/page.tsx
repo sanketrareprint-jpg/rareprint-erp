@@ -185,7 +185,6 @@ function ReviewModal({
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
               Seen: <strong style={{ color: "#fff" }}>{done}/{total}</strong> tasks
-              {total < allItems.length && <span style={{ color: "#64748b" }}> · Stock & Costs optional</span>}
             </span>
             <button
               onClick={onComplete}
@@ -1003,7 +1002,7 @@ export default function VirtualCeoPage() {
     </DashboardShell>
   );
 
-  const allItems = [...report.accounts, ...report.production, ...report.dispatch, ...report.stock];
+  const allItems = [...report.accounts, ...report.production, ...report.dispatch];
   const tags = erpConfig?.virtualCeoTags ?? [];
   const cardTags = erpConfig?.virtualCeoCardTags ?? {};
 
@@ -1012,7 +1011,6 @@ export default function VirtualCeoPage() {
     { id: "accounts",     label: "💰 Accounts",        icon: DollarSign },
     { id: "production",   label: "🏭 Production",       icon: Factory },
     { id: "dispatch",     label: "📦 Dispatch",         icon: Truck },
-    { id: "stock",        label: "📊 Stock & Costs",    icon: Package },
     { id: "ceo-settings", label: "⚙️ CEO Settings",    icon: Shield, adminOnly: true },
   ];
 
@@ -1096,7 +1094,7 @@ export default function VirtualCeoPage() {
                   {allSeen ? "All tasks reviewed — ready to submit!" : `Review progress: ${seenCount}/${total} tasks seen`}
                 </div>
                 <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-                  Click <strong>✓ Updated</strong> on each task card below to confirm you have seen it. Stock & Costs are optional.
+                  Click <strong>✓ Updated</strong> on each task card below to confirm you have seen it.
                 </div>
               </div>
               {/* Progress bar */}
@@ -1130,7 +1128,6 @@ export default function VirtualCeoPage() {
           <SummaryCard label="Accounts"     value={report.summary.accounts}       color="#6366f1" icon={DollarSign} />
           <SummaryCard label="Production"   value={report.summary.production}     color="#8b5cf6" icon={Factory} />
           <SummaryCard label="Dispatch"     value={report.summary.dispatch}       color="#f59e0b" icon={Truck} />
-          <SummaryCard label="Stock"        value={report.summary.stock}          color="#10b981" icon={Package} />
         </div>
 
         {/* ── Tabs ── */}
@@ -1167,10 +1164,6 @@ export default function VirtualCeoPage() {
               />
               <DepartmentSection title="Dispatch" icon={DEPT_CONFIG.DISPATCH.icon} color={DEPT_CONFIG.DISPATCH.color}
                 items={report.dispatch} onNavigate={navigate} tags={tags} cardTags={cardTags}
-                onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
-              />
-              <DepartmentSection title="Stock & Costs" icon={DEPT_CONFIG.STOCK.icon} color={DEPT_CONFIG.STOCK.color}
-                items={report.stock} onNavigate={navigate} tags={tags} cardTags={cardTags}
                 onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
               />
             </div>
@@ -1237,12 +1230,6 @@ export default function VirtualCeoPage() {
         {tab === "dispatch" && (
           <DepartmentSection title="Dispatch" icon={DEPT_CONFIG.DISPATCH.icon} color={DEPT_CONFIG.DISPATCH.color}
             items={report.dispatch} onNavigate={navigate} tags={tags} cardTags={cardTags}
-            onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
-          />
-        )}
-        {tab === "stock" && (
-          <DepartmentSection title="Stock & Costs" icon={DEPT_CONFIG.STOCK.icon} color={DEPT_CONFIG.STOCK.color}
-            items={report.stock} onNavigate={navigate} tags={tags} cardTags={cardTags}
             onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}
           />
         )}
