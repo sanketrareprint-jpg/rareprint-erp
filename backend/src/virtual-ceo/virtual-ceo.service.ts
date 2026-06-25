@@ -770,23 +770,51 @@ export class VirtualCeoService {
       orderBy: { createdAt: 'asc' },
     });
 
+    // Group by sheet — one card per sheet instead of one per item
+    const sheetMap = new Map<string, { sheetNo: string; gsm: number; sizeInches: string; updatedAt: Date; orderNos: string[]; productNames: string[]; itemCount: number; hasFollowUp: boolean; allEnvelope: boolean }>();
     for (const si of sheetsInProcessing) {
       const followUpDate = (si as any).dueDate as Date | null ?? null;
       if (!isDueOrOverdueIST(followUpDate)) continue;
       const days = ageDays(si.sheet.updatedAt);
       const isEnvelope = si.orderItem.product.name.toUpperCase().includes('ENVELOPE');
-      // ENVELOPE items are handled by the daily Raza Envelope WhatsApp — show in CEO report only after 3d
       const minDays = isEnvelope ? 3 : 2;
       if (!followUpDate && days < minDays) continue;
-      const dueDateStr = followUpDate ? ` · Follow-up: ${followUpDate.toLocaleDateString('en-IN')}` : '';
+
+      const key = si.sheet.sheetNo;
+      if (!sheetMap.has(key)) {
+        sheetMap.set(key, {
+          sheetNo: si.sheet.sheetNo,
+          gsm: si.sheet.gsm,
+          sizeInches: si.sheet.sizeInches,
+          updatedAt: si.sheet.updatedAt,
+          orderNos: [],
+          productNames: [],
+          itemCount: 0,
+          hasFollowUp: !!followUpDate,
+          allEnvelope: true,
+        });
+      }
+      const entry = sheetMap.get(key)!;
+      entry.itemCount++;
+      if (!entry.orderNos.includes(si.orderItem.order.orderNumber)) entry.orderNos.push(si.orderItem.order.orderNumber);
+      const pName = si.orderItem.product.name;
+      if (!entry.productNames.includes(pName)) entry.productNames.push(pName);
+      if (!isEnvelope) entry.allEnvelope = false;
+    }
+
+    for (const entry of sheetMap.values()) {
+      const days = ageDays(entry.updatedAt);
+      const orderSummary = entry.orderNos.length <= 3
+        ? entry.orderNos.map(n => `#${n}`).join(', ')
+        : `#${entry.orderNos[0]}, #${entry.orderNos[1]} +${entry.orderNos.length - 2} more`;
+      const productSummary = entry.productNames.slice(0, 2).join(', ') + (entry.productNames.length > 2 ? ` +${entry.productNames.length - 2}` : '');
       items.push({
-        id: `prod-sheet-proc-${si.id}`,
+        id: `prod-sheet-proc-${entry.sheetNo}`,
         department: 'PRODUCTION',
         priority: days > 4 ? 'HIGH' : 'MEDIUM',
         category: 'Sheet Processing Follow-up',
-        title: `Sheet ${si.sheet.sheetNo} processing — ${si.orderItem.order.orderNumber}`,
-        detail: `${si.orderItem.order.customer.businessName} · ${si.orderItem.product.name} · ${si.sheet.gsm} GSM, ${si.sheet.sizeInches}"${dueDateStr}`,
-        orderNo: si.orderItem.order.orderNumber,
+        title: `Sheet ${entry.sheetNo} processing — ${entry.itemCount} item${entry.itemCount > 1 ? 's' : ''} pending`,
+        detail: `${entry.gsm} GSM ${entry.sizeInches}" · ${productSummary} · Orders: ${orderSummary} · ${Math.round(days)}d in stage`,
         ageDays: Math.round(days),
         actionUrl: '/sheet-layout',
       });
