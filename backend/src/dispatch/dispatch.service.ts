@@ -376,12 +376,6 @@ export class DispatchService {
         status: {
           in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED],
         },
-        statusLogs: {
-          some: {
-            fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
-            toStatus: OrderStatus.READY_FOR_DISPATCH,
-          },
-        },
         items: {
           some: {
             itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH,
