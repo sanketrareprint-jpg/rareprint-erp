@@ -436,7 +436,7 @@ export class ClubbingSheetService {
 
   async getClubbingOrders() {
     const orders = await this.prisma.order.findMany({
-      where: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
+      where: { status: { in: ['APPROVED', 'IN_PRODUCTION'] }, isSample: false },
       include: { customer: { select: { businessName: true, phone: true } }, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } }, jobWorks: { include: { vendor: { select: { name: true, id: true } } } } } } },
       orderBy: { updatedAt: 'desc' },
     });
@@ -532,7 +532,7 @@ export class ClubbingSheetService {
       where: {
         productionCategory: 'SHEET_PRODUCTION',
         itemProductionStage: { not: 'READY_FOR_DISPATCH' },
-        order: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
+        order: { status: { in: ['APPROVED', 'IN_PRODUCTION'] }, isSample: false },
       },
       select: {
         id: true,
@@ -920,7 +920,7 @@ export class ClubbingSheetService {
         productionCategory: 'SHEET_PRODUCTION',
         product: { gsm },
         itemProductionStage: { not: 'READY_FOR_DISPATCH' },
-        order: { status: { in: ['APPROVED', 'IN_PRODUCTION'] } },
+        order: { status: { in: ['APPROVED', 'IN_PRODUCTION'] }, isSample: false },
       },
       select: {
         id: true,

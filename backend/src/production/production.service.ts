@@ -69,6 +69,7 @@ export class ProductionService {
     const orders = await this.prisma.order.findMany({
       where: {
         status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] },
+        isSample: false,
       },
       orderBy: { updatedAt: 'desc' },
       include: {
