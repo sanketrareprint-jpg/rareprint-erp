@@ -22,6 +22,7 @@ class RolesGuard implements CanActivate {
 import { ClubbingSheetService } from './clubbing-sheet.service';
 import { ProductionService } from './production.service';
 import { GmailDraftService } from './gmail-draft.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 type JwtUser = { id: string };
 
@@ -32,14 +33,48 @@ export class ProductionController {
     private readonly productionService: ProductionService,
     private readonly clubbingSheetService: ClubbingSheetService,
     private readonly gmailDraftService: GmailDraftService,
+    private readonly whatsAppService: WhatsAppService,
   ) {}
 
-  // ── Gmail Draft ───────────────────────────────────────────────────────────
+  // ── Gmail Draft + WhatsApp to vendor ─────────────────────────────────────
   @Post('send-vendor-draft')
-  createVendorDraft(
-    @Body() body: { to: string; subject: string; body: string },
+  async createVendorDraft(
+    @Body() body: {
+      to: string; subject: string; body: string;
+      vendorPhone?: string; vendorName?: string;
+      orderNo?: string; productName?: string;
+      size?: string; gsm?: string; sides?: string;
+      quantity?: string; scheduleDate?: string;
+    },
   ) {
-    return this.gmailDraftService.createDraft(body.to, body.subject, body.body);
+    const results: Record<string, unknown> = {};
+
+    // Gmail draft
+    if (body.to) {
+      try {
+        results.gmail = await this.gmailDraftService.createDraft(body.to, body.subject, body.body);
+      } catch (e) {
+        results.gmailError = String(e);
+      }
+    }
+
+    // WhatsApp via AiSensy
+    if (body.vendorPhone) {
+      results.whatsapp = await this.whatsAppService.sendVendorJobWork({
+        vendorName: body.vendorName ?? 'Vendor',
+        vendorPhone: body.vendorPhone,
+        orderNo: body.orderNo ?? '',
+        productName: body.productName ?? '',
+        size: body.size ?? '—',
+        gsm: body.gsm ?? '—',
+        sides: body.sides ?? '—',
+        poNumber: body.orderNo ?? '—',
+        quantity: body.quantity ?? '—',
+        scheduleDate: body.scheduleDate ?? 'Not specified',
+      });
+    }
+
+    return results;
   }
 
   // ── Inhouse ──────────────────────────────────────────────────────────────

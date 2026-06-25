@@ -379,6 +379,38 @@ export class WhatsAppService {
     }
   }
 
+  // ── Vendor Job Work Notification ─────────────────────────────────────────
+  async sendVendorJobWork(params: {
+    vendorName: string;
+    vendorPhone: string;
+    orderNo: string;
+    productName: string;
+    size: string;
+    gsm: string;
+    sides: string;
+    poNumber: string;
+    quantity: string;
+    scheduleDate: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_VENDOR_JW_CAMPAIGN ?? 'vendor_job_work_erp',
+      customerName: params.vendorName,
+      customerPhone: params.vendorPhone,
+      orderNo: params.orderNo,
+      templateParams: [
+        params.vendorName,    // {{1}} vendor name
+        params.orderNo,       // {{2}} job work order #
+        params.productName,   // {{3}} product
+        params.size,          // {{4}} size
+        params.gsm,           // {{5}} gsm
+        params.sides,         // {{6}} sides
+        params.poNumber,      // {{7}} PO / order number
+        params.quantity,      // {{8}} quantity
+        params.scheduleDate,  // {{9}} schedule date
+      ],
+    });
+  }
+
   // Plain text message (for Virtual CEO reports, internal alerts)
   async sendTextMessage(phone: string, message: string): Promise<boolean> {
     const normalizedPhone = this.normalizePhone(phone);
