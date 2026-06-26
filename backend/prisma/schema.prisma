@@ -1678,6 +1678,24 @@ enum InHouseStickerTxType {
   ADJUSTMENT // manual correction
 }
 
+// ── Business Rules ───────────────────────────────────────────────────────────
+model BusinessRule {
+  id          String   @id @default(cuid())
+  ruleCode    String   @unique // e.g. "DISPATCH-001"
+  module      String   // ORDERS | ACCOUNTS | PRODUCTION | DISPATCH | SYSTEM
+  title       String
+  description String
+  example     String
+  severity    String   // CRITICAL | HIGH | MEDIUM
+  testedBy    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([module])
+  @@index([active])
+}
+
 // ── User Activity Tracking ───────────────────────────────────────────────────
 model UserActivitySession {
   id            String   @id @default(cuid())

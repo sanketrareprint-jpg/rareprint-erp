@@ -34,6 +34,7 @@ import { CarrierConfigModule } from './carrier-config/carrier-config.module';
 import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
 import { ErpConfigModule } from './erp-config/erp-config.module';
 import { ActivityModule } from './activity/activity.module';
+import { BusinessRulesModule } from './business-rules/business-rules.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { ActivityModule } from './activity/activity.module';
     ErpConfigModule,
     VirtualCeoModule,
     ActivityModule,
+    BusinessRulesModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
