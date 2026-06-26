@@ -418,7 +418,7 @@ export class WhatsAppService {
     vendorPhone: string;
     dateStr: string;       // {{1}}
     itemList: string;      // {{2}}
-    totalCount: number;    // {{3}}
+    totalCount: number | string;  // {{3}} e.g. "38 items | 2,45,000 pcs"
   }): Promise<boolean> {
     return this.sendCampaign({
       campaignName: process.env.AISENSY_ENVELOPE_CAMPAIGN ?? 'raza_envelope_daily',

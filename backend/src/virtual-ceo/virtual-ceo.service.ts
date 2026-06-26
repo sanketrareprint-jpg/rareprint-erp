@@ -1193,25 +1193,26 @@ export class VirtualCeoService {
       const itemLines: string[] = [];
       for (const [sheetNo, items] of bySheet) {
         const { gsm, sizeInches } = items[0];
-        itemLines.push(`*Sheet ${sheetNo} — ${gsm} GSM ${sizeInches}*`);
+        itemLines.push(`*Sheet ${sheetNo} — ${gsm} GSM ${sizeInches}"*`);
         for (const item of items) {
           const due = item.dueDate
             ? new Date(item.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
             : '—';
           const age = item.daysInStage > 0 ? ` | ${item.daysInStage}d` : '';
-          itemLines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | Due: ${due}${age}`);
+          itemLines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | Size: ${sizeInches}" | Due: ${due}${age}`);
         }
         itemLines.push('');
       }
       const itemList = itemLines.join('\n').trim();
       const totalCount = envelopeItems.length;
+      const totalQty = envelopeItems.reduce((sum, i) => sum + i.qty, 0);
 
       const ok = await this.whatsapp.sendEnvelopeDailyList({
         vendorName: razaVendor.name,
         vendorPhone: razaVendor.phone,
         dateStr,
         itemList,
-        totalCount,
+        totalCount: `${totalCount} items | ${totalQty.toLocaleString('en-IN')} pcs` as any,
       });
       this.logger.log(
         ok
