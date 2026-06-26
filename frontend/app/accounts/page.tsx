@@ -317,7 +317,11 @@ const GST_BANK_ACCOUNT = "0513102000013378";
 
 export default function AccountsPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("pending");
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "pending";
+    return (localStorage.getItem("accounts_active_tab") as Tab) ?? "pending";
+  });
+  useEffect(() => { localStorage.setItem("accounts_active_tab", tab); }, [tab]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Pending orders

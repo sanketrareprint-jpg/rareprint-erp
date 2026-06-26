@@ -954,7 +954,7 @@ export class CostTableService {
         const discountPct = rateSlab && rateAmt > 0
           ? Number(Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100).toFixed(1))
           : 0;
-        const ratePerUnit = rateSlab ? Number((rateAmt / item.quantity).toFixed(4)) : null;
+        const ratePerUnit = rateSlab ? Number(rateAmt.toFixed(2)) : null;
 
         commissionTotal += commAmt;
         rows.push({
