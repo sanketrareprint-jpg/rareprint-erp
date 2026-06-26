@@ -254,6 +254,7 @@ type CommissionRow = {
   gsm: number | null; sizeInches: string | null; printingType: string | null; sides: string | null;
   orderStatus: string; courierName: string | null;
   quantity: number; amount: number;
+  ratePerUnit: number | null; discountPct: number;
   cost: number | null; grossProfit: number | null; marginPct: number | null;
   commissionPct: number; commissionAmt: number; calcMethod: string; hasCost: boolean; balanceDue: number;
 };
@@ -2618,6 +2619,8 @@ await loadHistory();
                               {canSeeDetails && <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Courier</th>}
                               <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Qty</th>
                               <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Amount</th>
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Rate/Unit</th>}
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Disc%</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Cost</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Gr. Profit</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Margin</th>}
@@ -2671,6 +2674,26 @@ await loadHistory();
                                 )}
                                 <td className="px-2 py-1.5 text-right font-mono text-slate-700" style={{ fontSize: "13px" }}>{row.quantity.toLocaleString("en-IN")}</td>
                                 <td className="px-2 py-1.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap" style={{ fontSize: "13px" }}>₹{row.amount.toLocaleString("en-IN")}</td>
+                                {canSeeDetails && (
+                                  <td className="px-2 py-1.5 text-right font-mono text-slate-600 whitespace-nowrap">
+                                    {row.ratePerUnit != null
+                                      ? `₹${row.ratePerUnit.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
+                                      : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
+                                {canSeeDetails && (
+                                  <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                    {row.ratePerUnit != null ? (
+                                      row.discountPct > 0 ? (
+                                        <span className={`font-semibold ${row.discountPct > 5 ? "text-red-600" : "text-amber-600"}`}>
+                                          -{row.discountPct.toFixed(1)}%
+                                        </span>
+                                      ) : (
+                                        <span className="text-green-600 text-xs">No disc</span>
+                                      )
+                                    ) : <span className="text-slate-300">—</span>}
+                                  </td>
+                                )}
                                 {canSeeDetails && (
                                   <td className="px-2 py-1.5 text-right font-mono text-slate-500 whitespace-nowrap">
                                     {row.cost != null ? `₹${row.cost.toLocaleString("en-IN")}` : <span className="text-slate-300">—</span>}
@@ -2778,7 +2801,7 @@ await loadHistory();
                               {/* Date Invoice Party Item Specs [Status Courier] Qty = 6 or 8 */}
                               <td colSpan={canSeeDetails ? 8 : 6} className="px-2 py-2 font-bold text-slate-700">TOTAL</td>
                               <td className="px-2 py-2 text-right font-bold text-slate-800 font-mono whitespace-nowrap" style={{ fontSize: "13px" }}>₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
-                              {canSeeDetails && <td colSpan={3} className="px-2 py-2"></td>}
+                              {canSeeDetails && <td colSpan={5} className="px-2 py-2"></td>}
                               <td className="px-2 py-2 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
                               {canSeeDetails && <td className="px-2 py-2"></td>}
                               <td className="px-2 py-2 text-right font-bold font-mono whitespace-nowrap" style={{ fontSize: "13px" }}>
@@ -2795,11 +2818,11 @@ await loadHistory();
                               </td>
                             </tr>
                             <tr className="bg-green-50 border-t border-green-200">
-                              <td colSpan={canSeeDetails ? 14 : 8} className="px-2 py-2 font-bold text-slate-700">BONUS</td>
+                              <td colSpan={canSeeDetails ? 16 : 8} className="px-2 py-2 font-bold text-slate-700">BONUS</td>
                               <td className="px-2 py-2 text-right font-bold text-green-700 font-mono whitespace-nowrap" style={{ fontSize: "13px" }}>₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-100 border-t border-green-300">
-                              <td colSpan={canSeeDetails ? 14 : 8} className="px-2 py-2 font-bold text-green-800">TOTAL PAYABLE</td>
+                              <td colSpan={canSeeDetails ? 16 : 8} className="px-2 py-2 font-bold text-green-800">TOTAL PAYABLE</td>
                               <td className="px-2 py-2 text-right font-bold font-mono whitespace-nowrap" style={{ fontSize: "14px" }}>
                                 <span className={hasCommOverrides ? "text-purple-800" : "text-green-800"}>
                                   ₹{adjTotalPayable.toLocaleString("en-IN")}

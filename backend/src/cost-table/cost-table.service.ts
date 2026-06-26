@@ -951,6 +951,11 @@ export class CostTableService {
           calcMethod = 'No cost data';
         }
 
+        const discountPct = rateSlab && rateAmt > 0
+          ? Number(Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100).toFixed(1))
+          : 0;
+        const ratePerUnit = rateSlab ? Number((rateAmt / item.quantity).toFixed(4)) : null;
+
         commissionTotal += commAmt;
         rows.push({
           orderId: order.id,
@@ -968,6 +973,8 @@ export class CostTableService {
           courierName,
           quantity: item.quantity,
           amount: Number(lineTotal.toFixed(2)),
+          ratePerUnit,
+          discountPct,
           cost: costSlab ? Number(costItemTotal.toFixed(2)) : null,
           grossProfit: grossProfit !== null ? Number(grossProfit.toFixed(2)) : null,
           marginPct,
