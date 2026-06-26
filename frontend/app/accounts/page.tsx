@@ -2623,7 +2623,7 @@ await loadHistory();
                               {canSeeDetails && <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Courier</th>}
                               <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Qty</th>
                               <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Amount</th>
-                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Rate/Unit</th>}
+                              {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Rate Total</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Disc%</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Cost</th>}
                               {canSeeDetails && <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Gr. Profit</th>}
