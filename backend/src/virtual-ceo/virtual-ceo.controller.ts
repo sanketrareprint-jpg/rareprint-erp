@@ -1,6 +1,6 @@
 // backend/src/virtual-ceo/virtual-ceo.controller.ts
 import {
-  Controller, Get, Post, Put, Param, Body, UseGuards, Request, ForbiddenException,
+  Controller, Get, Post, Put, Param, Body, UseGuards, Request, ForbiddenException, Query, UnauthorizedException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VirtualCeoService } from './virtual-ceo.service';
@@ -23,7 +23,7 @@ export class VirtualCeoController {
     return { ok: true, message: 'WhatsApp report triggered' };
   }
 
-  /** GET /virtual-ceo/trigger-envelope-list — manual trigger of the daily Raza Envelope pending list */
+  /** GET /virtual-ceo/trigger-envelope-list — manual trigger (JWT required) */
   @Get('trigger-envelope-list')
   async triggerEnvelopeList() {
     const result = await this.svc.sendDailyEnvelopeList();
