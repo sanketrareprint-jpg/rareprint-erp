@@ -71,6 +71,7 @@ export class WhatsAppService {
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
+      this.logger.log(`AiSensy response [${res.status}] for ${params.campaignName} → ${phone}: ${JSON.stringify(data)}`);
       if (res.ok) {
         this.logger.log(`✅ WhatsApp ${params.campaignName} sent to ${phone} for order ${params.orderNo ?? 'unknown'}`);
         return true;

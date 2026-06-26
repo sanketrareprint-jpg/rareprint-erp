@@ -1142,10 +1142,17 @@ export class VirtualCeoService {
 
       // Collect ENVELOPE items only (exclude items already READY_FOR_DISPATCH)
       type EnvItem = {
-        sheetNo: string; gsm: number; sizeInches: string;
+        sheetNo: string; gsm: number; sizeInches: string; envelopeSize: string;
         orderNo: string; customerName: string;
         qty: number; dueDate: Date | null; daysInStage: number;
       };
+
+      // Extract envelope size like "4x7" or "5x10" from product name
+      const extractEnvSize = (productName: string): string => {
+        const match = productName.match(/(\d+[\s]*[xX*×]\s*\d+)/);
+        return match ? match[1].replace(/\s/g, '').toUpperCase().replace('*', 'x').replace('×', 'x') : '';
+      };
+
       const envelopeItems: EnvItem[] = [];
 
       for (const sheet of sheets) {
@@ -1161,6 +1168,7 @@ export class VirtualCeoService {
             sheetNo: sheet.sheetNo,
             gsm: sheet.gsm,
             sizeInches: sheet.sizeInches,
+            envelopeSize: extractEnvSize(productName),
             orderNo: si.orderItem.order.orderNumber,
             customerName: si.orderItem.order.customer.businessName,
             qty: si.quantityOnSheet,
@@ -1199,7 +1207,8 @@ export class VirtualCeoService {
             ? new Date(item.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
             : '—';
           const age = item.daysInStage > 0 ? ` | ${item.daysInStage}d` : '';
-          itemLines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | Size: ${sizeInches}" | Due: ${due}${age}`);
+          const sizeLabel = item.envelopeSize ? `${item.envelopeSize}" ` : '';
+          itemLines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | ${sizeLabel}| Due: ${due}${age}`);
         }
         itemLines.push('');
       }
