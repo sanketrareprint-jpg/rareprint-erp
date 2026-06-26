@@ -1164,49 +1164,50 @@ export class VirtualCeoService {
         return { sent: false, reason: 'no_items', razaPhone: razaVendor.phone };
       }
 
-      // Build message
+      // Build 3 template params for raza_envelope_daily:
+      // {{1}} = date, {{2}} = item list, {{3}} = total count
+
       const dateStr = new Date().toLocaleDateString('en-IN', {
         weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
         timeZone: 'Asia/Kolkata',
       });
 
-      const lines: string[] = [
-        `📋 *Envelope Pending List*`,
-        `📅 ${dateStr}`,
-        ``,
-      ];
-
-      // Group by sheet
+      // Group by sheet for the item list
       const bySheet = new Map<string, EnvItem[]>();
       for (const item of envelopeItems) {
         if (!bySheet.has(item.sheetNo)) bySheet.set(item.sheetNo, []);
         bySheet.get(item.sheetNo)!.push(item);
       }
 
+      const itemLines: string[] = [];
       for (const [sheetNo, items] of bySheet) {
         const { gsm, sizeInches } = items[0];
-        lines.push(`*Sheet ${sheetNo} — ${gsm} GSM ${sizeInches}*`);
+        itemLines.push(`*Sheet ${sheetNo} — ${gsm} GSM ${sizeInches}*`);
         for (const item of items) {
           const due = item.dueDate
             ? new Date(item.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
             : '—';
           const age = item.daysInStage > 0 ? ` | ${item.daysInStage}d` : '';
-          lines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | Due: ${due}${age}`);
+          itemLines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | Due: ${due}${age}`);
         }
-        lines.push('');
+        itemLines.push('');
       }
+      const itemList = itemLines.join('\n').trim();
+      const totalCount = envelopeItems.length;
 
-      lines.push(`Total: ${envelopeItems.length} envelope item(s) pending`);
-      lines.push(`Please confirm schedule 🙏`);
-
-      const message = lines.join('\n');
-      const ok = await this.whatsapp.sendTextMessage(razaVendor.phone, message);
+      const ok = await this.whatsapp.sendEnvelopeDailyList({
+        vendorName: razaVendor.name,
+        vendorPhone: razaVendor.phone,
+        dateStr,
+        itemList,
+        totalCount,
+      });
       this.logger.log(
         ok
-          ? `✅ Envelope daily list sent to ${razaVendor.name} (${razaVendor.phone}): ${envelopeItems.length} items`
+          ? `✅ Envelope daily list sent to ${razaVendor.name} (${razaVendor.phone}): ${totalCount} items`
           : `❌ Envelope daily list failed for ${razaVendor.phone}`,
       );
-      return { sent: ok, itemCount: envelopeItems.length, razaPhone: razaVendor.phone };
+      return { sent: ok, itemCount: totalCount, razaPhone: razaVendor.phone };
     } catch (err) {
       this.logger.error('Envelope daily list error', err);
       return { sent: false, reason: String(err) };

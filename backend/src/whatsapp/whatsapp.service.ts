@@ -411,6 +411,27 @@ export class WhatsAppService {
     });
   }
 
+  // Daily envelope pending list to Raza Envelope — uses approved raza_envelope_daily template
+  // Template: "Hi Raza Envelope 👋\nPending envelope jobs as on *{{1}}*:\n\n{{2}}\n\nTotal: *{{3}} item(s) pending*\n..."
+  async sendEnvelopeDailyList(params: {
+    vendorName: string;
+    vendorPhone: string;
+    dateStr: string;       // {{1}}
+    itemList: string;      // {{2}}
+    totalCount: number;    // {{3}}
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_ENVELOPE_CAMPAIGN ?? 'raza_envelope_daily',
+      customerName: params.vendorName,
+      customerPhone: params.vendorPhone,
+      templateParams: [
+        params.dateStr,
+        params.itemList,
+        String(params.totalCount),
+      ],
+    });
+  }
+
   // Plain text message (for Virtual CEO reports, internal alerts)
   async sendTextMessage(phone: string, message: string): Promise<boolean> {
     const normalizedPhone = this.normalizePhone(phone);
