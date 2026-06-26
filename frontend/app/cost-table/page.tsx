@@ -234,8 +234,10 @@ export default function CostTablePage() {
   // Slab editing state
   const [editingSlabId, setEditingSlabId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<CostSlab>>({});
+  const [editSaleRate, setEditSaleRate] = useState<string>("");
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [addingFor, setAddingFor] = useState<string | null>(null);
-  const [newSlab, setNewSlab] = useState({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
+  const [newSlab, setNewSlab] = useState({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "", saleRate: "" });
 
   // Settings editing
   const [settingsForm, setSettingsForm] = useState<Settings>({ minApprovalMarginPct: 15, warningMarginPct: 20, agentCommissionPct: 10 });
@@ -626,7 +628,23 @@ export default function CostTablePage() {
     await fetch(`${API_BASE_URL}/cost-table/slabs/${slabId}`, {
       method: "PUT", headers, body: JSON.stringify(editForm),
     });
+    // Also save sale rate if provided
+    if (editSaleRate && editingProductId && editForm.minQuantity != null) {
+      await fetch(`${API_BASE_URL}/cost-table/products/${editingProductId}/rate-slabs/bulk`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slabs: [{
+            minQuantity: editForm.minQuantity,
+            maxQuantity: editForm.maxQuantity ?? null,
+            rateAmount: Number(editSaleRate),
+          }],
+        }),
+      });
+    }
     setEditingSlabId(null);
+    setEditSaleRate("");
+    setEditingProductId(null);
     load();
   }
 
@@ -648,8 +666,22 @@ export default function CostTablePage() {
         setupCost: newSlab.setupCost ? Number(newSlab.setupCost) : null,
       }),
     });
+    // Also save sale rate if provided
+    if (newSlab.saleRate) {
+      await fetch(`${API_BASE_URL}/cost-table/products/${productId}/rate-slabs/bulk`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slabs: [{
+            minQuantity: Number(newSlab.minQuantity),
+            maxQuantity: newSlab.maxQuantity ? Number(newSlab.maxQuantity) : null,
+            rateAmount: Number(newSlab.saleRate),
+          }],
+        }),
+      });
+    }
     setAddingFor(null);
-    setNewSlab({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
+    setNewSlab({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "", saleRate: "" });
     load();
   }
 
@@ -894,11 +926,10 @@ export default function CostTablePage() {
                                           <input type="number" step="0.01" placeholder="0" value={editForm.setupCost ?? ""} onChange={e => setEditForm(f => ({ ...f, setupCost: e.target.value ? Number(e.target.value) : null }))}
                                             className="w-24 border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
                                         </td>
-                                        <td className="py-1.5 pr-2 text-blue-600 text-xs font-medium">
-                                          {(() => {
-                                            const r = (product.rateSlabs ?? []).find(rs => rs.minQuantity <= slab.minQuantity && (rs.maxQuantity == null || rs.maxQuantity >= slab.minQuantity));
-                                            return r ? fmt(r.rateAmount) : <span className="text-gray-300">—</span>;
-                                          })()}
+                                        <td className="py-1.5 pr-2">
+                                          <input type="number" step="0.01" placeholder="e.g. 4999" value={editSaleRate}
+                                            onChange={e => setEditSaleRate(e.target.value)}
+                                            className="w-24 border border-blue-300 rounded px-2 py-1 text-sm text-blue-700 font-medium focus:outline-none focus:ring-1 focus:ring-blue-500" />
                                         </td>
                                         <td className="py-1.5 pr-2 text-gray-400 text-xs">{new Date(slab.effectiveFrom).toLocaleDateString("en-IN")}</td>
                                         <td className="py-1.5">
@@ -923,8 +954,13 @@ export default function CostTablePage() {
                                         <td className="py-2 pr-2 text-gray-400 text-xs">{new Date(slab.effectiveFrom).toLocaleDateString("en-IN")}</td>
                                         <td className="py-2">
                                           <div className="flex gap-1">
-                                            <button onClick={() => { setEditingSlabId(slab.id); setEditForm(slab); }}
-                                              className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={13} /></button>
+                                            <button onClick={() => {
+                                              setEditingSlabId(slab.id);
+                                              setEditForm(slab);
+                                              setEditingProductId(product.id);
+                                              const existingRate = (product.rateSlabs ?? []).find(rs => rs.minQuantity <= slab.minQuantity && (rs.maxQuantity == null || rs.maxQuantity >= slab.minQuantity));
+                                              setEditSaleRate(existingRate ? String(existingRate.rateAmount) : "");
+                                            }} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={13} /></button>
                                             <button onClick={() => deleteSlab(slab.id)}
                                               className="p-1 text-red-400 hover:bg-red-50 rounded"><Trash2 size={13} /></button>
                                           </div>
@@ -962,6 +998,11 @@ export default function CostTablePage() {
                               <label className="block text-xs text-gray-500 mb-1">Setup Cost (₹)</label>
                               <input type="number" step="0.01" value={newSlab.setupCost} onChange={e => setNewSlab(s => ({ ...s, setupCost: e.target.value }))}
                                 className="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="optional" />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-blue-600 mb-1 font-medium">Sale Rate (₹)</label>
+                              <input type="number" step="0.01" value={newSlab.saleRate} onChange={e => setNewSlab(s => ({ ...s, saleRate: e.target.value }))}
+                                className="w-28 border border-blue-300 rounded px-2 py-1.5 text-sm text-blue-700 font-medium focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="e.g. 4999" />
                             </div>
                             <div className="flex gap-2 pb-0.5">
                               <button onClick={() => addSlab(product.id)}
