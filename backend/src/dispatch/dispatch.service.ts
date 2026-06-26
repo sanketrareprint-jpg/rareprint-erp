@@ -381,6 +381,23 @@ export class DispatchService {
             itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH,
           },
         },
+        // SECURITY GUARD: Only show orders that have been approved by accounts for dispatch.
+        // Sample orders (isSample=true) are exempt — they bypass the approval flow by design.
+        // Normal orders MUST have a status log entry: PENDING_DISPATCH_APPROVAL → READY_FOR_DISPATCH.
+        OR: [
+          {
+            isSample: true,
+          },
+          {
+            isSample: false,
+            statusLogs: {
+              some: {
+                fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+                toStatus: OrderStatus.READY_FOR_DISPATCH,
+              },
+            },
+          },
+        ],
       },
       orderBy: { updatedAt: 'desc' },
       include: {

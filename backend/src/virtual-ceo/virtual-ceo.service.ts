@@ -851,11 +851,23 @@ export class VirtualCeoService {
   private async checkDispatch(): Promise<ActionItem[]> {
     const items: ActionItem[] = [];
 
-    // 1. All orders in dispatch queue — matches listReadyForDispatch() exactly
+    // 1. All orders in dispatch queue — matches listReadyForDispatch() guard exactly
     const readyNotBooked = await this.prisma.order.findMany({
       where: {
         status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED] },
         items: { some: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH } },
+        OR: [
+          { isSample: true },
+          {
+            isSample: false,
+            statusLogs: {
+              some: {
+                fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+                toStatus: OrderStatus.READY_FOR_DISPATCH,
+              },
+            },
+          },
+        ],
       },
       include: {
         customer: { select: { businessName: true } },
