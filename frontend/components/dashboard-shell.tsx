@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
-  Lock, AlertTriangle, Activity,
+  Lock, AlertTriangle, Activity, Shield,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -48,6 +48,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Settings",   href: "/settings",         icon: Settings },
     { label: "Virtual CEO", href: "/virtual-ceo",     icon: Bot },
     { label: "Activity",   href: "/admin/activity",   icon: Activity },
+    { label: "Biz Rules",  href: "/business-rules",   icon: Shield },
   ],
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
