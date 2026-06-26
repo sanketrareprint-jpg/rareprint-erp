@@ -474,33 +474,6 @@ export class VirtualCeoService {
       });
     }
 
-    // 4. Orders ready for dispatch (production complete, awaiting shipment)
-    const readyForDispatch = await this.prisma.order.findMany({
-      where: {
-        productionStage: OrderProductionStage.READY_FOR_DISPATCH,
-        status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.IN_PRODUCTION, OrderStatus.APPROVED] },
-        shipments: { none: {} },
-      },
-      include: { customer: { select: { businessName: true } } },
-      orderBy: { updatedAt: 'asc' },
-      take: 30,
-    });
-
-    for (const o of readyForDispatch) {
-      const days = ageDays(o.updatedAt);
-      items.push({
-        id: `acc-rfd-${o.id}`,
-        department: 'ACCOUNTS',
-        priority: days > 2 ? 'HIGH' : 'MEDIUM',
-        category: 'Ready for Dispatch',
-        title: `Ready to dispatch — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — ready ${Math.round(days)}d, no shipment booked`,
-        orderNo: o.orderNumber,
-        ageDays: Math.round(days),
-        actionUrl: '/dispatch',
-      });
-    }
-
     return items;
   }
 
@@ -732,22 +705,42 @@ export class VirtualCeoService {
       });
     }
 
-    // 8. Sheets COMPLETE — start next process
+    // 8. Sheets COMPLETE — start next process (one card per sheet)
     const sheetsComplete = await this.prisma.printSheet.findMany({
       where: { status: SheetStatus.COMPLETE },
-      include: { items: { select: { id: true } } },
+      include: {
+        items: {
+          select: {
+            id: true,
+            quantityOnSheet: true,
+            orderItem: {
+              select: {
+                product: { select: { name: true } },
+                order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+              },
+            },
+          },
+        },
+      },
       orderBy: { updatedAt: 'asc' },
       take: 20,
     });
 
-    if (sheetsComplete.length > 0) {
+    for (const sheet of sheetsComplete) {
+      const daysSince = ageDays(sheet.updatedAt);
+      const uniqueProducts = [...new Set(sheet.items.map(i => i.orderItem.product.name))];
+      const customers = [...new Set(sheet.items.map(i => i.orderItem.order.customer.businessName))];
+      const orderNos = [...new Set(sheet.items.map(i => i.orderItem.order.orderNumber))];
+      const productStr = uniqueProducts.slice(0, 2).join(', ') + (uniqueProducts.length > 2 ? ` +${uniqueProducts.length - 2}` : '');
+      const customerStr = customers.slice(0, 2).join(', ') + (customers.length > 2 ? ` +${customers.length - 2} more` : '');
+      const orderStr = orderNos.slice(0, 3).map(n => `#${n}`).join(', ') + (orderNos.length > 3 ? ` +${orderNos.length - 3} more` : '');
       items.push({
-        id: 'prod-sheets-complete',
+        id: `prod-sheet-complete-${sheet.id}`,
         department: 'PRODUCTION',
-        priority: 'MEDIUM',
+        priority: daysSince > 1 ? 'HIGH' : 'MEDIUM',
         category: 'Sheet Production',
-        title: `${sheetsComplete.length} completed sheet(s) — start next process`,
-        detail: `Sheets are printed. Move items to processing (lamination, binding, cutting, etc.)`,
+        title: `Sheet ${sheet.sheetNo} printed — move to processing`,
+        detail: `${productStr} · ${customerStr} · Orders: ${orderStr} · ${sheet.gsm} GSM ${sheet.sizeInches}"`,
         actionUrl: '/sheet-layout',
       });
     }
@@ -771,7 +764,7 @@ export class VirtualCeoService {
     });
 
     // Group by sheet — one card per sheet instead of one per item
-    const sheetMap = new Map<string, { sheetNo: string; gsm: number; sizeInches: string; updatedAt: Date; orderNos: string[]; productNames: string[]; itemCount: number; hasFollowUp: boolean; allEnvelope: boolean }>();
+    const sheetMap = new Map<string, { sheetNo: string; gsm: number; sizeInches: string; updatedAt: Date; orderNos: string[]; customerNames: string[]; productNames: string[]; itemCount: number; hasFollowUp: boolean; allEnvelope: boolean }>();
     for (const si of sheetsInProcessing) {
       const followUpDate = (si as any).dueDate as Date | null ?? null;
       if (!isDueOrOverdueIST(followUpDate)) continue;
@@ -788,6 +781,7 @@ export class VirtualCeoService {
           sizeInches: si.sheet.sizeInches,
           updatedAt: si.sheet.updatedAt,
           orderNos: [],
+          customerNames: [],
           productNames: [],
           itemCount: 0,
           hasFollowUp: !!followUpDate,
@@ -797,6 +791,8 @@ export class VirtualCeoService {
       const entry = sheetMap.get(key)!;
       entry.itemCount++;
       if (!entry.orderNos.includes(si.orderItem.order.orderNumber)) entry.orderNos.push(si.orderItem.order.orderNumber);
+      const cName = si.orderItem.order.customer.businessName;
+      if (!entry.customerNames.includes(cName)) entry.customerNames.push(cName);
       const pName = si.orderItem.product.name;
       if (!entry.productNames.includes(pName)) entry.productNames.push(pName);
       if (!isEnvelope) entry.allEnvelope = false;
@@ -807,14 +803,15 @@ export class VirtualCeoService {
       const orderSummary = entry.orderNos.length <= 3
         ? entry.orderNos.map(n => `#${n}`).join(', ')
         : `#${entry.orderNos[0]}, #${entry.orderNos[1]} +${entry.orderNos.length - 2} more`;
+      const customerSummary = entry.customerNames.slice(0, 2).join(', ') + (entry.customerNames.length > 2 ? ` +${entry.customerNames.length - 2} more` : '');
       const productSummary = entry.productNames.slice(0, 2).join(', ') + (entry.productNames.length > 2 ? ` +${entry.productNames.length - 2}` : '');
       items.push({
         id: `prod-sheet-proc-${entry.sheetNo}`,
         department: 'PRODUCTION',
         priority: days > 4 ? 'HIGH' : 'MEDIUM',
         category: 'Sheet Processing Follow-up',
-        title: `Sheet ${entry.sheetNo} processing — ${entry.itemCount} item${entry.itemCount > 1 ? 's' : ''} pending`,
-        detail: `${entry.gsm} GSM ${entry.sizeInches}" · ${productSummary} · Orders: ${orderSummary} · ${Math.round(days)}d in stage`,
+        title: `Sheet ${entry.sheetNo} · ${entry.gsm} GSM ${entry.sizeInches}" — ${entry.itemCount} item${entry.itemCount > 1 ? 's' : ''} pending`,
+        detail: `${productSummary} · ${customerSummary} · Orders: ${orderSummary} · ${Math.round(days)}d in stage`,
         ageDays: Math.round(days),
         actionUrl: '/sheet-layout',
       });
@@ -859,26 +856,30 @@ export class VirtualCeoService {
       where: {
         productionStage: OrderProductionStage.READY_FOR_DISPATCH,
         status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.IN_PRODUCTION, OrderStatus.APPROVED] },
-        // Include orders with no shipments OR only cancelled/returned shipments
         shipments: {
           none: {
             status: { notIn: [ShipmentStatus.CANCELLED, ShipmentStatus.RETURNED] as any },
           },
         },
       },
-      include: { customer: { select: { businessName: true } } },
+      include: {
+        customer: { select: { businessName: true } },
+        items: { select: { product: { select: { name: true } }, quantity: true } },
+      },
       orderBy: { updatedAt: 'asc' },
     });
 
     for (const o of readyNotBooked) {
       const days = ageDays(o.updatedAt);
+      const uniqueProducts = [...new Set(o.items.map(i => i.product.name))];
+      const productStr = uniqueProducts.slice(0, 2).join(', ') + (uniqueProducts.length > 2 ? ` +${uniqueProducts.length - 2} more` : '');
       items.push({
         id: `disp-notbooked-${o.id}`,
         department: 'DISPATCH',
         priority: days > 3 ? 'HIGH' : days > 1 ? 'MEDIUM' : 'LOW',
-        category: 'Dispatch Pending',
-        title: `Dispatch pending — ${o.orderNumber}`,
-        detail: `${o.customer.businessName} — ready ${Math.round(days)}d, no shipment booked`,
+        category: 'Ready for Dispatch',
+        title: `#${o.orderNumber} · ${o.customer.businessName}`,
+        detail: `${productStr} — ready ${Math.round(days)}d, no shipment booked`,
         orderNo: o.orderNumber,
         ageDays: Math.round(days),
         actionUrl: '/dispatch',
@@ -1081,8 +1082,8 @@ export class VirtualCeoService {
     return lines.join('\n');
   }
 
-  // ─── Cron: Daily 9 AM IST — Envelope Pending List to Raza Envelope ───────────
-  @Cron('0 9 * * *', { timeZone: 'Asia/Kolkata' })
+  // ─── Cron: 9 AM & 6 PM IST — Envelope Pending List to Raza Envelope ───────────
+  @Cron('0 9,18 * * *', { timeZone: 'Asia/Kolkata' })
   async sendDailyEnvelopeList() {
     this.logger.log('Sending daily envelope pending list to Raza Envelope');
     try {
