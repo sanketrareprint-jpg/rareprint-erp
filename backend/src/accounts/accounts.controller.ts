@@ -140,8 +140,12 @@ export class AccountsController {
   }
 
   @Patch(':id/approve')
-  approveOrder(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
-    return this.accountsService.approveOrder(id, req.user);
+  approveOrder(
+    @Param('id') id: string,
+    @Req() req: Request & { user: JwtUser },
+    @Body('overrideReason') overrideReason?: string,
+  ) {
+    return this.accountsService.approveOrder(id, req.user, overrideReason);
   }
 
   @Patch(':id/reject')

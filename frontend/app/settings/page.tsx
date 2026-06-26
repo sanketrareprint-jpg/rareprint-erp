@@ -45,7 +45,12 @@ type BigshipWarehouse = {
   isActive: boolean;
 };
 
-type OfferCode = { id: string; code: string; description?: string; productIds: string[]; isActive: boolean; createdAt: string };
+type OfferCode = {
+  id: string; code: string; description?: string;
+  offerType: string; discountAmount?: number | null; notes?: string | null;
+  productIds: string[]; validFrom?: string | null; validTo?: string | null;
+  isActive: boolean; createdAt: string;
+};
 type ProductRule = { id: string; productId: string; minQty: number; isActive: boolean; product?: { id: string; name: string; sku: string } };
 type ProductOption = { id: string; name: string; sku: string };
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
@@ -81,7 +86,12 @@ export default function SettingsPage() {
   const [offerCodes, setOfferCodes] = useState<OfferCode[]>([]);
   const [newCode, setNewCode] = useState("");
   const [newCodeDesc, setNewCodeDesc] = useState("");
+  const [newCodeType, setNewCodeType] = useState("FREE_ITEM");
+  const [newCodeDiscount, setNewCodeDiscount] = useState("");
+  const [newCodeNotes, setNewCodeNotes] = useState("");
   const [newCodeProductIds, setNewCodeProductIds] = useState<string[]>([]);
+  const [newCodeValidFrom, setNewCodeValidFrom] = useState("");
+  const [newCodeValidTo, setNewCodeValidTo] = useState("");
   const [offerCodeSaving, setOfferCodeSaving] = useState(false);
 
   // Product rules
@@ -466,77 +476,144 @@ export default function SettingsPage() {
           </section>
         )}
 
-        {/* ── Offer Codes ─────────────────────────────────────────────────── */}
+        {/* ── Offers & Combos ─────────────────────────────────────────────── */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm">
           <div className="flex items-center gap-3">
             <TicketPercent size={18} className="text-indigo-500" />
             <div>
-              <h2 className="font-semibold text-gray-900 text-base">Offer Codes</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Create codes for free or discounted items. Items with an offer code bypass the minimum margin approval check.</p>
+              <h2 className="font-semibold text-gray-900 text-base">Offers &amp; Combos</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Define free-item offers and combo discounts. Agents apply these codes when creating orders — items with a code skip the margin check in accounts approval.</p>
             </div>
           </div>
 
-          {/* Existing codes */}
+          {/* Existing offers */}
           <div className="space-y-2">
-            {offerCodes.length === 0 && <p className="text-xs text-gray-400">No offer codes yet.</p>}
-            {offerCodes.map(oc => (
-              <div key={oc.id} className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono font-bold text-indigo-700 text-sm bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">{oc.code}</span>
-                    {oc.description && <span className="text-xs text-gray-500">{oc.description}</span>}
-                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${oc.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-                      {oc.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {oc.productIds.map(pid => {
-                      const p = products.find(x => x.id === pid);
-                      return <span key={pid} className="text-xs bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-600">{p?.name ?? pid}</span>;
-                    })}
-                    {oc.productIds.length === 0 && <span className="text-xs text-gray-400">All products</span>}
+            {offerCodes.length === 0 && <p className="text-xs text-gray-400">No offers yet.</p>}
+            {offerCodes.map(oc => {
+              const isExpired = oc.validTo && new Date(oc.validTo) < new Date();
+              const typeLabel = oc.offerType === "COMBO_DISCOUNT" ? "Combo Discount" : "Free Item";
+              const typeBg = oc.offerType === "COMBO_DISCOUNT" ? "bg-amber-50 text-amber-700 border-amber-100" : "bg-purple-50 text-purple-700 border-purple-100";
+              return (
+                <div key={oc.id} className={`rounded-xl border px-4 py-3 ${oc.isActive && !isExpired ? "border-gray-100 bg-gray-50" : "border-gray-100 bg-gray-50 opacity-60"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-indigo-700 text-sm bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">{oc.code}</span>
+                        <span className={`text-xs rounded-full px-2 py-0.5 font-medium border ${typeBg}`}>{typeLabel}</span>
+                        {oc.discountAmount && <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-100 rounded px-2 py-0.5">−₹{Number(oc.discountAmount).toLocaleString("en-IN")}</span>}
+                        <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${oc.isActive && !isExpired ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                          {isExpired ? "Expired" : oc.isActive ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                      {oc.description && <p className="text-xs text-gray-600 mt-1">{oc.description}</p>}
+                      {oc.notes && <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">📋 {oc.notes}</p>}
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {oc.productIds.map(pid => {
+                          const p = products.find(x => x.id === pid);
+                          return <span key={pid} className="text-xs bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-600">{p?.name ?? pid}</span>;
+                        })}
+                        {oc.productIds.length === 0 && <span className="text-xs text-gray-400 italic">All products</span>}
+                      </div>
+                      {(oc.validFrom || oc.validTo) && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          Valid: {oc.validFrom ? new Date(oc.validFrom).toLocaleDateString("en-IN") : "—"} → {oc.validTo ? new Date(oc.validTo).toLocaleDateString("en-IN") : "No end date"}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={async () => {
+                          await fetch(`${API_BASE_URL}/erp-config/offer-codes/${oc.id}`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !oc.isActive }) });
+                          setOfferCodes(prev => prev.map(c => c.id === oc.id ? { ...c, isActive: !c.isActive } : c));
+                        }}
+                        className="text-xs px-2 py-1 rounded border border-gray-200 hover:bg-gray-100 text-gray-600"
+                      >
+                        {oc.isActive ? "Disable" : "Enable"}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete offer "${oc.code}"?`)) return;
+                          await fetch(`${API_BASE_URL}/erp-config/offer-codes/${oc.id}`, { method: "DELETE", headers: getAuthHeaders() });
+                          setOfferCodes(prev => prev.filter(c => c.id !== oc.id));
+                        }}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={async () => {
-                      await fetch(`${API_BASE_URL}/erp-config/offer-codes/${oc.id}`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !oc.isActive }) });
-                      setOfferCodes(prev => prev.map(c => c.id === oc.id ? { ...c, isActive: !c.isActive } : c));
-                    }}
-                    className="text-xs px-2 py-1 rounded border border-gray-200 hover:bg-gray-100 text-gray-600"
-                  >
-                    {oc.isActive ? "Disable" : "Enable"}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirm(`Delete offer code "${oc.code}"?`)) return;
-                      await fetch(`${API_BASE_URL}/erp-config/offer-codes/${oc.id}`, { method: "DELETE", headers: getAuthHeaders() });
-                      setOfferCodes(prev => prev.filter(c => c.id !== oc.id));
-                    }}
-                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          {/* Add new code form */}
+          {/* Add new offer form */}
           <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
-            <p className="text-xs font-semibold text-indigo-800">Add New Offer Code</p>
+            <p className="text-xs font-semibold text-indigo-800">Create New Offer / Combo</p>
+
+            {/* Type selector */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setNewCodeType("FREE_ITEM")}
+                className={`flex-1 text-xs font-semibold py-2 rounded-lg border transition-colors ${newCodeType === "FREE_ITEM" ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
+              >
+                🎁 Free Item
+              </button>
+              <button
+                onClick={() => setNewCodeType("COMBO_DISCOUNT")}
+                className={`flex-1 text-xs font-semibold py-2 rounded-lg border transition-colors ${newCodeType === "COMBO_DISCOUNT" ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
+              >
+                🎯 Combo Discount
+              </button>
+            </div>
+
+            {newCodeType === "FREE_ITEM" && (
+              <div className="text-xs text-purple-700 bg-purple-50 rounded-lg px-3 py-2">
+                <strong>Free Item</strong> — e.g. 10,000 stickers free on purchase of 10,000 envelopes. The free items get ₹0 price and skip margin check.
+              </div>
+            )}
+            {newCodeType === "COMBO_DISCOUNT" && (
+              <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                <strong>Combo Discount</strong> — e.g. Small + Medium + Large envelope 5000 qty each at ₹14,500 total (discount ₹2,500). All combo items get this code so accounts knows the low margin is intentional.
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-600">Code *</label>
-                <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} placeholder="e.g. FREESTICKER" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <label className="text-xs font-medium text-gray-600">Code * <span className="text-gray-400">(auto UPPERCASE)</span></label>
+                <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} placeholder={newCodeType === "COMBO_DISCOUNT" ? "e.g. ENV-COMBO-JUN26" : "e.g. FREE-STICKER-10K"} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-600">Description</label>
-                <input value={newCodeDesc} onChange={e => setNewCodeDesc(e.target.value)} placeholder="e.g. Free sticker with order" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <label className="text-xs font-medium text-gray-600">Short Description</label>
+                <input value={newCodeDesc} onChange={e => setNewCodeDesc(e.target.value)} placeholder={newCodeType === "COMBO_DISCOUNT" ? "e.g. Envelope 3-size combo Jun 2026" : "e.g. Free stickers with 10K envelope"} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
             </div>
+
+            {newCodeType === "COMBO_DISCOUNT" && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Total Discount Amount (₹)</label>
+                <input type="number" value={newCodeDiscount} onChange={e => setNewCodeDiscount(e.target.value)} placeholder="e.g. 2500" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+            )}
+
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-600">Valid for Products (leave empty = all products)</label>
+              <label className="text-xs font-medium text-gray-600">Notes for Accounts Team</label>
+              <input value={newCodeNotes} onChange={e => setNewCodeNotes(e.target.value)} placeholder="e.g. Approved by Sanket — valid for June 2026 campaign" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Valid From</label>
+                <input type="date" value={newCodeValidFrom} onChange={e => setNewCodeValidFrom(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-600">Valid To (leave blank = no expiry)</label>
+                <input type="date" value={newCodeValidTo} onChange={e => setNewCodeValidTo(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Applicable Products <span className="text-gray-400">(leave empty = all products)</span></label>
               <select
                 multiple
                 value={newCodeProductIds}
@@ -547,6 +624,7 @@ export default function SettingsPage() {
               </select>
               <p className="text-xs text-gray-400">Hold Ctrl/Cmd to select multiple</p>
             </div>
+
             <button
               disabled={!newCode.trim() || offerCodeSaving}
               onClick={async () => {
@@ -555,19 +633,30 @@ export default function SettingsPage() {
                   const res = await fetch(`${API_BASE_URL}/erp-config/offer-codes`, {
                     method: "POST",
                     headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-                    body: JSON.stringify({ code: newCode.trim(), description: newCodeDesc.trim() || undefined, productIds: newCodeProductIds }),
+                    body: JSON.stringify({
+                      code: newCode.trim(),
+                      description: newCodeDesc.trim() || undefined,
+                      offerType: newCodeType,
+                      discountAmount: newCodeDiscount ? Number(newCodeDiscount) : undefined,
+                      notes: newCodeNotes.trim() || undefined,
+                      productIds: newCodeProductIds,
+                      validFrom: newCodeValidFrom || undefined,
+                      validTo: newCodeValidTo || undefined,
+                    }),
                   });
                   if (res.ok) {
                     const created: OfferCode = await res.json();
                     setOfferCodes(prev => [created, ...prev]);
-                    setNewCode(""); setNewCodeDesc(""); setNewCodeProductIds([]);
+                    setNewCode(""); setNewCodeDesc(""); setNewCodeType("FREE_ITEM");
+                    setNewCodeDiscount(""); setNewCodeNotes(""); setNewCodeProductIds([]);
+                    setNewCodeValidFrom(""); setNewCodeValidTo("");
                   }
                 } finally { setOfferCodeSaving(false); }
               }}
               className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-xs"
             >
               {offerCodeSaving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-              {offerCodeSaving ? "Adding..." : "Add Offer Code"}
+              {offerCodeSaving ? "Saving..." : "Create Offer"}
             </button>
           </div>
         </section>

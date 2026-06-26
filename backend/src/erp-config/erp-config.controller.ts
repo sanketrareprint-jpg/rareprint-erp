@@ -29,15 +29,50 @@ export class ErpConfigController {
   }
 
   @Post('offer-codes')
-  createOfferCode(@Body() body: { code: string; description?: string; productIds: string[] }) {
+  createOfferCode(@Body() body: {
+    code: string;
+    description?: string;
+    offerType?: string;
+    discountAmount?: number;
+    notes?: string;
+    productIds: string[];
+    validFrom?: string;
+    validTo?: string;
+  }) {
     return this.prisma.offerCode.create({
-      data: { code: body.code.toUpperCase().trim(), description: body.description, productIds: body.productIds },
+      data: {
+        code: body.code.toUpperCase().trim(),
+        description: body.description,
+        offerType: body.offerType ?? 'FREE_ITEM',
+        discountAmount: body.discountAmount ?? null,
+        notes: body.notes ?? null,
+        productIds: body.productIds,
+        validFrom: body.validFrom ? new Date(body.validFrom) : null,
+        validTo: body.validTo ? new Date(body.validTo) : null,
+      },
     });
   }
 
   @Patch('offer-codes/:id')
-  updateOfferCode(@Param('id') id: string, @Body() body: { isActive?: boolean; description?: string; productIds?: string[] }) {
-    return this.prisma.offerCode.update({ where: { id }, data: body });
+  updateOfferCode(@Param('id') id: string, @Body() body: {
+    isActive?: boolean;
+    description?: string;
+    offerType?: string;
+    discountAmount?: number;
+    notes?: string;
+    productIds?: string[];
+    validFrom?: string | null;
+    validTo?: string | null;
+  }) {
+    return this.prisma.offerCode.update({
+      where: { id },
+      data: {
+        ...body,
+        discountAmount: body.discountAmount !== undefined ? body.discountAmount : undefined,
+        validFrom: body.validFrom !== undefined ? (body.validFrom ? new Date(body.validFrom) : null) : undefined,
+        validTo: body.validTo !== undefined ? (body.validTo ? new Date(body.validTo) : null) : undefined,
+      },
+    });
   }
 
   @Delete('offer-codes/:id')

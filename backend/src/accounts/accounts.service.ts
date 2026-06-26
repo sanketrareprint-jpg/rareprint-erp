@@ -247,7 +247,7 @@ export class AccountsService {
       include: {
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
-        items: { include: { product: true } },
+        items: { include: { product: true, offerCode: true } },
         payments: {
           include: { paymentAccount: true },
           orderBy: { paymentDate: 'desc' },
@@ -327,6 +327,12 @@ export class AccountsService {
             costTotal: costTotal == null ? null : Number(costTotal.toFixed(2)),
             marginTotal: marginTotal == null ? null : Number(marginTotal.toFixed(2)),
             marginPct: marginPct == null ? null : Number(marginPct.toFixed(2)),
+            offerCode: (i as any).offerCode ? {
+              code: (i as any).offerCode.code,
+              offerType: (i as any).offerCode.offerType,
+              description: (i as any).offerCode.description,
+              discountAmount: (i as any).offerCode.discountAmount ? Number((i as any).offerCode.discountAmount) : null,
+            } : null,
           };
         }),
         totalAmount: grandTotal,
@@ -422,7 +428,7 @@ export class AccountsService {
   }
 
   // ── Approve order → WhatsApp "Approved ✅" ────────────────────────────────
-  async approveOrder(orderId: string, user: AccountsUser) {
+  async approveOrder(orderId: string, user: AccountsUser, overrideReason?: string) {
     assertAccountsUser(user);
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -445,13 +451,16 @@ export class AccountsService {
     // Sanket (super-admin) can approve any order with no restrictions whatsoever
     const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
 
+    // If an override reason is provided (e.g. free stickers, combo discount), skip cost/margin checks
+    const isOverride = !!overrideReason?.trim();
+
     // Block approval if any billable item has no cost slab
     const productIds = billableItems.map((i) => i.productId);
     const allCostSlabs = productIds.length
       ? await this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } })
       : [];
 
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin && !isOverride) {
       const productsWithCost = new Set(allCostSlabs.map((s) => s.productId));
       const missingCostItems = billableItems.filter((i) => !productsWithCost.has(i.productId));
       if (missingCostItems.length > 0) {
@@ -505,8 +514,10 @@ export class AccountsService {
           fromStatus: OrderStatus.PENDING_APPROVAL,
           toStatus: OrderStatus.APPROVED,
           changedById: user.id,
-          reason: 'Accounts approved order and generated invoice',
-          metadata: { invoiceNumber: order.orderNumber },
+          reason: isOverride
+            ? `Accounts approved order with override: ${overrideReason}`
+            : 'Accounts approved order and generated invoice',
+          metadata: { invoiceNumber: order.orderNumber, ...(isOverride ? { overrideReason } : {}) },
         },
       });
       return { approved, invoice };

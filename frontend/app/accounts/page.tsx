@@ -24,6 +24,7 @@ type OrderItem = {
   costTotal?: number | null;
   marginTotal?: number | null;
   marginPct?: number | null;
+  offerCode?: { code: string; offerType: string; description?: string | null; discountAmount?: number | null } | null;
 };
 
 type PendingOrder = {
@@ -330,6 +331,8 @@ export default function AccountsPage() {
   const [processing, setProcessing] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [overrideOrderId, setOverrideOrderId] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
 
   // Dispatch orders
   const [dispatchOrders, setDispatchOrders] = useState<DispatchPendingOrder[]>([]);
@@ -697,17 +700,35 @@ export default function AccountsPage() {
     if (selectedAgent && selectedMonth) void loadCommissionSheet(selectedAgent.id, selectedMonth);
   }, [selectedAgent, selectedMonth, loadCommissionSheet]);
 
-  async function approveOrder(id: string) {
+  async function approveOrder(id: string, overrideReason?: string) {
     setProcessing(id);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/${id}/approve`, { method: "PATCH", headers: getAuthHeaders() });
+      const res = await fetch(`${API_BASE_URL}/accounts/${id}/approve`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: overrideReason ? JSON.stringify({ overrideReason }) : undefined,
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(`Order approval failed: ${err.message || res.statusText}`);
+        const msg: string = err.message || res.statusText;
+        // Cost/margin errors → offer override modal instead of plain alert
+        if (msg.includes("cost data is missing") || msg.includes("margin is below")) {
+          setOverrideOrderId(id);
+          setOverrideReason("");
+          return;
+        }
+        alert(`Order approval failed: ${msg}`);
         return;
       }
       await load();
     } finally { setProcessing(null); }
+  }
+
+  async function submitOverrideApproval() {
+    if (!overrideOrderId || !overrideReason.trim()) return;
+    await approveOrder(overrideOrderId, overrideReason.trim());
+    setOverrideOrderId(null);
+    setOverrideReason("");
   }
 
   async function rejectOrder() {
@@ -1208,6 +1229,43 @@ await loadHistory();
             </div>
           </div>
 
+          {/* ── OVERRIDE APPROVE MODAL ── */}
+          {overrideOrderId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  <h3 className="text-lg font-bold text-slate-800">Override &amp; Approve</h3>
+                </div>
+                <p className="text-sm text-slate-500 mb-4">
+                  This order has items with missing cost or below-minimum margin (e.g. free stickers, combo discount).
+                  Enter a reason to approve anyway — it will be logged for audit.
+                </p>
+                <textarea
+                  className="w-full border border-slate-300 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  rows={3}
+                  placeholder="e.g. Free stickers given as goodwill gift / Combo discount approved by Sanket"
+                  value={overrideReason}
+                  onChange={e => setOverrideReason(e.target.value)}
+                  autoFocus
+                />
+                <div className="flex gap-3 mt-4 justify-end">
+                  <button
+                    onClick={() => { setOverrideOrderId(null); setOverrideReason(""); }}
+                    className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitOverrideApproval}
+                    disabled={!overrideReason.trim() || processing === overrideOrderId}
+                    className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-50">
+                    {processing === overrideOrderId ? "Approving..." : "Override & Approve"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── ORDER APPROVAL TAB ── */}
           {tab === "pending" && (
             <div className="space-y-3">
@@ -1261,6 +1319,12 @@ await loadHistory();
                                   </div>
                                 )}
                                 <div className="text-[11px] font-mono text-blue-600">{item.sku}</div>
+                                {item.offerCode && (
+                                  <div className={`inline-flex items-center gap-1 mt-0.5 text-[11px] font-semibold rounded px-1.5 py-0.5 ${item.offerCode.offerType === "COMBO_DISCOUNT" ? "bg-amber-50 text-amber-700" : "bg-purple-50 text-purple-700"}`}>
+                                    {item.offerCode.offerType === "COMBO_DISCOUNT" ? "🎯" : "🎁"} {item.offerCode.code}
+                                    {item.offerCode.discountAmount && <span className="font-normal"> −₹{Number(item.offerCode.discountAmount).toLocaleString("en-IN")} combo</span>}
+                                  </div>
+                                )}
                               </td>
                               <td className="py-1.5 text-slate-500 text-xs">{size}</td>
                               <td className="py-1.5 text-slate-500 text-xs">{gsm}</td>
