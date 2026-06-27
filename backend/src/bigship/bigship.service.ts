@@ -36,7 +36,7 @@ const PINCODE_STATE: Record<string, string> = {
   '74': 'WEST BENGAL',
   '75': 'ODISHA',       '76': 'ODISHA',        '77': 'ODISHA',
   '78': 'ASSAM',        '79': 'ASSAM',
-  '80': 'BIHAR',        '81': 'BIHAR',         '82': 'BIHAR',         '83': 'BIHAR',
+  '80': 'BIHAR',        '81': 'BIHAR',         '82': 'BIHAR',         '83': 'JHARKHAND',
   '84': 'BIHAR',        '85': 'JHARKHAND',
 };
 
@@ -62,6 +62,15 @@ const STATE_CODE: Record<string, string> = {
   'ASSAM': 'AS',
   'BIHAR': 'BR',
   'JHARKHAND': 'JH',
+  'UTTARAKHAND': 'UK',
+  'GOA': 'GA',
+  'ARUNACHAL PRADESH': 'AR',
+  'MEGHALAYA': 'ML',
+  'MANIPUR': 'MN',
+  'MIZORAM': 'MZ',
+  'NAGALAND': 'NL',
+  'TRIPURA': 'TR',
+  'SIKKIM': 'SK',
 };
 
 // Reverse map: 2-letter state code → full uppercase name
@@ -149,15 +158,65 @@ function isBigshipInvoiceRequiredError(error: unknown): boolean {
   return /invoice.*(mandatory|required|must be uploaded|attachment is required)|invoice data failed to upload|generated invoices are only supported for international|order_invoice_amount/i.test(text);
 }
 
+// 3-digit prefix overrides for pincodes that straddle two states under the same 2-digit prefix.
+// These handle states carved out after 2000 or union territories sharing a postal circle:
+//
+// Jharkhand (split from Bihar 2000): 81x/82x are mostly Bihar but some are Jharkhand
+//   81x: 814-819 = Jharkhand (Deoghar, Giridih, Godda, Pakur, Sahebganj, Dumka)
+//   82x: 825-829 = Jharkhand (Hazaribagh, Dhanbad, Bokaro, Dhanbad, Ramgarh)
+//
+// Uttarakhand (split from UP 2000): 24x/26x are mostly UP but some are Uttarakhand
+//   246 = Pauri Garhwal/Chamoli (Uttarakhand)
+//   248 = Dehradun (Uttarakhand)
+//   249 = Haridwar/Rishikesh (Uttarakhand)
+//   263 = Nainital/Almora/Pithoragarh (Uttarakhand)
+//
+// Goa: prefix 40 = Maharashtra, but 403 = Goa
+//
+// Northeastern states: prefix 79 = Assam, but 790-799 are other NE states
+//   790-792 = Arunachal Pradesh, 793-794 = Meghalaya, 795 = Manipur,
+//   796 = Mizoram, 797-798 = Nagaland, 799 = Tripura
+const PINCODE3_STATE: Record<string, string> = {
+  // Jharkhand overrides (81x and 82x base → Bihar)
+  '814': 'JHARKHAND', '815': 'JHARKHAND', '816': 'JHARKHAND',
+  '817': 'JHARKHAND', '818': 'JHARKHAND', '819': 'JHARKHAND',
+  '825': 'JHARKHAND', '826': 'JHARKHAND', '827': 'JHARKHAND',
+  '828': 'JHARKHAND', '829': 'JHARKHAND',
+  // Uttarakhand overrides (24x/25x/26x base → Uttar Pradesh)
+  '246': 'UTTARAKHAND', '248': 'UTTARAKHAND', '249': 'UTTARAKHAND',
+  '256': 'UTTARAKHAND', '258': 'UTTARAKHAND',  // Roorkee, Rishikesh
+  '263': 'UTTARAKHAND', '269': 'UTTARAKHAND',  // Nainital, Rudrapur/Udham Singh Nagar
+  // Andhra Pradesh overrides (51x base → Telangana, but 515-518 are AP)
+  // 515=Anantapur, 516=Cuddapah/Kadapa, 517=Chittoor, 518=Kurnool — all in AP
+  '515': 'ANDHRA PRADESH', '516': 'ANDHRA PRADESH',
+  '517': 'ANDHRA PRADESH', '518': 'ANDHRA PRADESH',
+  // Goa override (40x base → Maharashtra)
+  '403': 'GOA', '404': 'GOA',
+  // Sikkim override (73x base → West Bengal, but 737 = Gangtok/Sikkim)
+  '737': 'SIKKIM',
+  // Northeast states (79x base → Assam)
+  '790': 'ARUNACHAL PRADESH', '791': 'ARUNACHAL PRADESH', '792': 'ARUNACHAL PRADESH',
+  '793': 'MEGHALAYA',         '794': 'MEGHALAYA',
+  '795': 'MANIPUR',
+  '796': 'MIZORAM',
+  '797': 'NAGALAND',          '798': 'NAGALAND',
+  '799': 'TRIPURA',
+};
+
 /** Look up Indian state name from a 6-digit pincode */
 function stateFromPincode(pin: string): string {
-  const prefix = pin.trim().slice(0, 2);
-  return titleCase(PINCODE_STATE[prefix] ?? 'DELHI');
+  const p = pin.trim();
+  // Check 3-digit prefix first for pincodes that split across states
+  const prefix3 = p.slice(0, 3);
+  if (PINCODE3_STATE[prefix3]) return titleCase(PINCODE3_STATE[prefix3]);
+  const prefix2 = p.slice(0, 2);
+  return titleCase(PINCODE_STATE[prefix2] ?? 'DELHI');
 }
 
 function stateCodeFromPincode(pin: string): string {
-  const prefix = pin.trim().slice(0, 2);
-  return STATE_CODE[PINCODE_STATE[prefix] ?? 'DELHI'] ?? 'DL';
+  const p = pin.trim();
+  const stateName = (PINCODE3_STATE[p.slice(0, 3)] ?? PINCODE_STATE[p.slice(0, 2)] ?? 'DELHI').toUpperCase();
+  return STATE_CODE[stateName] ?? 'DL';
 }
 
 function uniqueInvoiceNo(base: string | undefined, prefix: string): string {
@@ -189,7 +248,9 @@ function cityFromPincode(pin: string, fallback?: string): string {
     // Delhi
     '110': 'DELHI', '111': 'DELHI',
     // Maharashtra
-    '400': 'MUMBAI', '401': 'MUMBAI', '402': 'MUMBAI', '403': 'GOA',
+    '400': 'MUMBAI', '401': 'MUMBAI', '402': 'MUMBAI',
+    '403': 'PANAJI',  // Goa (state fixed via PINCODE3_STATE)
+    '404': 'MARGAO',  // South Goa
     '410': 'NAVI MUMBAI', '411': 'PUNE', '412': 'PUNE', '413': 'SOLAPUR',
     '414': 'AHMEDNAGAR', '415': 'SATARA', '416': 'KOLHAPUR', '417': 'LATUR',
     '418': 'OSMANABAD', '421': 'THANE', '422': 'NASHIK', '423': 'NASHIK',
@@ -252,6 +313,21 @@ function cityFromPincode(pin: string, fallback?: string): string {
     // Assam
     '781': 'GUWAHATI', '782': 'NAGAON', '783': 'GOALPARA', '784': 'SONITPUR',
     '785': 'JORHAT', '786': 'DIBRUGARH', '787': 'LAKHIMPUR',
+    '788': 'SILCHAR',
+    // Arunachal Pradesh
+    '790': 'ITANAGAR', '791': 'ITANAGAR', '792': 'ITANAGAR',
+    // Meghalaya
+    '793': 'SHILLONG', '794': 'SHILLONG',
+    // Manipur
+    '795': 'IMPHAL',
+    // Mizoram
+    '796': 'AIZAWL',
+    // Nagaland
+    '797': 'KOHIMA', '798': 'KOHIMA',
+    // Tripura
+    '799': 'AGARTALA',
+    // Sikkim
+    '737': 'GANGTOK',
     // Bihar
     '800': 'PATNA', '801': 'PATNA', '802': 'PATNA', '803': 'NALANDA',
     '804': 'JEHANABAD', '805': 'GAYA', '811': 'MUNGER', '812': 'BHAGALPUR',
@@ -299,6 +375,8 @@ function cityFromPincode(pin: string, fallback?: string): string {
     '245': 'HAPUR', '246': 'PAURI GARHWAL', '247': 'SAHARANPUR',
     '248': 'DEHRADUN', '249': 'HARIDWAR', '250': 'MEERUT', '251': 'MEERUT',
     '261': 'SITAPUR', '262': 'LAKHIMPUR KHERI', '263': 'NAINITAL',
+    // Uttarakhand (state fixed via PINCODE3_STATE for 246, 248, 249, 263)
+    '256': 'ROORKEE', '258': 'RISHIKESH', '269': 'RUDRAPUR',
     '271': 'GORAKHPUR', '272': 'BASTI', '273': 'GORAKHPUR', '274': 'DEORIA',
     '275': 'MAU', '276': 'AZAMGARH', '281': 'MATHURA', '282': 'AGRA',
     '283': 'AGRA', '284': 'JHANSI', '285': 'KANPUR', '301': 'ALWAR',
@@ -332,6 +410,15 @@ const STATE_CAPITAL: Record<string, string> = {
   'Tamil Nadu': 'Chennai', 'Kerala': 'Kochi', 'West Bengal': 'Kolkata',
   'Odisha': 'Bhubaneswar', 'Assam': 'Guwahati', 'Bihar': 'Patna',
   'Jharkhand': 'Ranchi',
+  'Uttarakhand': 'Dehradun',
+  'Goa': 'Panaji',
+  'Arunachal Pradesh': 'Itanagar',
+  'Meghalaya': 'Shillong',
+  'Manipur': 'Imphal',
+  'Mizoram': 'Aizawl',
+  'Nagaland': 'Kohima',
+  'Tripura': 'Agartala',
+  'Sikkim': 'Gangtok',
 };
 
 function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string, fallbackState?: string): Array<{ city: string; state: string }> {
@@ -768,8 +855,10 @@ export class BigshipService {
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
     const invoiceNo     = String(input.orderNumber);
     const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
-    const shippingCity = cityFromPincode(input.billingPincode, input.billingCity);
-    const shippingState = stateFromPincode(input.billingPincode);
+    const shippingCity  = input.billingCity?.trim()  || cityFromPincode(input.billingPincode);
+    const shippingState = input.billingState?.trim()
+      ? resolveStateName(input.billingState)
+      : stateFromPincode(input.billingPincode);
 
     try {
       // ── Step 1: Create draft order ────────────────────────────────────────
