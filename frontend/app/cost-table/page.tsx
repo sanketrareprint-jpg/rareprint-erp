@@ -613,9 +613,18 @@ export default function CostTablePage() {
         }),
       });
       if (res.ok) {
+        const savedProductId = addRateModal.productId;
         setAddRateModal(null);
         setModalRate({ minQuantity: "", maxQuantity: "", rateAmount: "" });
-        await loadOrdersWithoutRate();
+        // Optimistic update — remove just this product from local list, no full reload
+        setOrdersWithoutRate(prev =>
+          prev
+            .map(order => ({
+              ...order,
+              itemsWithNoRate: order.itemsWithNoRate.filter(item => item.productId !== savedProductId),
+            }))
+            .filter(order => order.itemsWithNoRate.length > 0)
+        );
       }
     } finally {
       setModalRateSaving(false);
