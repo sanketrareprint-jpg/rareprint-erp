@@ -860,10 +860,11 @@ export class BigshipService {
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
     const invoiceNo     = String(input.orderNumber);
     const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
-    const shippingCity  = input.billingCity?.trim()  || cityFromPincode(input.billingPincode);
-    const shippingState = input.billingState?.trim()
-      ? resolveStateName(input.billingState)
-      : stateFromPincode(input.billingPincode);
+    // Always derive state from pincode — pincode is authoritative.
+    // Customer's stored state can be stale/wrong (e.g. Jharkhand customers stored as Bihar
+    // before the state carve-out was reflected in ERP data).
+    const shippingCity  = input.billingCity?.trim() || cityFromPincode(input.billingPincode);
+    const shippingState = stateFromPincode(input.billingPincode);
 
     try {
       // ── Step 1: Create draft order ────────────────────────────────────────
