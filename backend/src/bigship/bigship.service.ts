@@ -722,7 +722,12 @@ export class BigshipService {
                              '110001'; // last-resort default (Delhi)
     const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
-    const invoiceNo = uniqueInvoiceNo(params.orderNumber, 'RATE');
+    // Use the ERP order number as the invoice so rate-check drafts are identifiable in Bigship.
+    // Append a short date suffix (YYMMDD) only to avoid BigShip duplicate-invoice rejection
+    // when rates are fetched multiple times on the same order on different days.
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(2, 8).replace(/-/g, '');
+    const invoiceBase = String(params.orderNumber ?? 'RATE').replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 17) || 'RATE';
+    const invoiceNo = `${invoiceBase}-${today}`.slice(0, 25);
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
     const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode, params.shippingCity, params.shippingState);
 
