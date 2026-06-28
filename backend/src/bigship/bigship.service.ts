@@ -428,6 +428,25 @@ function cityStateAttemptsFromPincode(pin: string, fallbackCity?: string, fallba
     '262701': ['KHERI', 'LAKHIMPUR', 'LAKHIMPUR KHERI', 'LAKHIMPUR-KHERI'],
     '477441': ['LAHAR', 'BHIND'],
     '848210': ['ROSERA', 'SAMASTIPUR'],
+    // Jamshedpur pincodes — BigShip uses district name "East Singhbhum" not "Jamshedpur"
+    '831001': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831002': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831003': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831004': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831005': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831006': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831007': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831009': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831011': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831012': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831013': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831014': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831015': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831016': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831017': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831018': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831019': ['EAST SINGHBHUM', 'SINGHBHUM'],
+    '831020': ['EAST SINGHBHUM', 'SINGHBHUM'],
   };
 
   // Only use fallbackCity if it looks like a real city (not a full address)
@@ -723,11 +742,12 @@ export class BigshipService {
     const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
     // Use the ERP order number as the invoice so rate-check drafts are identifiable in Bigship.
-    // Append a short date suffix (YYMMDD) only to avoid BigShip duplicate-invoice rejection
-    // when rates are fetched multiple times on the same order on different days.
-    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(2, 8).replace(/-/g, '');
-    const invoiceBase = String(params.orderNumber ?? 'RATE').replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 17) || 'RATE';
-    const invoiceNo = `${invoiceBase}-${today}`.slice(0, 25);
+    // Rate-check drafts are NEVER deleted from BigShip (no delete API), so each attempt must
+    // use a unique invoice number to avoid "invoice must be unique" rejection on retries.
+    // We use last 6 digits of epoch ms to ensure uniqueness across multiple calls.
+    const invoiceBase = String(params.orderNumber ?? 'RATE').replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 14) || 'RATE';
+    const uniqueSuffix = String(Date.now()).slice(-6);
+    const invoiceNo = `${invoiceBase}-R-${uniqueSuffix}`.slice(0, 25);
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
     const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode, params.shippingCity, params.shippingState);
 
@@ -864,73 +884,89 @@ export class BigshipService {
     const token         = await this.getAuthToken();
     const declaredValue = Math.max(1, Math.round(input.subTotal));
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
-    const invoiceNo     = String(input.orderNumber);
     const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
     // Use the same city+state cascade as fetchCourierRates — BigShip validates city
     // and may require a specific casing or alternate name. cityStateAttemptsFromPincode
     // generates titleCase + UPPERCASE variants with state-capital fallback.
     const cityStateAttempts = cityStateAttemptsFromPincode(input.billingPincode);
 
+    // Build invoice candidates: prefer plain order number, but stale BigShip drafts from
+    // previous failed attempts use the same invoice and cause "invoice must be unique" errors.
+    // Fallback to a timestamped variant so we can always create a fresh order.
+    const baseInvoice = String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 20);
+    const stampedInvoice = `${baseInvoice.slice(0, 14)}-${String(Date.now()).slice(-6)}`;
+    const invoiceCandidates = [baseInvoice, stampedInvoice];
+
     try {
-      // ── Step 1: Create draft order (with city cascade retry) ──────────────
+      // ── Step 1: Create draft order (with city cascade + invoice fallback retry) ──
       let createData: unknown = null;
       let lastCreateError = '';
-      for (const attempt of cityStateAttempts) {
-        try {
-          const res = await this.api().post(
-            '/api/outbound/create-order',
-            {
-              segment_type:               'domestic_b2c',
-              MasterOrderPickUpLocation:  pickupWarehouseId,
-              MasterOrderReturnLocation:  pickupWarehouseId,
-              MasterOrderDate:            bigshipDateNow(),
-              MasterOrderPaymentMode:     input.isCod ? 2 : 1,  // 1=Prepaid, 2=COD
-              OrderInvoiceNo:             invoiceNo,
-              MasterOrderInvoiceAmount:   declaredValue,
-              MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
-              MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
-              MasterOrderShippingEmail:   input.customerEmail || '',
-              MasterOrderShippingMobileNo: sanitizeMobile(input.customerPhone),
-              MasterOrderShippingAddress: limitBigshipAddress(input.billingAddress, 'Address', 75),
-              MasterOrderShippingAddress2: '',
-              MasterOrderShippingLandmark: '',
-              MasterOrderShippingZipCode: input.billingPincode,
-              MasterOrderShippingCity:    attempt.city,
-              MasterOrderShippingState:   attempt.state,
-              MasterOrderShippingCountry: 'India',
-              totalNumOfBoxes: packagePayload.totalNumOfBoxes,
-              boxes: packagePayload.boxes.map((box) => ({
-                ...box,
-                products: [{
-                  productName:       'Print order',
-                  qty:               '1',
-                  amount:            String(declaredValue),
-                  totalAmount:       declaredValue,
-                  collectableAmount: codAmount,
-                  categoryId:        '1',
-                }],
-              })),
-            },
-            { headers: { Authorization: `Bearer ${token}` } },
-          );
-          // BigShip sometimes returns HTTP 200 with { status: false } for validation errors.
-          // Treat status:false as a failure so the cascade continues to the next city.
-          if (res.data?.status === false) {
-            const msg = res.data?.message ?? 'city validation failed';
-            lastCreateError = msg;
-            this.logger.warn(`Bigship tryCreateAdhocOrder — status:false for ${attempt.city}/${attempt.state}: ${msg}`);
-            continue;
+      // Try each invoice candidate; switch to next invoice if BigShip reports duplicate.
+      outer: for (const invoiceNo of invoiceCandidates) {
+        for (const attempt of cityStateAttempts) {
+          try {
+            const res = await this.api().post(
+              '/api/outbound/create-order',
+              {
+                segment_type:               'domestic_b2c',
+                MasterOrderPickUpLocation:  pickupWarehouseId,
+                MasterOrderReturnLocation:  pickupWarehouseId,
+                MasterOrderDate:            bigshipDateNow(),
+                MasterOrderPaymentMode:     input.isCod ? 2 : 1,  // 1=Prepaid, 2=COD
+                OrderInvoiceNo:             invoiceNo,
+                MasterOrderInvoiceAmount:   declaredValue,
+                MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
+                MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
+                MasterOrderShippingEmail:   input.customerEmail || '',
+                MasterOrderShippingMobileNo: sanitizeMobile(input.customerPhone),
+                MasterOrderShippingAddress: limitBigshipAddress(input.billingAddress, 'Address', 75),
+                MasterOrderShippingAddress2: '',
+                MasterOrderShippingLandmark: '',
+                MasterOrderShippingZipCode: input.billingPincode,
+                MasterOrderShippingCity:    attempt.city,
+                MasterOrderShippingState:   attempt.state,
+                MasterOrderShippingCountry: 'India',
+                totalNumOfBoxes: packagePayload.totalNumOfBoxes,
+                boxes: packagePayload.boxes.map((box) => ({
+                  ...box,
+                  products: [{
+                    productName:       'Print order',
+                    qty:               '1',
+                    amount:            String(declaredValue),
+                    totalAmount:       declaredValue,
+                    collectableAmount: codAmount,
+                    categoryId:        '1',
+                  }],
+                })),
+              },
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            // BigShip sometimes returns HTTP 200 with { status: false } for validation errors.
+            if (res.data?.status === false) {
+              const msg = res.data?.message ?? 'city validation failed';
+              lastCreateError = msg;
+              this.logger.warn(`Bigship tryCreateAdhocOrder — status:false for ${attempt.city}/${attempt.state} invoice=${invoiceNo}: ${msg}`);
+              // If BigShip reports invoice duplicate on ALL city attempts, break inner loop
+              // and try the next invoice candidate.
+              const isInvoiceDuplicate = msg.toLowerCase().includes('invoice') || msg.toLowerCase().includes('unique');
+              if (isInvoiceDuplicate) break; // break city loop, try next invoice
+              continue; // city error only — try next city
+            }
+            createData = res.data;
+            this.logger.log(`Bigship tryCreateAdhocOrder — order created with city=${attempt.city} state=${attempt.state} invoice=${invoiceNo}`);
+            break outer;
+          } catch (e: unknown) {
+            lastCreateError = bigshipErrorMessage(e);
+            this.logger.warn(`Bigship tryCreateAdhocOrder — create failed for ${attempt.city}/${attempt.state} invoice=${invoiceNo}: ${lastCreateError}`);
+            // If it's an invoice duplicate error, skip remaining cities and try next invoice
+            const isInvoiceDuplicate = lastCreateError.toLowerCase().includes('invoice') || lastCreateError.toLowerCase().includes('unique');
+            if (isInvoiceDuplicate) break; // break city loop, try next invoice
           }
-          createData = res.data;
-          this.logger.log(`Bigship tryCreateAdhocOrder — order created with city=${attempt.city} state=${attempt.state}`);
-          break;
-        } catch (e: unknown) {
-          lastCreateError = bigshipErrorMessage(e);
-          this.logger.warn(`Bigship tryCreateAdhocOrder — create failed for ${attempt.city}/${attempt.state}: ${lastCreateError}`);
         }
+        if (createData) break outer;
       }
       if (!createData) {
-        return { message: `Bigship order creation failed after all city attempts: ${lastCreateError}` };
+        return { message: `Bigship order creation failed after all attempts: ${lastCreateError}` };
       }
 
       // Log full response so we can see the actual field names
@@ -1149,93 +1185,4 @@ export class BigshipService {
           fetchedForSegment += (list as unknown[]).length;
           // Use per-segment total so cross-segment accumulation doesn't break pagination
           const total = Number(dataPayload?.total ?? data?.data?.total ?? 0);
-          if (fetchedForSegment >= total || (list as unknown[]).length < perPage) break;
-          page++;
-        } catch (e) {
-          this.logger.warn(`Bigship getWarehouseList segment=${segmentType} page=${page}: ${bigshipErrorMessage(e)}`);
-          break;
-        }
-      }
-    }
-
-    this.logger.log(`Bigship getWarehouseList: found ${results.length} warehouse(s) across all segment types`);
-    return results;
-  }
-  // ── Token management ────────────────────────────────────────────────────────
-
-  /** Call this after updating credentials so the cached token is re-fetched */
-  clearToken(): void {
-    this.token          = undefined;
-    this.tokenUntil     = 0;
-    this.tokenExpiresAt = undefined;
-  }
-}
-
-// ── Invoice PDF generator ─────────────────────────────────────────────────────
-
-async function generateInvoicePdf(params: {
-  invoiceNo: string;
-  orderNumber: string;
-  customerName: string;
-  amount: number;
-  date: string;
-}): Promise<Buffer> {
-  const amount = Number.isFinite(params.amount) ? params.amount : 0;
-  const doc = new PDFDocument({ size: 'A4', margin: 50, compress: false });
-  const chunks: Buffer[] = [];
-
-  return await new Promise<Buffer>((resolve, reject) => {
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-    doc.on('error', reject);
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-
-    // Header
-    doc.rect(50, 50, 495, 60).fill('#1a1a2e');
-    doc.fillColor('white').font('Helvetica-Bold').fontSize(22).text('TAX INVOICE', 60, 68);
-    doc.fillColor('#cccccc').font('Helvetica').fontSize(10).text('RarePrint — Dispatch Invoice', 60, 95);
-
-    // Invoice details box
-    doc.fillColor('black').rect(50, 125, 495, 90).stroke('#cccccc');
-    doc.font('Helvetica-Bold').fontSize(11);
-    doc.text('Invoice No:', 65, 140);
-    doc.text('Order No:', 65, 158);
-    doc.text('Date:', 65, 176);
-    doc.text('Bill To:', 65, 194);
-    doc.font('Helvetica').fontSize(11);
-    doc.text(sanitizePdfText(params.invoiceNo), 160, 140);
-    doc.text(sanitizePdfText(params.orderNumber), 160, 158);
-    doc.text(sanitizePdfText(params.date), 160, 176);
-    doc.text(sanitizePdfText(params.customerName).slice(0, 50), 160, 194);
-
-    // Table header
-    doc.rect(50, 230, 495, 28).fill('#f0f0f0').stroke('#cccccc');
-    doc.fillColor('black').font('Helvetica-Bold').fontSize(11);
-    doc.text('Description', 65, 239);
-    doc.text('Qty', 320, 239);
-    doc.text('Amount (INR)', 390, 239);
-
-    // Table row
-    doc.rect(50, 258, 495, 32).stroke('#cccccc');
-    doc.font('Helvetica').fontSize(11);
-    doc.text('Print Order / Stationery', 65, 268);
-    doc.text('1', 320, 268);
-    doc.text(amount.toFixed(2), 390, 268);
-
-    // Total
-    doc.rect(50, 290, 495, 32).fill('#f8f8f8').stroke('#cccccc');
-    doc.fillColor('black').font('Helvetica-Bold').fontSize(12);
-    doc.text('TOTAL', 65, 300);
-    doc.text(`INR ${amount.toFixed(2)}`, 390, 300);
-
-    // Footer
-    doc.fillColor('#666666').font('Helvetica').fontSize(8);
-    doc.text('This is a system-generated invoice for courier dispatch purposes.', 50, 350, { align: 'center', width: 495 });
-    doc.text('RarePrint — Print Solutions', 50, 362, { align: 'center', width: 495 });
-
-    doc.end();
-  });
-}
-
-function sanitizePdfText(value: string): string {
-  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
-}
+          if (fetchedForSegment >= tot
