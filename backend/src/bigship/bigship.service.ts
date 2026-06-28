@@ -892,10 +892,17 @@ export class BigshipService {
 
     // Build invoice candidates: prefer plain order number, but stale BigShip drafts from
     // previous failed attempts use the same invoice and cause "invoice must be unique" errors.
-    // Fallback to a timestamped variant so we can always create a fresh order.
-    const baseInvoice = `RP${String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 18)}`;
-    const stampedInvoice = `RP${String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 12)}-${String(Date.now()).slice(-6)}`;
-    const invoiceCandidates = [baseInvoice, stampedInvoice];
+    // Invoice candidates — try clean RP prefix first, then 0RP / 00RP for rebookings.
+    // Each 0-prefix represents a rebook attempt, making it easy to identify in BigShip:
+    //   RP1189   → original dispatch
+    //   0RP1189  → 1st rebook
+    //   00RP1189 → 2nd rebook
+    const orderStr = String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '');
+    const invoiceCandidates = [
+      `RP${orderStr}`.slice(0, 25),
+      `0RP${orderStr}`.slice(0, 25),
+      `00RP${orderStr}`.slice(0, 25),
+    ];
 
     try {
       // ── Step 1: Create draft order (with city cascade + invoice fallback retry) ──
@@ -1160,28 +1167,4 @@ export class BigshipService {
             ?? dataPayload?.list
             ?? (Array.isArray(dataPayload) ? dataPayload : undefined);
 
-          this.logger.log(`Bigship getWarehouseList segment=${segmentType} page=${page}: keys=${Object.keys(dataPayload ?? {}).join(',')}, count=${Array.isArray(list) ? list.length : typeof list}`);
-
-          if (!Array.isArray(list) || list.length === 0) break;
-
-          for (const w of list as Record<string, unknown>[]) {
-            const id = Number(w.warehouseId ?? w.id);
-            if (!seen.has(id)) {
-              seen.add(id);
-              results.push({
-                bigshipWarehouseId: id,
-                name:          String(w.warehouseName         ?? w.name ?? w.warehouseContactPerson ?? `Warehouse ${id}`),
-                pincode:       String(w.pincode               ?? w.zip ?? ''),
-                city:          String(w.city                  ?? ''),
-                state:         String(w.state                 ?? ''),
-                address:       String(w.warehouseAddressLine1 ?? w.address ?? ''),
-                contactPerson: String(w.warehouseContactPerson ?? ''),
-                phone:         String(w.warehouseAddressPhone  ?? w.phone ?? ''),
-                isActive:      bigshipActiveFlag(w.isActive ?? w.active),
-              });
-            }
-          }
-
-          fetchedForSegment += (list as unknown[]).length;
-          // Use per-segment total so cross-segment accumulation doesn't break pagination
-          const total = Number(dataPayload?.total ??
+          this.logger.log(`Bigship getWarehouseList segment=${segmentType} page=${page}: keys=${Object.keys(d
