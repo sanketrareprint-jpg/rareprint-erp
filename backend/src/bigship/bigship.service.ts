@@ -936,7 +936,7 @@ export class BigshipService {
       // Log full response so we can see the actual field names
       this.logger.log(`Bigship create-order response: ${JSON.stringify(createData)?.slice(0, 400)}`);
       const dataPayload = (createData as any)?.data ?? createData;
-      const customOrderId = (
+      const rawOrderId = (
         dataPayload?.CustomGlobalOrderId ??
         dataPayload?.MasterCustomOrderId ??
         dataPayload?.custom_order_id ??
@@ -944,8 +944,11 @@ export class BigshipService {
         dataPayload?.id ??
         String(dataPayload?.orderId ?? '')
       ) as string | undefined;
+      // Validate: must be a non-empty string that is not '0' or 'undefined'
+      const customOrderId = rawOrderId && rawOrderId !== '0' && rawOrderId !== 'undefined' && rawOrderId !== 'null'
+        ? rawOrderId : undefined;
       if (!customOrderId) {
-        this.logger.warn(`Bigship: create-order returned no order ID — full response: ${JSON.stringify(createData)?.slice(0, 400)}`);
+        this.logger.warn(`Bigship: create-order returned no valid order ID (raw="${rawOrderId}") — full response: ${JSON.stringify(createData)?.slice(0, 400)}`);
         return { message: `Order created in Bigship but ID not found. Response: ${JSON.stringify(createData)?.slice(0, 300)}` };
       }
 
