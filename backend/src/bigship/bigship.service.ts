@@ -525,23 +525,35 @@ function normalizePackageBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0
 function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
   const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
 
-  // Send each box type as a separate entry. totalNumOfBoxes = sum of all noOfBoxes.
-  // weight in dimensions is per-box weight (not total).
+  // BigShip B2C API enforces exactly ONE entry in the boxes array.
+  // Multibox is handled via noOfBoxes > 1, NOT multiple entries.
+  // - totalNumOfBoxes: total physical box count
+  // - noOfBoxes: same — tells BigShip how many boxes there are
+  // - weight: per-box weight (total ÷ count), so BigShip calculates total correctly
+  // - dimensions: largest-volume box as representative
   const totalNumOfBoxes = normalized.reduce((sum, box) => sum + box.noOfBoxes, 0);
+  const totalWeight = normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
+  const perBoxWeight = totalNumOfBoxes > 0 ? totalWeight / totalNumOfBoxes : totalWeight;
+
+  const representative = normalized.reduce((best, box) => {
+    const vol = box.length * box.breadth * box.height;
+    const bestVol = best.length * best.breadth * best.height;
+    return vol > bestVol ? box : best;
+  }, normalized[0]);
 
   return {
     totalNumOfBoxes,
-    boxes: normalized.map((box) => ({
+    boxes: [{
       weight_unit: 'kg',
       dimension_unit: 'cm',
-      noOfBoxes: box.noOfBoxes,
+      noOfBoxes: totalNumOfBoxes,
       dimensions: [{
-        length: box.length,
-        breadth: box.breadth,
-        height: box.height,
-        weight: Math.max(0.1, Math.round(box.weight * 100) / 100),
+        length: representative.length,
+        breadth: representative.breadth,
+        height: representative.height,
+        weight: Math.max(0.1, Math.round(perBoxWeight * 100) / 100),
       }],
-    })),
+    }],
   };
 }
 
