@@ -860,54 +860,68 @@ export class BigshipService {
     const codAmount     = input.isCod ? Math.max(1, Math.round(input.codAmount ?? input.subTotal)) : 0;
     const invoiceNo     = String(input.orderNumber);
     const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
-    // Always derive state from pincode — pincode is authoritative.
-    // Customer's stored state can be stale/wrong (e.g. Jharkhand customers stored as Bihar
-    // before the state carve-out was reflected in ERP data).
-    const shippingCity  = input.billingCity?.trim() || cityFromPincode(input.billingPincode);
-    const shippingState = stateFromPincode(input.billingPincode);
+    // Use the same city+state cascade as fetchCourierRates — BigShip validates city
+    // and may require a specific casing or alternate name. cityStateAttemptsFromPincode
+    // generates titleCase + UPPERCASE variants with state-capital fallback.
+    const cityStateAttempts = cityStateAttemptsFromPincode(input.billingPincode);
 
     try {
-      // ── Step 1: Create draft order ────────────────────────────────────────
-      const { data: createData } = await this.api().post(
-        '/api/outbound/create-order',
-        {
-          segment_type:               'domestic_b2c',
-          MasterOrderPickUpLocation:  pickupWarehouseId,
-          MasterOrderReturnLocation:  pickupWarehouseId,
-          MasterOrderDate:            bigshipDateNow(),
-          MasterOrderPaymentMode:     input.isCod ? 2 : 1,  // 1=Prepaid, 2=COD
-          OrderInvoiceNo:             invoiceNo,
-          MasterOrderInvoiceAmount:   declaredValue,
-          MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
-          MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
-          MasterOrderShippingEmail:   input.customerEmail || '',
-          MasterOrderShippingMobileNo: sanitizeMobile(input.customerPhone),
-          MasterOrderShippingAddress: limitBigshipAddress(input.billingAddress, 'Address', 75),
-          MasterOrderShippingAddress2: '',
-          MasterOrderShippingLandmark: '',
-          MasterOrderShippingZipCode: input.billingPincode,
-          MasterOrderShippingCity:    shippingCity,
-          MasterOrderShippingState:   shippingState,
-          MasterOrderShippingCountry: 'India',
-          totalNumOfBoxes: packagePayload.totalNumOfBoxes,
-          boxes: packagePayload.boxes.map((box) => ({
-            ...box,
-            products: [{
-              productName:       'Print order',
-              qty:               '1',
-              amount:            String(declaredValue),
-              totalAmount:       declaredValue,
-              collectableAmount: codAmount,  // must be > 0 for COD at product level too
-              categoryId:        '1',
-            }],
-          })),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      // ── Step 1: Create draft order (with city cascade retry) ──────────────
+      let createData: unknown = null;
+      let lastCreateError = '';
+      for (const attempt of cityStateAttempts) {
+        try {
+          const res = await this.api().post(
+            '/api/outbound/create-order',
+            {
+              segment_type:               'domestic_b2c',
+              MasterOrderPickUpLocation:  pickupWarehouseId,
+              MasterOrderReturnLocation:  pickupWarehouseId,
+              MasterOrderDate:            bigshipDateNow(),
+              MasterOrderPaymentMode:     input.isCod ? 2 : 1,  // 1=Prepaid, 2=COD
+              OrderInvoiceNo:             invoiceNo,
+              MasterOrderInvoiceAmount:   declaredValue,
+              MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
+              MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
+              MasterOrderShippingEmail:   input.customerEmail || '',
+              MasterOrderShippingMobileNo: sanitizeMobile(input.customerPhone),
+              MasterOrderShippingAddress: limitBigshipAddress(input.billingAddress, 'Address', 75),
+              MasterOrderShippingAddress2: '',
+              MasterOrderShippingLandmark: '',
+              MasterOrderShippingZipCode: input.billingPincode,
+              MasterOrderShippingCity:    attempt.city,
+              MasterOrderShippingState:   attempt.state,
+              MasterOrderShippingCountry: 'India',
+              totalNumOfBoxes: packagePayload.totalNumOfBoxes,
+              boxes: packagePayload.boxes.map((box) => ({
+                ...box,
+                products: [{
+                  productName:       'Print order',
+                  qty:               '1',
+                  amount:            String(declaredValue),
+                  totalAmount:       declaredValue,
+                  collectableAmount: codAmount,
+                  categoryId:        '1',
+                }],
+              })),
+            },
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          createData = res.data;
+          this.logger.log(`Bigship tryCreateAdhocOrder — order created with city=${attempt.city} state=${attempt.state}`);
+          break;
+        } catch (e: unknown) {
+          lastCreateError = bigshipErrorMessage(e);
+          this.logger.warn(`Bigship tryCreateAdhocOrder — create failed for ${attempt.city}/${attempt.state}: ${lastCreateError}`);
+        }
+      }
+      if (!createData) {
+        return { message: `Bigship order creation failed after all city attempts: ${lastCreateError}` };
+      }
 
       // Log full response so we can see the actual field names
       this.logger.log(`Bigship create-order response: ${JSON.stringify(createData)?.slice(0, 400)}`);
-      const dataPayload = createData?.data ?? createData;
+      const dataPayload = (createData as any)?.data ?? createData;
       const customOrderId = (
         dataPayload?.CustomGlobalOrderId ??
         dataPayload?.MasterCustomOrderId ??
