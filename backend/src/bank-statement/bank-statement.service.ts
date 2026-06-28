@@ -527,11 +527,22 @@ export class BankStatementService {
   }
 
   async upsertVendorKeyword(keyword: string, vendorId: string) {
-    return this.prisma.vendorKeyword.upsert({
-      where: { keyword: keyword.toUpperCase() },
-      create: { keyword: keyword.toUpperCase(), vendorId },
+    const normalizedKeyword = normalizeText(keyword);
+    if (!normalizedKeyword)
+      throw new BadRequestException('Keyword is required');
+
+    const rule = await this.prisma.vendorKeyword.upsert({
+      where: { keyword: normalizedKeyword },
+      create: { keyword: normalizedKeyword, vendorId },
       update: { vendorId },
     });
+
+    await this.applyVendorKeywordToExistingTransactions(
+      normalizedKeyword,
+      vendorId,
+    );
+
+    return rule;
   }
 
   async deleteVendorKeyword(id: string) {
@@ -553,15 +564,84 @@ export class BankStatementService {
   }
 
   async upsertExpenseKeyword(keyword: string, categoryId: string) {
-    return this.prisma.expenseKeyword.upsert({
-      where: { keyword: keyword.toUpperCase() },
-      create: { keyword: keyword.toUpperCase(), categoryId },
+    const normalizedKeyword = normalizeText(keyword);
+    if (!normalizedKeyword)
+      throw new BadRequestException('Keyword is required');
+
+    const rule = await this.prisma.expenseKeyword.upsert({
+      where: { keyword: normalizedKeyword },
+      create: { keyword: normalizedKeyword, categoryId },
       update: { categoryId },
     });
+
+    await this.applyExpenseKeywordToExistingTransactions(
+      normalizedKeyword,
+      categoryId,
+    );
+
+    return rule;
   }
 
   async deleteExpenseKeyword(id: string) {
     return this.prisma.expenseKeyword.delete({ where: { id } });
+  }
+
+  private async applyVendorKeywordToExistingTransactions(
+    keyword: string,
+    vendorId: string,
+  ) {
+    const txns = await this.prisma.bankTransaction.findMany({
+      where: {
+        crDr: 'DR',
+        reconcileStatus: { in: ['UNMATCHED', 'MANUAL_REVIEW'] },
+      },
+      select: { id: true, description: true },
+    });
+
+    const matchingIds = txns
+      .filter((txn) => normalizeText(txn.description).includes(keyword))
+      .map((txn) => txn.id);
+
+    if (matchingIds.length === 0) return;
+
+    await this.prisma.bankTransaction.updateMany({
+      where: { id: { in: matchingIds } },
+      data: {
+        reconcileStatus: 'MATCHED_VENDOR',
+        matchedPaymentId: null,
+        matchedVendorId: vendorId,
+        expenseCategoryId: null,
+      },
+    });
+  }
+
+  private async applyExpenseKeywordToExistingTransactions(
+    keyword: string,
+    categoryId: string,
+  ) {
+    const txns = await this.prisma.bankTransaction.findMany({
+      where: {
+        crDr: 'DR',
+        reconcileStatus: { in: ['UNMATCHED', 'MANUAL_REVIEW'] },
+      },
+      select: { id: true, description: true },
+    });
+
+    const matchingIds = txns
+      .filter((txn) => normalizeText(txn.description).includes(keyword))
+      .map((txn) => txn.id);
+
+    if (matchingIds.length === 0) return;
+
+    await this.prisma.bankTransaction.updateMany({
+      where: { id: { in: matchingIds } },
+      data: {
+        reconcileStatus: 'MATCHED_EXPENSE',
+        matchedPaymentId: null,
+        matchedVendorId: null,
+        expenseCategoryId: categoryId,
+      },
+    });
   }
 
   // ── 9. Re-run auto-matching on existing unmatched rows ────────────────────
