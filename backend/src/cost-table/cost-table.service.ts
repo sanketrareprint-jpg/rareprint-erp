@@ -606,8 +606,18 @@ export class CostTableService {
   async bulkUpsertRateSlabs(
     productId: string,
     slabs: Array<{ minQuantity: number; maxQuantity?: number | null; rateAmount: number }>,
+    replaceAll = false,
   ) {
-    await (this.prisma as any).productRateSlab.deleteMany({ where: { productId } });
+    if (replaceAll) {
+      // CSV import: wipe all existing rate slabs and recreate
+      await (this.prisma as any).productRateSlab.deleteMany({ where: { productId } });
+    } else {
+      // Single-slab edit/add: only remove slabs for the specific minQuantities being upserted
+      const minQtys = slabs.map((s) => s.minQuantity);
+      await (this.prisma as any).productRateSlab.deleteMany({
+        where: { productId, minQuantity: { in: minQtys } },
+      });
+    }
     return Promise.all(
       slabs.map((s) =>
         (this.prisma as any).productRateSlab.create({

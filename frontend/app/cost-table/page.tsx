@@ -538,7 +538,7 @@ export default function CostTablePage() {
             const res = await fetch(`${API_BASE_URL}/cost-table/products/${job.productId}/rate-slabs/bulk`, {
               method: "POST",
               headers,
-              body: JSON.stringify({ slabs: job.slabs }),
+              body: JSON.stringify({ slabs: job.slabs, replaceAll: true }),
             });
             if (res.ok) imported++;
             else errors.push(`${job.sku}: rate import failed`);

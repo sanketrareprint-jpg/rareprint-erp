@@ -65,8 +65,8 @@ export class CostTableController {
   }
 
   @Post('products/:productId/rate-slabs/bulk')
-  bulkUpsertRateSlabs(@Param('productId') productId: string, @Body() dto: { slabs: any[] }) {
-    return this.svc.bulkUpsertRateSlabs(productId, dto.slabs);
+  bulkUpsertRateSlabs(@Param('productId') productId: string, @Body() dto: { slabs: any[]; replaceAll?: boolean }) {
+    return this.svc.bulkUpsertRateSlabs(productId, dto.slabs, dto.replaceAll ?? false);
   }
 
   // ── Profit and commission dashboard ──────────────────────────────────────
