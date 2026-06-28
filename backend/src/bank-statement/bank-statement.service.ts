@@ -72,14 +72,19 @@ function dateKey(date: Date | string | null | undefined): string {
 }
 
 function buildImportKey(
-  row: Pick<RawBankRow, 'srl' | 'txnDate' | 'crDr' | 'amount' | 'description'>,
+  row: Pick<RawBankRow, 'txnDate' | 'crDr' | 'amount' | 'description'>,
 ): string {
-  // Stable key: uses only bank-assigned fields that never change across re-exports.
-  // Deliberately excludes `balance` (shifts when any earlier txn is corrected) and
-  // `txnDateTime` (often null in some exports, present in others → different hash
-  // for the same real transaction).
+  // Stable key: uses only fields that are immutable across re-exports.
+  // IMPORTANT: `srl` is intentionally excluded — it is the row number within
+  // a given XLS export, not a stable bank-assigned ID. Overlapping re-exports
+  // assign a different srl to the same transaction, which was the root cause
+  // of duplicate entries (same txn got a different hash each time → bypassed
+  // the unique constraint).
+  // `balance` is also excluded (shifts if any earlier txn is corrected).
+  // `txnDateTime` excluded (often null in some exports, present in others).
+  // The description already contains the UPI/NEFT reference number which
+  // uniquely identifies each transaction.
   const rawKey = [
-    String(row.srl),
     dateKey(row.txnDate),
     row.crDr,
     moneyKey(row.amount),

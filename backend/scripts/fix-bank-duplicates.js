@@ -3,14 +3,16 @@
  *
  * Two jobs in one script:
  *
- * JOB 1 — Recompute importKey for all existing records using the new stable
- *          formula (srl + txnDate + crDr + amount + description).
- *          Old keys included `balance` and `txnDateTime` which caused the same
- *          real transaction to get different keys on re-upload → duplicates.
+ * JOB 1 — Recompute importKey for all existing records using the correct stable
+ *          formula (txnDate + crDr + amount + description) WITHOUT srl.
+ *
+ *          ROOT CAUSE of duplicates: `srl` is the row number within a given XLS
+ *          export, not a stable bank ID. Overlapping re-exports assign a different
+ *          srl to the same transaction → different hash → bypasses unique constraint
+ *          → duplicate row created. This script removes srl from all stored keys.
  *
  * JOB 2 — After recomputing, find any (accountNumber, importKey) collisions
- *          (= real duplicates). Keep the VERIFIED one; if none is verified,
- *          keep the one with the best reconcileStatus. Delete the rest.
+ *          (= real duplicates). Keep the verified/best-status one. Delete the rest.
  *
  * Dry run (shows what will change, deletes nothing):
  *   node scripts/fix-bank-duplicates.js
@@ -25,7 +27,7 @@ const { createHash } = require('crypto');
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes('--apply');
 
-// ── Same stable formula as the updated service ───────────────────────────────
+// ── Same stable formula as the updated service (NO srl) ──────────────────────
 function moneyKey(amount) {
   return Number(amount).toFixed(2);
 }
@@ -37,8 +39,8 @@ function normalizeText(raw) {
   return (raw ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 }
 function buildImportKey(row) {
+  // srl intentionally excluded — it is a per-export row counter, not a stable ID
   const rawKey = [
-    String(row.srl),
     dateKey(row.txnDate),
     row.crDr,
     moneyKey(row.amount),
@@ -91,12 +93,12 @@ async function main() {
   if (APPLY && toUpdate.length > 0) {
     // Single raw SQL update — recomputes all keys at once using the new formula.
     // Avoids 4900 individual round-trips.
+    // Recompute WITHOUT srl — matches the fixed buildImportKey formula in service
     const result = await prisma.$executeRaw`
       UPDATE "BankTransaction"
       SET "importKey" = encode(sha256(
         (
-          "srl"::text || '|' ||
-          to_char("txnDate", 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || '|' ||
+          to_char("txnDate" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || '|' ||
           "crDr"::text || '|' ||
           to_char("amount", 'FM9999999999990.00') || '|' ||
           upper(regexp_replace(trim("description"), '\s+', ' ', 'g'))

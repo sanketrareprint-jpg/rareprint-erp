@@ -20,12 +20,13 @@ async function main() {
 
   console.log(`Total transactions in DB: ${all.length}`);
 
-  // Group by real transaction identity (stable fields only)
+  // Group by real transaction identity (stable fields only — NO srl)
+  // srl is a per-export row counter and changes between overlapping re-exports,
+  // so including it here would hide cross-srl duplicates (the actual bug).
   const groups = new Map();
   for (const r of all) {
     const key = [
       r.accountNumber,
-      r.srl,
       new Date(r.txnDate).toISOString().slice(0, 10),
       r.crDr,
       Number(r.amount).toFixed(2),
