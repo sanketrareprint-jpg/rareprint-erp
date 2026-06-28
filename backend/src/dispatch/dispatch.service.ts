@@ -657,7 +657,25 @@ export class DispatchService {
         this.logger.warn(`bookItems: selectedQuote validation failed for rateId=${rateId}, using fallback quote`);
       }
     } else {
-      picked = (await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride)).rates.find((r) => r.rateId === rateId);
+      // For non-BigShip rates: trust the selectedQuote the frontend already has.
+      // Re-fetching at dispatch time uses different params and often can't match the
+      // original rateId, causing false "Invalid shipping rate selection" errors.
+      picked = sanitizeSelectedRateQuote(rateId, selectedQuote);
+      if (!picked) {
+        const fallbackAmount = Number(selectedQuote?.amount ?? 0);
+        if (selectedQuote?.carrierName && Number.isFinite(fallbackAmount) && fallbackAmount >= 0) {
+          picked = {
+            rateId,
+            carrierName: String(selectedQuote.carrierName),
+            amount: fallbackAmount,
+            currency: String(selectedQuote.currency ?? 'INR'),
+            estimatedDays: Number(selectedQuote.estimatedDays ?? 3) || 3,
+          };
+          this.logger.warn(`bookItems: using fallback quote for rateId=${rateId} carrier=${selectedQuote.carrierName}`);
+        } else {
+          picked = (await this.getRates(orderId, warehouseId, weightKgOverride, pickupOverride)).rates.find((r) => r.rateId === rateId);
+        }
+      }
     }
     if (!picked) throw new BadRequestException('Invalid shipping rate selection');
 
@@ -1155,35 +1173,4 @@ export class DispatchService {
    *  Deletes the latest shipment record and resets order + items to READY_FOR_DISPATCH. */
   async returnToQueue(orderId: string, userId: string): Promise<{ success: boolean }> {
     const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: true, shipments: { orderBy: { createdAt: 'desc' }, take: 1 } },
-    });
-    if (!order) throw new NotFoundException(`Order ${orderId} not found`);
-
-    await this.prisma.$transaction(async (tx) => {
-      if (order.shipments.length > 0) {
-        await tx.shipment.delete({ where: { id: order.shipments[0].id } });
-      }
-      await tx.orderItem.updateMany({
-        where: { orderId },
-        data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
-      });
-      await tx.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.READY_FOR_DISPATCH },
-      });
-      await tx.statusLog.create({
-        data: {
-          orderId,
-          fromStatus: order.status,
-          toStatus: OrderStatus.READY_FOR_DISPATCH,
-          changedById: userId,
-          reason: 'Returned to dispatch queue by user',
-        },
-      });
-    });
-
-    return { success: true };
-  }
-
-}
+      where: { id: order
