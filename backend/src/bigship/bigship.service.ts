@@ -772,6 +772,12 @@ export class BigshipService {
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
+        // BigShip sometimes returns HTTP 200 with { status: false } for validation errors.
+        if (createData?.status === false) {
+          lastCreateError = createData?.message ?? 'city validation failed';
+          this.logger.warn(`Bigship fetchCourierRates — status:false for ${attempt.city}/${attempt.state}: ${lastCreateError}`);
+          continue;
+        }
         orderId = createData?.data?.CustomGlobalOrderId as string | null ?? null;
         break;
       } catch (e: unknown) {
@@ -907,6 +913,14 @@ export class BigshipService {
             },
             { headers: { Authorization: `Bearer ${token}` } },
           );
+          // BigShip sometimes returns HTTP 200 with { status: false } for validation errors.
+          // Treat status:false as a failure so the cascade continues to the next city.
+          if (res.data?.status === false) {
+            const msg = res.data?.message ?? 'city validation failed';
+            lastCreateError = msg;
+            this.logger.warn(`Bigship tryCreateAdhocOrder — status:false for ${attempt.city}/${attempt.state}: ${msg}`);
+            continue;
+          }
           createData = res.data;
           this.logger.log(`Bigship tryCreateAdhocOrder — order created with city=${attempt.city} state=${attempt.state}`);
           break;
