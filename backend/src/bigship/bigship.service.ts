@@ -745,7 +745,7 @@ export class BigshipService {
     // Rate-check drafts are NEVER deleted from BigShip (no delete API), so each attempt must
     // use a unique invoice number to avoid "invoice must be unique" rejection on retries.
     // We use last 6 digits of epoch ms to ensure uniqueness across multiple calls.
-    const invoiceBase = String(params.orderNumber ?? 'RATE').replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 14) || 'RATE';
+    const invoiceBase = `RP${String(params.orderNumber ?? 'RATE').replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 12)}` || 'RPRATE';
     const uniqueSuffix = String(Date.now()).slice(-6);
     const invoiceNo = `${invoiceBase}-R-${uniqueSuffix}`.slice(0, 25);
     const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
@@ -893,8 +893,8 @@ export class BigshipService {
     // Build invoice candidates: prefer plain order number, but stale BigShip drafts from
     // previous failed attempts use the same invoice and cause "invoice must be unique" errors.
     // Fallback to a timestamped variant so we can always create a fresh order.
-    const baseInvoice = String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 20);
-    const stampedInvoice = `${baseInvoice.slice(0, 14)}-${String(Date.now()).slice(-6)}`;
+    const baseInvoice = `RP${String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 18)}`;
+    const stampedInvoice = `RP${String(input.orderNumber).replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 12)}-${String(Date.now()).slice(-6)}`;
     const invoiceCandidates = [baseInvoice, stampedInvoice];
 
     try {
@@ -1184,5 +1184,4 @@ export class BigshipService {
 
           fetchedForSegment += (list as unknown[]).length;
           // Use per-segment total so cross-segment accumulation doesn't break pagination
-          const total = Number(dataPayload?.total ?? data?.data?.total ?? 0);
-          if (fetchedForSegment >= tot
+          const total = Number(dataPayload?.total ??
