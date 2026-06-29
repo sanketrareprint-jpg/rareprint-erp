@@ -1199,32 +1199,31 @@ export class VirtualCeoService {
       const totalQty = envelopeItems.reduce((sum, i) => sum + i.qty, 0);
       const totalStr = `${totalCount} items | ${totalQty.toLocaleString('en-IN')} pcs`;
 
-      // Build one line per item — "Sh1340 | CUSTOMER NAME | 4*7 | 2K pcs"
+      // Build flat pipe-separated list — no newlines (WhatsApp template param restriction)
+      // Format: "Sh1340 CUSTOMER NAME 4*7 2K pcs | Sh1340 ..."
       const itemLines: string[] = [];
       for (const [sheetNo, items] of bySheet) {
         for (const item of items) {
           const qty = item.qty >= 1000
             ? `${(item.qty / 1000).toLocaleString('en-IN', { maximumFractionDigits: 1 })}K pcs`
             : `${item.qty} pcs`;
-          // Normalise size to use * (e.g. 4x7 → 4*7)
-          const size = item.envelopeSize
-            ? item.envelopeSize.replace(/[xX×]/g, '*')
-            : '';
-          itemLines.push(`Sh${sheetNo} | ${item.customerName} | ${size} | ${qty}`);
+          const size = item.envelopeSize ? item.envelopeSize.replace(/[xX×]/g, '*') : '';
+          const name = item.customerName.length > 20
+            ? item.customerName.substring(0, 19).trimEnd() + '…'
+            : item.customerName;
+          itemLines.push(`Sh${sheetNo} ${name} ${size} ${qty}`);
         }
       }
 
-      // Join with newline for one row per item
-      // If template rejects \n AiSensy will show "Parameter is invalid" — fall back to pipe-flat
       const MAX_CHARS = 1000;
-      const fullList = itemLines.join('\n');
+      const fullList = itemLines.join(' | ');
       const msgChunks: string[] = [];
       if (fullList.length <= MAX_CHARS) {
         msgChunks.push(fullList);
       } else {
         let current = '';
         for (const line of itemLines) {
-          const sep = current ? '\n' : '';
+          const sep = current ? ' | ' : '';
           if (current && current.length + sep.length + line.length > MAX_CHARS) {
             msgChunks.push(current);
             current = line;
