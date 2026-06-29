@@ -36,11 +36,12 @@ export class BankStatementController {
     return this.svc.listAccounts();
   }
 
-  /** GET /bank-statement/transactions?accountNumber=&reconcileStatus=&crDr=&fromDate=&toDate=&page=&limit= */
+  /** GET /bank-statement/transactions?accountNumber=&reconcileStatus=&needsReview=true&crDr=&fromDate=&toDate=&page=&limit= */
   @Get('transactions')
   listTransactions(
     @Query('accountNumber') accountNumber?: string,
     @Query('reconcileStatus') reconcileStatus?: BankReconcileStatus,
+    @Query('needsReview') needsReview?: string,
     @Query('crDr') crDr?: BankTxnType,
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
@@ -52,6 +53,7 @@ export class BankStatementController {
     return this.svc.listTransactions({
       accountNumber,
       reconcileStatus,
+      needsReview: needsReview === 'true',
       crDr,
       fromDate,
       toDate,

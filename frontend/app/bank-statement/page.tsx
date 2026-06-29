@@ -123,6 +123,12 @@ export default function BankStatementPage() {
   const [filterToDate, setFilterToDate] = useState("");
   const [expandedTxn, setExpandedTxn] = useState<string | null>(null);
 
+  // ── Review Queue state ──
+  const [reviewQueueTxns, setReviewQueueTxns] = useState<BankTransaction[]>([]);
+  const [reviewQueueTotal, setReviewQueueTotal] = useState(0);
+  const [reviewQueuePage, setReviewQueuePage] = useState(1);
+  const [loadingReviewQueue, setLoadingReviewQueue] = useState(false);
+
   // ── Summary state ──
   const [summary, setSummary] = useState<Summary | null>(null);
 
@@ -213,6 +219,16 @@ export default function BankStatementPage() {
     if (data) setExpenseCategories(data);
   }, [apiFetch]);
 
+  const loadReviewQueue = useCallback(async (page = 1) => {
+    setLoadingReviewQueue(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: "50", needsReview: "true" });
+      if (selectedAccount) params.set("accountNumber", selectedAccount);
+      const data = await apiFetch(`/bank-statement/transactions?${params}`);
+      if (data) { setReviewQueueTxns(data.data); setReviewQueueTotal(data.total); setReviewQueuePage(page); }
+    } finally { setLoadingReviewQueue(false); }
+  }, [apiFetch, selectedAccount]);
+
   const loadSessions = useCallback(async () => {
     const params = new URLSearchParams();
     if (selectedAccount) params.set("accountNumber", selectedAccount);
@@ -223,9 +239,10 @@ export default function BankStatementPage() {
 
   useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  useEffect(() => { if (activeTab === "ledger" || activeTab === "review") loadTxns(1); }, [activeTab, selectedAccount, filterStatus, filterCrDr, loadTxns]);
-  useEffect(() => { if (activeTab === "vendor-mapping") loadVendorKeywords(); }, [activeTab, loadVendorKeywords]);
-  useEffect(() => { if (activeTab === "expense-mapping") loadExpenseCategories(); }, [activeTab, loadExpenseCategories]);
+  useEffect(() => { if (activeTab === "ledger") loadTxns(1); }, [activeTab, selectedAccount, filterStatus, filterCrDr, loadTxns]);
+  useEffect(() => { if (activeTab === "review") loadReviewQueue(1); }, [activeTab, selectedAccount, loadReviewQueue]);
+  useEffect(() => { loadVendorKeywords(); }, [loadVendorKeywords]);
+  useEffect(() => { loadExpenseCategories(); }, [loadExpenseCategories]);
   useEffect(() => { if (activeTab === "sessions") loadSessions(); }, [activeTab, loadSessions]);
 
   // ─── Import ───────────────────────────────────────────────────────────────
@@ -291,6 +308,7 @@ export default function BankStatementPage() {
       });
       setReconciling(null);
       loadTxns(txnPage);
+      loadReviewQueue(reviewQueuePage);
       loadSummary();
     } finally { setReconcilingLoading(false); }
   };
@@ -367,13 +385,13 @@ export default function BankStatementPage() {
 
   const totalCR = summary?.byCrDr.find((r) => r.crDr === "CR")?._sum.amount ?? "0";
   const totalDR = summary?.byCrDr.find((r) => r.crDr === "DR")?._sum.amount ?? "0";
-  const reviewCount = summary?.byStatus.find((r) => r.reconcileStatus === "MANUAL_REVIEW")?._count ?? 0;
+  const reviewCount =
+    (summary?.byStatus.find((r) => r.reconcileStatus === "MANUAL_REVIEW")?._count ?? 0) +
+    (summary?.byStatus.find((r) => r.reconcileStatus === "UNMATCHED")?._count ?? 0);
 
   const displayedTxns = filterSearch
     ? txns.filter((t) => t.description.toLowerCase().includes(filterSearch.toLowerCase()))
     : txns;
-
-  const reviewTxns = txns.filter((t) => t.reconcileStatus === "MANUAL_REVIEW" || t.reconcileStatus === "UNMATCHED");
   const selectedBank = bankAccounts.find((account) => account.accountNumber === selectedAccount)
     ?? { accountNumber: selectedAccount, label: selectedAccount === GST_BANK_ACCOUNT ? "GST Bank" : `CC Bank ${selectedAccount.slice(-4)}` };
 
@@ -651,31 +669,50 @@ export default function BankStatementPage() {
           <div className="bg-white rounded-xl border border-gray-200">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
               <h2 className="font-semibold text-gray-800">Transactions Needing Review</h2>
-              <span className="text-sm text-gray-500">{reviewTxns.length} entries</span>
+              <span className="text-sm text-gray-500">{reviewQueueTotal} entries</span>
             </div>
-            <div className="divide-y divide-gray-50">
-              {reviewTxns.length === 0 && <p className="text-center py-12 text-gray-400">All transactions are reconciled 🎉</p>}
-              {reviewTxns.map((txn) => (
-                <div key={txn.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-                  <div className={`text-xs font-bold px-2 py-0.5 rounded ${txn.crDr === "CR" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                    {txn.crDr}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-800 truncate">{txn.description}</p>
-                    <p className="text-xs text-gray-400">{fmtDate(txn.txnDate)}</p>
-                  </div>
-                  <p className={`font-semibold text-sm whitespace-nowrap ${txn.crDr === "CR" ? "text-green-600" : "text-red-600"}`}>
-                    {txn.crDr === "CR" ? "+" : "−"}{fmt(txn.amount)}
-                  </p>
-                  <button
-                    onClick={() => openReconcile(txn)}
-                    className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex-shrink-0"
-                  >
-                    Map Now
-                  </button>
+            {loadingReviewQueue ? (
+              <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+            ) : (
+              <>
+                <div className="divide-y divide-gray-50">
+                  {reviewQueueTxns.length === 0 && <p className="text-center py-12 text-gray-400">All transactions are reconciled 🎉</p>}
+                  {reviewQueueTxns.map((txn) => (
+                    <div key={txn.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+                      <div className={`text-xs font-bold px-2 py-0.5 rounded ${txn.crDr === "CR" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                        {txn.crDr}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-800 truncate">{txn.description}</p>
+                        <p className="text-xs text-gray-400">{fmtDate(txn.txnDate)}</p>
+                      </div>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${txn.reconcileStatus === "MANUAL_REVIEW" ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600"}`}>
+                        {txn.reconcileStatus === "MANUAL_REVIEW" ? "Needs Review" : "Unmatched"}
+                      </span>
+                      <p className={`font-semibold text-sm whitespace-nowrap ${txn.crDr === "CR" ? "text-green-600" : "text-red-600"}`}>
+                        {txn.crDr === "CR" ? "+" : "−"}{fmt(txn.amount)}
+                      </p>
+                      <button
+                        onClick={() => openReconcile(txn)}
+                        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex-shrink-0"
+                      >
+                        Map Now
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+                {reviewQueueTotal > 50 && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-sm text-gray-600">
+                    <span>{reviewQueueTotal} total entries</span>
+                    <div className="flex gap-2">
+                      <button disabled={reviewQueuePage <= 1} onClick={() => loadReviewQueue(reviewQueuePage - 1)} className="px-3 py-1 border border-gray-200 rounded disabled:opacity-40">Prev</button>
+                      <span className="px-3 py-1">Page {reviewQueuePage} of {Math.ceil(reviewQueueTotal / 50)}</span>
+                      <button disabled={reviewQueuePage >= Math.ceil(reviewQueueTotal / 50)} onClick={() => loadReviewQueue(reviewQueuePage + 1)} className="px-3 py-1 border border-gray-200 rounded disabled:opacity-40">Next</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -850,67 +887,123 @@ export default function BankStatementPage() {
       {/* ════════════════ RECONCILE MODAL ════════════════ */}
       {reconciling && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h3 className="font-bold text-gray-900">Edit Mapping</h3>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+              <h3 className="font-bold text-gray-900">Map Transaction</h3>
               <button onClick={() => setReconciling(null)} className="text-gray-400 hover:text-gray-600"><XCircle className="w-5 h-5" /></button>
             </div>
-            <div className="px-5 py-4 space-y-4">
+            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
+
               {/* Transaction info */}
-              <div className="bg-gray-50 rounded-lg p-3 text-sm">
-                <p className="font-medium text-gray-800 truncate">{reconciling.description}</p>
-                <p className={`font-bold ${reconciling.crDr === "CR" ? "text-green-600" : "text-red-600"}`}>
-                  {reconciling.crDr === "CR" ? "+" : "−"}{fmt(reconciling.amount)} · {fmtDate(reconciling.txnDate)}
+              <div className={`rounded-lg p-3 text-sm ${reconciling.crDr === "CR" ? "bg-green-50" : "bg-red-50"}`}>
+                <p className="font-medium text-gray-800 text-xs leading-snug">{reconciling.description}</p>
+                <p className={`font-bold text-base mt-0.5 ${reconciling.crDr === "CR" ? "text-green-600" : "text-red-600"}`}>
+                  {reconciling.crDr === "CR" ? "+" : "−"}{fmt(reconciling.amount)}
+                  <span className="text-xs font-normal text-gray-400 ml-2">{fmtDate(reconciling.txnDate)}</span>
                 </p>
               </div>
 
-              {/* Status */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Reconcile Status</label>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                  value={reconcileForm.reconcileStatus}
-                  onChange={(e) => setReconcileForm((f) => ({ ...f, reconcileStatus: e.target.value as BankReconcileStatus }))}
+              {/* ── Vendor mapping ── */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div
+                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer ${reconcileForm.reconcileStatus === "MATCHED_VENDOR" ? "bg-blue-600 text-white" : "bg-gray-50 text-gray-700"}`}
+                  onClick={() => setReconcileForm((f) => ({
+                    ...f,
+                    reconcileStatus: f.reconcileStatus === "MATCHED_VENDOR" ? "UNMATCHED" : "MATCHED_VENDOR",
+                    expenseCategoryId: "",
+                  }))}
                 >
-                  {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                </select>
+                  <span className="text-sm font-semibold flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5" /> Map to Vendor
+                  </span>
+                  {reconcileForm.reconcileStatus === "MATCHED_VENDOR"
+                    ? <CheckCircle className="w-4 h-4" />
+                    : <ChevronDown className="w-4 h-4" />}
+                </div>
+                {reconcileForm.reconcileStatus === "MATCHED_VENDOR" && (
+                  <div className="p-3 bg-white">
+                    <select
+                      autoFocus
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-blue-400 outline-none"
+                      value={reconcileForm.matchedVendorId}
+                      onChange={(e) => setReconcileForm((f) => ({ ...f, matchedVendorId: e.target.value }))}
+                    >
+                      <option value="">Select vendor…</option>
+                      {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                    {reconcileForm.matchedVendorId && (
+                      <p className="text-xs text-blue-600 mt-1.5 font-medium">
+                        ✓ Will be posted to vendor account
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Vendor */}
-              {(reconcileForm.reconcileStatus === "MATCHED_VENDOR") && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Vendor</label>
-                  <select
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                    value={reconcileForm.matchedVendorId}
-                    onChange={(e) => setReconcileForm((f) => ({ ...f, matchedVendorId: e.target.value }))}
-                  >
-                    <option value="">Select vendor…</option>
-                    {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+              {/* ── Expense category mapping ── */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div
+                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer ${reconcileForm.reconcileStatus === "MATCHED_EXPENSE" ? "bg-purple-600 text-white" : "bg-gray-50 text-gray-700"}`}
+                  onClick={() => setReconcileForm((f) => ({
+                    ...f,
+                    reconcileStatus: f.reconcileStatus === "MATCHED_EXPENSE" ? "UNMATCHED" : "MATCHED_EXPENSE",
+                    matchedVendorId: "",
+                  }))}
+                >
+                  <span className="text-sm font-semibold flex items-center gap-1.5">
+                    <Settings2 className="w-3.5 h-3.5" /> Map to Expense Category
+                  </span>
+                  {reconcileForm.reconcileStatus === "MATCHED_EXPENSE"
+                    ? <CheckCircle className="w-4 h-4" />
+                    : <ChevronDown className="w-4 h-4" />}
                 </div>
-              )}
+                {reconcileForm.reconcileStatus === "MATCHED_EXPENSE" && (
+                  <div className="p-3 bg-white">
+                    <select
+                      autoFocus
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-purple-400 outline-none"
+                      value={reconcileForm.expenseCategoryId}
+                      onChange={(e) => setReconcileForm((f) => ({ ...f, expenseCategoryId: e.target.value }))}
+                    >
+                      <option value="">Select category…</option>
+                      {expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    {reconcileForm.expenseCategoryId && (
+                      <p className="text-xs text-purple-600 mt-1.5 font-medium">
+                        ✓ Will be posted to expense account
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
 
-              {/* Expense category */}
-              {(reconcileForm.reconcileStatus === "MATCHED_EXPENSE") && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Expense Category</label>
-                  <select
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                    value={reconcileForm.expenseCategoryId}
-                    onChange={(e) => setReconcileForm((f) => ({ ...f, expenseCategoryId: e.target.value }))}
+              {/* ── Other statuses ── */}
+              <div className="flex gap-2 flex-wrap">
+                {(["IGNORED", "MANUAL_REVIEW"] as BankReconcileStatus[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setReconcileForm((f) => ({
+                      ...f,
+                      reconcileStatus: s,
+                      matchedVendorId: "",
+                      expenseCategoryId: "",
+                    }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      reconcileForm.reconcileStatus === s
+                        ? s === "IGNORED" ? "bg-red-100 border-red-300 text-red-700" : "bg-yellow-100 border-yellow-300 text-yellow-700"
+                        : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                    }`}
                   >
-                    <option value="">Select category…</option>
-                    {expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-              )}
+                    {STATUS_META[s].label}
+                  </button>
+                ))}
+              </div>
 
               {/* Note */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Review Note (optional)</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Note (optional)</label>
                 <textarea
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:border-blue-400 outline-none"
                   rows={2}
                   value={reconcileForm.reviewNote}
                   onChange={(e) => setReconcileForm((f) => ({ ...f, reviewNote: e.target.value }))}
@@ -918,8 +1011,9 @@ export default function BankStatementPage() {
                 />
               </div>
             </div>
-            <div className="flex gap-2 px-5 py-4 border-t border-gray-100">
-              <button onClick={() => setReconciling(null)} className="flex-1 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+
+            <div className="flex gap-2 px-5 py-4 border-t border-gray-100 flex-shrink-0">
+              <button onClick={() => setReconciling(null)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
               <button
                 onClick={submitReconcile}
                 disabled={reconcilingLoading}

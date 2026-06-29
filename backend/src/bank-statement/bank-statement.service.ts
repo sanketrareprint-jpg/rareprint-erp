@@ -368,6 +368,7 @@ export class BankStatementService {
   async listTransactions(filters: {
     accountNumber?: string;
     reconcileStatus?: BankReconcileStatus;
+    needsReview?: boolean;
     crDr?: BankTxnType;
     fromDate?: string;
     toDate?: string;
@@ -382,8 +383,11 @@ export class BankStatementService {
 
     const where: Prisma.BankTransactionWhereInput = {};
     if (filters.accountNumber) where.accountNumber = filters.accountNumber;
-    if (filters.reconcileStatus)
+    if (filters.needsReview) {
+      where.reconcileStatus = { in: ['MANUAL_REVIEW', 'UNMATCHED'] };
+    } else if (filters.reconcileStatus) {
       where.reconcileStatus = filters.reconcileStatus;
+    }
     if (filters.crDr) where.crDr = filters.crDr;
     if (filters.fromDate || filters.toDate) {
       where.txnDate = {};
