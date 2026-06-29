@@ -1108,9 +1108,9 @@ export class VirtualCeoService {
         return { sent: false, reason: 'vendor_not_found' };
       }
 
-      // All PROCESSING sheets with their items
+      // All PROCESSING + PRINTING sheets with envelope items
       const sheets = await this.prisma.printSheet.findMany({
-        where: { status: SheetStatus.PROCESSING },
+        where: { status: { in: [SheetStatus.PROCESSING, SheetStatus.PRINTING] } },
         select: {
           id: true,
           sheetNo: true,
@@ -1142,6 +1142,7 @@ export class VirtualCeoService {
 
       // Collect ENVELOPE items only (exclude items already READY_FOR_DISPATCH)
       type EnvItem = {
+        itemId: string;
         sheetNo: string; gsm: number; sizeInches: string; envelopeSize: string;
         orderNo: string; customerName: string;
         qty: number; dueDate: Date | null; daysInStage: number;
@@ -1165,6 +1166,7 @@ export class VirtualCeoService {
           if (si.orderItem.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH) continue;
 
           envelopeItems.push({
+            itemId: si.id,
             sheetNo: sheet.sheetNo,
             gsm: sheet.gsm,
             sizeInches: sheet.sizeInches,
@@ -1198,14 +1200,13 @@ export class VirtualCeoService {
         bySheet.get(item.sheetNo)!.push(item);
       }
 
-      // Deduplicate: same order + same envelope size on same sheet = true duplicate
+      // Deduplicate by itemId — only truly identical DB rows are removed
       const bySheetDeduped = new Map<string, EnvItem[]>();
       for (const [sheetNo, items] of bySheet) {
         const seen = new Set<string>();
         const unique = items.filter(i => {
-          const key = `${i.orderNo}|${i.envelopeSize}|${i.qty}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
+          if (seen.has(i.itemId)) return false;
+          seen.add(i.itemId);
           return true;
         });
         bySheetDeduped.set(sheetNo, unique);
