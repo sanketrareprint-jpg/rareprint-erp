@@ -128,6 +128,7 @@ export default function BankStatementPage() {
   const [reviewQueueTotal, setReviewQueueTotal] = useState(0);
   const [reviewQueuePage, setReviewQueuePage] = useState(1);
   const [loadingReviewQueue, setLoadingReviewQueue] = useState(false);
+  const [reviewFilterCrDr, setReviewFilterCrDr] = useState<BankTxnType | "">("");
 
   // ── Summary state ──
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -224,10 +225,11 @@ export default function BankStatementPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50", needsReview: "true" });
       if (selectedAccount) params.set("accountNumber", selectedAccount);
+      if (reviewFilterCrDr) params.set("crDr", reviewFilterCrDr);
       const data = await apiFetch(`/bank-statement/transactions?${params}`);
       if (data) { setReviewQueueTxns(data.data); setReviewQueueTotal(data.total); setReviewQueuePage(page); }
     } finally { setLoadingReviewQueue(false); }
-  }, [apiFetch, selectedAccount]);
+  }, [apiFetch, selectedAccount, reviewFilterCrDr]);
 
   const loadSessions = useCallback(async () => {
     const params = new URLSearchParams();
@@ -240,7 +242,7 @@ export default function BankStatementPage() {
   useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
   useEffect(() => { loadSummary(); }, [loadSummary]);
   useEffect(() => { if (activeTab === "ledger") loadTxns(1); }, [activeTab, selectedAccount, filterStatus, filterCrDr, loadTxns]);
-  useEffect(() => { if (activeTab === "review") loadReviewQueue(1); }, [activeTab, selectedAccount, loadReviewQueue]);
+  useEffect(() => { if (activeTab === "review") loadReviewQueue(1); }, [activeTab, selectedAccount, reviewFilterCrDr, loadReviewQueue]);
   useEffect(() => { loadVendorKeywords(); }, [loadVendorKeywords]);
   useEffect(() => { loadExpenseCategories(); }, [loadExpenseCategories]);
   useEffect(() => { if (activeTab === "sessions") loadSessions(); }, [activeTab, loadSessions]);
@@ -667,9 +669,26 @@ export default function BankStatementPage() {
         {/* ════════════════ REVIEW QUEUE TAB ════════════════ */}
         {activeTab === "review" && (
           <div className="bg-white rounded-xl border border-gray-200">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 gap-3 flex-wrap">
               <h2 className="font-semibold text-gray-800">Transactions Needing Review</h2>
-              <span className="text-sm text-gray-500">{reviewQueueTotal} entries</span>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+                  {([["", "All"], ["CR", "Credits"], ["DR", "Debits"]] as [BankTxnType | "", string][]).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => { setReviewFilterCrDr(val); }}
+                      className={`px-3 py-1.5 transition-colors ${
+                        reviewFilterCrDr === val
+                          ? val === "CR" ? "bg-green-600 text-white" : val === "DR" ? "bg-red-600 text-white" : "bg-gray-800 text-white"
+                          : "bg-white text-gray-500 hover:bg-gray-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-sm text-gray-500">{reviewQueueTotal} entries</span>
+              </div>
             </div>
             {loadingReviewQueue ? (
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
