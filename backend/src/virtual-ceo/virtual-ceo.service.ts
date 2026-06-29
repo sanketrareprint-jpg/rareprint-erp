@@ -1122,11 +1122,11 @@ export class VirtualCeoService {
               id: true,
               quantityOnSheet: true,
               dueDate: true,
+              product: { select: { name: true, sizeInches: true } },
               orderItem: {
                 select: {
                   id: true,
                   itemProductionStage: true,
-                  product: { select: { name: true } },
                   order: {
                     select: {
                       orderNumber: true,
@@ -1143,15 +1143,9 @@ export class VirtualCeoService {
       // Collect ENVELOPE items only (exclude items already READY_FOR_DISPATCH)
       type EnvItem = {
         itemId: string;
-        sheetNo: string; gsm: number; sizeInches: string; envelopeSize: string;
-        orderNo: string; customerName: string;
-        qty: number; dueDate: Date | null; daysInStage: number;
-      };
-
-      // Extract envelope size like "4x7" or "5x10" from product name
-      const extractEnvSize = (productName: string): string => {
-        const match = productName.match(/(\d+[\s]*[xX*×]\s*\d+)/);
-        return match ? match[1].replace(/\s/g, '').toUpperCase().replace('*', 'x').replace('×', 'x') : '';
+        sheetNo: string; gsm: number; sheetSize: string; envelopeSize: string;
+        customerName: string;
+        qty: number; daysInStage: number;
       };
 
       const envelopeItems: EnvItem[] = [];
@@ -1161,7 +1155,7 @@ export class VirtualCeoService {
           (Date.now() - new Date(sheet.updatedAt).getTime()) / 86_400_000,
         );
         for (const si of sheet.items) {
-          const productName = si.orderItem.product.name;
+          const productName = si.product.name;
           if (!productName.toUpperCase().includes('ENVELOPE')) continue;
           if (si.orderItem.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH) continue;
 
@@ -1169,12 +1163,10 @@ export class VirtualCeoService {
             itemId: si.id,
             sheetNo: sheet.sheetNo,
             gsm: sheet.gsm,
-            sizeInches: sheet.sizeInches,
-            envelopeSize: extractEnvSize(productName),
-            orderNo: si.orderItem.order.orderNumber,
+            sheetSize: sheet.sizeInches,
+            envelopeSize: si.product.sizeInches, // direct from product record
             customerName: si.orderItem.order.customer.businessName,
             qty: si.quantityOnSheet,
-            dueDate: si.dueDate ?? null,
             daysInStage,
           });
         }
@@ -1193,70 +1185,61 @@ export class VirtualCeoService {
         timeZone: 'Asia/Kolkata',
       });
 
-      // Group by sheet for the item list
+      // Group by sheet, deduplicate by itemId
       const bySheet = new Map<string, EnvItem[]>();
+      const seenItems = new Set<string>();
       for (const item of envelopeItems) {
+        if (seenItems.has(item.itemId)) continue;
+        seenItems.add(item.itemId);
         if (!bySheet.has(item.sheetNo)) bySheet.set(item.sheetNo, []);
         bySheet.get(item.sheetNo)!.push(item);
       }
-
-      // Deduplicate by itemId — only truly identical DB rows are removed
-      const bySheetDeduped = new Map<string, EnvItem[]>();
-      for (const [sheetNo, items] of bySheet) {
-        const seen = new Set<string>();
-        const unique = items.filter(i => {
-          if (seen.has(i.itemId)) return false;
-          seen.add(i.itemId);
-          return true;
-        });
-        bySheetDeduped.set(sheetNo, unique);
-      }
-
-      // Build compact per-sheet strings (no order number, no newlines)
-      // Format per item: "CUSTOMER NAME ENV_SIZE QTY pcs"
-      const buildSheetStr = (sheetNo: string, items: EnvItem[]): string => {
-        const { gsm, sizeInches } = items[0];
-        const rows = items.map(item => {
-          const qty = item.qty >= 1000
-            ? `${(item.qty / 1000).toLocaleString('en-IN', { maximumFractionDigits: 1 })}K`
-            : `${item.qty}`;
-          const envSize = item.envelopeSize ? ` ${item.envelopeSize}"` : '';
-          // Truncate long names to keep message compact
-          const name = item.customerName.length > 22
-            ? item.customerName.substring(0, 21).trimEnd() + '…'
-            : item.customerName;
-          return `${name}${envSize} ${qty}pcs`;
-        });
-        return `[Sh${sheetNo} ${gsm}GSM ${sizeInches}"]: ${rows.join(' | ')}`;
-      };
-
-      // Split into chunks that each stay under 900 chars (WhatsApp template param limit ~1024)
-      const MAX_CHARS = 900;
-      const msgChunks: string[] = [];
-      let current = '';
-      for (const [sheetNo, items] of bySheetDeduped) {
-        const sheetStr = buildSheetStr(sheetNo, items);
-        const separator = current ? ' || ' : '';
-        if (current && current.length + separator.length + sheetStr.length > MAX_CHARS) {
-          msgChunks.push(current);
-          current = sheetStr;
-        } else {
-          current = current + separator + sheetStr;
-        }
-      }
-      if (current) msgChunks.push(current);
 
       const totalCount = envelopeItems.length;
       const totalQty = envelopeItems.reduce((sum, i) => sum + i.qty, 0);
       const totalStr = `${totalCount} items | ${totalQty.toLocaleString('en-IN')} pcs`;
 
+      // Build flat list: one line per item — "Sh1340 CUSTOMER 4x7 2Kpcs"
+      // Ultra-compact: fits as many items as possible in one message
+      const itemLines: string[] = [];
+      for (const [sheetNo, items] of bySheet) {
+        for (const item of items) {
+          const qty = item.qty >= 1000
+            ? `${(item.qty / 1000).toLocaleString('en-IN', { maximumFractionDigits: 1 })}K`
+            : `${item.qty}`;
+          const name = item.customerName.length > 18
+            ? item.customerName.substring(0, 17).trimEnd() + '…'
+            : item.customerName;
+          itemLines.push(`Sh${sheetNo} ${name} ${item.envelopeSize} ${qty}pcs`);
+        }
+      }
+
+      // Try to fit all in one message (AiSensy max ~1024 chars per param)
+      // If too long, split into parts
+      const MAX_CHARS = 1000;
+      const fullList = itemLines.join(' | ');
+      const msgChunks: string[] = [];
+      if (fullList.length <= MAX_CHARS) {
+        msgChunks.push(fullList);
+      } else {
+        let current = '';
+        for (const line of itemLines) {
+          const sep = current ? ' | ' : '';
+          if (current && current.length + sep.length + line.length > MAX_CHARS) {
+            msgChunks.push(current);
+            current = line;
+          } else {
+            current = current + sep + line;
+          }
+        }
+        if (current) msgChunks.push(current);
+      }
+
       // Send one WhatsApp message per chunk
       let allOk = true;
       for (let i = 0; i < msgChunks.length; i++) {
         const partLabel = msgChunks.length > 1 ? ` (Part ${i + 1}/${msgChunks.length})` : '';
-        const countParam = i === msgChunks.length - 1
-          ? `${totalStr}` // final chunk shows total
-          : `Part ${i + 1}/${msgChunks.length} — continued…`;
+        const countParam = i === msgChunks.length - 1 ? totalStr : `Part ${i + 1}/${msgChunks.length} — cont…`;
         const ok = await this.whatsapp.sendEnvelopeDailyList({
           vendorName: razaVendor.name,
           vendorPhone: razaVendor.phone,
@@ -1265,10 +1248,9 @@ export class VirtualCeoService {
           totalCount: countParam as any,
         });
         if (!ok) allOk = false;
-        this.logger.log(
-          ok
-            ? `✅ Envelope daily list part ${i + 1} sent to ${razaVendor.name}`
-            : `❌ Envelope daily list part ${i + 1} failed`,
+        this.logger.log(ok
+          ? `✅ Envelope daily list part ${i + 1}/${msgChunks.length} sent (${msgChunks[i].length} chars)`
+          : `❌ Envelope daily list part ${i + 1} failed`,
         );
       }
       return { sent: allOk, itemCount: totalCount, razaPhone: razaVendor.phone };
