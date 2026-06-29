@@ -1198,21 +1198,22 @@ export class VirtualCeoService {
         bySheet.get(item.sheetNo)!.push(item);
       }
 
-      const itemLines: string[] = [];
+      const sheetChunks: string[] = [];
       for (const [sheetNo, items] of bySheet) {
         const { gsm, sizeInches } = items[0];
-        itemLines.push(`*Sheet ${sheetNo} — ${gsm} GSM ${sizeInches}"*`);
-        for (const item of items) {
+        const header = `Sheet ${sheetNo} (${gsm}GSM ${sizeInches}")`;
+        const rows = items.map(item => {
           const due = item.dueDate
             ? new Date(item.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
-            : '—';
-          const age = item.daysInStage > 0 ? ` | ${item.daysInStage}d` : '';
-          const sizeLabel = item.envelopeSize ? `${item.envelopeSize}" ` : '';
-          itemLines.push(`• #${item.orderNo} | ${item.customerName} | ${item.qty.toLocaleString('en-IN')} pcs | ${sizeLabel}| Due: ${due}${age}`);
-        }
-        itemLines.push('');
+            : '-';
+          const age = item.daysInStage > 0 ? ` ${item.daysInStage}d` : '';
+          const sizeLabel = item.envelopeSize ? ` ${item.envelopeSize}"` : '';
+          return `#${item.orderNo} ${item.customerName} ${item.qty.toLocaleString('en-IN')}pcs${sizeLabel} Due:${due}${age}`;
+        });
+        sheetChunks.push(`[${header}] ${rows.join(' | ')}`);
       }
-      const itemList = itemLines.join('\n').trim();
+      // Join sheets with " || " — no newlines/tabs (WhatsApp template param restriction)
+      const itemList = sheetChunks.join(' || ');
       const totalCount = envelopeItems.length;
       const totalQty = envelopeItems.reduce((sum, i) => sum + i.qty, 0);
 

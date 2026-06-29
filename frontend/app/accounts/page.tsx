@@ -32,7 +32,9 @@ type PendingOrder = {
   customerPhone?: string; customerEmail?: string; customerAddress?: string; salesAgentName?: string;
   products: string; items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
-  orderDate: string; notes?: string; payments: Payment[];
+  orderDate: string; notes?: string; payments: (Payment & { verificationStatus?: string })[];
+  hasPendingPayments?: boolean;
+  advancePct?: number;
 };
 
 type DispatchPendingOrder = {
@@ -1357,12 +1359,18 @@ await loadHistory();
                       <div className="rounded-lg border border-slate-100 bg-slate-50 divide-y divide-slate-100">
                         <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Payments</div>
                         {order.payments.map(payment => (
-                          <div key={payment.id} className="flex items-center justify-between px-3 py-1.5">
+                          <div key={payment.id} className={`flex items-center justify-between px-3 py-1.5 ${payment.verificationStatus === "PENDING_VERIFICATION" ? "bg-orange-50" : ""}`}>
                             <div className="flex items-center gap-3 text-xs text-slate-600">
                               <span className="font-mono text-slate-400">{new Date(payment.date).toLocaleDateString("en-IN")}</span>
                               <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{payment.method}</span>
                               <span className="text-slate-500">{payment.accountName}</span>
                               {payment.referenceNumber && <span className="font-mono text-slate-400">Ref: {payment.referenceNumber}</span>}
+                              {payment.verificationStatus === "PENDING_VERIFICATION" && (
+                                <span className="rounded-full bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 font-semibold">⏳ Unverified</span>
+                              )}
+                              {payment.verificationStatus === "VERIFIED" && (
+                                <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 font-semibold">✓ Verified</span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-bold text-green-700">{fmt(payment.amount)}</span>
@@ -1377,9 +1385,27 @@ await loadHistory();
                     )}
 
                     {(() => {
-                      const hasMissingCost = order.items.some(item => item.costTotal == null);
+                      const hasMissingCost = order.items.some(item => item.costTotal == null && !item.offerCode);
+                      const hasPendingPay  = order.hasPendingPayments ?? false;
+                      const advancePct     = order.advancePct ?? (order.totalAmount > 0 ? (order.totalPaid / order.totalAmount) * 100 : 100);
+                      const belowMinAdv    = advancePct < 40;
+                      // Hard block: unverified payments (all users). Soft block: advance < 40% (only non-super-admin, but frontend can't know role, so show warning and let backend reject).
+                      const hardBlocked    = hasPendingPay;
+                      const canApprove     = !hardBlocked && !hasMissingCost;
                       return (
                         <>
+                          {hasPendingPay && (
+                            <div className="flex items-center gap-2 rounded-lg bg-orange-50 border border-orange-300 px-3 py-2 text-xs text-orange-800">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              <span><strong>Unverified payment(s)</strong> — verify all receipts in <strong>Receipts Pending</strong> tab before approving this order.</span>
+                            </div>
+                          )}
+                          {belowMinAdv && !hasPendingPay && (
+                            <div className="flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-300 px-3 py-2 text-xs text-yellow-800">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              <span><strong>{advancePct.toFixed(1)}% advance received</strong> — minimum 40% required. Only super-admin can approve below this limit.</span>
+                            </div>
+                          )}
                           {hasMissingCost && (
                             <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -1395,8 +1421,9 @@ await loadHistory();
                           <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                             <div className="text-xs text-slate-500 space-x-4">
                               <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
-                              <span>Paid: <strong className="text-green-600">{fmt(order.totalPaid)}</strong></span>
+                              <span>Paid: <strong className={order.totalPaid > 0 ? "text-green-600" : ""}>{fmt(order.totalPaid)}</strong></span>
                               <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
+                              <span className={`font-semibold ${advancePct >= 40 ? "text-green-600" : "text-red-500"}`}>{advancePct.toFixed(0)}% advance</span>
                             </div>
                             <div className="flex gap-2">
                               <button onClick={() => setRejectId(order.id)}
@@ -1404,11 +1431,16 @@ await loadHistory();
                                 Reject
                               </button>
                               <button
-                                onClick={() => !hasMissingCost && approveOrder(order.id)}
-                                disabled={processing === order.id || hasMissingCost}
-                                title={hasMissingCost ? "Add cost slabs for all products before approving" : undefined}
+                                onClick={() => canApprove && approveOrder(order.id)}
+                                disabled={processing === order.id || !canApprove}
+                                title={
+                                  hasPendingPay ? "Verify all receipts first" :
+                                  hasMissingCost ? "Add cost slabs for all products first" :
+                                  belowMinAdv ? "Below 40% advance — only super-admin can approve" :
+                                  undefined
+                                }
                                 className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg ${
-                                  hasMissingCost
+                                  !canApprove
                                     ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                                     : "bg-green-600 text-white hover:bg-green-700"
                                 } disabled:opacity-60`}

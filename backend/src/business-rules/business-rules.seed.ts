@@ -110,6 +110,30 @@ export const BUSINESS_RULES_SEED: CreateRuleDto[] = [
     active: true,
   },
   {
+    ruleCode: 'ACCOUNTS-006',
+    module: 'ACCOUNTS',
+    severity: 'CRITICAL',
+    title: 'All payments must be verified before order approval',
+    description:
+      'If an order has any payments in PENDING_VERIFICATION status, the order cannot be approved. The accountant must first verify (or reject) all receipts in the Receipts Pending tab, then approve the order.',
+    example:
+      'Customer paid ₹5,000 via UPI. Agent submitted receipt but accounts has not verified it yet. Order approval button is blocked until receipt is verified.',
+    testedBy: 'accounts.business-rules.spec.ts',
+    active: true,
+  },
+  {
+    ruleCode: 'ACCOUNTS-007',
+    module: 'ACCOUNTS',
+    severity: 'CRITICAL',
+    title: 'Minimum 40% advance required before order approval',
+    description:
+      'Accounts can only approve an order if at least 40% of the total order value has been received and verified. Only the super-admin (sanket.rareprint@gmail.com) can approve an order below this threshold.',
+    example:
+      'Order total ₹10,000. Customer paid ₹3,000 (30%). Accounts sees "30% advance received — minimum 40% required" and cannot approve. Sanket can override and approve.',
+    testedBy: 'accounts.business-rules.spec.ts',
+    active: true,
+  },
+  {
     ruleCode: 'DISPATCH-001',
     module: 'DISPATCH',
     severity: 'CRITICAL',

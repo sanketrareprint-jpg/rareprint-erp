@@ -340,6 +340,10 @@ export class AccountsService {
         balanceDue,
         orderDate: order.orderDate.toISOString(),
         notes: order.notes,
+        hasPendingPayments: order.payments.some((p) => p.verificationStatus === 'PENDING_VERIFICATION'),
+        advancePct: grandTotal > 0
+          ? Math.min(100, (totalPaid / grandTotal) * 100)
+          : 100,
         payments: order.payments.map((p) => ({
           id: p.id,
           date: p.paymentDate.toISOString(),
@@ -348,6 +352,7 @@ export class AccountsService {
           referenceNumber: p.referenceNumber,
           notes: p.notes,
           accountName: p.paymentAccount.name,
+          verificationStatus: p.verificationStatus,
         })),
       };
     });
@@ -453,6 +458,28 @@ export class AccountsService {
 
     // If an override reason is provided (e.g. free stickers, combo discount), skip cost/margin checks
     const isOverride = !!overrideReason?.trim();
+
+    // ── Rule: All payments must be verified before approval (hard block, all users) ──
+    const unverifiedPayments = order.payments.filter(
+      (p) => p.verificationStatus === 'PENDING_VERIFICATION',
+    );
+    if (unverifiedPayments.length > 0) {
+      throw new BadRequestException(
+        `Cannot approve: ${unverifiedPayments.length} payment(s) are still pending verification. Verify all receipts before approving the order.`,
+      );
+    }
+
+    // ── Rule: Minimum 40% advance required (super-admin bypasses) ───────────────
+    const totalVerifiedPaid = order.payments
+      .filter((p) => p.verificationStatus === 'VERIFIED')
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const grandTotal = Number(order.grandTotal);
+    const advancePct = grandTotal > 0 ? (totalVerifiedPaid / grandTotal) * 100 : 100;
+    if (!isSuperAdmin && advancePct < 40) {
+      throw new BadRequestException(
+        `Cannot approve: only ${advancePct.toFixed(1)}% advance received (₹${totalVerifiedPaid.toLocaleString('en-IN')} of ₹${grandTotal.toLocaleString('en-IN')}). Minimum 40% required. Only super-admin can approve below this threshold.`,
+      );
+    }
 
     // Block approval if any billable item has no cost slab
     const productIds = billableItems.map((i) => i.productId);
