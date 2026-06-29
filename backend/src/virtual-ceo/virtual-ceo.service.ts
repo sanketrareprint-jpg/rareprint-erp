@@ -1198,38 +1198,79 @@ export class VirtualCeoService {
         bySheet.get(item.sheetNo)!.push(item);
       }
 
-      const sheetChunks: string[] = [];
+      // Deduplicate: same order + same envelope size on same sheet = true duplicate
+      const bySheetDeduped = new Map<string, EnvItem[]>();
       for (const [sheetNo, items] of bySheet) {
-        const { gsm, sizeInches } = items[0];
-        const header = `Sheet ${sheetNo} (${gsm}GSM ${sizeInches}")`;
-        const rows = items.map(item => {
-          const due = item.dueDate
-            ? new Date(item.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
-            : '-';
-          const age = item.daysInStage > 0 ? ` ${item.daysInStage}d` : '';
-          const sizeLabel = item.envelopeSize ? ` ${item.envelopeSize}"` : '';
-          return `#${item.orderNo} ${item.customerName} ${item.qty.toLocaleString('en-IN')}pcs${sizeLabel} Due:${due}${age}`;
+        const seen = new Set<string>();
+        const unique = items.filter(i => {
+          const key = `${i.orderNo}|${i.envelopeSize}|${i.qty}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
         });
-        sheetChunks.push(`[${header}] ${rows.join(' | ')}`);
+        bySheetDeduped.set(sheetNo, unique);
       }
-      // Join sheets with " || " — no newlines/tabs (WhatsApp template param restriction)
-      const itemList = sheetChunks.join(' || ');
+
+      // Build compact per-sheet strings (no order number, no newlines)
+      // Format per item: "CUSTOMER NAME ENV_SIZE QTY pcs"
+      const buildSheetStr = (sheetNo: string, items: EnvItem[]): string => {
+        const { gsm, sizeInches } = items[0];
+        const rows = items.map(item => {
+          const qty = item.qty >= 1000
+            ? `${(item.qty / 1000).toLocaleString('en-IN', { maximumFractionDigits: 1 })}K`
+            : `${item.qty}`;
+          const envSize = item.envelopeSize ? ` ${item.envelopeSize}"` : '';
+          // Truncate long names to keep message compact
+          const name = item.customerName.length > 22
+            ? item.customerName.substring(0, 21).trimEnd() + '…'
+            : item.customerName;
+          return `${name}${envSize} ${qty}pcs`;
+        });
+        return `[Sh${sheetNo} ${gsm}GSM ${sizeInches}"]: ${rows.join(' | ')}`;
+      };
+
+      // Split into chunks that each stay under 900 chars (WhatsApp template param limit ~1024)
+      const MAX_CHARS = 900;
+      const msgChunks: string[] = [];
+      let current = '';
+      for (const [sheetNo, items] of bySheetDeduped) {
+        const sheetStr = buildSheetStr(sheetNo, items);
+        const separator = current ? ' || ' : '';
+        if (current && current.length + separator.length + sheetStr.length > MAX_CHARS) {
+          msgChunks.push(current);
+          current = sheetStr;
+        } else {
+          current = current + separator + sheetStr;
+        }
+      }
+      if (current) msgChunks.push(current);
+
       const totalCount = envelopeItems.length;
       const totalQty = envelopeItems.reduce((sum, i) => sum + i.qty, 0);
+      const totalStr = `${totalCount} items | ${totalQty.toLocaleString('en-IN')} pcs`;
 
-      const ok = await this.whatsapp.sendEnvelopeDailyList({
-        vendorName: razaVendor.name,
-        vendorPhone: razaVendor.phone,
-        dateStr,
-        itemList,
-        totalCount: `${totalCount} items | ${totalQty.toLocaleString('en-IN')} pcs` as any,
-      });
-      this.logger.log(
-        ok
-          ? `✅ Envelope daily list sent to ${razaVendor.name} (${razaVendor.phone}): ${totalCount} items`
-          : `❌ Envelope daily list failed for ${razaVendor.phone}`,
-      );
-      return { sent: ok, itemCount: totalCount, razaPhone: razaVendor.phone };
+      // Send one WhatsApp message per chunk
+      let allOk = true;
+      for (let i = 0; i < msgChunks.length; i++) {
+        const partLabel = msgChunks.length > 1 ? ` (Part ${i + 1}/${msgChunks.length})` : '';
+        const countParam = i === msgChunks.length - 1
+          ? `${totalStr}` // final chunk shows total
+          : `Part ${i + 1}/${msgChunks.length} — continued…`;
+        const ok = await this.whatsapp.sendEnvelopeDailyList({
+          vendorName: razaVendor.name,
+          vendorPhone: razaVendor.phone,
+          dateStr: dateStr + partLabel,
+          itemList: msgChunks[i],
+          totalCount: countParam as any,
+        });
+        if (!ok) allOk = false;
+        this.logger.log(
+          ok
+            ? `✅ Envelope daily list part ${i + 1} sent to ${razaVendor.name}`
+            : `❌ Envelope daily list part ${i + 1} failed`,
+        );
+      }
+      return { sent: allOk, itemCount: totalCount, razaPhone: razaVendor.phone };
     } catch (err) {
       this.logger.error('Envelope daily list error', err);
       return { sent: false, reason: String(err) };

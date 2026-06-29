@@ -32,8 +32,9 @@ const STATUS_PRIORITY = {
   UNMATCHED: 0,
 };
 
-// Safe-to-delete statuses (not yet verified/matched)
-const DELETABLE_STATUSES = new Set(['MANUAL_REVIEW', 'UNMATCHED']);
+// All statuses are deletable for DUPLICATES — we always keep the best one.
+// MATCHED_PAYMENT is the only one we never auto-delete (real payment link).
+const NEVER_DELETE = new Set(['MATCHED_PAYMENT']);
 
 function buildNewKey(row) {
   const dateStr = new Date(row.txnDate).toISOString();
@@ -95,7 +96,7 @@ async function main() {
 
     const [keep, ...remove] = group;
     for (const r of remove) {
-      if (DELETABLE_STATUSES.has(r.reconcileStatus)) {
+      if (!NEVER_DELETE.has(r.reconcileStatus)) {
         toDelete.push(r);
         if (!APPLY) {
           console.log(
@@ -107,7 +108,7 @@ async function main() {
         }
       } else {
         skippedVerified.push(r);
-        console.log(`  ⚠ SKIP (already matched): id=${r.id}  status=${r.reconcileStatus}`);
+        console.log(`  ⚠ SKIP (MATCHED_PAYMENT — manual review needed): id=${r.id}`);
       }
     }
   }

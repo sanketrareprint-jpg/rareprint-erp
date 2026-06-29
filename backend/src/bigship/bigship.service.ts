@@ -525,29 +525,23 @@ function normalizePackageBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0
 function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
   const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
 
-  // BigShip B2C API enforces: boxes array length = 1 AND noOfBoxes = 1.
-  // There is no API support for multibox — always send 1 box with total weight.
-  // totalNumOfBoxes is set correctly for reference but BigShip ignores it for B2C.
-  const totalWeight = normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
-  const representative = normalized.reduce((best, box) => {
-    const vol = box.length * box.breadth * box.height;
-    const bestVol = best.length * best.breadth * best.height;
-    return vol > bestVol ? box : best;
-  }, normalized[0]);
+  // Send each box type as a separate entry. totalNumOfBoxes = sum of all noOfBoxes.
+  // weight in dimensions is per-box weight (not total).
+  const totalNumOfBoxes = normalized.reduce((sum, box) => sum + box.noOfBoxes, 0);
 
   return {
-    totalNumOfBoxes: 1,
-    boxes: [{
+    totalNumOfBoxes,
+    boxes: normalized.map((box) => ({
       weight_unit: 'kg',
       dimension_unit: 'cm',
-      noOfBoxes: 1,
+      noOfBoxes: box.noOfBoxes,
       dimensions: [{
-        length: representative.length,
-        breadth: representative.breadth,
-        height: representative.height,
-        weight: Math.max(0.1, Math.round(totalWeight * 100) / 100),
+        length: box.length,
+        breadth: box.breadth,
+        height: box.height,
+        weight: Math.max(0.1, Math.round(box.weight * 100) / 100),
       }],
-    }],
+    })),
   };
 }
 
