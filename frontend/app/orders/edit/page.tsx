@@ -46,15 +46,14 @@ function EditOrderPageInner() {
       if (oRes.ok) {
         const o = await oRes.json();
         setOrderNo(o.orderNumber ?? "");
-        const addr = (o.customerAddress ?? "").split(", ");
         setCustomer({
           name: o.customerName ?? "",
           phone: o.customerPhone ?? "",
           email: o.customerEmail ?? "",
-          address: addr[0] ?? "",
-          city: addr[1] ?? "",
-          state: addr[2] ?? "",
-          pincode: addr[3] ?? "",
+          address: o.customerStreetAddress ?? "",
+          city: o.customerCity ?? "",
+          state: o.customerState ?? "",
+          pincode: o.customerPincode ?? "",
         });
         setOrderNotes(o.notes ?? "");
         if (o.items?.length) {

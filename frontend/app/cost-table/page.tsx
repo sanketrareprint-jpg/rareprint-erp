@@ -383,7 +383,7 @@ export default function CostTablePage() {
       const codeIndex = header.findIndex(h => h.trim().toLowerCase().replace(/[_-]/g, " ") === "product code");
       const skuIndex = codeIndex >= 0 ? codeIndex : header.findIndex(h => h.trim().toLowerCase() === "sku");
       const quantityColumns = header
-        .map((h, index) => ({ quantity: Number(String(h).replace(/[^\d]/g, "")), index }))
+        .map((h, index) => ({ quantity: Math.round(parseFloat(String(h).replace(/[^\d.]/g, ""))), index }))
         .filter(col => Number.isFinite(col.quantity) && col.quantity > 0)
         .sort((a, b) => a.quantity - b.quantity);
 
@@ -500,7 +500,7 @@ export default function CostTablePage() {
       const codeIndex = header.findIndex(h => h.trim().toLowerCase().replace(/[_-]/g, " ") === "product code");
       const skuIndex = codeIndex >= 0 ? codeIndex : header.findIndex(h => h.trim().toLowerCase() === "sku");
       const quantityColumns = header
-        .map((h, index) => ({ quantity: Number(String(h).replace(/[^\d]/g, "")), index }))
+        .map((h, index) => ({ quantity: Math.round(parseFloat(String(h).replace(/[^\d.]/g, ""))), index }))
         .filter(col => Number.isFinite(col.quantity) && col.quantity > 0)
         .sort((a, b) => a.quantity - b.quantity);
       if (skuIndex < 0 || quantityColumns.length === 0) {

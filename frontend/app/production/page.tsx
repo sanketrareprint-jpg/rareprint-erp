@@ -374,6 +374,7 @@ export default function ProductionPage() {
         method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ productionCategory }),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
     } finally { setAssigningItemId(null); }
   }
@@ -392,6 +393,7 @@ export default function ProductionPage() {
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files`, { method: "POST", headers: (() => { const h = getAuthHeaders(); delete (h as any)["Content-Type"]; return h; })(), body: formData });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { alert("Upload failed"); return; }
       await loadAll(true);
     } finally { setUploadingItemId(null); if (fileInputRefs.current[itemId]) fileInputRefs.current[itemId]!.value = ""; }
@@ -408,6 +410,7 @@ export default function ProductionPage() {
 
   async function downloadFile(itemId: string, filename: string, originalName: string) {
     const res = await fetch(`${API_BASE_URL}/orders/items/${itemId}/design-files/${filename}`, { headers: getAuthHeaders() });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     if (!res.ok) {
       alert("File download failed. Please upload the attachment again.");
       return;
@@ -440,6 +443,7 @@ export default function ProductionPage() {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ orderItemId: itemId, vendorId: f.vendorId, description: f.description, cost: Number(f.cost), vendorInvoiceNo: f.vendorInvoiceNo || undefined }),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { alert("Failed to add job work"); return; }
       setJwForm(p => ({ ...p, [itemId]: { vendorId: "", description: "", cost: "", vendorInvoiceNo: "" } }));
       await loadAll(true);
@@ -537,6 +541,7 @@ export default function ProductionPage() {
       body: JSON.stringify({ processingFollowUpDate: processingFollowUpDate || null }),
       keepalive: true,
     });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
     await loadAll(true);
   }
@@ -547,6 +552,7 @@ export default function ProductionPage() {
       body: JSON.stringify({ dueDate: dueDate || null }),
       keepalive: true,
     });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
     await loadAll(true);
   }
@@ -557,6 +563,7 @@ export default function ProductionPage() {
       body: JSON.stringify({ dueDate: dueDate || null }),
       keepalive: true,
     });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     if (!res.ok) { alert(await readApiError(res, "Could not save follow-up date")); return; }
     await loadAll(true);
   }
@@ -608,6 +615,7 @@ export default function ProductionPage() {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(newVendor),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { alert("Failed"); return; }
       setVendorModal(false); setNewVendor({ name: "", phone: "", email: "", gstNumber: "" });
       await loadAll(true);
@@ -630,6 +638,7 @@ export default function ProductionPage() {
           printing: sheetForm.printing,
         }),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setCreateSheetModal(false); setSheetForm({ gsm: "", quality: "MAPLITHO", quantity: "", actualPrintedQuantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
       const created = await res.json().catch(() => null);
@@ -646,6 +655,7 @@ export default function ProductionPage() {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { alert(body.message || "Auto sheet organize failed"); return; }
       alert(`ERP auto sheets created: ${body.created ?? 0}`);
@@ -695,6 +705,7 @@ export default function ProductionPage() {
           printing: editSheetForm.printing,
         }),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       setEditSheetModal(null);
       const updated = await res.json().catch(() => null);
@@ -715,6 +726,7 @@ export default function ProductionPage() {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message || "Delete failed"); return; }
       setSheetsData(prev => prev.filter(s => s.id !== sheet.id));
       if (expandedSheet === sheet.id) setExpandedSheet(null);
@@ -792,6 +804,7 @@ export default function ProductionPage() {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ orderItemId: item.id, productId: item.id, multiple: val, quantityOnSheet, areaSqInches: itemArea * val }),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       const payload = await res.json().catch(() => null);
       if (payload?.sheet?.id && payload?.item?.id) {
@@ -818,6 +831,7 @@ export default function ProductionPage() {
   async function removeSheetItem(id: string) {
     if (!confirm("Remove this item from sheet?")) return;
     const res = await fetch(`${API_BASE_URL}/production/sheets/sheet-items/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     if (!res.ok) { alert("Failed to remove item"); return; }
     const payload = await res.json().catch(() => null);
     if (payload?.sheetId) {
@@ -841,6 +855,7 @@ export default function ProductionPage() {
       headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ productionCategory: null }),
     });
+    if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(body.message || "Failed to unassign from Sheets");
@@ -952,6 +967,7 @@ export default function ProductionPage() {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ stage: f.stage, vendorId: f.vendorId, cost: Number(f.cost), description: f.description || undefined, vendorInvoiceNo: f.vendorInvoiceNo || undefined }),
       });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { alert("Failed"); return; }
       setStageVendorForm(p => ({ ...p, [sheetId]: { stage: "", vendorId: "", cost: "", description: "", vendorInvoiceNo: "" } }));
       await loadAll(true);
@@ -2118,6 +2134,7 @@ export default function ProductionPage() {
                                           headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
                                           body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
                                         });
+                                        if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
                                         if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
                                         await loadAll(true);
                                       } catch { alert("Network error"); }
@@ -2202,6 +2219,7 @@ export default function ProductionPage() {
                                               headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
                                               body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
                                             });
+                                            if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
                                             if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
                                             await loadAll(true);
                                           } catch { alert("Network error"); }
