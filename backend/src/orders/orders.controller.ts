@@ -192,10 +192,24 @@ export class OrdersController {
       include: { customer: true, items: { include: { product: true } } },
     });
     if (!o) throw new Error("Order not found");
+    // Derive the street-address portion by stripping the known city/state/pincode
+    // suffix from the combined shippingAddress string, rather than blindly splitting
+    // on ", " (which corrupts the address whenever it contains a comma itself).
+    const knownSuffixParts = [o.customer.city, o.customer.state, o.customer.pincode].filter(Boolean);
+    const knownSuffix = knownSuffixParts.length ? `, ${knownSuffixParts.join(", ")}` : "";
+    let streetAddress = o.customer.shippingAddress ?? "";
+    if (knownSuffix && streetAddress.endsWith(knownSuffix)) {
+      streetAddress = streetAddress.slice(0, streetAddress.length - knownSuffix.length);
+    }
     return {
       id: o.id, orderNumber: o.orderNumber, status: o.status, notes: o.notes,
       customerName: o.customer.businessName, customerPhone: o.customer.phone,
-      customerEmail: o.customer.email, customerAddress: o.customer.shippingAddress,
+      customerEmail: o.customer.email,
+      customerAddress: o.customer.shippingAddress,
+      customerStreetAddress: streetAddress,
+      customerCity: o.customer.city ?? "",
+      customerState: o.customer.state ?? "",
+      customerPincode: o.customer.pincode ?? "",
       items: o.items.map(i => ({
         id: i.id, productId: i.productId, productName: i.product.name,
         sizeInches: i.product.sizeInches, gsm: i.product.gsm, sides: i.product.sides,

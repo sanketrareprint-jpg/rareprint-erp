@@ -641,6 +641,11 @@ export class OrdersService {
       body.customer?.state,
       body.customer?.pincode,
     ].filter(Boolean);
+    // Only recompute shippingAddress when at least one address part was actually
+    // submitted. Previously this always wrote shippingParts.join(', '), which is
+    // '' when every part is missing/empty — silently wiping out the customer's
+    // saved address on any edit that didn't resend address fields.
+    const shippingAddress = shippingParts.length > 0 ? shippingParts.join(', ') : undefined;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.customer.update({
@@ -650,7 +655,7 @@ export class OrdersService {
           contactPerson: body.customer?.name,
           phone: body.customer?.phone,
           email: body.customer?.email,
-          shippingAddress: shippingParts.join(', '),
+          shippingAddress,
           city: body.customer?.city,
           state: body.customer?.state,
           pincode: body.customer?.pincode,
