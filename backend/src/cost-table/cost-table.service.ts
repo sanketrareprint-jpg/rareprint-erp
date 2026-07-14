@@ -74,12 +74,12 @@ export class CostTableService {
     }
 
     if (agentCategory === 'A') {
-      return rateTotal * (this.isSticker(item) ? 0.15 : 0.10);
+      return saleTotal * (this.isSticker(item) ? 0.15 : 0.10);
     }
     if (agentCategory === 'C') {
-      return rateTotal * (this.isSticker(item) ? 0.17 : 0.12);
+      return saleTotal * (this.isSticker(item) ? 0.17 : 0.12);
     }
-    return rateTotal * 0.10;
+    return saleTotal * 0.10;
   }
 
   private async profitRows(start: Date, end: Date) {
@@ -750,19 +750,19 @@ export class CostTableService {
         if (!category) {
           // no commission for uncategorized agents
         } else if (belowThreshold && category === 'A') {
-          orderCommission += rateTotal * 0.07;
+          orderCommission += lineTotal * 0.07;
         } else if (belowThreshold && category === 'B') {
-          orderCommission += rateTotal * 0.05;
+          orderCommission += lineTotal * 0.05;
         } else if (category === 'D') {
           orderCommission += Math.max(0, lineTotal - rateTotal);
         } else if (discountPct > 5) {
           orderCommission += profit / (category === 'C' ? 3.75 : 4);
         } else if (category === 'A') {
-          orderCommission += rateTotal * (isSticker(item) ? 0.15 : 0.10);
+          orderCommission += lineTotal * (isSticker(item) ? 0.15 : 0.10);
         } else if (category === 'C') {
-          orderCommission += rateTotal * (isSticker(item) ? 0.17 : 0.12);
+          orderCommission += lineTotal * (isSticker(item) ? 0.17 : 0.12);
         } else {
-          orderCommission += rateTotal * 0.10;
+          orderCommission += lineTotal * 0.10;
         }
       }
 
@@ -789,7 +789,7 @@ export class CostTableService {
     };
   }
 
- 
+
   // ── Commission bonus calculation ──────────────────────────────────────────
   private calcBonus(saleTotal: number): number {
     if (saleTotal < 115000) return 0;
@@ -937,8 +937,8 @@ export class CostTableService {
           calcMethod = 'No category';
         } else if (belowThreshold && (agentCategory === 'A' || agentCategory === 'B') && costSlab && grossProfit !== null && grossProfit > 0) {
           const pct = agentCategory === 'A' ? 7 : 5;
-          commAmt = rateAmt * (pct / 100);
-          calcMethod = `Rate × ${pct}% (below ₹1.15L)`;
+          commAmt = lineTotal * (pct / 100);
+          calcMethod = `Sale × ${pct}% (below ₹1.15L)`;
         } else if (costSlab && grossProfit !== null && grossProfit > 0) {
           const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
           if (agentCategory === 'D') {
@@ -948,14 +948,14 @@ export class CostTableService {
             commAmt = grossProfit / (agentCategory === 'C' ? 3.75 : 4);
             calcMethod = `Profit ÷ ${agentCategory === 'C' ? '3.75' : '4'} (disc ${discountPct.toFixed(1)}%)`;
           } else if (agentCategory === 'A') {
-            commAmt = rateAmt * (sticker ? 0.15 : 0.10);
-            calcMethod = `Rate × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'})`;
+            commAmt = lineTotal * (sticker ? 0.15 : 0.10);
+            calcMethod = `Sale × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'})`;
           } else if (agentCategory === 'C') {
-            commAmt = rateAmt * (sticker ? 0.17 : 0.12);
-            calcMethod = `Rate × ${sticker ? '17' : '12'}% (${sticker ? 'sticker' : 'standard'})`;
+            commAmt = lineTotal * (sticker ? 0.17 : 0.12);
+            calcMethod = `Sale × ${sticker ? '17' : '12'}% (${sticker ? 'sticker' : 'standard'})`;
           } else {
-            commAmt = rateAmt * 0.10;
-            calcMethod = `Rate × 10%`;
+            commAmt = lineTotal * 0.10;
+            calcMethod = `Sale × 10%`;
           }
         } else if (!costSlab) {
           calcMethod = 'No cost data';

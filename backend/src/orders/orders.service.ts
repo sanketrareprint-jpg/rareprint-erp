@@ -176,11 +176,11 @@ export class OrdersService {
       } else if (discountPct > 5) {
         commissionTotal += profit / (category === 'C' ? 3.75 : 4);
       } else if (category === 'A') {
-        commissionTotal += rateTotal * (this.isSticker(item) ? 0.15 : 0.10);
+        commissionTotal += lineTotal * (this.isSticker(item) ? 0.15 : 0.10);
       } else if (category === 'C') {
-        commissionTotal += rateTotal * (this.isSticker(item) ? 0.17 : 0.12);
+        commissionTotal += lineTotal * (this.isSticker(item) ? 0.17 : 0.12);
       } else {
-        commissionTotal += rateTotal * 0.10;
+        commissionTotal += lineTotal * 0.10;
       }
     }
     const saleTotal = Number(order.grandTotal);
