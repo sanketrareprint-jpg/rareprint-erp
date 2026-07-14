@@ -644,21 +644,39 @@ export class CostTableService {
       distinct: ['salesAgentId'],
     });
     const ids = agentOrders.map((o: any) => o.salesAgentId).filter(Boolean) as string[];
-    const agents = await (this.prisma as any).user.findMany({
-      where: { id: { in: ids }, isActive: true },
-      orderBy: { fullName: 'asc' },
-      select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true },
-    });
+    let agents: any[];
+    try {
+      agents = await (this.prisma as any).user.findMany({
+        where: { id: { in: ids }, isActive: true },
+        orderBy: { fullName: 'asc' },
+        select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true },
+      });
+    } catch {
+      // baseSalary column may not have been migrated onto the DB yet — degrade gracefully
+      agents = await (this.prisma as any).user.findMany({
+        where: { id: { in: ids }, isActive: true },
+        orderBy: { fullName: 'asc' },
+        select: { id: true, fullName: true, email: true, salesAgentCategory: true },
+      });
+    }
     return agents.map((a: any) => ({ ...a, baseSalary: a.baseSalary != null ? Number(a.baseSalary) : null }));
   }
 
   // Any single user's salary info — used by the self-service Salary & Commission
   // tab, which any user (not just past sales agents) should be able to see.
   async getUserSalaryInfo(userId: string) {
-    const u = await (this.prisma as any).user.findUnique({
-      where: { id: userId },
-      select: { id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true },
-    });
+    let u: any;
+    try {
+      u = await (this.prisma as any).user.findUnique({
+        where: { id: userId },
+        select: { id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true },
+      });
+    } catch {
+      u = await (this.prisma as any).user.findUnique({
+        where: { id: userId },
+        select: { id: true, fullName: true, role: true, salesAgentCategory: true },
+      });
+    }
     if (!u) throw new NotFoundException('User not found');
     return { ...u, baseSalary: u.baseSalary != null ? Number(u.baseSalary) : 0 };
   }
@@ -884,7 +902,7 @@ export class CostTableService {
       (this.prisma as any).user.findUnique({
         where: { id: userId },
         select: { fullName: true, salesAgentCategory: true, baseSalary: true },
-      }),
+      }).catch(() => null),
     ]);
 
     const baseSalary = agentUser?.baseSalary != null ? Number(agentUser.baseSalary) : 0;
