@@ -38,6 +38,40 @@ export class NotificationsService {
     return d;
   }
 
+  // ── Commission verification ──────────────────────────────────────────────
+
+  async notifyCommissionVerified(data: {
+    agentId: string;
+    agentName: string;
+    verifiedByName: string;
+    verifiedByRole: string;
+    monthLabel: string;
+    totalSales: number;
+    totalCommission: number;
+    incentive: number;
+    baseSalary: number;
+    overallAmount: number;
+  }) {
+    const fmt = (n: number) => `Rs ${Number(n ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+    const lines = [
+      `Your commission sheet for ${data.monthLabel} has been verified by ${data.verifiedByName} (${data.verifiedByRole}).`,
+      `Total Sales: ${fmt(data.totalSales)}`,
+      `Total Commission: ${fmt(data.totalCommission)}`,
+      `Incentive/Bonus: ${fmt(data.incentive)}`,
+    ];
+    if (data.baseSalary > 0) lines.push(`Base Salary: ${fmt(data.baseSalary)}`);
+    lines.push(`Overall Payable: ${fmt(data.overallAmount)}`);
+
+    return this.create({
+      type: 'COMMISSION_VERIFIED',
+      priority: 'NORMAL',
+      title: `Commission Verified — ${data.monthLabel}`,
+      message: lines.join('\n'),
+      toUserId: data.agentId,
+      toUserName: data.agentName,
+    });
+  }
+
   private async alreadyExists(type: string, orderId?: string, itemId?: string, sheetId?: string, jobWorkId?: string) {
     return this.prisma.notification.findFirst({
       where: { type, isResolved: false, ...(orderId && { orderId }), ...(itemId && { itemId }), ...(sheetId && { sheetId }), ...(jobWorkId && { jobWorkId }) },

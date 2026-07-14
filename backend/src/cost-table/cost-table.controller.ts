@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, Req,
+  Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, Req, ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CostTableService } from './cost-table.service';
@@ -8,6 +8,19 @@ import { CostTableService } from './cost-table.service';
 @UseGuards(JwtAuthGuard)
 export class CostTableController {
   constructor(private readonly svc: CostTableService) {}
+
+  // Non-admins may only ever view/act on their own commission data.
+  private assertSelfOrAdmin(req: any, userId: string) {
+    if (req.user?.role !== 'ADMIN' && req.user?.id !== userId) {
+      throw new ForbiddenException('You can only view your own commission data');
+    }
+  }
+
+  private assertAdmin(req: any) {
+    if (req.user?.role !== 'ADMIN') {
+      throw new ForbiddenException('Admin only');
+    }
+  }
 
   // ── Settings ──────────────────────────────────────────────────────────────
 
@@ -101,8 +114,25 @@ export class CostTableController {
     return this.svc.updateSalesAgentCategory(userId, dto.category ?? null);
   }
 
+  @Put('sales-agents/:userId/salary')
+  updateSalesAgentSalary(
+    @Param('userId') userId: string,
+    @Body() dto: { baseSalary: number | null },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.updateSalesAgentSalary(userId, dto.baseSalary ?? null);
+  }
+
+  @Get('sales-agents/:userId/salary')
+  getUserSalaryInfo(@Param('userId') userId: string, @Req() req: any) {
+    this.assertSelfOrAdmin(req, userId);
+    return this.svc.getUserSalaryInfo(userId);
+  }
+
   @Get('sales-agents/:userId/month-commission')
-  getAgentMonthCommission(@Param('userId') userId: string) {
+  getAgentMonthCommission(@Param('userId') userId: string, @Req() req: any) {
+    this.assertSelfOrAdmin(req, userId);
     return this.svc.getAgentMonthCommission(userId);
   }
 
@@ -123,15 +153,23 @@ export class CostTableController {
   @Get('sales-agents/:userId/commission')
   getAgentCommissionSheet(
     @Param('userId') userId: string,
-    @Query('year') year?: string,
-    @Query('month') month?: string,
+    @Query('year') year: string | undefined,
+    @Query('month') month: string | undefined,
+    @Req() req: any,
   ) {
+    this.assertSelfOrAdmin(req, userId);
     const now = new Date();
     return this.svc.getAgentCommissionSheet(
       userId,
       year ? Number(year) : now.getFullYear(),
       month ? Number(month) : now.getMonth() + 1,
     );
+  }
+
+  @Get('sales-agents/:userId/verified-sheets')
+  getVerifiedCommissionSheets(@Param('userId') userId: string, @Req() req: any) {
+    this.assertSelfOrAdmin(req, userId);
+    return this.svc.getVerifiedCommissionSheets(userId);
   }
 
   @Post('sales-agents/:userId/commission/verify')
@@ -141,7 +179,15 @@ export class CostTableController {
     @Query('month') month: string,
     @Req() req: any,
   ) {
-    return this.svc.verifyCommission(userId, Number(year), Number(month), req.user.id);
+    this.assertAdmin(req);
+    return this.svc.verifyCommission(
+      userId,
+      Number(year),
+      Number(month),
+      req.user.id,
+      req.user.fullName,
+      req.user.role,
+    );
   }
 
   @Delete('sales-agents/:userId/commission/verify')
@@ -149,7 +195,9 @@ export class CostTableController {
     @Param('userId') userId: string,
     @Query('year') year: string,
     @Query('month') month: string,
+    @Req() req: any,
   ) {
+    this.assertAdmin(req);
     return this.svc.unverifyCommission(userId, Number(year), Number(month));
   }
 

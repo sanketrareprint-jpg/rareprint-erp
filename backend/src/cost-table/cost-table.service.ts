@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,7 +20,10 @@ const DEFAULT_SETTINGS: CostSettings = {
 
 @Injectable()
 export class CostTableService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private getMonthRange() {
     const now = new Date();
@@ -640,11 +644,32 @@ export class CostTableService {
       distinct: ['salesAgentId'],
     });
     const ids = agentOrders.map((o: any) => o.salesAgentId).filter(Boolean) as string[];
-    return (this.prisma as any).user.findMany({
+    const agents = await (this.prisma as any).user.findMany({
       where: { id: { in: ids }, isActive: true },
       orderBy: { fullName: 'asc' },
-      select: { id: true, fullName: true, email: true, salesAgentCategory: true },
+      select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true },
     });
+    return agents.map((a: any) => ({ ...a, baseSalary: a.baseSalary != null ? Number(a.baseSalary) : null }));
+  }
+
+  // Any single user's salary info — used by the self-service Salary & Commission
+  // tab, which any user (not just past sales agents) should be able to see.
+  async getUserSalaryInfo(userId: string) {
+    const u = await (this.prisma as any).user.findUnique({
+      where: { id: userId },
+      select: { id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true },
+    });
+    if (!u) throw new NotFoundException('User not found');
+    return { ...u, baseSalary: u.baseSalary != null ? Number(u.baseSalary) : 0 };
+  }
+
+  async updateSalesAgentSalary(userId: string, baseSalary: number | null) {
+    const user = await (this.prisma.user as any).update({
+      where: { id: userId },
+      data: { baseSalary },
+      select: { id: true, fullName: true, baseSalary: true },
+    });
+    return { ...user, baseSalary: user.baseSalary != null ? Number(user.baseSalary) : null };
   }
 
   async updateSalesAgentCategory(userId: string, category: 'A' | 'B' | 'C' | 'D' | null) {
@@ -831,7 +856,7 @@ export class CostTableService {
     const from = new Date(year, month - 1, 1);
     const to   = new Date(year, month, 1);
 
-    const [orders, verification] = await Promise.all([
+    const [orders, verification, agentUser] = await Promise.all([
       (this.prisma as any).order.findMany({
         where: {
           salesAgentId: userId,
@@ -856,10 +881,26 @@ export class CostTableService {
         where: { agentId_year_month: { agentId: userId, year, month } },
         include: { verifiedBy: { select: { fullName: true } } },
       }).catch(() => null),
+      (this.prisma as any).user.findUnique({
+        where: { id: userId },
+        select: { fullName: true, salesAgentCategory: true, baseSalary: true },
+      }),
     ]);
 
+    const baseSalary = agentUser?.baseSalary != null ? Number(agentUser.baseSalary) : 0;
+
     if (!orders.length) {
-      return { userId, year, month, agentName: null, agentCategory: null, saleTotal: 0, commissionTotal: 0, commissionPct: 0, bonus: 0, totalPayable: 0, rows: [], verification: null };
+      return {
+        userId, year, month,
+        agentName: agentUser?.fullName ?? null,
+        agentCategory: agentUser?.salesAgentCategory ?? null,
+        saleTotal: 0, commissionTotal: 0, commissionPct: 0, bonus: 0, baseSalary,
+        totalPayable: baseSalary, rows: [],
+        verification: verification ? {
+          verifiedAt: verification.verifiedAt,
+          verifiedBy: verification.verifiedBy?.fullName ?? 'Unknown',
+        } : null,
+      };
     }
 
     const agentName: string = orders[0].salesAgent?.fullName ?? 'Unknown';
@@ -1004,7 +1045,11 @@ export class CostTableService {
       commissionTotal: Number(commissionTotal.toFixed(2)),
       commissionPct: saleTotal > 0 ? Number(((commissionTotal / saleTotal) * 100).toFixed(2)) : 0,
       bonus,
+      baseSalary,
+      // Kept for backward compatibility with the existing Accounts > Commission tab (commission + bonus only)
       totalPayable: Number((commissionTotal + bonus).toFixed(2)),
+      // Used by the Salary & Commission view: commission + bonus + fixed base salary
+      grandTotal: Number((commissionTotal + bonus + baseSalary).toFixed(2)),
       rows,
       verification: verification ? {
         verifiedAt: verification.verifiedAt,
@@ -1013,12 +1058,40 @@ export class CostTableService {
     };
   }
 
-  async verifyCommission(agentId: string, year: number, month: number, verifiedById: string) {
-    return (this.prisma as any).commissionVerification.upsert({
+  async verifyCommission(
+    agentId: string,
+    year: number,
+    month: number,
+    verifiedById: string,
+    verifiedByName: string,
+    verifiedByRole: string,
+  ) {
+    const result = await (this.prisma as any).commissionVerification.upsert({
       where: { agentId_year_month: { agentId, year, month } },
       create: { id: require('crypto').randomUUID(), agentId, year, month, verifiedById },
       update: { verifiedById, verifiedAt: new Date() },
     });
+
+    // Notify the agent with the verified sheet's numbers. A failure here
+    // (e.g. notifications table hiccup) shouldn't block the verification itself.
+    try {
+      const sheet = await this.getAgentCommissionSheet(agentId, year, month);
+      const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+      await this.notifications.notifyCommissionVerified({
+        agentId,
+        agentName: sheet.agentName ?? 'Agent',
+        verifiedByName,
+        verifiedByRole,
+        monthLabel,
+        totalSales: sheet.saleTotal,
+        totalCommission: sheet.commissionTotal,
+        incentive: sheet.bonus,
+        baseSalary: sheet.baseSalary,
+        overallAmount: sheet.grandTotal,
+      });
+    } catch { /* ignore notification failures */ }
+
+    return result;
   }
 
   async unverifyCommission(agentId: string, year: number, month: number) {
@@ -1028,6 +1101,17 @@ export class CostTableService {
       });
     } catch { /* not found — that's fine */ }
     return { success: true };
+  }
+
+  // ── All verified sheets for one agent (self-service Salary & Commission view) ──
+  async getVerifiedCommissionSheets(userId: string) {
+    const verifications = await (this.prisma as any).commissionVerification.findMany({
+      where: { agentId: userId },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+    });
+    return Promise.all(
+      verifications.map((v: any) => this.getAgentCommissionSheet(userId, v.year, v.month)),
+    );
   }
 
   // ── All agents summary for a given month ─────────────────────────────────

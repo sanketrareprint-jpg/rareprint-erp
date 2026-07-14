@@ -15,6 +15,7 @@ model User {
   passwordHash       String
   role               UserRole
   salesAgentCategory SalesAgentCategory?
+  baseSalary         Decimal?              @db.Decimal(12, 2)
   isActive           Boolean               @default(true)
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
