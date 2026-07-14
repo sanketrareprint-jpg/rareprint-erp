@@ -1,7 +1,19 @@
 ﻿import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from './prisma/prisma.service';
 import type { Request } from 'express';
+
+// Already-hashed bcrypt values look like "$2a$10$...", "$2b$12$...", etc.
+// Anything else typed into the passwordHash field is treated as a plaintext
+// password and hashed here before it ever touches the database.
+const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$/;
+
+async function hashPasswordIfPlaintext(value: unknown): Promise<string> {
+  const str = String(value ?? '');
+  if (BCRYPT_HASH_PATTERN.test(str)) return str;
+  return bcrypt.hash(str, 10);
+}
 
 type JwtUser = { id: string; role: string };
 
@@ -170,6 +182,11 @@ export class AdminDbController {
       try { finalData.id = createId(); } catch { finalData.id = require('crypto').randomUUID(); }
     }
 
+    // Admins type a plain password into the passwordHash field — hash it before saving.
+    if (name === 'user' && finalData.passwordHash != null) {
+      finalData.passwordHash = await hashPasswordIfPlaintext(finalData.passwordHash);
+    }
+
     try {
       const result = await (this.prisma as any)[name].create({ data: finalData });
       return { success: true, row: result };
@@ -189,6 +206,16 @@ export class AdminDbController {
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
 
     const cleaned = cleanData({ ...data });
+
+    // passwordHash is a required field, so a blank submission means "leave it alone"
+    // (the edit form pre-fills with the existing hash; clearing it signals no change).
+    if (name === 'user') {
+      if (cleaned.passwordHash == null) {
+        delete cleaned.passwordHash;
+      } else {
+        cleaned.passwordHash = await hashPasswordIfPlaintext(cleaned.passwordHash);
+      }
+    }
 
     try {
       const result = await (this.prisma as any)[name].update({ where: { id }, data: cleaned });

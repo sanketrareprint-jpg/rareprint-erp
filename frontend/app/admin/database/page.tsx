@@ -35,6 +35,7 @@ const PROTECTED = ["user", "order", "payment"];
 const PRINTING_TYPE_OPTIONS = ["OFFSET", "DIGITAL", "SCREEN", "FLEX"];
 const PRODUCT_SIDE_OPTIONS = ["SINGLE_SIDE", "DOUBLE_SIDE"];
 const PAPER_TYPE_OPTIONS = ["Bond", "Maplitho", "Art", "Ivory", "Kraft", "NCR", "PP", "Synthetic", "Other"];
+const USER_ROLE_OPTIONS = ["ADMIN", "INHOUSE", "ACCOUNTS", "PRODUCTION", "DISPATCH", "SALES_AGENT"];
 
 type ProductCategoryOption = {
   id: string;
@@ -337,6 +338,28 @@ export default function AdminDbPage() {
       );
     }
 
+    if (activeTable === "user" && col === "role") {
+      return (
+        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
+          <option value="">Select role</option>
+          {USER_ROLE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+      );
+    }
+
+    if (activeTable === "user" && col === "passwordHash") {
+      return (
+        <input
+          type="password"
+          value={controlValue}
+          onChange={e => onChange(e.target.value)}
+          placeholder={editing ? "Leave blank to keep current password" : "Enter password"}
+          autoComplete="new-password"
+          className={baseClass}
+        />
+      );
+    }
+
     if (/^(is|has)[A-Z]/.test(col)) {
       return (
         <select
@@ -552,7 +575,9 @@ export default function AdminDbPage() {
           <div className="space-y-2">
             {columns.filter(col => !['id','createdAt','updatedAt'].includes(col)).map(col => (
               <div key={col}>
-                <label className="block text-xs font-medium text-slate-600 mb-0.5">{col}</label>
+                <label className="block text-xs font-medium text-slate-600 mb-0.5">
+                  {activeTable === "user" && col === "passwordHash" ? "Password" : col}
+                </label>
                 {renderField(col, addData[col], value => setAddData(p => ({ ...p, [col]: value })))}
               </div>
             ))}
