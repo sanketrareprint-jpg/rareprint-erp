@@ -4,6 +4,7 @@ const RECOVERABLE_MIGRATIONS = [
   '20260520000100_performance_indexes',
   '20260520000300_sheet_performance_indexes',
   '20260624000100_add_paper_type_to_product',
+  '20260612000400_add_billing_fields_to_paper_po',
 ];
 
 function run(command, args, options = {}) {
