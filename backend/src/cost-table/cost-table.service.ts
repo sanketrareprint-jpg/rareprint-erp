@@ -1184,6 +1184,19 @@ export class CostTableService {
       new Set(Array.from(agentMap.values()).flatMap(a => Array.from(a.monthSet)))
     ).sort().reverse();
 
+    // Pull verification records for these agents so month buttons in the UI
+    // can show a "✓ verified" badge without a per-agent round trip.
+    const agentIds = Array.from(agentMap.keys());
+    const verifications = agentIds.length
+      ? await (this.prisma as any).commissionVerification.findMany({
+          where: { agentId: { in: agentIds } },
+          select: { agentId: true, year: true, month: true },
+        })
+      : [];
+    const verifiedSet = new Set(
+      verifications.map((v: any) => `${v.agentId}_${v.year}-${String(v.month).padStart(2, '0')}`),
+    );
+
     return {
       year, month,
       availableMonths,
@@ -1194,6 +1207,9 @@ export class CostTableService {
         saleTotal: Number(a.selectedMonthSale.toFixed(2)),
         bonus: this.calcBonus(a.selectedMonthSale),
         monthsWithData: Array.from(a.monthSet).sort().reverse(),
+        verifiedMonths: Array.from(a.monthSet)
+          .filter(m => verifiedSet.has(`${a.id}_${m}`))
+          .sort().reverse(),
       })),
     };
   }

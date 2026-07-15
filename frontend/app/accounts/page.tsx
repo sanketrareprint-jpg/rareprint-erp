@@ -245,6 +245,7 @@ type SampleOrder = {
 type CommissionAgent = {
   id: string; name: string; category: string | null;
   saleTotal: number; bonus: number; monthsWithData: string[];
+  verifiedMonths: string[];
 };
 type CommissionSummary = {
   year: number; month: number;
@@ -690,7 +691,22 @@ export default function AccountsPage() {
       const isVerified = !!commissionSheet?.verification;
       const method = isVerified ? "DELETE" : "POST";
       const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${selectedAgent.id}/commission/verify?year=${y}&month=${m}`, { method, headers: getAuthHeaders() });
-      if (res.ok) void loadCommissionSheet(selectedAgent.id, selectedMonth);
+      if (res.ok) {
+        void loadCommissionSheet(selectedAgent.id, selectedMonth);
+        // Reflect the new verified state on the month buttons immediately,
+        // without waiting for a full commission-summary refetch.
+        const updateVerifiedMonths = (agent: CommissionAgent): CommissionAgent => ({
+          ...agent,
+          verifiedMonths: isVerified
+            ? agent.verifiedMonths.filter(vm => vm !== selectedMonth)
+            : agent.verifiedMonths.includes(selectedMonth) ? agent.verifiedMonths : [...agent.verifiedMonths, selectedMonth],
+        });
+        setSelectedAgent(prev => (prev ? updateVerifiedMonths(prev) : prev));
+        setCommissionSummary(prev => prev ? {
+          ...prev,
+          agents: prev.agents.map(a => a.id === selectedAgent.id ? updateVerifiedMonths(a) : a),
+        } : prev);
+      }
     } catch { /* ignore */ } finally { setVerifying(false); }
   }, [selectedAgent, selectedMonth, commissionSheet, loadCommissionSheet]);
 
@@ -2536,16 +2552,22 @@ await loadHistory();
                           {agent.monthsWithData.length} month{agent.monthsWithData.length !== 1 ? "s" : ""} with data
                         </div>
                         <div className="flex flex-wrap gap-1 mt-2">
-                          {agent.monthsWithData.slice(0, 6).map(m => (
-                            <button key={m} onClick={e => { e.stopPropagation(); setSelectedAgent(agent); setSelectedMonth(m); }}
-                              className={`text-xs px-2 py-0.5 rounded-full border font-mono transition-colors ${
-                                m === `${commYear}-${String(commMonth).padStart(2,"0")}`
-                                  ? "bg-blue-600 text-white border-blue-600"
-                                  : "border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600"
-                              }`}>
-                              {m}
-                            </button>
-                          ))}
+                          {agent.monthsWithData.slice(0, 6).map(m => {
+                            const isActive = m === `${commYear}-${String(commMonth).padStart(2,"0")}`;
+                            return (
+                              <button key={m} onClick={e => { e.stopPropagation(); setSelectedAgent(agent); setSelectedMonth(m); }}
+                                className={`text-xs px-2 py-0.5 rounded-full border font-mono transition-colors ${
+                                  isActive
+                                    ? "bg-blue-600 text-white border-blue-600"
+                                    : "border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600"
+                                }`}>
+                                {agent.verifiedMonths.includes(m) && (
+                                  <span className={isActive ? "mr-0.5 text-green-300" : "mr-0.5 text-green-500"} title="Verified">✓</span>
+                                )}
+                                {m}
+                              </button>
+                            );
+                          })}
                           {agent.monthsWithData.length > 6 && (
                             <span className="text-xs text-slate-400 px-1 py-0.5">+{agent.monthsWithData.length - 6} more</span>
                           )}
@@ -2588,16 +2610,22 @@ await loadHistory();
                       </div>
                       {/* Month selector within sheet */}
                       <div className="flex flex-wrap gap-1">
-                        {selectedAgent.monthsWithData.map(m => (
-                          <button key={m} onClick={() => setSelectedMonth(m)}
-                            className={`text-xs px-2.5 py-1 rounded-full border font-mono transition-colors ${
-                              m === selectedMonth
-                                ? "bg-green-600 text-white border-green-600"
-                                : "border-slate-200 text-slate-600 hover:border-green-400 hover:text-green-700"
-                            }`}>
-                            {m}
-                          </button>
-                        ))}
+                        {selectedAgent.monthsWithData.map(m => {
+                          const isActive = m === selectedMonth;
+                          return (
+                            <button key={m} onClick={() => setSelectedMonth(m)}
+                              className={`text-xs px-2.5 py-1 rounded-full border font-mono transition-colors ${
+                                isActive
+                                  ? "bg-green-600 text-white border-green-600"
+                                  : "border-slate-200 text-slate-600 hover:border-green-400 hover:text-green-700"
+                              }`}>
+                              {selectedAgent.verifiedMonths.includes(m) && (
+                                <span className={isActive ? "mr-0.5 text-green-200" : "mr-0.5 text-green-500"} title="Verified">✓</span>
+                              )}
+                              {m}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
