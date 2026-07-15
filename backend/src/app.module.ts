@@ -35,6 +35,7 @@ import { VirtualCeoModule } from './virtual-ceo/virtual-ceo.module';
 import { ErpConfigModule } from './erp-config/erp-config.module';
 import { ActivityModule } from './activity/activity.module';
 import { BusinessRulesModule } from './business-rules/business-rules.module';
+import { RemittanceModule } from './remittance/remittance.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { BusinessRulesModule } from './business-rules/business-rules.module';
     VirtualCeoModule,
     ActivityModule,
     BusinessRulesModule,
+    RemittanceModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

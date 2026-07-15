@@ -45,6 +45,8 @@ model User {
   activitySessions          UserActivitySession[]       @relation("UserActivitySessions")
   commissionOverridesReceived CommissionOverride[]      @relation("CommOverrideAgent")
   commissionOverridesSet      CommissionOverride[]      @relation("CommOverrideSetBy")
+  remittanceImports           RemittanceImportSession[] @relation("RemittanceImports")
+  remittancePosted            RemittanceRecord[]        @relation("RemittancePostedBy")
 }
 
 model Customer {
@@ -369,6 +371,8 @@ model Order {
   shipments        Shipment[]
   statusLogs       StatusLog[]
   reassuranceLogs  OrderReassuranceLog[]
+  remittanceMatches   RemittanceRecord[]  @relation("RemittanceMatchedOrder")
+  remittanceSuggested RemittanceRecord[]  @relation("RemittanceSuggestedOrder")
 
   @@index([status, orderDate])
   @@index([status, updatedAt])
@@ -430,6 +434,7 @@ model Payment {
   paymentAccount     PaymentAccount            @relation(fields: [paymentAccountId], references: [id])
   receivedBy         User?                     @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
   bankTransactions   BankTransaction[]         @relation("BankTxnPayment")
+  remittanceRecord   RemittanceRecord?         @relation("RemittancePostedPayment")
 
   @@index([orderId, verificationStatus])
   @@index([paymentDate])
@@ -1630,6 +1635,88 @@ model BankTransaction {
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])
+}
+
+// ─── Courier COD Remittance Import ─────────────────────────────────────────
+// Reconciles two courier-exported reports (e.g. Bigship "Remittance Report" +
+// "Delivered Orders Report") joined by AWB number, resolves each remittance
+// row to an ERP Order, and posts a Payment (receipt) that adjusts the order's
+// balance. See RemittanceService for the matching logic.
+
+model RemittanceImportSession {
+  id                 String             @id @default(cuid())
+  fileName           String // remittance report file name
+  deliveredFileName  String? // delivered-orders report file name
+  importedById       String
+  rowsFound          Int                @default(0)
+  rowsMatched        Int                @default(0)
+  rowsNeedReview     Int                @default(0)
+  rowsDuplicate      Int                @default(0)
+  rowsPosted         Int                @default(0)
+  createdAt          DateTime           @default(now())
+  importedBy         User               @relation("RemittanceImports", fields: [importedById], references: [id])
+  records            RemittanceRecord[]
+
+  @@index([createdAt])
+}
+
+model RemittanceRecord {
+  id                String                @id @default(cuid())
+  sessionId         String
+  importKey         String                @unique // hash(awbNumber + remittanceDate + netPayableAmount)
+
+  // From the courier's Remittance Report
+  remittanceRef     String? // e.g. Bigship RemittanceId
+  awbNumber         String
+  courierName       String?
+  lrNumber          String?
+  deliveryDate      DateTime?
+  remittanceDate    DateTime?
+  collectableAmount Decimal               @db.Decimal(14, 2)
+  earlyCodAmount    Decimal?              @db.Decimal(14, 2)
+  otherDeduction    Decimal?              @db.Decimal(14, 2)
+  netPayableAmount  Decimal               @db.Decimal(14, 2)
+  remittanceStatus  String?
+
+  // Joined in from the Delivered Orders Report by AWB number
+  channelOrderId    String? // candidate ERP orderNumber, taken from "Channel Order Id / Invoice Number"
+  receiverName      String?
+  receiverMobile    String?
+  productDetails    String?
+
+  // Matching
+  matchStatus       RemittanceMatchStatus @default(NEEDS_REVIEW)
+  matchMethod        String? // ORDER_NUMBER | SHIPMENT_AWB | PHONE_SUGGESTED | MANUAL
+  matchedOrderId     String?
+  suggestedOrderId   String? // best-guess order when matchStatus = NEEDS_REVIEW, for the reviewer to confirm
+  mobileMismatch     Boolean               @default(false) // matched order's customer phone didn't match receiverMobile
+  reviewNote         String?
+
+  // Posting (receipt creation)
+  postedPaymentId   String?               @unique
+  postedAt          DateTime?
+  postedById        String?
+
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  session         RemittanceImportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matchedOrder    Order?                  @relation("RemittanceMatchedOrder", fields: [matchedOrderId], references: [id])
+  suggestedOrder  Order?                  @relation("RemittanceSuggestedOrder", fields: [suggestedOrderId], references: [id])
+  postedPayment   Payment?                @relation("RemittancePostedPayment", fields: [postedPaymentId], references: [id])
+  postedBy        User?                   @relation("RemittancePostedBy", fields: [postedById], references: [id])
+
+  @@index([sessionId])
+  @@index([matchStatus])
+  @@index([awbNumber])
+}
+
+enum RemittanceMatchStatus {
+  NEEDS_REVIEW
+  MATCHED
+  POSTED
+  DUPLICATE
+  REJECTED
 }
 
 model VendorKeyword {
