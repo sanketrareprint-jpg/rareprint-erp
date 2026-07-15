@@ -60,6 +60,15 @@ export class CostTableService {
     return haystack.includes('sticker');
   }
 
+  // Category A/B/C each have a fixed maximum commission rate (of the sale
+  // amount). Category D is "above-rate margin" by design and has no cap.
+  private categoryCommissionCapPct(category: string | null, isSticker: boolean): number | null {
+    if (category === 'A') return isSticker ? 15 : 10;
+    if (category === 'B') return 10;
+    if (category === 'C') return isSticker ? 17 : 12;
+    return null;
+  }
+
   private commissionForLine(order: any, item: any, costTotal: number) {
     const agentCategory = order.salesAgent?.salesAgentCategory ?? 'B';
     const saleTotal = Number(item.lineTotal);
@@ -74,7 +83,12 @@ export class CostTableService {
     }
 
     if (discountPct > 5) {
-      return profit / (agentCategory === 'C' ? 3.75 : 4);
+      // Discount ate into the margin, so pay commission off actual profit
+      // instead of a flat % of sale — but never more than the category's
+      // normal max rate would have paid on an un-discounted sale.
+      const commAmt = profit / (agentCategory === 'C' ? 3.75 : 4);
+      const cap = this.categoryCommissionCapPct(agentCategory, this.isSticker(item));
+      return cap != null ? Math.min(commAmt, saleTotal * (cap / 100)) : commAmt;
     }
 
     if (agentCategory === 'A') {
@@ -826,7 +840,9 @@ export class CostTableService {
         } else if (category === 'D') {
           orderCommission += Math.max(0, lineTotal - rateTotal);
         } else if (discountPct > 5) {
-          orderCommission += profit / (category === 'C' ? 3.75 : 4);
+          const commAmt = profit / (category === 'C' ? 3.75 : 4);
+          const cap = this.categoryCommissionCapPct(category, isSticker(item));
+          orderCommission += cap != null ? Math.min(commAmt, lineTotal * (cap / 100)) : commAmt;
         } else if (category === 'A') {
           orderCommission += lineTotal * (isSticker(item) ? 0.15 : 0.10);
         } else if (category === 'C') {
@@ -889,7 +905,10 @@ export class CostTableService {
     }
     if (discountPct > 5) {
       const commAmt = profit / (category === 'C' ? 3.75 : 4);
-      return Number(((commAmt / lineTotal) * 100).toFixed(2));
+      let pct = (commAmt / lineTotal) * 100;
+      const cap = this.categoryCommissionCapPct(category, isSticker);
+      if (cap != null) pct = Math.min(pct, cap);
+      return Number(pct.toFixed(2));
     }
     if (category === 'A') return isSticker ? 15 : 10;
     if (category === 'C') return isSticker ? 17 : 12;
@@ -1050,7 +1069,14 @@ export class CostTableService {
             calcMethod = `Sale − Rate (₹${lineTotal.toFixed(0)} − ₹${rateAmt.toFixed(0)})`;
           } else if (discountPct > 5) {
             commAmt = grossProfit / (agentCategory === 'C' ? 3.75 : 4);
-            calcMethod = `Profit ÷ ${agentCategory === 'C' ? '3.75' : '4'} (disc ${discountPct.toFixed(1)}%)`;
+            const cap = this.categoryCommissionCapPct(agentCategory, sticker);
+            const capAmt = cap != null ? lineTotal * (cap / 100) : null;
+            if (capAmt != null && commAmt > capAmt) {
+              commAmt = capAmt;
+              calcMethod = `Sale × ${cap}% (capped — profit÷${agentCategory === 'C' ? '3.75' : '4'} exceeded max, disc ${discountPct.toFixed(1)}%)`;
+            } else {
+              calcMethod = `Profit ÷ ${agentCategory === 'C' ? '3.75' : '4'} (disc ${discountPct.toFixed(1)}%)`;
+            }
           } else if (agentCategory === 'A') {
             commAmt = lineTotal * (sticker ? 0.15 : 0.10);
             calcMethod = `Sale × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'})`;
