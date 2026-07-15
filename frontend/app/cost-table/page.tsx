@@ -147,6 +147,23 @@ function fmt(n: number | null | undefined) {
   return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Rate slab ranges can overlap (e.g. an older open-ended "50,000+" rate left
+// in place after a newer, narrower "100,000+" rate is added). When several
+// slabs match a given quantity, the most specific one — i.e. the one with
+// the highest minQuantity — should win. This mirrors the backend's
+// matchingSlab() logic used for real order pricing, so the Cost Table screen
+// shows the same rate that actually gets billed.
+function matchRateSlab<T extends { minQuantity: number; maxQuantity: number | null }>(
+  slabs: T[] | undefined,
+  quantity: number,
+): T | null {
+  const matches = (slabs ?? []).filter(
+    rs => rs.minQuantity <= quantity && (rs.maxQuantity == null || rs.maxQuantity >= quantity),
+  );
+  if (matches.length === 0) return null;
+  return matches.reduce((best, rs) => (rs.minQuantity > best.minQuantity ? rs : best));
+}
+
 function money(n: number | null | undefined) {
   if (n === null || n === undefined) return "-";
   return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -956,7 +973,7 @@ export default function CostTablePage() {
                                         <td className="py-2 pr-2 text-gray-500">{slab.setupCost ? fmt(slab.setupCost) : "—"}</td>
                                         <td className="py-2 pr-2 font-semibold text-blue-600">
                                           {(() => {
-                                            const r = (product.rateSlabs ?? []).find(rs => rs.minQuantity <= slab.minQuantity && (rs.maxQuantity == null || rs.maxQuantity >= slab.minQuantity));
+                                            const r = matchRateSlab(product.rateSlabs, slab.minQuantity);
                                             return r ? fmt(r.rateAmount) : <span className="text-gray-300 font-normal">—</span>;
                                           })()}
                                         </td>
@@ -967,7 +984,7 @@ export default function CostTablePage() {
                                               setEditingSlabId(slab.id);
                                               setEditForm(slab);
                                               setEditingProductId(product.id);
-                                              const existingRate = (product.rateSlabs ?? []).find(rs => rs.minQuantity <= slab.minQuantity && (rs.maxQuantity == null || rs.maxQuantity >= slab.minQuantity));
+                                              const existingRate = matchRateSlab(product.rateSlabs, slab.minQuantity);
                                               setEditSaleRate(existingRate ? String(existingRate.rateAmount) : "");
                                             }} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Edit2 size={13} /></button>
                                             <button onClick={() => deleteSlab(slab.id)}

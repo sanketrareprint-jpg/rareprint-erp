@@ -616,11 +616,38 @@ export class CostTableService {
       // CSV import: wipe all existing rate slabs and recreate
       await (this.prisma as any).productRateSlab.deleteMany({ where: { productId } });
     } else {
-      // Single-slab edit/add: only remove slabs for the specific minQuantities being upserted
-      const minQtys = slabs.map((s) => s.minQuantity);
-      await (this.prisma as any).productRateSlab.deleteMany({
-        where: { productId, minQuantity: { in: minQtys } },
-      });
+      // Single-slab edit/add. Remove slabs for the exact minQuantities being
+      // upserted, plus any *older* slab whose range overlaps the incoming
+      // one — otherwise an old open-ended slab (e.g. "50,000+") silently
+      // keeps overlapping a newer, narrower one (e.g. "100,000+"), and the
+      // Cost Table can end up showing the stale rate for the new tier.
+      const existing = await (this.prisma as any).productRateSlab.findMany({ where: { productId } });
+
+      const toDeleteIds: string[] = [];
+      const toTruncate: Array<{ id: string; maxQuantity: number }> = [];
+      for (const e of existing as Array<{ id: string; minQuantity: number; maxQuantity: number | null }>) {
+        for (const s of slabs) {
+          const newMax = s.maxQuantity ?? null;
+          const overlaps = e.minQuantity <= (newMax ?? Infinity) && s.minQuantity <= (e.maxQuantity ?? Infinity);
+          if (!overlaps) continue;
+          if (e.minQuantity >= s.minQuantity) {
+            // Existing slab starts at or after the new one — fully superseded.
+            toDeleteIds.push(e.id);
+          } else {
+            // Existing slab starts before the new one but overlaps into it —
+            // shrink it so it stops just before the new slab begins.
+            toTruncate.push({ id: e.id, maxQuantity: s.minQuantity - 1 });
+          }
+          break;
+        }
+      }
+
+      if (toDeleteIds.length) {
+        await (this.prisma as any).productRateSlab.deleteMany({ where: { id: { in: toDeleteIds } } });
+      }
+      for (const t of toTruncate) {
+        await (this.prisma as any).productRateSlab.update({ where: { id: t.id }, data: { maxQuantity: t.maxQuantity } });
+      }
     }
     return Promise.all(
       slabs.map((s) =>
