@@ -201,6 +201,25 @@ export class CostTableController {
     return this.svc.unverifyCommission(userId, Number(year), Number(month));
   }
 
+  @Post('sales-agents/:userId/commission/override')
+  setCommissionOverride(
+    @Param('userId') userId: string,
+    @Body() dto: { orderItemId: string; amount: number },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.setCommissionOverride(userId, dto.orderItemId, Number(dto.amount), req.user.id);
+  }
+
+  @Delete('sales-agents/:userId/commission/override/:orderItemId')
+  clearCommissionOverride(
+    @Param('orderItemId') orderItemId: string,
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.clearCommissionOverride(orderItemId);
+  }
+
   // ── Margin & approval check ───────────────────────────────────────────────
 
   @Post('check-margin')

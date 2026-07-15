@@ -43,6 +43,8 @@ model User {
   commissionsVerified       CommissionVerification[]   @relation("CommVerifBy")
   commissionVerifications   CommissionVerification[]   @relation("CommVerifAgent")
   activitySessions          UserActivitySession[]       @relation("UserActivitySessions")
+  commissionOverridesReceived CommissionOverride[]      @relation("CommOverrideAgent")
+  commissionOverridesSet      CommissionOverride[]      @relation("CommOverrideSetBy")
 }
 
 model Customer {
@@ -400,6 +402,7 @@ model OrderItem {
   stageLogs           ItemStageLog[]
   jobWorks            JobWork[]
   sheetItems          PrintSheetItem[]
+  commissionOverride  CommissionOverride?
 
   @@index([orderId, productId])
   @@index([itemProductionStage, updatedAt])
@@ -620,6 +623,22 @@ model CommissionVerification {
   verifiedBy   User     @relation("CommVerifBy", fields: [verifiedById], references: [id])
 
   @@unique([agentId, year, month])
+}
+
+// A manual correction to the auto-calculated commission for a single order
+// line, made from the Accounts > Commission sheet. One override per order
+// item; setting a new value replaces the old one.
+model CommissionOverride {
+  id            String   @id @default(cuid())
+  orderItemId   String   @unique
+  agentId       String
+  amount        Decimal  @db.Decimal(14, 2)
+  setById       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  agent         User      @relation("CommOverrideAgent", fields: [agentId], references: [id])
+  setBy         User      @relation("CommOverrideSetBy", fields: [setById], references: [id])
 }
 
 model ProductionJob {

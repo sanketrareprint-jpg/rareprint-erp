@@ -968,6 +968,24 @@ export class CostTableService {
       const arr = m.get(s.productId) ?? []; arr.push(s); m.set(s.productId, arr); return m;
     }, new Map<string, any[]>());
 
+    // Manual commission corrections (Accounts > Commission pencil icon).
+    // Keyed by orderItemId so a correction survives sheet reloads, verify
+    // toggles, and month switching — it previously lived only in the
+    // browser's React state and vanished on every reload.
+    const orderItemIds = orders.flatMap((o: any) => o.items.map((i: any) => i.id)) as string[];
+    const overrides = orderItemIds.length
+      ? await (this.prisma as any).commissionOverride.findMany({
+          where: { orderItemId: { in: orderItemIds } },
+          include: { setBy: { select: { fullName: true } } },
+        }).catch(() => [])
+      : [];
+    const overrideMap = new Map<string, { amount: number; setByName: string; setAt: Date }>(
+      (overrides as any[]).map((o: any) => [
+        o.orderItemId,
+        { amount: Number(o.amount), setByName: o.setBy?.fullName ?? 'Unknown', setAt: o.updatedAt },
+      ]),
+    );
+
     const matchSlab = (slabs: any[], qty: number) =>
       slabs.filter((s) => s.minQuantity <= qty && (s.maxQuantity == null || s.maxQuantity >= qty))
            .sort((a: any, b: any) => b.minQuantity - a.minQuantity)[0] ?? null;
@@ -1052,8 +1070,13 @@ export class CostTableService {
           : 0;
         const ratePerUnit = rateSlab ? Number(rateAmt.toFixed(2)) : null;
 
+        const calculatedCommAmt = commAmt;
+        const override = overrideMap.get(item.id);
+        if (override) commAmt = override.amount;
+
         commissionTotal += commAmt;
         rows.push({
+          orderItemId: item.id,
           orderId: order.id,
           date: order.orderDate,
           invoiceNo: order.orderNumber ?? order.id,
@@ -1076,6 +1099,10 @@ export class CostTableService {
           marginPct,
           commissionPct: commPct,
           commissionAmt: Number(commAmt.toFixed(2)),
+          calculatedCommissionAmt: Number(calculatedCommAmt.toFixed(2)),
+          isOverridden: !!override,
+          overriddenBy: override?.setByName ?? null,
+          overriddenAt: override?.setAt ?? null,
           calcMethod,
           hasCost: !!costSlab,
           balanceDue: Number(balanceDue.toFixed(2)),
@@ -1101,6 +1128,24 @@ export class CostTableService {
         verifiedBy: verification.verifiedBy?.fullName ?? 'Unknown',
       } : null,
     };
+  }
+
+  // Manual correction to a single order line's commission. Persists so it
+  // survives sheet reloads, verify/unverify, and month switching — see
+  // migration 20260715000100_add_commission_override for context.
+  async setCommissionOverride(agentId: string, orderItemId: string, amount: number, setById: string) {
+    return (this.prisma as any).commissionOverride.upsert({
+      where: { orderItemId },
+      create: { id: require('crypto').randomUUID(), orderItemId, agentId, amount, setById },
+      update: { amount, setById, agentId },
+    });
+  }
+
+  async clearCommissionOverride(orderItemId: string) {
+    try {
+      await (this.prisma as any).commissionOverride.delete({ where: { orderItemId } });
+    } catch { /* not found — that's fine */ }
+    return { success: true };
   }
 
   async verifyCommission(
