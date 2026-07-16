@@ -460,10 +460,30 @@ export class RemittanceService {
   // ── 4. Listing ─────────────────────────────────────────────────────────────
 
   async listSessions() {
-    return this.prisma.remittanceImportSession.findMany({
+    const sessions = await this.prisma.remittanceImportSession.findMany({
       orderBy: { createdAt: 'desc' },
       take: 50,
-      include: { importedBy: { select: { id: true, fullName: true } } },
+      include: {
+        importedBy: { select: { id: true, fullName: true } },
+        records: { select: { remittanceDate: true } },
+      },
+    });
+
+    // The remittance date comes from the courier's report content (when the courier actually
+    // remitted the money), which is distinct from `createdAt` (when the file was uploaded into
+    // the ERP — often the next day or later). Rows within one imported report normally all share
+    // the same remittance date, but derive a range defensively in case a report spans more than
+    // one date.
+    return sessions.map(({ records, ...session }) => {
+      const dates = records
+        .map((r) => r.remittanceDate)
+        .filter((d): d is Date => d != null)
+        .sort((a, b) => a.getTime() - b.getTime());
+      return {
+        ...session,
+        remittanceDateFrom: dates[0] ?? null,
+        remittanceDateTo: dates[dates.length - 1] ?? null,
+      };
     });
   }
 

@@ -59,6 +59,8 @@ interface ImportSession {
   rowsDuplicate: number;
   rowsPosted: number;
   createdAt: string;
+  remittanceDateFrom?: string | null;
+  remittanceDateTo?: string | null;
   importedBy?: { fullName: string };
 }
 
@@ -82,6 +84,15 @@ function fmt(amount: string | number | null | undefined) {
 function fmtDate(d?: string | null) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+/** Formats the remittance date(s) for a session — a single date when every row in the
+ *  imported report shares one date, or a "from – to" range if the report spans more than one. */
+function fmtRemittanceDateRange(from?: string | null, to?: string | null) {
+  if (!from && !to) return "—";
+  if (!from) return fmtDate(to);
+  if (!to || from === to) return fmtDate(from);
+  return `${fmtDate(from)} – ${fmtDate(to)}`;
 }
 
 const MATCH_METHOD_LABEL: Record<string, string> = {
@@ -439,7 +450,8 @@ export default function RemittanceImportPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Date</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Imported</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Remittance Date</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Remittance File</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Delivered Orders File</th>
                   <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Rows</th>
@@ -453,6 +465,7 @@ export default function RemittanceImportPage() {
                 {sessions.map((s) => (
                   <tr key={s.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedSessionId(s.id); setActiveTab("review"); }}>
                     <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(s.createdAt)}</td>
+                    <td className="px-4 py-2.5 text-gray-800 whitespace-nowrap">{fmtRemittanceDateRange(s.remittanceDateFrom, s.remittanceDateTo)}</td>
                     <td className="px-4 py-2.5 text-gray-800">{s.fileName}</td>
                     <td className="px-4 py-2.5 text-gray-500">{s.deliveredFileName || "—"}</td>
                     <td className="px-4 py-2.5 text-right">{s.rowsFound}</td>
