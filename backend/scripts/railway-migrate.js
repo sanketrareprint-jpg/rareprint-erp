@@ -4,6 +4,7 @@ const RECOVERABLE_MIGRATIONS = [
   '20260520000100_performance_indexes',
   '20260520000300_sheet_performance_indexes',
   '20260624000100_add_paper_type_to_product',
+  '20260612000400_add_billing_fields_to_paper_po',
 ];
 
 function run(command, args, options = {}) {
@@ -24,3 +25,10 @@ for (const migration of RECOVERABLE_MIGRATIONS) {
 }
 
 run('npx', ['prisma', 'migrate', 'deploy']);
+
+// Belt-and-suspenders check: migrate deploy can report success while a
+// table is still missing if _prisma_migrations drifted from the real
+// schema (see ensure-commission-override-table.js for the story on this
+// one specifically). Verify/create it directly so a stale migration
+// record can never again silently break the commission-override feature.
+run('node', ['scripts/ensure-commission-override-table.js'], { allowFailure: true });
