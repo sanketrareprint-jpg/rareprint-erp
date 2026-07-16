@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
@@ -634,6 +634,10 @@ export default function AccountsPage() {
   const [editingCommRow, setEditingCommRow] = useState<number | null>(null);
   const [editCommValue, setEditCommValue] = useState<string>("");
   const [savingCommRow, setSavingCommRow] = useState<number | null>(null);
+  // Set right before an edit is cancelled (Escape key or Cancel button) so the
+  // input's onBlur — which fires as focus moves away — knows to discard the
+  // in-progress value instead of treating the blur as "save on click-away".
+  const cancelledCommEditRef = useRef(false);
 
   // Current logged-in user for role-based access
   const [currentUser] = useState(() => {
@@ -2907,10 +2911,22 @@ await loadHistory();
                                               if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
                                               setEditingCommRow(null);
                                             }
-                                            if (e.key === "Escape") setEditingCommRow(null);
+                                            if (e.key === "Escape") { cancelledCommEditRef.current = true; setEditingCommRow(null); }
+                                          }}
+                                          onBlur={e => {
+                                            // Clicking the Save/Cancel buttons also blurs the input — let
+                                            // their own onClick handlers run first via a timeout, and skip
+                                            // saving if Escape already cancelled this edit.
+                                            if (cancelledCommEditRef.current) { cancelledCommEditRef.current = false; return; }
+                                            const relatedTarget = e.relatedTarget as HTMLElement | null;
+                                            if (relatedTarget?.closest('[data-comm-edit-btn="true"]')) return;
+                                            const v = parseFloat(editCommValue);
+                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
+                                            setEditingCommRow(null);
                                           }}
                                         />
                                         <button
+                                          data-comm-edit-btn="true"
                                           onClick={() => {
                                             const v = parseFloat(editCommValue);
                                             if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
@@ -2920,7 +2936,8 @@ await loadHistory();
                                           title="Save"
                                         ><Check className="h-3 w-3" /></button>
                                         <button
-                                          onClick={() => setEditingCommRow(null)}
+                                          data-comm-edit-btn="true"
+                                          onClick={() => { cancelledCommEditRef.current = true; setEditingCommRow(null); }}
                                           className="text-red-400 hover:text-red-600 p-0.5"
                                           title="Cancel"
                                         ><X className="h-3 w-3" /></button>
