@@ -489,15 +489,32 @@ export class RemittanceService {
         skip,
         take: limit,
         include: {
-          matchedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } } } },
-          suggestedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } } } },
+          matchedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } }, payments: { select: { amount: true } } } },
+          suggestedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } }, payments: { select: { amount: true } } } },
           postedPayment: { select: { id: true, amount: true, paymentDate: true } },
           postedBy: { select: { id: true, fullName: true } },
         },
       }),
     ]);
 
-    return { total, page, limit, data };
+    // Attach a real balanceDue (grandTotal - sum of payments) to each order reference so the
+    // review UI can show the customer's actual outstanding balance next to the COD amount
+    // collected, instead of just the order's grand total.
+    function attachBalance(order: any): any {
+      if (!order) return order;
+      const paid = (order.payments ?? []).reduce((sum: number, p: { amount: unknown }) => sum + Number(p.amount), 0);
+      const { payments, ...rest } = order;
+      return { ...rest, balanceDue: Number(order.grandTotal) - paid };
+    }
+    const withBalance = data.map((record) => {
+      return {
+        ...record,
+        matchedOrder: attachBalance(record.matchedOrder),
+        suggestedOrder: attachBalance(record.suggestedOrder),
+      };
+    });
+
+    return { total, page, limit, data: withBalance };
   }
 
   async getSummary(sessionId?: string) {

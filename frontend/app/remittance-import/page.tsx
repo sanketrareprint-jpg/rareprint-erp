@@ -19,6 +19,7 @@ interface OrderRef {
   orderNumber: string;
   grandTotal: string;
   paymentStatus: string;
+  balanceDue: number;
   customer: { businessName: string; phone: string | null };
 }
 
@@ -497,13 +498,18 @@ export default function RemittanceImportPage() {
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Order</th>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Matched via</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Customer balance due</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Receipt amount</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Net to bank</th>
                       <th className="px-4 py-2.5 w-28"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {records.map((r) => (
+                    {records.map((r) => {
+                      const balanceDue = r.matchedOrder?.balanceDue;
+                      const collected = Number(amountOverrides[r.id] ?? r.collectableAmount);
+                      const mismatch = balanceDue != null && Math.abs(balanceDue - collected) > 1;
+                      return (
                       <tr key={r.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2.5">
                           <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelected(r.id)} />
@@ -512,6 +518,9 @@ export default function RemittanceImportPage() {
                         <td className="px-4 py-2.5 text-gray-800">#{r.matchedOrder?.orderNumber}</td>
                         <td className="px-4 py-2.5 text-gray-600">{r.matchedOrder?.customer.businessName}</td>
                         <td className="px-4 py-2.5 text-xs text-gray-400">{MATCH_METHOD_LABEL[r.matchMethod ?? ""] ?? r.matchMethod}</td>
+                        <td className={`px-4 py-2.5 text-right text-xs ${mismatch ? "text-amber-600 font-semibold" : "text-gray-500"}`}>
+                          {balanceDue != null ? fmt(balanceDue) : "—"}
+                        </td>
                         <td className="px-4 py-2.5 text-right">
                           <input
                             type="number"
@@ -531,9 +540,10 @@ export default function RemittanceImportPage() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {records.length === 0 && (
-                      <tr><td colSpan={8} className="text-center py-12 text-gray-400">Nothing ready to post</td></tr>
+                      <tr><td colSpan={9} className="text-center py-12 text-gray-400">Nothing ready to post</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -564,7 +574,7 @@ export default function RemittanceImportPage() {
                       {r.reviewNote && <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-100 rounded px-2 py-1 mt-1.5">{r.reviewNote}</p>}
                       {r.suggestedOrder && (
                         <p className="text-xs text-gray-500 mt-1.5">
-                          Suggested: <span className="font-medium text-gray-700">Order #{r.suggestedOrder.orderNumber}</span> — {r.suggestedOrder.customer.businessName} ({r.suggestedOrder.customer.phone || "no phone"}), balance due {fmt(r.suggestedOrder.grandTotal)}
+                          Suggested: <span className="font-medium text-gray-700">Order #{r.suggestedOrder.orderNumber}</span> — {r.suggestedOrder.customer.businessName} ({r.suggestedOrder.customer.phone || "no phone"}), balance due {fmt(r.suggestedOrder.balanceDue)}
                         </p>
                       )}
                     </div>

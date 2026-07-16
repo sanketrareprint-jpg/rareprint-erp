@@ -1217,7 +1217,9 @@ await loadHistory();
     const q = outstandingSearch.trim().toLowerCase();
     return outstanding.filter(row =>
       (!outstandingStatus || (row.productStatuses ?? "").split(", ").includes(outstandingStatus)) &&
-      (outstandingOrderStatus !== "READY_DELIVERED" || row.reminderAmount > 0) &&
+      // When the user is actively searching (name/phone/email/order#), ignore the "Ready/Delivered"
+      // default scoping so a customer with outstanding balance on ANY order status is still found.
+      (!!q || outstandingOrderStatus !== "READY_DELIVERED" || row.reminderAmount > 0) &&
       (outstandingOrderStatus === "READY_DELIVERED" || !outstandingOrderStatus || (row.orderStatuses ?? "").split(", ").includes(outstandingOrderStatus)) &&
       (!q ||
         row.customerName.toLowerCase().includes(q) ||
