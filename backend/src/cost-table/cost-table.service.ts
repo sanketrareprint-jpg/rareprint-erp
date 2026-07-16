@@ -1156,15 +1156,73 @@ export class CostTableService {
     };
   }
 
+  // The CommissionOverride table's migration (20260715000100) reports as
+  // applied in `_prisma_migrations` on production but the table was never
+  // actually created there — a boot-time script tried to self-heal this
+  // separately and still didn't fix it, so this creates it lazily, in-band,
+  // on the exact Prisma connection that's already proven to work (the one
+  // serving this request), the first time we hit Prisma P2021 for it.
+  private async ensureCommissionOverrideTable() {
+    const prisma = this.prisma as any;
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "CommissionOverride" (
+        "id"          TEXT NOT NULL,
+        "orderItemId" TEXT NOT NULL,
+        "agentId"     TEXT NOT NULL,
+        "amount"      DECIMAL(14,2) NOT NULL,
+        "setById"     TEXT NOT NULL,
+        "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"   TIMESTAMP(3) NOT NULL,
+        CONSTRAINT "CommissionOverride_pkey" PRIMARY KEY ("id")
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "CommissionOverride_orderItemId_key"
+      ON "CommissionOverride"("orderItemId");
+    `);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "CommissionOverride"
+        ADD CONSTRAINT "CommissionOverride_orderItemId_fkey"
+        FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "CommissionOverride"
+        ADD CONSTRAINT "CommissionOverride_agentId_fkey"
+        FOREIGN KEY ("agentId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "CommissionOverride"
+        ADD CONSTRAINT "CommissionOverride_setById_fkey"
+        FOREIGN KEY ("setById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `);
+  }
+
   // Manual correction to a single order line's commission. Persists so it
   // survives sheet reloads, verify/unverify, and month switching — see
   // migration 20260715000100_add_commission_override for context.
   async setCommissionOverride(agentId: string, orderItemId: string, amount: number, setById: string) {
-    return (this.prisma as any).commissionOverride.upsert({
-      where: { orderItemId },
-      create: { id: require('crypto').randomUUID(), orderItemId, agentId, amount, setById },
-      update: { amount, setById, agentId },
-    });
+    const doUpsert = () =>
+      (this.prisma as any).commissionOverride.upsert({
+        where: { orderItemId },
+        create: { id: require('crypto').randomUUID(), orderItemId, agentId, amount, setById },
+        update: { amount, setById, agentId },
+      });
+
+    try {
+      return await doUpsert();
+    } catch (error: any) {
+      if (error?.code === 'P2021') {
+        await this.ensureCommissionOverrideTable();
+        return await doUpsert();
+      }
+      throw error;
+    }
   }
 
   async clearCommissionOverride(orderItemId: string) {
