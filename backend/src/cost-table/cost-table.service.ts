@@ -895,13 +895,22 @@ export class CostTableService {
     if (!category || lineTotal <= 0) return 0;
     const profit = lineTotal - costTotal;
     if (profit <= 0) return 0;
-    // Below ₹1.15L monthly threshold: flat reduced rates for A and B
-    if (belowThreshold && category === 'A') return 7;
-    if (belowThreshold && category === 'B') return 5;
     const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
     if (category === 'D') {
       const diff = Math.max(0, lineTotal - rateTotal);
       return Number(((diff / lineTotal) * 100).toFixed(2));
+    }
+    // Below ₹1.15L monthly threshold: reduced cap (7% A / 5% B) instead of
+    // the normal 10-17% cap — but still profit÷4-based whenever there's a
+    // real discount. Flat rate only applies rate-to-rate (no discount).
+    if (belowThreshold && (category === 'A' || category === 'B')) {
+      const cap = category === 'A' ? 7 : 5;
+      if (discountPct > 5) {
+        const commAmt = profit / 4;
+        const pct = (commAmt / lineTotal) * 100;
+        return Number(Math.min(pct, cap).toFixed(2));
+      }
+      return cap;
     }
     if (discountPct > 5) {
       const commAmt = profit / (category === 'C' ? 3.75 : 4);
@@ -1059,9 +1068,26 @@ export class CostTableService {
         if (!agentCategory) {
           calcMethod = 'No category';
         } else if (belowThreshold && (agentCategory === 'A' || agentCategory === 'B') && costSlab && grossProfit !== null && grossProfit > 0) {
+          // Below ₹1.15L monthly threshold: reduced cap (7% A / 5% B), not a
+          // flat rate — profit÷4 still applies whenever there's a real
+          // discount, same rule as the normal branch below just with a
+          // lower ceiling. Flat rate only when the sale is rate-to-rate.
           const pct = agentCategory === 'A' ? 7 : 5;
-          commAmt = lineTotal * (pct / 100);
-          calcMethod = `Sale × ${pct}% (below ₹1.15L)`;
+          const belowDiscountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
+          const capAmt = lineTotal * (pct / 100);
+          if (belowDiscountPct > 5) {
+            const profitShare = grossProfit / 4;
+            if (profitShare > capAmt) {
+              commAmt = capAmt;
+              calcMethod = `Sale × ${pct}% (below ₹1.15L, capped — profit÷4 exceeded max, disc ${belowDiscountPct.toFixed(1)}%)`;
+            } else {
+              commAmt = profitShare;
+              calcMethod = `Profit ÷ 4 (below ₹1.15L, disc ${belowDiscountPct.toFixed(1)}%)`;
+            }
+          } else {
+            commAmt = capAmt;
+            calcMethod = `Sale × ${pct}% (below ₹1.15L, rate-to-rate)`;
+          }
         } else if (costSlab && grossProfit !== null && grossProfit > 0) {
           const discountPct = rateAmt > 0 ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100) : 0;
           if (agentCategory === 'D') {
