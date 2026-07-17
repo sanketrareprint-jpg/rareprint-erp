@@ -22,6 +22,12 @@ export class RateCalculatorController {
   @Post('sticker')
   calcSticker(@Body() dto: any) { return this.svc.calcSticker(dto); }
 
+  // ── Sequential quotation numbers ────────────────────────────────────────────
+  @Get('next-quotation-number')
+  async nextQuotationNumber() {
+    return { number: await this.svc.nextQuotationNumber() };
+  }
+
   // ── Quote History ──────────────────────────────────────────────────────────
   @Get('history')
   listHistory(@Query('limit') limit?: string) {

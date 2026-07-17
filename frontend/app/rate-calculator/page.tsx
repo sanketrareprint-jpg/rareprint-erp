@@ -178,12 +178,30 @@ function fmt(n: number) {
   return '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function makeQuotationNumber() {
-  const d = new Date();
-  const date = d.toISOString().slice(0, 10).replace(/-/g, "");
-  const time = String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
-  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `RPQ-${date}-${time}${rand}`;
+// Sequential quotation numbers (1, 2, 3, ... forever) come from the backend
+// (GET /rate-calculator/next-quotation-number), which atomically increments a
+// counter in SystemConfig. That has to live server-side: a client-side
+// counter would let two people quoting at the same time both start from
+// whatever number their own browser last saw, producing duplicates.
+async function fetchNextQuotationNumber(): Promise<string> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/rate-calculator/next-quotation-number`, { headers: getAuthHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      return String(data.number);
+    }
+  } catch { /* fall through to local fallback below */ }
+  // Offline/error fallback so quoting never hard-blocks — still numeric only.
+  return String(Date.now()).slice(-6);
+}
+
+/** Looks up the human-readable size label (with its inch/cm unit already
+ *  baked in, e.g. 4.25×4.5" Small) instead of printing the raw option value
+ *  (e.g. "env425x45") in the quotation text. */
+function formatFinalSize(product: string | undefined, fsize: string | undefined) {
+  if (!fsize) return "";
+  const sizes = product ? PRODUCT_CONFIG[product]?.sizes : undefined;
+  return sizes?.find(s => s.value === fsize)?.label ?? fsize;
 }
 
 function formatYesNo(value?: boolean) {
@@ -212,9 +230,7 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     details.push(`File Punching: ${formatYesNo(inputParams.punch)}`);
     details.push(`Envelope Making: ${inputParams.envelope && inputParams.envelope !== "none" ? inputParams.envelope : "No"}`);
   } else {
-    const productLabel = inputParams.product ? PRODUCT_CONFIG[inputParams.product]?.label || inputParams.product : "Product";
     details.push("Product Details:");
-    details.push(`Product Type: ${productLabel}`);
     if (inputParams.qty) details.push(`Quantity: ${inputParams.qty.toLocaleString("en-IN")}`);
 
     if (inputParams.product === "file") {
@@ -252,8 +268,10 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     } else if (inputParams.product === "pen") {
       details.push(`Pen Number: ${inputParams.penNumber || ""}`);
     } else {
-      if (inputParams.sheetsPerUnit) details.push(`Pages per Pad / Book: ${inputParams.sheetsPerUnit}`);
-      if (inputParams.fsize) details.push(`Final Size: ${inputParams.fsize}`);
+      if (PRODUCT_CONFIG[inputParams.product ?? ""]?.hasSheetsPerUnit && inputParams.sheetsPerUnit) {
+        details.push(`Pages per Pad / Book: ${inputParams.sheetsPerUnit}`);
+      }
+      if (inputParams.fsize) details.push(`Final Size: ${formatFinalSize(inputParams.product, inputParams.fsize)}`);
 
       if (inputParams.paper) details.push(`Paper: ${formatPaperType(inputParams.paper)}`);
       if (inputParams.colors) details.push(`Printing Colors: ${inputParams.colors} color${inputParams.colors > 1 ? "s" : ""}`);
@@ -1123,7 +1141,7 @@ export default function RateCalculatorPage() {
 
   // Auto-save quote to history
   const saveToHistory = async (calcType: string, inputParams: any, result: Result, product?: string, qty?: number) => {
-    const quoteNumber = makeQuotationNumber();
+    const quoteNumber = await fetchNextQuotationNumber();
     const customer = inputParams.customer ?? inputParams.rCustomer ?? "";
     const job = inputParams.job ?? inputParams.fJob ?? "";
     const quotationText = buildQuotationText({

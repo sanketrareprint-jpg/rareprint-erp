@@ -207,6 +207,22 @@ export class RateCalculatorService {
     return { success: true };
   }
 
+  // ── Sequential quotation numbers (1, 2, 3, ... forever) ──────────────────
+  // Stored as a single counter row in SystemConfig (same table already used
+  // for rates/clubbing config above) so numbering survives restarts and stays
+  // consistent across every user/device — a client-side counter can't do
+  // that since two people quoting at once would both start from their own
+  // last-seen number. The INSERT ... ON CONFLICT ... RETURNING is one atomic
+  // statement, so concurrent requests can never be handed the same number.
+  async nextQuotationNumber(): Promise<number> {
+    const rows: any = await (this.prisma as any).$queryRawUnsafe(
+      `INSERT INTO "SystemConfig" (key, value, "updatedAt") VALUES ('rate_calculator_quotation_counter', '1', NOW())
+       ON CONFLICT (key) DO UPDATE SET value = (CAST("SystemConfig".value AS INTEGER) + 1)::text, "updatedAt" = NOW()
+       RETURNING value`
+    );
+    return Number(rows?.[0]?.value ?? 1);
+  }
+
   // ── Quote History ────────────────────────────────────────────────────────
   async saveHistory(dto: any): Promise<{ success: boolean; id: string }> {
     try {
