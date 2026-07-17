@@ -201,6 +201,29 @@ export class CostTableController {
     return this.svc.unverifyCommission(userId, Number(year), Number(month));
   }
 
+  @Post('sales-agents/:userId/commission/mark-paid')
+  markCommissionPaid(
+    @Param('userId') userId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Body() dto: { transactionId: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.markCommissionPaid(userId, Number(year), Number(month), dto.transactionId, req.user.id);
+  }
+
+  @Delete('sales-agents/:userId/commission/mark-paid')
+  unmarkCommissionPaid(
+    @Param('userId') userId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.unmarkCommissionPaid(userId, Number(year), Number(month));
+  }
+
   @Post('sales-agents/:userId/commission/override')
   setCommissionOverride(
     @Param('userId') userId: string,

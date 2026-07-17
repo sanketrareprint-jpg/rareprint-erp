@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiFetch";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
@@ -246,6 +246,7 @@ type CommissionAgent = {
   id: string; name: string; category: string | null;
   saleTotal: number; bonus: number; monthsWithData: string[];
   verifiedMonths: string[];
+  paidMonths: string[];
 };
 type CommissionSummary = {
   year: number; month: number;
@@ -264,7 +265,11 @@ type CommissionRow = {
   commissionPct: number; commissionAmt: number; calcMethod: string; hasCost: boolean; balanceDue: number;
   calculatedCommissionAmt: number; isOverridden: boolean; overriddenBy: string | null; overriddenAt: string | null;
 };
-type CommissionVerification = { verifiedAt: string; verifiedBy: string };
+type CommissionPaidTxn = { id: string; description: string; amount: number; txnDate: string };
+type CommissionVerification = {
+  id: string; verifiedAt: string; verifiedBy: string;
+  paid: boolean; paidTransactions: CommissionPaidTxn[];
+};
 type CommissionSheet = {
   userId: string; year: number; month: number;
   agentName: string | null; agentCategory: string | null;
@@ -631,6 +636,10 @@ export default function AccountsPage() {
   const [commYear] = useState(now.getFullYear());
   const [commMonth] = useState(now.getMonth() + 1);
   const [verifying, setVerifying] = useState(false);
+  const [markingCommissionPaid, setMarkingCommissionPaid] = useState(false);
+  const [bankMatchCommission, setBankMatchCommission] = useState<{ agentId: string; agentName: string; year: number; month: number; amount: number } | null>(null);
+  const [bankMatchCommissionResults, setBankMatchCommissionResults] = useState<BankTxn[]>([]);
+  const [bankMatchCommissionLoading, setBankMatchCommissionLoading] = useState(false);
   const [editingCommRow, setEditingCommRow] = useState<number | null>(null);
   const [editCommValue, setEditCommValue] = useState<string>("");
   const [savingCommRow, setSavingCommRow] = useState<number | null>(null);
@@ -861,6 +870,81 @@ export default function AccountsPage() {
       setBankMatchResults([]);
       await loadReceipts();
     } finally { setVerifyingId(null); }
+  }
+
+  // ── Commission "Mark as Paid" — same bank-match pattern as receipts above,
+  // but searching debits (money leaving the account) around the payout amount
+  // instead of credits, and linking to a CommissionVerification instead of a Payment.
+  async function openCommissionBankMatch() {
+    if (!selectedAgent || !selectedMonth || !commissionSheet) return;
+    const [y, m] = selectedMonth.split("-").map(Number);
+    setBankMatchCommission({ agentId: selectedAgent.id, agentName: selectedAgent.name, year: y, month: m, amount: commissionSheet.totalPayable });
+    setBankMatchCommissionResults([]);
+    setBankMatchCommissionLoading(true);
+    try {
+      const params = new URLSearchParams({
+        crDr: "DR",
+        amountMin: String(commissionSheet.totalPayable),
+        amountMax: String(commissionSheet.totalPayable),
+        limit: "50",
+      });
+      const res = await fetch(`${API_BASE_URL}/bank-statement/transactions?${params}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setBankMatchCommissionResults(data.data ?? []);
+      }
+    } finally { setBankMatchCommissionLoading(false); }
+  }
+
+  async function matchCommissionPaid(txn: BankTxn) {
+    if (!bankMatchCommission) return;
+    setMarkingCommissionPaid(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/cost-table/sales-agents/${bankMatchCommission.agentId}/commission/mark-paid?year=${bankMatchCommission.year}&month=${bankMatchCommission.month}`,
+        {
+          method: "POST",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ transactionId: txn.id }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Could not mark as paid: ${err.message || res.statusText}`);
+        return;
+      }
+      setBankMatchCommission(null);
+      setBankMatchCommissionResults([]);
+      const monthStr = `${bankMatchCommission.year}-${String(bankMatchCommission.month).padStart(2, "0")}`;
+      await loadCommissionSheet(bankMatchCommission.agentId, monthStr, { silent: true });
+      setCommissionSummary(prev => prev ? {
+        ...prev,
+        agents: prev.agents.map(a => a.id === bankMatchCommission.agentId
+          ? { ...a, paidMonths: a.paidMonths.includes(monthStr) ? a.paidMonths : [...a.paidMonths, monthStr] }
+          : a),
+      } : prev);
+    } finally { setMarkingCommissionPaid(false); }
+  }
+
+  async function handleUnmarkCommissionPaid() {
+    if (!selectedAgent || !selectedMonth) return;
+    setMarkingCommissionPaid(true);
+    try {
+      const [y, m] = selectedMonth.split("-").map(Number);
+      const res = await fetch(
+        `${API_BASE_URL}/cost-table/sales-agents/${selectedAgent.id}/commission/mark-paid?year=${y}&month=${m}`,
+        { method: "DELETE", headers: getAuthHeaders() },
+      );
+      if (res.ok) {
+        await loadCommissionSheet(selectedAgent.id, selectedMonth, { silent: true });
+        setCommissionSummary(prev => prev ? {
+          ...prev,
+          agents: prev.agents.map(a => a.id === selectedAgent.id
+            ? { ...a, paidMonths: a.paidMonths.filter(pm => pm !== selectedMonth) }
+            : a),
+        } : prev);
+      }
+    } finally { setMarkingCommissionPaid(false); }
   }
 
   async function verifyPayment(id: string, utr?: string) {
@@ -2600,6 +2684,9 @@ await loadHistory();
                                 {agent.verifiedMonths.includes(m) && (
                                   <span className={isActive ? "mr-0.5 text-green-300" : "mr-0.5 text-green-500"} title="Verified">✓</span>
                                 )}
+                                {agent.paidMonths.includes(m) && (
+                                  <span className={isActive ? "mr-0.5 text-blue-200" : "mr-0.5 text-blue-600"} title="Paid">$</span>
+                                )}
                                 {m}
                               </button>
                             );
@@ -2658,6 +2745,9 @@ await loadHistory();
                               {selectedAgent.verifiedMonths.includes(m) && (
                                 <span className={isActive ? "mr-0.5 text-green-200" : "mr-0.5 text-green-500"} title="Verified">✓</span>
                               )}
+                              {selectedAgent.paidMonths.includes(m) && (
+                                <span className={isActive ? "mr-0.5 text-blue-200" : "mr-0.5 text-blue-600"} title="Paid">$</span>
+                              )}
                               {m}
                             </button>
                           );
@@ -2706,6 +2796,43 @@ await loadHistory();
                             <Check className="h-3 w-3" />
                           )}
                           {verifying ? "Saving..." : commissionSheet.verification ? "Unverify" : "Verify"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Paid status banner — only meaningful once verified */}
+                  {canSeeDetails && commissionSheet && commissionSheet.verification && (
+                    <div className={`px-6 py-3 flex items-center justify-between gap-4 border-b ${
+                      commissionSheet.verification.paid ? "bg-blue-50 border-blue-200" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {commissionSheet.verification.paid ? (
+                          <>
+                            <span className="text-blue-700 text-sm font-bold flex items-center gap-1"><DollarSign className="h-3.5 w-3.5" /> Paid</span>
+                            <span className="text-blue-600 text-xs">
+                              {commissionSheet.verification.paidTransactions.map(t => (
+                                <span key={t.id}>
+                                  {t.description} · {fmt(t.amount)} · {new Date(t.txnDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                                </span>
+                              ))}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-slate-500 text-xs">Not marked as paid yet — total payable {fmt(commissionSheet.totalPayable)}</span>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <button
+                          onClick={commissionSheet.verification.paid ? handleUnmarkCommissionPaid : openCommissionBankMatch}
+                          disabled={markingCommissionPaid}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                            commissionSheet.verification.paid
+                              ? "border-red-300 text-red-700 hover:bg-red-50"
+                              : "border-blue-400 text-blue-700 bg-white hover:bg-blue-50"
+                          }`}>
+                          {markingCommissionPaid ? <Loader2 className="h-3 w-3 animate-spin" /> : <DollarSign className="h-3 w-3" />}
+                          {markingCommissionPaid ? "Saving..." : commissionSheet.verification.paid ? "Mark as Unpaid" : "Mark as Paid"}
                         </button>
                       )}
                     </div>
@@ -3207,6 +3334,75 @@ await loadHistory();
             </div>
             <div style={{ padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
               <button onClick={() => { setBankMatchPayment(null); setBankMatchResults([]); }}
+                style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "5px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Commission "Mark as Paid" — Bank Statement Match Popup */}
+      {bankMatchCommission && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", width: "100%", maxWidth: "620px", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <div style={{ padding: "0.875rem 1rem", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <h2 style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Match Commission Payout with Bank Statement</h2>
+                  <p style={{ fontSize: "11px", color: "#64748b", margin: "3px 0 0" }}>
+                    {bankMatchCommission.agentName} · {bankMatchCommission.year}-{String(bankMatchCommission.month).padStart(2, "0")} · <strong style={{ color: "#2563eb" }}>{fmt(bankMatchCommission.amount)}</strong>
+                  </p>
+                </div>
+                <button onClick={() => { setBankMatchCommission(null); setBankMatchCommissionResults([]); }}
+                  style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8" }}>x</button>
+              </div>
+            </div>
+            <div style={{ overflowY: "auto", flex: 1, padding: "0.75rem 1rem" }}>
+              {bankMatchCommissionLoading ? (
+                <div style={{ textAlign: "center", padding: "2rem", fontSize: "12px", color: "#64748b" }}>Searching bank statement...</div>
+              ) : bankMatchCommissionResults.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem" }}>
+                  <p style={{ fontSize: "12px", color: "#94a3b8", margin: 0 }}>
+                    No debit transactions found for exactly {fmt(bankMatchCommission.amount)}. Import/refresh the bank statement first, or check the exact payout amount.
+                  </p>
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Date</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Description</th>
+                      <th style={{ textAlign: "right", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Amount</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Status</th>
+                      <th style={{ padding: "4px 8px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bankMatchCommissionResults.map(txn => (
+                      <tr key={txn.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "6px 8px", color: "#475569", whiteSpace: "nowrap" }}>{new Date(txn.txnDate).toLocaleDateString("en-IN")}</td>
+                        <td style={{ padding: "6px 8px", color: "#334155", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{txn.description}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "#dc2626" }}>{fmt(txn.amount)}</td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "9999px", background: txn.reconcileStatus === "MATCHED_COMMISSION" ? "#dbeafe" : "#f1f5f9", color: txn.reconcileStatus === "MATCHED_COMMISSION" ? "#1d4ed8" : "#64748b", fontWeight: 600 }}>
+                            {txn.reconcileStatus}
+                          </span>
+                        </td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <button onClick={() => matchCommissionPaid(txn)} disabled={markingCommissionPaid}
+                            style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                            Match
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div style={{ padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => { setBankMatchCommission(null); setBankMatchCommissionResults([]); }}
                 style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "5px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
                 Close
               </button>

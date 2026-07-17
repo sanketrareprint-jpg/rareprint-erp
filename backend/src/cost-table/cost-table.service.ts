@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as fs from 'fs';
@@ -952,7 +952,10 @@ export class CostTableService {
       }),
       (this.prisma as any).commissionVerification?.findUnique?.({
         where: { agentId_year_month: { agentId: userId, year, month } },
-        include: { verifiedBy: { select: { fullName: true } } },
+        include: {
+          verifiedBy: { select: { fullName: true } },
+          bankTransactions: { select: { id: true, description: true, amount: true, txnDate: true } },
+        },
       }).catch(() => null),
       (this.prisma as any).user.findUnique({
         where: { id: userId },
@@ -968,10 +971,15 @@ export class CostTableService {
         agentName: agentUser?.fullName ?? null,
         agentCategory: agentUser?.salesAgentCategory ?? null,
         saleTotal: 0, commissionTotal: 0, commissionPct: 0, bonus: 0, baseSalary,
-        totalPayable: baseSalary, rows: [],
+        totalPayable: baseSalary, grandTotal: baseSalary, rows: [],
         verification: verification ? {
+          id: verification.id,
           verifiedAt: verification.verifiedAt,
           verifiedBy: verification.verifiedBy?.fullName ?? 'Unknown',
+          paid: (verification.bankTransactions?.length ?? 0) > 0,
+          paidTransactions: (verification.bankTransactions ?? []).map((t: any) => ({
+            id: t.id, description: t.description, amount: Number(t.amount), txnDate: t.txnDate,
+          })),
         } : null,
       };
     }
@@ -1176,8 +1184,13 @@ export class CostTableService {
       grandTotal: Number((commissionTotal + bonus + baseSalary).toFixed(2)),
       rows,
       verification: verification ? {
+        id: verification.id,
         verifiedAt: verification.verifiedAt,
         verifiedBy: verification.verifiedBy?.fullName ?? 'Unknown',
+        paid: (verification.bankTransactions?.length ?? 0) > 0,
+        paidTransactions: (verification.bankTransactions ?? []).map((t: any) => ({
+          id: t.id, description: t.description, amount: Number(t.amount), txnDate: t.txnDate,
+        })),
       } : null,
     };
   }
@@ -1303,6 +1316,56 @@ export class CostTableService {
     return { success: true };
   }
 
+  // ── Mark commission as paid, linked to a bank statement transaction ──────
+  // Mirrors how receipts get matched to BankTransaction (see BankStatementService
+  // .reconcileTransaction / Accounts > Receipts "Match with Bank Statement"):
+  // the FK lives on BankTransaction (matchedCommissionVerificationId), this
+  // sheet's "paid" state is just derived from whether any transaction points here.
+  async markCommissionPaid(agentId: string, year: number, month: number, transactionId: string, reconciledById: string) {
+    const verification = await (this.prisma as any).commissionVerification.findUnique({
+      where: { agentId_year_month: { agentId, year, month } },
+    });
+    if (!verification) {
+      throw new BadRequestException('Verify this month\'s commission before marking it paid.');
+    }
+    const txn = await (this.prisma as any).bankTransaction.findUnique({ where: { id: transactionId } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+
+    await (this.prisma as any).bankTransaction.update({
+      where: { id: transactionId },
+      data: {
+        reconcileStatus: 'MATCHED_COMMISSION',
+        matchedCommissionVerificationId: verification.id,
+        matchedPaymentId: null,
+        matchedVendorId: null,
+        expenseCategoryId: null,
+        reviewNote: `Commission payout — agent ${agentId}, ${month}/${year}`,
+        reconciledById,
+        reconciledAt: new Date(),
+      },
+    });
+    return { success: true };
+  }
+
+  async unmarkCommissionPaid(agentId: string, year: number, month: number) {
+    const verification = await (this.prisma as any).commissionVerification.findUnique({
+      where: { agentId_year_month: { agentId, year, month } },
+    });
+    if (!verification) return { success: true };
+
+    await (this.prisma as any).bankTransaction.updateMany({
+      where: { matchedCommissionVerificationId: verification.id },
+      data: {
+        reconcileStatus: 'UNMATCHED',
+        matchedCommissionVerificationId: null,
+        reviewNote: null,
+        reconciledById: null,
+        reconciledAt: null,
+      },
+    });
+    return { success: true };
+  }
+
   // ── All verified sheets for one agent (self-service Salary & Commission view) ──
   async getVerifiedCommissionSheets(userId: string) {
     const verifications = await (this.prisma as any).commissionVerification.findMany({
@@ -1372,11 +1435,18 @@ export class CostTableService {
     const verifications = agentIds.length
       ? await (this.prisma as any).commissionVerification.findMany({
           where: { agentId: { in: agentIds } },
-          select: { agentId: true, year: true, month: true },
+          select: { agentId: true, year: true, month: true, bankTransactions: { select: { id: true } } },
         })
       : [];
     const verifiedSet = new Set(
       verifications.map((v: any) => `${v.agentId}_${v.year}-${String(v.month).padStart(2, '0')}`),
+    );
+    // A month is "paid" once at least one bank transaction is linked to its
+    // CommissionVerification (see markCommissionPaid).
+    const paidSet = new Set(
+      verifications
+        .filter((v: any) => (v.bankTransactions?.length ?? 0) > 0)
+        .map((v: any) => `${v.agentId}_${v.year}-${String(v.month).padStart(2, '0')}`),
     );
 
     return {
@@ -1391,6 +1461,9 @@ export class CostTableService {
         monthsWithData: Array.from(a.monthSet).sort().reverse(),
         verifiedMonths: Array.from(a.monthSet)
           .filter(m => verifiedSet.has(`${a.id}_${m}`))
+          .sort().reverse(),
+        paidMonths: Array.from(a.monthSet)
+          .filter(m => paidSet.has(`${a.id}_${m}`))
           .sort().reverse(),
       })),
     };

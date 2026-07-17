@@ -630,6 +630,9 @@ model CommissionVerification {
   notes        String?
   agent        User     @relation("CommVerifAgent", fields: [agentId], references: [id])
   verifiedBy   User     @relation("CommVerifBy", fields: [verifiedById], references: [id])
+  // Bank transaction(s) that paid out this month's commission — set via the
+  // Accounts > Commission "Mark as Paid" flow (see BankTransaction.matchedCommissionVerificationId).
+  bankTransactions BankTransaction[] @relation("BankTxnCommission")
 
   @@unique([agentId, year, month])
 }
@@ -1791,6 +1794,7 @@ model BankTransaction {
   matchedPaymentId  String?
   matchedVendorId   String?
   expenseCategoryId String?
+  matchedCommissionVerificationId String?
   reviewNote        String?
   reconciledAt      DateTime?
   reconciledById    String?
@@ -1800,6 +1804,7 @@ model BankTransaction {
   matchedPayment    Payment?            @relation("BankTxnPayment", fields: [matchedPaymentId], references: [id])
   matchedVendor     Vendor?             @relation("BankTxnVendor", fields: [matchedVendorId], references: [id])
   expenseCategory   ExpenseCategory?    @relation(fields: [expenseCategoryId], references: [id])
+  matchedCommissionVerification CommissionVerification? @relation("BankTxnCommission", fields: [matchedCommissionVerificationId], references: [id])
   reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
 
   @@unique([accountNumber, importKey])
@@ -1932,6 +1937,7 @@ enum BankReconcileStatus {
   MATCHED_PAYMENT
   MATCHED_VENDOR
   MATCHED_EXPENSE
+  MATCHED_COMMISSION
   MANUAL_REVIEW
   IGNORED
 }

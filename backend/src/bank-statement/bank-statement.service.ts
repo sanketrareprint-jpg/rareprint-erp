@@ -445,6 +445,7 @@ export class BankStatementService {
       matchedPaymentId?: string;
       matchedVendorId?: string;
       expenseCategoryId?: string;
+      matchedCommissionVerificationId?: string;
       reviewNote?: string;
     },
   ) {
@@ -455,6 +456,7 @@ export class BankStatementService {
         matchedPaymentId: body.matchedPaymentId ?? null,
         matchedVendorId: body.matchedVendorId ?? null,
         expenseCategoryId: body.expenseCategoryId ?? null,
+        matchedCommissionVerificationId: body.matchedCommissionVerificationId ?? null,
         reviewNote: body.reviewNote ?? null,
         reconciledById: userId,
         reconciledAt: new Date(),
