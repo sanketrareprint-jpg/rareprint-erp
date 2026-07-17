@@ -3,10 +3,18 @@ import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getStoredUser } from "@/lib/auth";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
-import { Loader2, CheckCircle2, ChevronDown, ChevronUp, Wallet, Save } from "lucide-react";
+import { Loader2, CheckCircle2, ChevronDown, ChevronUp, Wallet, Save, Clock } from "lucide-react";
 
 type EmployeeLite = { id: string; fullName: string; email: string; role: string };
 type SalaryInfo = { id: string; fullName: string; role: string; salesAgentCategory: string | null; baseSalary: number };
+type HrLink = { id: string; employeeCode: string; fullName: string } | null;
+type AttendanceSalary = {
+  employeeCode: string; year: number; month: number; workingDays: number; leaveDays: number;
+  netDays: number; requiredHours: number; hoursWorked: number; absentHours: number;
+  baseSalary: number; salary: number; daysMissingPunch: number;
+};
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 type CommissionSheetRow = {
   orderId: string; date: string; invoiceNo: string; partyName: string; itemName: string;
@@ -40,6 +48,13 @@ export default function SalaryCommissionPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
+  const now = new Date();
+  const [hrLink, setHrLink] = useState<HrLink>(null);
+  const [attYear, setAttYear] = useState(now.getFullYear());
+  const [attMonth, setAttMonth] = useState(now.getMonth() + 1);
+  const [attSalary, setAttSalary] = useState<AttendanceSalary | null>(null);
+  const [loadingAtt, setLoadingAtt] = useState(false);
+
   useEffect(() => {
     if (!isAdmin) return;
     void apiFetch<EmployeeLite[]>("/tasks/users", {}, setError).then((data) => {
@@ -68,7 +83,20 @@ export default function SalaryCommissionPage() {
     setError(null);
     void loadSalary(selectedId);
     void loadSheets(selectedId);
+    setHrLink(null);
+    setAttSalary(null);
+    void apiFetch<HrLink>(`/hr/employees/by-user/${selectedId}`, {}, undefined).then((link) => {
+      if (link) setHrLink(link);
+    });
   }, [selectedId, loadSalary, loadSheets]);
+
+  useEffect(() => {
+    if (!hrLink) return;
+    setLoadingAtt(true);
+    void apiFetch<AttendanceSalary>(`/hr/employees/${hrLink.id}/salary?year=${attYear}&month=${attMonth}`, {}, undefined)
+      .then((data) => setAttSalary(data))
+      .finally(() => setLoadingAtt(false));
+  }, [hrLink, attYear, attMonth]);
 
   const handleSaveSalary = async () => {
     if (!selectedId) return;
@@ -152,6 +180,38 @@ export default function SalaryCommissionPage() {
             )}
           </div>
         </div>
+
+        {hrLink && (
+          <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+                <Clock size={16} /> Attendance-based Salary
+              </h2>
+              <div className="flex items-center gap-2">
+                <select value={attMonth} onChange={(e) => setAttMonth(Number(e.target.value))} className="border border-slate-300 rounded-lg px-2 py-1 text-xs">
+                  {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+                <input type="number" value={attYear} onChange={(e) => setAttYear(Number(e.target.value))} className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-xs" />
+              </div>
+            </div>
+            {loadingAtt ? (
+              <div className="text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading...</div>
+            ) : attSalary ? (
+              <div className="flex flex-wrap gap-5 text-xs">
+                <div><span className="text-slate-400 block uppercase">Required hrs</span><span className="font-bold text-slate-700">{attSalary.requiredHours}</span></div>
+                <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{attSalary.hoursWorked}</span></div>
+                <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${attSalary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{attSalary.absentHours}</span></div>
+                <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{attSalary.leaveDays}</span></div>
+                {attSalary.daysMissingPunch > 0 && (
+                  <div><span className="text-slate-400 block uppercase">Missing punches</span><span className="font-bold text-amber-600">{attSalary.daysMissingPunch} day(s)</span></div>
+                )}
+                <div><span className="text-slate-400 block uppercase">Calculated salary</span><span className="font-bold text-blue-700">{fmt(attSalary.salary)}</span></div>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400">No attendance recorded for this month yet.</div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-3">
           <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Verified Commission Sheets</h2>

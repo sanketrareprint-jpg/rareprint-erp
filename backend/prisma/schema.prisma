@@ -47,6 +47,10 @@ model User {
   commissionOverridesSet      CommissionOverride[]      @relation("CommOverrideSetBy")
   remittanceImports           RemittanceImportSession[] @relation("RemittanceImports")
   remittancePosted            RemittanceRecord[]        @relation("RemittancePostedBy")
+  employeeProfile              Employee?                 @relation("EmployeeUser")
+  employeeLeavesRecorded       EmployeeLeaveEntry[]      @relation("LeaveRecordedBy")
+  attendanceRecordsEdited      AttendanceRecord[]        @relation("AttendanceEditedBy")
+  attendanceImports            AttendanceImportSession[] @relation("AttendanceImports")
 }
 
 model Customer {
@@ -644,6 +648,173 @@ model CommissionOverride {
   orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   agent         User      @relation("CommOverrideAgent", fields: [agentId], references: [id])
   setBy         User      @relation("CommOverrideSetBy", fields: [setById], references: [id])
+}
+
+// ── HR: Employee Master ──────────────────────────────────────────────────
+// The single source of truth for pay/attendance calculations. Mirrors the
+// old "HR master" table (SR, EMPLOYEE ID, NAME, POST, SALARY, WORKING HOURS,
+// PAID LEAVE, PER DAY, PER HR, ADDRESS, MOBILE, JOINING) used by the legacy
+// Google Sheet's VLOOKUP-based salary formula.
+model Employee {
+  id                  String              @id @default(cuid())
+  employeeCode        String              @unique // e.g. RP01, internal HR code
+  biometricId         String?             @unique // raw ID from the in/out machine export (e.g. "1", "2")
+  userId              String?             @unique // linked login account, if any
+  fullName            String
+  designation         String // "post" in the old sheet, e.g. SELLER, DESIGNER, OFFICE BOY
+  department          String?
+  status              EmployeeStatus      @default(ACTIVE)
+
+  // Pay basis — read by the salary engine (see SalaryModule)
+  baseSalary          Decimal             @db.Decimal(12, 2) // full monthly salary
+  workingHoursPerDay  Decimal             @db.Decimal(5, 2)  @default(8) // required hrs/day
+  paidLeavePerMonth   Decimal             @db.Decimal(4, 2)  @default(2) // allowed paid leave days/month
+  annualPaidLeaveQuota Decimal?           @db.Decimal(5, 2) // optional yearly quota for the leave ledger
+
+  // Registration / master record
+  dateOfJoining       DateTime?
+  dateOfBirth         DateTime?
+  gender              String?
+  address             String?
+  mobileNumber        String?
+  alternateMobile     String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  idProofType         String?
+  idProofNumber       String?
+  bankAccountNumber   String?
+  bankIfsc            String?
+  photoUrl            String?
+  idProofDocUrl       String?
+  offerLetterUrl      String?
+  notes               String?
+
+  resignedAt          DateTime?
+  isActive            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  user                User?               @relation("EmployeeUser", fields: [userId], references: [id])
+  kras                EmployeeKra[]
+  leaveEntries        EmployeeLeaveEntry[]
+  attendanceRecords   AttendanceRecord[]
+
+  @@index([status])
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  RESIGNED
+  TERMINATED
+}
+
+// KRA (key result areas) and job responsibilities, tracked per employee.
+model EmployeeKra {
+  id          String          @id @default(cuid())
+  employeeId  String
+  type        EmployeeKraType @default(KRA)
+  title       String
+  description String?
+  targetMetric String?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+enum EmployeeKraType {
+  KRA
+  RESPONSIBILITY
+}
+
+// Leave ledger — individual leave events. Balance = annualPaidLeaveQuota
+// (or paidLeavePerMonth × months elapsed) minus sum of PAID entries.
+model EmployeeLeaveEntry {
+  id             String    @id @default(cuid())
+  employeeId     String
+  date           DateTime
+  endDate        DateTime?
+  days           Decimal   @db.Decimal(4, 2) @default(1)
+  type           LeaveType @default(PAID)
+  reason         String?
+  recordedById   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  recordedBy     User?     @relation("LeaveRecordedBy", fields: [recordedById], references: [id])
+
+  @@index([employeeId, date])
+}
+
+enum LeaveType {
+  PAID
+  UNPAID
+  SICK
+  CASUAL
+  HALF_DAY
+  OTHER
+}
+
+// One row per employee per calendar day, sourced from the biometric machine's
+// "Exception Stat." export (ID, Name, Date, On-duty, Off-duty, Late/Early/
+// Absence minutes) or entered/corrected by hand when the thumb reader misses
+// a punch. hoursWorked is stored (not just derived) so a manual edit always
+// wins and the salary engine never has to re-parse raw punches.
+model AttendanceRecord {
+  id               String              @id @default(cuid())
+  employeeId       String
+  date             DateTime            @db.Date
+  timeIn           String? // "HH:MM", 24h, first punch of the day
+  timeOut          String? // "HH:MM", 24h, last punch of the day
+  secondTimeIn     String? // split-shift second half (e.g. post-lunch)
+  secondTimeOut    String?
+  hoursWorked      Decimal             @db.Decimal(5, 2) @default(0)
+  lateMinutes      Int?
+  earlyLeaveMinutes Int?
+  isAbsent         Boolean             @default(false)
+  isPaidLeave      Boolean             @default(false) // marked as covered by leave ledger, not a deduction
+  source           AttendanceSource    @default(IMPORTED)
+  note             String?
+  editedById       String? // set whenever a human overrides the imported value
+  importSessionId  String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  employee         Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  editedBy         User?               @relation("AttendanceEditedBy", fields: [editedById], references: [id])
+  importSession    AttendanceImportSession? @relation(fields: [importSessionId], references: [id])
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+enum AttendanceSource {
+  IMPORTED // straight from the machine export
+  MANUAL   // no punch at all, entered by hand
+  EDITED   // machine had a value, a human corrected it
+}
+
+model AttendanceImportSession {
+  id           String             @id @default(cuid())
+  fileName     String
+  periodStart  DateTime           @db.Date
+  periodEnd    DateTime           @db.Date
+  importedById String
+  rowsFound    Int                @default(0)
+  rowsImported Int                @default(0)
+  rowsSkipped  Int                @default(0)
+  unmatchedIds String? // JSON array of machine IDs with no matching Employee.biometricId
+  createdAt    DateTime           @default(now())
+
+  importedBy   User               @relation("AttendanceImports", fields: [importedById], references: [id])
+  records      AttendanceRecord[]
+
+  @@index([periodStart, periodEnd])
 }
 
 model ProductionJob {

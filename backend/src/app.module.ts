@@ -36,6 +36,8 @@ import { ErpConfigModule } from './erp-config/erp-config.module';
 import { ActivityModule } from './activity/activity.module';
 import { BusinessRulesModule } from './business-rules/business-rules.module';
 import { RemittanceModule } from './remittance/remittance.module';
+import { HrModule } from './hr/hr.module';
+import { AttendanceModule } from './attendance/attendance.module';
 
 @Module({
   imports: [
@@ -71,6 +73,8 @@ import { RemittanceModule } from './remittance/remittance.module';
     ActivityModule,
     BusinessRulesModule,
     RemittanceModule,
+    HrModule,
+    AttendanceModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
