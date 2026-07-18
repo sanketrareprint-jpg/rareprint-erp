@@ -6,7 +6,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
 import {
-  CalendarClock, Upload, Loader2, Save, ShieldAlert, AlertTriangle, CheckCircle2,
+  CalendarClock, Upload, Loader2, Save, ShieldAlert, AlertTriangle, CheckCircle2, Plus,
 } from "lucide-react";
 
 type EmployeeListItem = { id: string; employeeCode: string; fullName: string; designation: string; status: string };
@@ -21,6 +21,8 @@ type MonthGrid = { employeeId: string; employeeCode: string; fullName: string; w
 type SalaryCalc = {
   workingDays: number; leaveDays: number; netDays: number; requiredHours: number;
   hoursWorked: number; absentHours: number; baseSalary: number; salary: number;
+  overtimeAllowed?: boolean; overtimeHours?: number; overtimePay?: number;
+  calculatedSalary?: number; approvalRequired?: boolean;
 };
 
 const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -46,6 +48,10 @@ export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+
+  const [showAdHocLeave, setShowAdHocLeave] = useState(false);
+  const [adHocLeave, setAdHocLeave] = useState({ date: "", days: "1", reason: "" });
+  const [savingLeave, setSavingLeave] = useState(false);
 
   useEffect(() => {
     if (!canAccess) return;
@@ -90,6 +96,20 @@ export default function AttendancePage() {
     }, setError);
     setSavingDate(null);
     if (res) void loadGrid();
+  };
+
+  const handleAddAdHocLeave = async () => {
+    if (!employeeId || !adHocLeave.date) return;
+    setSavingLeave(true);
+    const res = await apiMutate(`/hr/employees/${employeeId}/leaves`, "POST", {
+      date: adHocLeave.date, days: Number(adHocLeave.days || 1), type: "OTHER", reason: adHocLeave.reason || null,
+    }, setError);
+    setSavingLeave(false);
+    if (res) {
+      setAdHocLeave({ date: "", days: "1", reason: "" });
+      setShowAdHocLeave(false);
+      void loadGrid();
+    }
   };
 
   const handleUpload = async () => {
@@ -184,13 +204,54 @@ export default function AttendancePage() {
         </div>
 
         {salary && (
-          <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap gap-5 text-xs">
-            <div><span className="text-slate-400 block uppercase">Required hrs</span><span className="font-bold text-slate-700">{salary.requiredHours}</span></div>
-            <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{salary.hoursWorked}</span></div>
-            <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${salary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{salary.absentHours}</span></div>
-            <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{salary.leaveDays}</span></div>
-            <div><span className="text-slate-400 block uppercase">Base salary</span><span className="font-bold text-slate-700">₹{salary.baseSalary.toLocaleString("en-IN")}</span></div>
-            <div><span className="text-slate-400 block uppercase">Calculated salary</span><span className="font-bold text-blue-700">₹{salary.salary.toLocaleString("en-IN")}</span></div>
+          <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            {salary.approvalRequired && (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <AlertTriangle size={14} /> Pending Sanket's approval on the HR master record — salary shown below is what it would be, but ₹0 is payable until approved.
+              </div>
+            )}
+            <div className="flex flex-wrap gap-5 text-xs">
+              <div><span className="text-slate-400 block uppercase">Required hrs</span><span className="font-bold text-slate-700">{salary.requiredHours}</span></div>
+              <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{salary.hoursWorked}</span></div>
+              <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${salary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{salary.absentHours}</span></div>
+              <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{salary.leaveDays}</span></div>
+              {!!salary.overtimeAllowed && (
+                <>
+                  <div><span className="text-slate-400 block uppercase">Overtime hrs</span><span className="font-bold text-slate-700">{salary.overtimeHours ?? 0}</span></div>
+                  <div><span className="text-slate-400 block uppercase">Overtime pay</span><span className="font-bold text-slate-700">₹{(salary.overtimePay ?? 0).toLocaleString("en-IN")}</span></div>
+                </>
+              )}
+              <div><span className="text-slate-400 block uppercase">Base salary</span><span className="font-bold text-slate-700">₹{salary.baseSalary.toLocaleString("en-IN")}</span></div>
+              <div><span className="text-slate-400 block uppercase">{salary.approvalRequired ? "Payable (blocked)" : "Payable salary"}</span><span className={`font-bold ${salary.approvalRequired ? "text-amber-600" : "text-blue-700"}`}>₹{salary.salary.toLocaleString("en-IN")}</span></div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              {!showAdHocLeave ? (
+                <button onClick={() => setShowAdHocLeave(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800">
+                  <Plus size={13} /> Add ad-hoc leave (marriage, family function, etc.)
+                </button>
+              ) : (
+                <div className="flex flex-wrap gap-2 items-end">
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase block">Date</label>
+                    <input type="date" value={adHocLeave.date} onChange={(e) => setAdHocLeave({ ...adHocLeave, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase block">Days</label>
+                    <input type="number" step="0.5" value={adHocLeave.days} onChange={(e) => setAdHocLeave({ ...adHocLeave, days: e.target.value })} className="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
+                  </div>
+                  <div className="flex-1 min-w-[160px]">
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase block">Reason</label>
+                    <input value={adHocLeave.reason} onChange={(e) => setAdHocLeave({ ...adHocLeave, reason: e.target.value })} placeholder='e.g. "Marriage", "Family function"' className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
+                  </div>
+                  <button onClick={handleAddAdHocLeave} disabled={savingLeave || !adHocLeave.date} className="inline-flex items-center gap-1 text-xs font-semibold bg-slate-800 text-white rounded-lg px-3 py-1.5 disabled:opacity-50">
+                    {savingLeave ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Save
+                  </button>
+                  <button onClick={() => setShowAdHocLeave(false)} className="text-xs text-slate-400">Cancel</button>
+                </div>
+              )}
+              <p className="text-[11px] text-slate-400 mt-1">Recorded as leave type OTHER — reduces required hours the same way any other leave does, then the salary above recalculates.</p>
+            </div>
           </div>
         )}
 

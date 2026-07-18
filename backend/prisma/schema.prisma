@@ -51,6 +51,8 @@ model User {
   employeeLeavesRecorded       EmployeeLeaveEntry[]      @relation("LeaveRecordedBy")
   attendanceRecordsEdited      AttendanceRecord[]        @relation("AttendanceEditedBy")
   attendanceImports            AttendanceImportSession[] @relation("AttendanceImports")
+  employeesApproved            Employee[]                @relation("EmployeeApprovedBy")
+  companyTermsCreated          CompanyTerms[]            @relation("CompanyTermsCreatedBy")
 }
 
 model Customer {
@@ -694,6 +696,29 @@ model Employee {
   idProofDocUrl       String?
   offerLetterUrl      String?
   notes               String?
+  email               String? // for the digital HR agreement link — separate from any login account's email
+
+  // Overtime — some employees are paid for hours beyond their required
+  // monthly hours (at the same hourly rate as their base pay), others are not.
+  overtimeAllowed     Boolean             @default(false)
+
+  // Master-data approval gate — any admin can add/edit an Employee record,
+  // but salary cannot be generated for them until Sanket (checked by email,
+  // see SUPERADMIN_EMAIL in hr.service.ts) approves it. Editing any
+  // payroll-relevant field resets this back to false.
+  masterDataApproved  Boolean             @default(false)
+  approvedById        String?
+  approvedAt          DateTime?
+
+  // Digital HR agreement — a tokenized link is emailed to the employee; they
+  // read the current CompanyTerms and type their name to accept (clickwrap
+  // e-signature, no OTP). agreementTermsId freezes which version they saw.
+  agreementToken          String?         @unique
+  agreementTermsId        String?
+  agreementSentAt         DateTime?
+  agreementAcceptedAt     DateTime?
+  agreementAcceptedIp     String?
+  agreementSignatureName  String?
 
   resignedAt          DateTime?
   isActive            Boolean             @default(true)
@@ -701,11 +726,32 @@ model Employee {
   updatedAt           DateTime            @updatedAt
 
   user                User?               @relation("EmployeeUser", fields: [userId], references: [id])
+  approvedBy          User?               @relation("EmployeeApprovedBy", fields: [approvedById], references: [id])
+  agreementTerms      CompanyTerms?       @relation(fields: [agreementTermsId], references: [id])
   kras                EmployeeKra[]
   leaveEntries        EmployeeLeaveEntry[]
   attendanceRecords   AttendanceRecord[]
 
   @@index([status])
+}
+
+// Versioned company Terms & Conditions text shown on the digital HR
+// agreement page. Creating a new one supersedes the previous "active" one;
+// old versions are kept (isActive = false) so past acceptances stay
+// auditable against the exact text the employee agreed to.
+model CompanyTerms {
+  id          String     @id @default(cuid())
+  version     Int        @unique
+  title       String
+  content     String
+  isActive    Boolean    @default(true)
+  createdById String?
+  createdAt   DateTime   @default(now())
+
+  createdBy   User?      @relation("CompanyTermsCreatedBy", fields: [createdById], references: [id])
+  employees   Employee[]
+
+  @@index([isActive])
 }
 
 enum EmployeeStatus {

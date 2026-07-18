@@ -117,4 +117,39 @@ export class GmailDraftService {
     this.logger.log(`Gmail draft created: ${res.data.id} → TO: ${to} | attachments: ${attachments.length}`);
     return { draftId: res.data.id ?? '' };
   }
+
+  /**
+   * Actually sends an email (not just a draft) — used for the HR agreement
+   * link, which needs to reach the employee's inbox without a human having
+   * to open Gmail and hit send.
+   */
+  async sendMail(to: string, subject: string, body: string): Promise<{ messageId: string }> {
+    const auth = this.getOAuth2Client();
+    const gmail = google.gmail({ version: 'v1', auth });
+    const from = this.config.get('GMAIL_FROM') ?? 'purchase.rareprint@gmail.com';
+
+    const rawMessage = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: text/plain; charset=utf-8`,
+      ``,
+      body,
+    ].join('\r\n');
+
+    const encoded = Buffer.from(rawMessage)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const res = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw: encoded },
+    });
+
+    this.logger.log(`Gmail sent: ${res.data.id} → TO: ${to} | subject: ${subject}`);
+    return { messageId: res.data.id ?? '' };
+  }
 }

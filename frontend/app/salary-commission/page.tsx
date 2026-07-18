@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getStoredUser } from "@/lib/auth";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
-import { Loader2, CheckCircle2, ChevronDown, ChevronUp, Wallet, Save, Clock } from "lucide-react";
+import { Loader2, CheckCircle2, ChevronDown, ChevronUp, Wallet, Save, Clock, AlertTriangle } from "lucide-react";
 
 type EmployeeLite = { id: string; fullName: string; email: string; role: string };
 type SalaryInfo = { id: string; fullName: string; role: string; salesAgentCategory: string | null; baseSalary: number };
@@ -12,6 +12,7 @@ type AttendanceSalary = {
   employeeCode: string; year: number; month: number; workingDays: number; leaveDays: number;
   netDays: number; requiredHours: number; hoursWorked: number; absentHours: number;
   baseSalary: number; salary: number; daysMissingPunch: number;
+  overtimeAllowed?: boolean; overtimeHours?: number; overtimePay?: number; approvalRequired?: boolean;
 };
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -197,16 +198,29 @@ export default function SalaryCommissionPage() {
             {loadingAtt ? (
               <div className="text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading...</div>
             ) : attSalary ? (
-              <div className="flex flex-wrap gap-5 text-xs">
-                <div><span className="text-slate-400 block uppercase">Required hrs</span><span className="font-bold text-slate-700">{attSalary.requiredHours}</span></div>
-                <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{attSalary.hoursWorked}</span></div>
-                <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${attSalary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{attSalary.absentHours}</span></div>
-                <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{attSalary.leaveDays}</span></div>
-                {attSalary.daysMissingPunch > 0 && (
-                  <div><span className="text-slate-400 block uppercase">Missing punches</span><span className="font-bold text-amber-600">{attSalary.daysMissingPunch} day(s)</span></div>
+              <>
+                {attSalary.approvalRequired && (
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <AlertTriangle size={14} /> This month's salary is pending Sanket's approval on the HR master record — it will show as payable once approved.
+                  </div>
                 )}
-                <div><span className="text-slate-400 block uppercase">Calculated salary</span><span className="font-bold text-blue-700">{fmt(attSalary.salary)}</span></div>
-              </div>
+                <div className="flex flex-wrap gap-5 text-xs">
+                  <div><span className="text-slate-400 block uppercase">Required hrs</span><span className="font-bold text-slate-700">{attSalary.requiredHours}</span></div>
+                  <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{attSalary.hoursWorked}</span></div>
+                  <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${attSalary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{attSalary.absentHours}</span></div>
+                  <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{attSalary.leaveDays}</span></div>
+                  {attSalary.daysMissingPunch > 0 && (
+                    <div><span className="text-slate-400 block uppercase">Missing punches</span><span className="font-bold text-amber-600">{attSalary.daysMissingPunch} day(s)</span></div>
+                  )}
+                  {!!attSalary.overtimeAllowed && (
+                    <>
+                      <div><span className="text-slate-400 block uppercase">Overtime hrs</span><span className="font-bold text-slate-700">{attSalary.overtimeHours ?? 0}</span></div>
+                      <div><span className="text-slate-400 block uppercase">Overtime pay</span><span className="font-bold text-slate-700">{fmt(attSalary.overtimePay ?? 0)}</span></div>
+                    </>
+                  )}
+                  <div><span className="text-slate-400 block uppercase">{attSalary.approvalRequired ? "Payable (blocked)" : "Calculated salary"}</span><span className={`font-bold ${attSalary.approvalRequired ? "text-amber-600" : "text-blue-700"}`}>{fmt(attSalary.salary)}</span></div>
+                </div>
+              </>
             ) : (
               <div className="text-xs text-slate-400">No attendance recorded for this month yet.</div>
             )}

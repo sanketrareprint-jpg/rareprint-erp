@@ -13,5 +13,6 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
   imports: [PrismaModule, WhatsAppModule, PaperInventoryModule],
   controllers: [ProductionController],
   providers: [ProductionService, ClubbingSheetService, GmailDraftService, WhatsAppService],
+  exports: [GmailDraftService],
 })
 export class ProductionModule {}

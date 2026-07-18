@@ -1,19 +1,32 @@
 // backend/src/hr/hr.controller.ts
 import {
-  Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Query, Req, UseGuards,
+  Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Query, Req, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { HrService, EmployeeUpsertDto } from './hr.service';
+import { HrService, EmployeeUpsertDto, SUPERADMIN_EMAIL } from './hr.service';
 
 @Controller('hr')
 @UseGuards(JwtAuthGuard)
 export class HrController {
-  constructor(private readonly svc: HrService) {}
+  constructor(
+    private readonly svc: HrService,
+    private readonly config: ConfigService,
+  ) {}
 
   // Employee master is HR/payroll data — admin (and accounts, who run payroll) only.
   private assertHrAccess(req: any) {
     if (!['ADMIN', 'ACCOUNTS'].includes(req.user?.role)) {
       throw new ForbiddenException('HR access is restricted to admin/accounts');
+    }
+  }
+
+  // Approving a master record for payroll (and managing company Terms &
+  // Conditions) is restricted to Sanket specifically, not any admin.
+  private assertSuperAdmin(req: any) {
+    if (req.user?.email !== SUPERADMIN_EMAIL) {
+      throw new ForbiddenException('Only Sanket can approve employee records for payroll');
     }
   }
 
@@ -57,6 +70,61 @@ export class HrController {
   ) {
     this.assertHrAccess(req);
     return this.svc.setEmployeeStatus(id, dto.status);
+  }
+
+  // Sanket-only: approve/unapprove a master record for payroll.
+  @Put('employees/:id/approve')
+  approveEmployee(@Param('id') id: string, @Req() req: any) {
+    this.assertSuperAdmin(req);
+    return this.svc.approveEmployee(id, req.user.id);
+  }
+
+  @Put('employees/:id/unapprove')
+  unapproveEmployee(@Param('id') id: string, @Req() req: any) {
+    this.assertSuperAdmin(req);
+    return this.svc.unapproveEmployee(id);
+  }
+
+  // Photo upload — stored as a base64 data URI directly in photoUrl (matches
+  // this repo's existing convention for uploads on hosts with an ephemeral
+  // filesystem, see orders.controller.ts's design-files DB fallback).
+  @Post('employees/:id/photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 3 * 1024 * 1024 } }))
+  async uploadPhoto(@Param('id') id: string, @UploadedFile() file: Express.Multer.File, @Req() req: any) {
+    this.assertHrAccess(req);
+    if (!file) throw new ForbiddenException('file is required (field: file)');
+    if (!file.mimetype?.startsWith('image/')) throw new ForbiddenException('Only image files are allowed');
+    const dataUri = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    return this.svc.updateEmployee(id, { photoUrl: dataUri });
+  }
+
+  // ── Company Terms & Conditions ────────────────────────────────────────
+
+  @Get('terms')
+  listTerms(@Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.listTerms();
+  }
+
+  @Get('terms/active')
+  activeTerms(@Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.getActiveTerms();
+  }
+
+  @Post('terms')
+  createTerms(@Body() dto: { title: string; content: string }, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.createTerms(dto, req.user.id);
+  }
+
+  // ── Digital HR agreement (send only — accept/view is on HrAgreementController, unguarded) ──
+
+  @Post('employees/:id/send-agreement')
+  sendAgreement(@Param('id') id: string, @Req() req: any) {
+    this.assertHrAccess(req);
+    const origin = this.config.get<string>('FRONTEND_ORIGIN') ?? 'https://rareprint-erp.vercel.app';
+    return this.svc.sendAgreement(id, req.user.id, origin);
   }
 
   // ── KRA / Responsibilities ────────────────────────────────────────────
