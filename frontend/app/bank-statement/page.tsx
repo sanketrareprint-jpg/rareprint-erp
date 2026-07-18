@@ -19,6 +19,7 @@ type BankReconcileStatus =
   | "MATCHED_PAYMENT"
   | "MATCHED_VENDOR"
   | "MATCHED_EXPENSE"
+  | "MATCHED_COMMISSION"
   | "MANUAL_REVIEW"
   | "IGNORED";
 
@@ -74,6 +75,7 @@ const STATUS_META: Record<BankReconcileStatus, { label: string; color: string; i
   MATCHED_PAYMENT: { label: "Payment Matched",  color: "bg-green-100 text-green-800",  icon: CheckCircle },
   MATCHED_VENDOR:  { label: "Vendor Matched",   color: "bg-blue-100 text-blue-800",    icon: CheckCircle },
   MATCHED_EXPENSE: { label: "Expense Matched",  color: "bg-purple-100 text-purple-800", icon: CheckCircle },
+  MATCHED_COMMISSION: { label: "Commission Matched", color: "bg-blue-100 text-blue-800", icon: CheckCircle },
   MANUAL_REVIEW:   { label: "Needs Review",     color: "bg-yellow-100 text-yellow-800", icon: AlertCircle },
   UNMATCHED:       { label: "Unmatched",        color: "bg-gray-100 text-gray-600",    icon: Clock },
   IGNORED:         { label: "Ignored",          color: "bg-red-50 text-red-400",        icon: XCircle },
