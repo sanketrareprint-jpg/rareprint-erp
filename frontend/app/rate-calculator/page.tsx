@@ -104,7 +104,7 @@ type Result = {
 // Cuts per parent sheet — mirrors backend CUTS table
 const CUTS: Record<string, Record<string, number>> = {
   '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32, file: 1,
-            env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 1, env11x17: 1 },
+            env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2, env11x17: 1 },
   '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40, file: 2,
             env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2 },
   '1520': { env9x12: 1 },

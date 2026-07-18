@@ -11,11 +11,11 @@ const CUTS: Record<string, Record<string, number>> = {
   //   env425x45 : 4.25x4.5 small        -> open 9x5.5"   -> 8/sheet both
   //   env425x63 : 4.25x6.3 medium       -> open 9x7.3"   -> 6/sheet both
   //   env525x75 : 5.25x7.5 document     -> open 11x8.5"  -> 4/sheet both (rotated)
-  //   env85x11  : 8.5x11 A4-size        -> open 17.5x12" -> 1/18x23, 2/19x25
+  //   env85x11  : 8.5x11 A4-size        -> 2/18x23, 2/19x25
   //   env9x12   : 9x12 catalog          -> open 18.5x13" -> 1/15x20 only (rotated 13x18.5)
   //   env11x17  : 11x17 large           -> open 22.5x18" -> 1/18x23 only (22.5 along 23" side)
   '1823': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 32, file: 1,
-            env4x5: 6, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 1, env11x17: 1 },
+            env4x5: 6, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2, env11x17: 1 },
   '1925': { A4: 4, A5: 8, A6: 16, A8: 64, '1/3A4': 6, DL: 6, visiting: 40, file: 2,
             env4x5: 8, env425x925: 4, env425x45: 8, env425x63: 6, env525x75: 4, env85x11: 2 },
   '1520': { env9x12: 1 }, // 15x20 parent — catalog envelope only
