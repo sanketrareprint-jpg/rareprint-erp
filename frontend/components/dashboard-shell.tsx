@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
-  Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock,
+  Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -46,6 +46,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Cost Table", href: "/cost-table",       icon: Table2 },
     { label: "Bank Stmt",  href: "/bank-statement",   icon: Landmark },
     { label: "COD Remittance", href: "/remittance-import", icon: PackageCheck },
+    { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Settings",   href: "/settings",         icon: Settings },
     { label: "Virtual CEO", href: "/virtual-ceo",     icon: Bot },
     { label: "Activity",   href: "/admin/activity",   icon: Activity },
@@ -89,6 +90,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Cost Table", href: "/cost-table", icon: Table2 },
     { label: "Bank Statement", href: "/bank-statement", icon: Landmark },
     { label: "COD Remittance", href: "/remittance-import", icon: PackageCheck },
+    { label: "Loyalty", href: "/loyalty", icon: Gift },
     { label: "Reports", href: "/reports", icon: FileSpreadsheet },
     { label: "HR",         href: "/hr",               icon: Briefcase },
     { label: "Attendance", href: "/attendance",       icon: CalendarClock },
