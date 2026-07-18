@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Gift, Search, Loader2, AlertCircle, CheckCircle, XCircle,
-  ArrowUpCircle, ArrowDownCircle, RotateCcw, Settings2, Save,
+  ArrowUpCircle, ArrowDownCircle, RotateCcw, Settings2, Save, FlaskConical, Trash2,
 } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -67,6 +67,20 @@ export default function LoyaltyPage() {
   const [configSaved, setConfigSaved] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
 
+  // ── Test mode — simulate earn/redeem/reverse against a throwaway phone
+  // number. Never touches a real Order/Customer/Invoice.
+  const [showTestMode, setShowTestMode] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testSubtotal, setTestSubtotal] = useState("10000");
+  const [testDiscount, setTestDiscount] = useState("0");
+  const [testGrossProfit, setTestGrossProfit] = useState("3000");
+  const [testMissingCost, setTestMissingCost] = useState(false);
+  const [testBillValue, setTestBillValue] = useState("10000");
+  const [testRedeemPoints, setTestRedeemPoints] = useState("");
+  const [testBusy, setTestBusy] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ action: string; data: any } | null>(null);
+
   useEffect(() => {
     fetch(`${API_BASE_URL}/loyalty/config`, { headers: getAuthHeaders() })
       .then((r) => (r.ok ? r.json() : null))
@@ -77,9 +91,7 @@ export default function LoyaltyPage() {
       .finally(() => setConfigLoading(false));
   }, []);
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const phone = phoneInput.trim();
+  const fetchWallet = async (phone: string) => {
     if (!phone) return;
     setLoading(true);
     setError(null);
@@ -97,6 +109,11 @@ export default function LoyaltyPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    void fetchWallet(phoneInput.trim());
   };
 
   const handleSaveConfig = async () => {
@@ -121,6 +138,54 @@ export default function LoyaltyPage() {
     }
   };
 
+  const runTest = async (action: "earn" | "redeem" | "reverse" | "clear") => {
+    const phone = testPhone.trim();
+    if (!phone) { setTestError("Enter a test phone number first"); return; }
+    setTestBusy(action);
+    setTestError(null);
+    try {
+      let url = "";
+      let body: Record<string, unknown> = { phone };
+      if (action === "earn") {
+        url = "/loyalty/test/earn";
+        body = {
+          ...body,
+          subtotal: Number(testSubtotal),
+          discount: Number(testDiscount),
+          hasMissingCost: testMissingCost,
+          ...(testMissingCost ? {} : { grossProfit: Number(testGrossProfit) }),
+        };
+      } else if (action === "redeem") {
+        url = "/loyalty/test/redeem";
+        body = {
+          ...body,
+          billValue: Number(testBillValue),
+          ...(testRedeemPoints.trim() ? { requestedPoints: Number(testRedeemPoints) } : {}),
+        };
+      } else if (action === "reverse") {
+        url = "/loyalty/test/reverse";
+      } else {
+        url = "/loyalty/test/clear";
+      }
+
+      const res = await fetch(`${API_BASE_URL}${url}`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message ?? `Test action failed (${res.status})`);
+      setTestResult({ action, data });
+      // Reflect the test phone in the search box below and refresh its ledger
+      setPhoneInput(phone);
+      void fetchWallet(phone);
+    } catch (err: any) {
+      setTestError(err?.message ?? "Test action failed");
+    } finally {
+      setTestBusy(null);
+    }
+  };
+
   return (
     <DashboardShell>
       <div className="p-4 md:p-6 space-y-5 max-w-5xl mx-auto">
@@ -134,14 +199,145 @@ export default function LoyaltyPage() {
               <p className="text-xs text-gray-500">Look up a customer&apos;s wallet by phone, or tune earn/redeem settings</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowConfig((v) => !v)}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
-            <Settings2 className="w-4 h-4" />
-            {showConfig ? "Hide settings" : "Settings"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTestMode((v) => !v)}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              <FlaskConical className="w-4 h-4" />
+              {showTestMode ? "Hide test mode" : "Test mode"}
+            </button>
+            <button
+              onClick={() => setShowConfig((v) => !v)}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              <Settings2 className="w-4 h-4" />
+              {showConfig ? "Hide settings" : "Settings"}
+            </button>
+          </div>
         </div>
+
+        {/* ── Test mode panel ── */}
+        {showTestMode && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                <FlaskConical className="w-4 h-4 text-amber-600" /> Test Mode
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Simulates earn/redeem/reverse against a throwaway phone number — never touches a real order, customer, or invoice.
+                Use a number only you control, then hit &quot;Clear test data&quot; when done.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Test phone number</label>
+              <input
+                type="text"
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                placeholder="e.g. your own number, 9999999999"
+                className="w-full max-w-xs rounded-lg border border-amber-200 px-3 py-2 text-sm outline-none focus:border-amber-400 bg-white"
+              />
+            </div>
+
+            {/* Simulate earn */}
+            <div className="bg-white rounded-lg border border-amber-100 p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-700">Simulate an order being invoiced</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Subtotal (₹)</label>
+                  <input type="number" value={testSubtotal} onChange={(e) => setTestSubtotal(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Discount (₹)</label>
+                  <input type="number" value={testDiscount} onChange={(e) => setTestDiscount(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Gross profit (₹)</label>
+                  <input type="number" value={testGrossProfit} onChange={(e) => setTestGrossProfit(e.target.value)}
+                    disabled={testMissingCost}
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400 disabled:bg-gray-50 disabled:text-gray-400" />
+                </div>
+                <div className="flex items-end pb-1.5">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <input type="checkbox" checked={testMissingCost} onChange={(e) => setTestMissingCost(e.target.checked)} />
+                    Missing cost slab
+                  </label>
+                </div>
+              </div>
+              <button
+                onClick={() => runTest("earn")}
+                disabled={testBusy !== null}
+                className="flex items-center gap-2 px-3 py-1.5 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50"
+              >
+                {testBusy === "earn" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
+                Simulate Earn
+              </button>
+            </div>
+
+            {/* Simulate redeem */}
+            <div className="bg-white rounded-lg border border-amber-100 p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-700">Simulate redeeming points against a bill</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Bill value (₹)</label>
+                  <input type="number" value={testBillValue} onChange={(e) => setTestBillValue(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Points to redeem (optional)</label>
+                  <input type="number" value={testRedeemPoints} onChange={(e) => setTestRedeemPoints(e.target.value)}
+                    placeholder="max allowed"
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400" />
+                </div>
+              </div>
+              <button
+                onClick={() => runTest("redeem")}
+                disabled={testBusy !== null}
+                className="flex items-center gap-2 px-3 py-1.5 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50"
+              >
+                {testBusy === "redeem" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowDownCircle className="w-3.5 h-3.5" />}
+                Simulate Redeem
+              </button>
+            </div>
+
+            {/* Reverse + clear */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => runTest("reverse")}
+                disabled={testBusy !== null}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-amber-200 text-amber-700 text-xs font-medium rounded-lg hover:bg-amber-50 disabled:opacity-50"
+              >
+                {testBusy === "reverse" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                Simulate Reverse (last earn)
+              </button>
+              <button
+                onClick={() => runTest("clear")}
+                disabled={testBusy !== null}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 ml-auto"
+              >
+                {testBusy === "clear" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Clear test data for this number
+              </button>
+            </div>
+
+            {testError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">{testError}</p>
+              </div>
+            )}
+            {testResult && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-gray-600 mb-1">Result — {testResult.action}</p>
+                <pre className="text-xs text-gray-700 whitespace-pre-wrap break-all">{JSON.stringify(testResult.data, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Config panel ── */}
         {showConfig && (

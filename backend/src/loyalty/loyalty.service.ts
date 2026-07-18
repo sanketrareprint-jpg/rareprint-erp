@@ -332,6 +332,196 @@ export class LoyaltyService {
     }
   }
 
+  // ── Test mode ────────────────────────────────────────────────────────────
+  // Lets someone verify the whole earn/redeem/reverse flow against a
+  // throwaway phone number with zero real Orders/Customers/Invoices
+  // touched. Uses synthetic orderIds (TEST-EARN-*, TEST-REDEEM-*) so
+  // clearTestData can find and wipe exactly what a test run created,
+  // without needing a real order relationship at all.
+  private testOrderId(kind: 'EARN' | 'REDEEM'): string {
+    return `TEST-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  async simulateEarn(input: {
+    phone: string;
+    subtotal: number;
+    discount: number;
+    grossProfit?: number | null;
+    hasMissingCost?: boolean;
+  }): Promise<{
+    points: number;
+    flagged: boolean;
+    flagReason?: string;
+    walletBalance: number;
+    testOrderId: string;
+  }> {
+    const phone = this.normalizePhoneOrNull(input.phone);
+    if (!phone) throw new BadRequestException('Invalid phone number');
+
+    const subtotal = Number(input.subtotal ?? 0);
+    const discount = Number(input.discount ?? 0);
+    const baseAmount = subtotal - discount;
+    const discountPct = subtotal > 0 ? (discount / subtotal) * 100 : 0;
+    const hasMissingCost = !!input.hasMissingCost;
+    const grossProfit = hasMissingCost ? null : (input.grossProfit ?? null);
+
+    const thresholds = await this.getThresholds();
+    const calc = computeEarnPoints({
+      baseAmount,
+      discountPct,
+      grossProfit,
+      hasMissingCost,
+      earnRatePct: thresholds.earnRatePct,
+      gpRatePct: thresholds.gpRatePct,
+      pointCap: thresholds.pointCap,
+    });
+
+    const orderId = this.testOrderId('EARN');
+    const walletBalance = await this.prisma.$transaction(async (tx) => {
+      const wallet = await (tx as any).customerLoyaltyWallet.upsert({
+        where: { phone },
+        create: { phone, points: 0 },
+        update: {},
+      });
+      const updated = calc.points > 0
+        ? await (tx as any).customerLoyaltyWallet.update({
+            where: { id: wallet.id },
+            data: { points: { increment: calc.points } },
+          })
+        : wallet;
+      await (tx as any).customerLoyaltyTransaction.create({
+        data: {
+          walletId: updated.id,
+          orderId,
+          type: 'EARN',
+          points: calc.points,
+          baseAmount,
+          grossProfit: grossProfit ?? null,
+          discountPct: Number(discountPct.toFixed(2)),
+          reason: `[TEST] ${calc.flagged ? `Flagged: ${calc.flagReason}` : 'Simulated earn'}`,
+        },
+      });
+      return updated.points as number;
+    });
+
+    return { points: calc.points, flagged: calc.flagged, flagReason: calc.flagReason, walletBalance, testOrderId: orderId };
+  }
+
+  async simulateRedeem(phone: string, billValue: number, requestedPoints?: number): Promise<{
+    redeemed: number;
+    walletBalance: number;
+    testOrderId: string;
+  }> {
+    const normalized = this.normalizePhoneOrNull(phone);
+    if (!normalized) throw new BadRequestException('Invalid phone number');
+
+    const thresholds = await this.getThresholds();
+    const orderId = this.testOrderId('REDEEM');
+
+    return this.prisma.$transaction(async (tx) => {
+      const rows: any[] = await tx.$queryRawUnsafe(
+        `SELECT * FROM "CustomerLoyaltyWallet" WHERE phone = $1 FOR UPDATE`,
+        normalized,
+      );
+      const wallet = rows[0];
+      if (!wallet) throw new BadRequestException('No test wallet for this phone yet — simulate an earn first');
+
+      const calc = computeRedemption({
+        billValue: Number(billValue ?? 0),
+        availableBalance: Number(wallet.points),
+        requestedPoints,
+        redemptionCapPct: thresholds.redemptionCapPct,
+      });
+
+      if (calc.redeemed > 0) {
+        await (tx as any).customerLoyaltyWallet.update({
+          where: { id: wallet.id },
+          data: { points: { decrement: calc.redeemed } },
+        });
+        await (tx as any).customerLoyaltyTransaction.create({
+          data: {
+            walletId: wallet.id,
+            orderId,
+            type: 'REDEEM',
+            points: -calc.redeemed,
+            reason: '[TEST] Simulated redeem',
+          },
+        });
+      }
+
+      return { redeemed: calc.redeemed, walletBalance: Number(wallet.points) - calc.redeemed, testOrderId: orderId };
+    });
+  }
+
+  async simulateReverse(phone: string): Promise<{
+    reversed: boolean;
+    needsManualReconciliation?: boolean;
+    walletBalance?: number;
+  }> {
+    const normalized = this.normalizePhoneOrNull(phone);
+    if (!normalized) throw new BadRequestException('Invalid phone number');
+
+    const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({ where: { phone: normalized } });
+    if (!wallet) throw new BadRequestException('No test wallet found for this phone');
+
+    const lastEarn = await (this.prisma as any).customerLoyaltyTransaction.findFirst({
+      where: { walletId: wallet.id, type: 'EARN', orderId: { startsWith: 'TEST-EARN-' } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!lastEarn) throw new BadRequestException('No simulated earn found to reverse — run "Simulate Earn" first');
+
+    const alreadyReversed = await (this.prisma as any).customerLoyaltyTransaction.findFirst({
+      where: { orderId: lastEarn.orderId, type: 'REVERSE' },
+    });
+    if (alreadyReversed) throw new BadRequestException('That simulated earn was already reversed');
+
+    return this.prisma.$transaction(async (tx) => {
+      const rows: any[] = await tx.$queryRawUnsafe(
+        `SELECT * FROM "CustomerLoyaltyWallet" WHERE id = $1 FOR UPDATE`,
+        wallet.id,
+      );
+      const fresh = rows[0];
+      const calc = computeReversal(Number(fresh.points), Number(lastEarn.points));
+
+      await (tx as any).customerLoyaltyWallet.update({ where: { id: fresh.id }, data: { points: calc.newBalance } });
+      await (tx as any).customerLoyaltyTransaction.create({
+        data: {
+          walletId: fresh.id,
+          orderId: lastEarn.orderId,
+          type: 'REVERSE',
+          points: -Number(lastEarn.points),
+          reason: `[TEST] Simulated reverse${calc.needsManualReconciliation ? ' — flagged for manual reconciliation' : ''}`,
+        },
+      });
+
+      return { reversed: true, needsManualReconciliation: calc.needsManualReconciliation, walletBalance: calc.newBalance };
+    });
+  }
+
+  // Wipes everything a test run created for this phone (transactions with a
+  // TEST-* orderId) and recomputes the wallet balance from what's left —
+  // does not touch any transaction tied to a real order.
+  async clearTestData(phone: string): Promise<{ cleared: number; walletBalance: number }> {
+    const normalized = this.normalizePhoneOrNull(phone);
+    if (!normalized) throw new BadRequestException('Invalid phone number');
+
+    const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({ where: { phone: normalized } });
+    if (!wallet) return { cleared: 0, walletBalance: 0 };
+
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await (tx as any).customerLoyaltyTransaction.deleteMany({
+        where: { walletId: wallet.id, orderId: { startsWith: 'TEST-' } },
+      });
+      const remaining = await (tx as any).customerLoyaltyTransaction.aggregate({
+        where: { walletId: wallet.id },
+        _sum: { points: true },
+      });
+      const newBalance = Number(remaining._sum.points ?? 0);
+      await (tx as any).customerLoyaltyWallet.update({ where: { id: wallet.id }, data: { points: newBalance } });
+      return { cleared: count as number, walletBalance: newBalance };
+    });
+  }
+
   // ── Reporting ────────────────────────────────────────────────────────────
   // Wallet + ledger by phone, for support ("how many points do I have") and
   // finance (auditing payouts).

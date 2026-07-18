@@ -37,4 +37,33 @@ export class LoyaltyController {
   updateConfig(@Body() body: Partial<LoyaltyThresholds>) {
     return this.loyaltyService.updateThresholds(body);
   }
+
+  // ── Test mode — simulate earn/redeem/reverse against a throwaway phone
+  // number. Never touches a real Order/Customer/Invoice; safe to use
+  // repeatedly and to wipe with /test/clear when done. ─────────────────────
+  @Post('test/earn')
+  simulateEarn(@Body() body: {
+    phone: string;
+    subtotal: number;
+    discount: number;
+    grossProfit?: number;
+    hasMissingCost?: boolean;
+  }) {
+    return this.loyaltyService.simulateEarn(body);
+  }
+
+  @Post('test/redeem')
+  simulateRedeem(@Body() body: { phone: string; billValue: number; requestedPoints?: number }) {
+    return this.loyaltyService.simulateRedeem(body.phone, body.billValue, body.requestedPoints);
+  }
+
+  @Post('test/reverse')
+  simulateReverse(@Body() body: { phone: string }) {
+    return this.loyaltyService.simulateReverse(body.phone);
+  }
+
+  @Post('test/clear')
+  clearTestData(@Body() body: { phone: string }) {
+    return this.loyaltyService.clearTestData(body.phone);
+  }
 }
