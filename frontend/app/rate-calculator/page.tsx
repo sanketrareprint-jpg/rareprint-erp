@@ -114,6 +114,7 @@ const CUTS: Record<string, Record<string, number>> = {
 type ProductConfig = {
   label: string;
   fixedSize?: string;
+  fixedSizeLabel?: string; // human-readable dimension for a fixedSize product (e.g. "12×18\"")
   fixedParent?: string;
   sizes?: { value: string; label: string }[];
   hasSheetsPerUnit?: boolean;
@@ -167,10 +168,10 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
   sticker:     { label: "Sticker",
                 fixedInfo: "In-house uses 12×18 sheets with 11.5×17.5 printable area. Clubbing is only plain stickers above 1000 pcs and 6 sq inch block area." },
   file:       { label: "Files with Punching",
-                fixedSize: "file", fixedParent: "1925",
+                fixedSize: "file", fixedParent: "1925", fixedSizeLabel: "12×18\"",
                 fixedInfo: "Fixed: 12×18 inch size | 19×25\" parent sheet | 2 per sheet" },
   visiting:   { label: "Visiting Cards",
-                fixedSize: "visiting",
+                fixedSize: "visiting", fixedSizeLabel: "3.5×2\"",
                 fixedInfo: "Fixed: 3.5×2\" visiting card | 32 per 18×23\" / 40 per 19×25\" sheet" },
 };
 
@@ -195,13 +196,45 @@ async function fetchNextQuotationNumber(): Promise<string> {
   return String(Date.now()).slice(-6);
 }
 
-/** Looks up the human-readable size label (with its inch/cm unit already
- *  baked in, e.g. 4.25×4.5" Small) instead of printing the raw option value
- *  (e.g. "env425x45") in the quotation text. */
+// Standard paper sizes get their exact dimension appended in brackets, e.g.
+// "A4 (8.27×11.69")" — these are the fixed ISO 216 dimensions, not specific
+// to any particular parent sheet this shop cuts from.
+const STANDARD_SIZE_DIMENSIONS: Record<string, string> = {
+  A4: "8.27×11.69\"",
+  A5: "5.83×8.27\"",
+  A6: "4.13×5.83\"",
+  A8: "2.05×2.91\"",
+};
+
+function appendStandardDimension(label: string) {
+  const dim = STANDARD_SIZE_DIMENSIONS[label];
+  return dim ? `${label} (${dim})` : label;
+}
+
+/** Looks up the human-readable size label (with its inch unit already baked
+ *  in, e.g. 4.25×4.5" Small) instead of printing the raw option value (e.g.
+ *  "env425x45") in the quotation text. Standard sizes (A4, A5...) get their
+ *  exact dimension appended in brackets; fixed-size products (Files, Visiting
+ *  Cards) resolve to their documented dimension instead of the raw internal
+ *  key ("file", "visiting"). */
 function formatFinalSize(product: string | undefined, fsize: string | undefined) {
   if (!fsize) return "";
-  const sizes = product ? PRODUCT_CONFIG[product]?.sizes : undefined;
-  return sizes?.find(s => s.value === fsize)?.label ?? fsize;
+  const config = product ? PRODUCT_CONFIG[product] : undefined;
+  if (config?.fixedSize && fsize === config.fixedSize && config.fixedSizeLabel) {
+    return config.fixedSizeLabel;
+  }
+  const label = config?.sizes?.find(s => s.value === fsize)?.label ?? fsize;
+  return appendStandardDimension(label);
+}
+
+/** Reformats a raw "WxH" dimension string (e.g. "4x6", "9.5x11") into
+ *  "4×6"" — used for sizes that are already plain numeric dimensions
+ *  (dot matrix bill, non-woven bag) but were missing a unit suffix. */
+function formatRawDimension(raw?: string) {
+  if (!raw) return "";
+  const match = raw.match(/^(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)$/);
+  if (!match) return raw;
+  return `${match[1]}×${match[2]}"`;
 }
 
 function formatYesNo(value?: boolean) {
@@ -231,7 +264,8 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     details.push(`Envelope Making: ${inputParams.envelope && inputParams.envelope !== "none" ? inputParams.envelope : "No"}`);
   } else {
     details.push("Product Details:");
-    if (inputParams.qty) details.push(`Quantity: ${inputParams.qty.toLocaleString("en-IN")}`);
+    // Quantity is already printed once near the top of the quotation (see
+    // buildQuotationText's own `qty` line) — don't repeat it in this section.
 
     if (inputParams.product === "file") {
       details.push(`File Clip: ${inputParams.fileClip !== false ? "Yes" : "No"}`);
@@ -257,10 +291,10 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     } else if (inputParams.product === "diagnosticbag") {
       details.push(`Bag Type: ${inputParams.bagSize === "big" ? "Big CT Scan Bag (16x21 inch)" : "Small X-ray Bag (10.5x16 inch)"}`);
     } else if (inputParams.product === "nonwovenbag") {
-      details.push(`Bag Size: ${inputParams.nonWovenSize || ""}`);
+      details.push(`Bag Size: ${formatRawDimension(inputParams.nonWovenSize)}`);
       details.push(`Printing: ${inputParams.nonWovenPrintMode === "multicolor" ? "Multicolor" : "Single Color"}`);
     } else if (inputParams.product === "dotmatrixbill") {
-      details.push(`Size: ${inputParams.dotMatrixSize || ""}`);
+      details.push(`Size: ${formatRawDimension(inputParams.dotMatrixSize)}`);
       details.push(`GSM: ${inputParams.dotMatrixGsm || ""}`);
       details.push(`Carbon Copy: ${inputParams.carbonCopy ? "Yes" : "No"}`);
     } else if (inputParams.product === "keychain") {
