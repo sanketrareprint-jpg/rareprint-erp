@@ -152,6 +152,45 @@ export class CostTableService {
     });
   }
 
+  // ── Single-order gross profit (used by loyalty points earn calc) ──────────
+  // Same cost-lookup approach as profitRows() above: sum lineCostTotal() per
+  // item, and if ANY item is missing a cost slab, grossProfit comes back null
+  // rather than silently under-costing the order.
+  async computeOrderGrossProfit(orderId: string): Promise<{
+    costTotal: number | null;
+    grossProfit: number | null;
+    hasMissingCost: boolean;
+  }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: { product: { include: { costSlabs: true } } as any },
+        },
+      },
+    });
+    if (!order) return { costTotal: null, grossProfit: null, hasMissingCost: true };
+
+    const saleTotal = Number(order.grandTotal);
+    let costTotal = 0;
+    let hasMissingCost = false;
+    for (const item of order.items as any[]) {
+      const lineCost = this.lineCostTotal(item);
+      if (lineCost == null) {
+        hasMissingCost = true;
+        continue;
+      }
+      costTotal += lineCost;
+    }
+
+    if (hasMissingCost) return { costTotal: null, grossProfit: null, hasMissingCost: true };
+    return {
+      costTotal: Number(costTotal.toFixed(2)),
+      grossProfit: Number((saleTotal - costTotal).toFixed(2)),
+      hasMissingCost: false,
+    };
+  }
+
   // ── Settings ─────────────────────────────────────────────────────────────
 
   getSettings(): CostSettings {

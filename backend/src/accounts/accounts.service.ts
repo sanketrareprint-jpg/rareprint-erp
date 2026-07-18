@@ -18,6 +18,7 @@ import {
 } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CostTableService } from '../cost-table/cost-table.service';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -82,6 +83,7 @@ export class AccountsService {
     private prisma: PrismaService,
     private whatsapp: WhatsAppService,
     private costTable: CostTableService,
+    private loyalty: LoyaltyService,
   ) {}
 
   private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
@@ -568,14 +570,27 @@ export class AccountsService {
       },
     }).catch(() => undefined));
 
+    // Loyalty points earn on invoicing. Fire-and-forget with its own catch so
+    // a loyalty bug never blocks order approval — the order/invoice are
+    // already committed above.
+    this.loyalty.earnForOrder(orderId).catch((err) =>
+      console.error(`Loyalty earnForOrder failed for order ${orderId}:`, err),
+    );
+
     return result.approved;
   }
 
   async rejectOrder(orderId: string, reason: string) {
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: { status: OrderStatus.CANCELLED },
     });
+    // No-op unless points were already earned on this order (e.g. rejected
+    // after a prior approval was undone some other way) — safe either way.
+    this.loyalty.reverseForOrder(orderId, reason || 'Order rejected/cancelled').catch((err) =>
+      console.error(`Loyalty reverseForOrder failed for order ${orderId}:`, err),
+    );
+    return updated;
   }
 
   // ── Return order to accounts (back to PENDING_APPROVAL) ──────────────────

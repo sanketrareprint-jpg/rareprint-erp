@@ -361,6 +361,9 @@ model Order {
   isTest           Boolean                 @default(false)
   isSample         Boolean                 @default(false)
   samplePaymentType String?               // "PREPAID" | "COD" — set by accounts on approval
+  loyaltyPointsEarned    Int?              // points credited on invoicing (see CustomerLoyaltyTransaction)
+  loyaltyPointsRedeemed  Int?              // points redeemed against this bill
+  loyaltyDiscountAmount  Decimal?          @db.Decimal(12, 2) // ₹ value of redeemed points — excluded from `discount` on purpose
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   productionStage  OrderProductionStage    @default(NOT_PRINTED)
@@ -1456,6 +1459,48 @@ model RewardTransaction {
   createdAt      DateTime     @default(now())
   wallet         RewardWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
+  @@index([walletId])
+}
+
+// ── Customer Loyalty Points ──────────────────────────────────────────────────
+// Keyed by normalized phone number, not customerId — Customer has no unique
+// constraint on phone, and staff sometimes create a new customer record for
+// a repeat buyer. This survives duplicate customer records and walk-in
+// re-entries. Distinct from RewardWallet/RewardTransaction above, which are
+// staff-facing coin rewards keyed on User.id — a different concept.
+enum LoyaltyTxnType {
+  EARN
+  REDEEM
+  REVERSE
+  ADJUST
+}
+
+model CustomerLoyaltyWallet {
+  id           String                        @id @default(cuid())
+  phone        String                        @unique // normalized, e.g. 91XXXXXXXXXX
+  customerId   String?                       // soft reference, last known Customer
+  points       Int                           @default(0)
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+  transactions CustomerLoyaltyTransaction[]
+
+  @@index([customerId])
+}
+
+model CustomerLoyaltyTransaction {
+  id          String                 @id @default(cuid())
+  walletId    String
+  orderId     String?
+  type        LoyaltyTxnType
+  points      Int                    // + for EARN, − for REDEEM/REVERSE
+  baseAmount  Decimal?               @db.Decimal(14, 2)
+  grossProfit Decimal?               @db.Decimal(14, 2)
+  discountPct Decimal?               @db.Decimal(5, 2)
+  reason      String?
+  createdAt   DateTime               @default(now())
+  wallet      CustomerLoyaltyWallet  @relation(fields: [walletId], references: [id])
+
+  @@unique([orderId, type]) // one EARN / one REDEEM / one REVERSE per order
   @@index([walletId])
 }
 

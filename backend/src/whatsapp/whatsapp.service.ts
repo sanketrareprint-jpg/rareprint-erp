@@ -245,6 +245,27 @@ export class WhatsAppService {
     });
   }
 
+  async sendLoyaltyPointsEarned(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    pointsEarned: number;
+    newBalance: number;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_LOYALTY_EARNED_CAMPAIGN ?? 'loyalty_points_earned_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      orderNo: params.orderNo,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.orderNo,
+        String(params.pointsEarned),
+        String(params.newBalance),
+      ],
+    });
+  }
+
   async sendOrderReassurance(params: {
     campaignName: string;
     customerName: string;
@@ -300,7 +321,9 @@ export class WhatsAppService {
   }
 
   // ── Normalize phone to E.164 with India +91 ──────────────────────────────
-  private normalizePhone(raw: string): string | null {
+  // Public: reused by LoyaltyService to key wallets by phone the same way
+  // every other WhatsApp send in this file does.
+  normalizePhone(raw: string): string | null {
     const digits = raw.replace(/\D/g, '');
     if (digits.length === 10) return `91${digits}`;
     if (digits.length === 12 && digits.startsWith('91')) return digits;
