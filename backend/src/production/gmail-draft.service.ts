@@ -159,8 +159,13 @@ export class GmailDraftService {
     // The object shape itself is correct per nodemailer's own docs.
     return nodemailer.createTransport({
       host,
-      port: 465,
-      secure: true,
+      // Port 587 (STARTTLS) instead of 465 (implicit TLS) — a direct-IPv4
+      // connection to 465 still timed out on Railway, which rules out the
+      // earlier IPv6 theory and points at 465 itself being blocked
+      // outbound. 587 is sometimes treated differently by network policy.
+      port: 587,
+      secure: false,
+      requireTLS: true,
       tls: { servername: 'smtp.gmail.com' },
       auth: { user, pass },
       family: 4,
