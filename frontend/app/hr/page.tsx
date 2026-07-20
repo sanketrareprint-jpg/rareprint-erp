@@ -300,7 +300,7 @@ export default function HrPage() {
             <p className="text-sm text-slate-500">Registration, KRA/responsibilities, leave ledger — the source Salary & Attendance read from.</p>
           </div>
           {mode === "list" ? (
-            <button onClick={openCreate} className="inline-flex items-center gap-1 text-xs font-semibold bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700">
+            <button onClick={openCreate} className="inline-flex items-center gap-1 text-xs font-semibold bg-brand-600 text-white rounded-lg px-3 py-2 hover:bg-brand-700">
               <Plus size={14} /> New Employee
             </button>
           ) : (
@@ -338,7 +338,7 @@ export default function HrPage() {
                   <input value={termsForm.title} onChange={(e) => setTermsForm({ ...termsForm, title: e.target.value })} placeholder="Title, e.g. RarePrint Employee Agreement" className={INPUT_CLS} />
                   <textarea value={termsForm.content} onChange={(e) => setTermsForm({ ...termsForm, content: e.target.value })} rows={6} placeholder="Full terms & conditions text shown to the employee..." className={INPUT_CLS} />
                   <div className="flex gap-2">
-                    <button onClick={handleSaveTerms} disabled={savingTerms} className="inline-flex items-center gap-1 text-xs font-semibold bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-50">
+                    <button onClick={handleSaveTerms} disabled={savingTerms} className="inline-flex items-center gap-1 text-xs font-semibold bg-brand-600 text-white rounded-lg px-3 py-1.5 hover:bg-brand-700 disabled:opacity-50">
                       {savingTerms ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Publish as new version
                     </button>
                     <button onClick={() => setShowTermsEditor(false)} className="text-xs font-semibold bg-slate-100 text-slate-700 rounded-lg px-3 py-1.5">Cancel</button>
@@ -477,7 +477,7 @@ export default function HrPage() {
               </div>
               <Field label="Address" full><textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} rows={2} className={INPUT_CLS} /></Field>
               <Field label="Notes" full><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className={INPUT_CLS} /></Field>
-              <button onClick={handleSave} disabled={saving} className="inline-flex items-center gap-1 text-xs font-semibold bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving} className="inline-flex items-center gap-1 text-xs font-semibold bg-brand-600 text-white rounded-lg px-3 py-2 hover:bg-brand-700 disabled:opacity-50">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
               </button>
               {mode === "edit" && detail && !detail.masterDataApproved && (

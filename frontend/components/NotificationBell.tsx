@@ -205,7 +205,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
     const type = n.type;
     if (n.isResolved) return null;
 
-    const btn = (label: string, action: string, color = "#2563eb") => (
+    const btn = (label: string, action: string, color = "#ee1c25") => (
       <button key={action} onClick={() => doAction(n.id, action)} style={{
         padding: "4px 10px", borderRadius: "6px", border: "none", cursor: "pointer",
         background: color, color: "white", fontSize: "11px", fontWeight: 600,
@@ -327,7 +327,7 @@ export function NotificationBell({ userRole }: { userRole: string }) {
             <span style={{ fontWeight: 700, fontSize: "15px", color: "#1e293b" }}>🔔 Notifications</span>
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               {unreadCount > 0 && (
-                <button onClick={markAllRead} style={{ fontSize: "11px", color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                <button onClick={markAllRead} style={{ fontSize: "11px", color: "#ee1c25", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
                   Mark all read
                 </button>
               )}
@@ -344,9 +344,9 @@ export function NotificationBell({ userRole }: { userRole: string }) {
                 return (
                   <button key={t} onClick={() => setTab(t)} style={{
                     flex: 1, padding: "8px 4px", fontSize: "11px", fontWeight: 600, border: "none", cursor: "pointer",
-                    background: isActive ? "#eff6ff" : "transparent",
-                    color: isActive ? "#2563eb" : "#64748b",
-                    borderBottom: isActive ? "2px solid #2563eb" : "2px solid transparent",
+                    background: isActive ? "#fef1f1" : "transparent",
+                    color: isActive ? "#ee1c25" : "#64748b",
+                    borderBottom: isActive ? "2px solid #ee1c25" : "2px solid transparent",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
                   }}>
                     {label}

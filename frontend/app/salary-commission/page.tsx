@@ -170,7 +170,7 @@ export default function SalaryCommissionPage() {
                 <button
                   onClick={handleSaveSalary}
                   disabled={savingSalary}
-                  className="inline-flex items-center gap-1 text-xs font-semibold bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 text-xs font-semibold bg-brand-600 text-white rounded-lg px-3 py-1.5 hover:bg-brand-700 disabled:opacity-50"
                 >
                   {savingSalary ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                   Save

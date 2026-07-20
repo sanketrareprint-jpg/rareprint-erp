@@ -439,7 +439,7 @@ function DynamicRateSection({
         <input type="number" step={step} placeholder={addValPlaceholder} value={nv} onChange={e => setNv(e.target.value)}
           className="w-28 border border-blue-200 rounded-lg text-xs px-2 py-1.5 shrink-0" />
         <button onClick={add}
-          className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold shrink-0">+ Add</button>
+          className="bg-brand-500 hover:bg-brand-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold shrink-0">+ Add</button>
       </div>
     </div>
   );
@@ -495,7 +495,7 @@ function DynamicPaperRates({ data, onUpdate }: { data: Record<string, number>; o
         </div>
       </div>
       <button onClick={add}
-        className="w-full bg-blue-500 hover:bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold mt-1">+ Add Paper Type</button>
+        className="w-full bg-brand-500 hover:bg-brand-600 text-white rounded-lg py-1.5 text-xs font-semibold mt-1">+ Add Paper Type</button>
     </div>
   );
 }
@@ -616,7 +616,7 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
         <p className="text-sm font-bold text-blue-800">💰 Commission Calculator</p>
         <div className="flex gap-1">
           <button onClick={() => setAgentType("office")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${agentType === "office" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-blue-600 border-blue-300"}`}>
+            className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${agentType === "office" ? "bg-brand-600 text-white border-brand-600" : "bg-white text-brand-600 border-brand-300"}`}>
             🏢 Office — {fmt(officeComm)}
           </button>
           <button onClick={() => setAgentType("wfh")}
@@ -1386,7 +1386,7 @@ export default function RateCalculatorPage() {
                 if (t.id === "history") loadHistory();
                 if (t.id === "clubbing") loadClubbing();
               }}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all min-w-[52px] ${tab === t.id ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all min-w-[52px] ${tab === t.id ? "bg-white text-brand-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {t.label}
               </button>
             ))}
@@ -1474,7 +1474,7 @@ export default function RateCalculatorPage() {
                       value={fMult} onChange={e => setFMult(e.target.value === "" ? "" : +e.target.value)} />
                   </Field>
                   <button onClick={calcForward} disabled={loading}
-                    className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
+                    className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
                     {loading ? "Calculating…" : "🧮 Calculate"}
                   </button>
                 </div>
@@ -1866,7 +1866,7 @@ export default function RateCalculatorPage() {
                     </Field>
                   )}
                   <button onClick={calcReverse} disabled={loading}
-                    className="bg-blue-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60">
+                    className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
                     {loading ? "Calculating…" : "🧮 Calculate"}
                   </button>
                 </div>
@@ -2020,7 +2020,7 @@ export default function RateCalculatorPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div className="rounded-lg bg-blue-600 text-white p-4 text-center">
+                  <div className="rounded-lg bg-brand-600 text-white p-4 text-center">
                     <div className="text-xs opacity-80 mb-1">Total Cost</div>
                     <div className="text-2xl font-extrabold">{fmt(nwCalc.totalCost)}</div>
                     <div className="text-xs opacity-70 mt-0.5">for {Number(nwBag.quantity).toLocaleString("en-IN")} bags</div>
@@ -2502,7 +2502,7 @@ function AddTierRow({ onAdd }: { onAdd: (tier: string, val: string) => void }) {
         onChange={e => setRate(e.target.value)}
         className="w-20 border border-blue-200 rounded text-xs px-2 py-1" />
       <button onClick={handle}
-        className="bg-blue-500 hover:bg-blue-600 text-white rounded px-2 py-1 text-xs font-semibold">+ Add</button>
+        className="bg-brand-500 hover:bg-brand-600 text-white rounded px-2 py-1 text-xs font-semibold">+ Add</button>
     </div>
   );
 }

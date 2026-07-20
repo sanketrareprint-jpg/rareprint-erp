@@ -409,9 +409,9 @@ export default function AdminDbPage() {
           <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
             {tables.map(t => (
               <button key={t} onClick={() => loadTable(t, 1, search)}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors ${activeTable === t ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}`}>
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors ${activeTable === t ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-600 hover:bg-slate-50"}`}>
                 <span className="truncate">{TABLE_LABELS[t] || t}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTable === t ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"}`}>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTable === t ? "bg-brand-100 text-brand-600" : "bg-slate-100 text-slate-500"}`}>
                   {counts[t] ?? 0}
                 </span>
               </button>
@@ -473,7 +473,7 @@ export default function AdminDbPage() {
                     + Add Record
                   </button>
                   <button onClick={() => { setImportCsvText(""); setImportFileName(null); setImportResult(null); setShowImportModal(true); }}
-                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700">
+                    className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-700">
                     <Upload className="h-3 w-3" /> Bulk Import
                   </button>
                   <div className="relative">
@@ -524,7 +524,7 @@ export default function AdminDbPage() {
                             ) : (
                               <div className="flex gap-1">
                                 <button onClick={() => { setEditingRow(rowId); setEditData(rowEditData); }}
-                                  className="p-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100"><Edit2 className="h-3 w-3" /></button>
+                                  className="p-1 rounded bg-brand-50 text-brand-600 hover:bg-brand-100"><Edit2 className="h-3 w-3" /></button>
                                 {!PROTECTED.includes(activeTable) && (
                                   <button onClick={() => deleteRow(rowId)}
                                     className="p-1 rounded bg-red-50 text-red-500 hover:bg-red-100"><Trash2 className="h-3 w-3" /></button>
@@ -647,7 +647,7 @@ export default function AdminDbPage() {
               Close
             </button>
             <button onClick={bulkImport} disabled={importLoading || !importCsvText.trim()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium">
               {importLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Importing...</> : <><Upload className="h-3 w-3" /> Import Records</>}
             </button>
           </div>

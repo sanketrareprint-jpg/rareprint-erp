@@ -518,7 +518,7 @@ export default function CreateOrderPage() {
           ))}
           <div className="create-order-total-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setLineItems(p => [...p, emptyLine()])}
-              style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px dashed #93c5fd", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#2563eb", background: "none", cursor: "pointer" }}>
+              style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px dashed #93c5fd", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#ee1c25", background: "none", cursor: "pointer" }}>
               <Plus style={{ width: 14, height: 14 }} /> Add Item
             </button>
             <div style={{ textAlign: "right" }}>
@@ -535,7 +535,7 @@ export default function CreateOrderPage() {
             Cancel
           </button>
           <button onClick={submitOrder} disabled={submitting}
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px", borderRadius: "6px", border: "none", background: "#2563eb", padding: "8px 20px", fontSize: "13px", fontWeight: 600, color: "white", cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", borderRadius: "6px", border: "none", background: "#ee1c25", padding: "8px 20px", fontSize: "13px", fontWeight: 600, color: "white", cursor: "pointer", opacity: submitting ? 0.6 : 1 }}>
             {submitting ? <Loader2 style={{ width: 15, height: 15 }} /> : <Plus style={{ width: 15, height: 15 }} />}
             Create Order
           </button>

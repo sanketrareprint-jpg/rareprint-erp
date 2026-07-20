@@ -437,7 +437,7 @@ export default function BankStatementPage() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={importing}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               {importing ? "Importing…" : "Import Statement"}
@@ -715,7 +715,7 @@ export default function BankStatementPage() {
                       </p>
                       <button
                         onClick={() => openReconcile(txn)}
-                        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex-shrink-0"
+                        className="px-3 py-1.5 text-xs font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 flex-shrink-0"
                       >
                         Map Now
                       </button>
@@ -765,7 +765,7 @@ export default function BankStatementPage() {
                 <button
                   onClick={addVendorKeyword}
                   disabled={vkLoading || !newVkKeyword.trim() || !newVkVendorId}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50"
                 >
                   {vkLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add Rule
                 </button>
@@ -927,7 +927,7 @@ export default function BankStatementPage() {
               {/* ── Vendor mapping ── */}
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <div
-                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer ${reconcileForm.reconcileStatus === "MATCHED_VENDOR" ? "bg-blue-600 text-white" : "bg-gray-50 text-gray-700"}`}
+                  className={`flex items-center justify-between px-3 py-2.5 cursor-pointer ${reconcileForm.reconcileStatus === "MATCHED_VENDOR" ? "bg-brand-600 text-white" : "bg-gray-50 text-gray-700"}`}
                   onClick={() => setReconcileForm((f) => ({
                     ...f,
                     reconcileStatus: f.reconcileStatus === "MATCHED_VENDOR" ? "UNMATCHED" : "MATCHED_VENDOR",
@@ -1038,7 +1038,7 @@ export default function BankStatementPage() {
               <button
                 onClick={submitReconcile}
                 disabled={reconcilingLoading}
-                className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="flex-1 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {reconcilingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                 Save Mapping

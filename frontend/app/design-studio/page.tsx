@@ -332,7 +332,7 @@ export default function DesignStudioPage() {
             </div>
             <div className="flex gap-2">
               <button onClick={resetDatabase} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"><RefreshCw className="h-4 w-4" /> Reset</button>
-              <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"><Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy Prompt"}</button>
+              <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700"><Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy Prompt"}</button>
             </div>
           </div>
 
@@ -377,7 +377,7 @@ export default function DesignStudioPage() {
                       <input readOnly value={newSize.height} className="input bg-slate-100" />
                     </div>
                     <input readOnly value={newSize.notes} className="input bg-slate-100" />
-                    <button onClick={addSize} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700"><Plus className="h-4 w-4" /> Add Size</button>
+                    <button onClick={addSize} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-bold text-white hover:bg-brand-700"><Plus className="h-4 w-4" /> Add Size</button>
                   </div>
                 </div>
               </div>
@@ -453,7 +453,7 @@ export default function DesignStudioPage() {
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-sm font-bold">Generated Prompt</h2>
-                  <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy"}</button>
+                  <button onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-700"><Clipboard className="h-4 w-4" /> {copied ? "Copied" : "Copy"}</button>
                 </div>
                 <textarea readOnly value={prompt} rows={18} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-xs leading-5 text-slate-800 outline-none" />
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">Hindi, Marathi, and Devanagari text is protected in every generated prompt. The prompt explicitly tells AI not to change that font/text.</div>
@@ -505,7 +505,7 @@ function RepeatableFields({
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 md:col-span-2">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="text-xs font-bold text-slate-600">{title}</p>
-        <button onClick={onAdd} className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-1 text-[11px] font-bold text-blue-700 hover:bg-blue-50"><Plus className="h-3 w-3" /> {addLabel}</button>
+        <button onClick={onAdd} className="inline-flex items-center gap-1 rounded-md border border-brand-200 px-2 py-1 text-[11px] font-bold text-brand-700 hover:bg-brand-50"><Plus className="h-3 w-3" /> {addLabel}</button>
       </div>
       <div className="space-y-2">
         {values.length === 0 ? (

@@ -10,6 +10,18 @@
   --color-foreground: var(--foreground);
   --font-sans: Arial, Helvetica, sans-serif;
   --font-mono: "Courier New", Courier, monospace;
+
+  /* RarePrint brand red — replaces the old blue accent as the primary theme color */
+  --color-brand-50: #fef1f1;
+  --color-brand-100: #fddbdc;
+  --color-brand-200: #fab7b8;
+  --color-brand-300: #f58589;
+  --color-brand-400: #ef4d53;
+  --color-brand-500: #f23a3f;
+  --color-brand-600: #ee1c25;
+  --color-brand-700: #c4141c;
+  --color-brand-800: #9e1017;
+  --color-brand-900: #7a0c11;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -167,8 +179,8 @@ textarea {
   .erp-mobile-logo {
     width: 36px;
     height: 36px;
-    border-radius: 12px;
-    background: #2563eb;
+    border-radius: 50%;
+    background: #ee1c25;
     color: white;
     display: inline-flex;
     align-items: center;
@@ -212,8 +224,8 @@ textarea {
 
   .erp-bottom-nav-item.is-active {
     color: #ffffff;
-    background: #2563eb;
-    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.28);
+    background: #ee1c25;
+    box-shadow: 0 8px 22px rgba(238, 28, 37, 0.28);
   }
 
   .erp-mobile-menu-backdrop {
@@ -267,9 +279,9 @@ textarea {
   }
 
   .erp-mobile-menu-item.is-active {
-    border-color: #2563eb;
-    background: #eff6ff;
-    color: #1d4ed8;
+    border-color: #ee1c25;
+    background: #fef1f1;
+    color: #c4141c;
   }
 
   .erp-mobile-logout {
@@ -429,6 +441,7 @@ textarea {
   }
 
   .erp-main .md\:hidden .bg-blue-700,
+  .erp-main .md\:hidden .bg-brand-700,
   .erp-main .md\:hidden .bg-slate-900,
   .erp-main .md\:hidden .bg-orange-600,
   .erp-main .md\:hidden .bg-orange-700,
@@ -443,6 +456,7 @@ textarea {
   }
 
   .erp-main .md\:hidden .text-blue-100,
+  .erp-main .md\:hidden .text-brand-100,
   .erp-main .md\:hidden .text-orange-100,
   .erp-main .md\:hidden .text-slate-300 {
     color: #64748b !important;
@@ -450,8 +464,8 @@ textarea {
 
   .erp-main .md\:hidden .bg-white\/15,
   .erp-main .md\:hidden .bg-white\/20 {
-    background: #eff6ff !important;
-    color: #1d4ed8 !important;
+    background: #fef1f1 !important;
+    color: #c4141c !important;
   }
 
   .erp-main .md\:hidden .rounded-xl,

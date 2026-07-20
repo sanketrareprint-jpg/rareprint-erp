@@ -244,7 +244,7 @@ export default function PaperInventoryPage() {
           {tab === "po" && (
             <button
               onClick={() => setShowCreatePO(true)}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+              className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700"
             >
               <Plus className="h-4 w-4" /> New Purchase Order
             </button>
@@ -273,7 +273,7 @@ export default function PaperInventoryPage() {
             <button
               key={key}
               onClick={() => setTab(key as typeof tab)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === key ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === key ? "bg-white text-brand-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
             >
               <Icon className="h-4 w-4" /> {label}
             </button>
@@ -1488,7 +1488,7 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 font-medium"
+              className="px-5 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 flex items-center gap-2 font-medium"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : isEdit ? <Pencil className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
               {saving ? "Saving..." : isEdit ? "Update Purchase Order" : "Save Purchase Order"}

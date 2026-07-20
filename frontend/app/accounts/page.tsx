@@ -1355,10 +1355,10 @@ await loadHistory();
                 { key: "commission", label: "Commission", count: 0 },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
-                  className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
                   {t.label}
                   {t.count > 0 && (
-                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${tab === t.key ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>
+                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${tab === t.key ? "bg-brand-100 text-brand-700" : "bg-slate-100 text-slate-500"}`}>
                       {t.count}
                     </span>
                   )}
@@ -1644,7 +1644,7 @@ await loadHistory();
                             <option value="INTER_STATE">IGST</option>
                           </select>
                         </div>
-                        <button onClick={createPurchaseBill} disabled={savingAccounting === "purchase"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                        <button onClick={createPurchaseBill} disabled={savingAccounting === "purchase"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
                           {savingAccounting === "purchase" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Add Bill
                         </button>
                       </div>
@@ -2084,7 +2084,7 @@ await loadHistory();
                       )}
                       <div className="flex justify-end">
                         <button onClick={() => approveDispatch(order.id)} disabled={dispatchProcessing === order.id}
-                          className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                          className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 font-semibold">
                           {dispatchProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                           Approve Dispatch
                         </button>
@@ -2248,7 +2248,7 @@ await loadHistory();
                               <button
                                 onClick={() => dispatchSampleOrder(o.id, sampleTrackingInputs[o.id])}
                                 disabled={sampleProcessing === o.id}
-                                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+                                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">
                                 {sampleProcessing === o.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
                                 Mark Dispatched
                               </button>
@@ -2678,7 +2678,7 @@ await loadHistory();
                               <button key={m} onClick={e => { e.stopPropagation(); setSelectedAgent(agent); setSelectedMonth(m); }}
                                 className={`text-xs px-2 py-0.5 rounded-full border font-mono transition-colors ${
                                   isActive
-                                    ? "bg-blue-600 text-white border-blue-600"
+                                    ? "bg-brand-600 text-white border-brand-600"
                                     : "border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600"
                                 }`}>
                                 {agent.verifiedMonths.includes(m) && (
@@ -3262,7 +3262,7 @@ await loadHistory();
               <button onClick={() => setEditingPayment(null)}
                 className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
               <button onClick={savePaymentEdit} disabled={savingPaymentId === editingPayment.id}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 font-semibold">
                 {savingPaymentId === editingPayment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                 Save Changes
               </button>
@@ -3322,7 +3322,7 @@ await loadHistory();
                         </td>
                         <td style={{ padding: "6px 8px" }}>
                           <button onClick={() => matchAndVerify(txn)} disabled={verifyingId === bankMatchPayment.id}
-                            style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                            style={{ background: "#ee1c25", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
                             Match
                           </button>
                         </td>
@@ -3351,7 +3351,7 @@ await loadHistory();
                 <div>
                   <h2 style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Match Commission Payout with Bank Statement</h2>
                   <p style={{ fontSize: "11px", color: "#64748b", margin: "3px 0 0" }}>
-                    {bankMatchCommission.agentName} · {bankMatchCommission.year}-{String(bankMatchCommission.month).padStart(2, "0")} · <strong style={{ color: "#2563eb" }}>{fmt(bankMatchCommission.amount)}</strong>
+                    {bankMatchCommission.agentName} · {bankMatchCommission.year}-{String(bankMatchCommission.month).padStart(2, "0")} · <strong style={{ color: "#ee1c25" }}>{fmt(bankMatchCommission.amount)}</strong>
                   </p>
                 </div>
                 <button onClick={() => { setBankMatchCommission(null); setBankMatchCommissionResults([]); }}
@@ -3391,7 +3391,7 @@ await loadHistory();
                         </td>
                         <td style={{ padding: "6px 8px" }}>
                           <button onClick={() => matchCommissionPaid(txn)} disabled={markingCommissionPaid}
-                            style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                            style={{ background: "#ee1c25", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
                             Match
                           </button>
                         </td>

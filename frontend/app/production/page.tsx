@@ -1041,15 +1041,15 @@ export default function ProductionPage() {
               <button key={tab.key} onClick={() => { if (userRole !== "INHOUSE") setActiveTab(tab.key); }}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {tab.label}
-                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>{tab.count}</span>
+                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>{tab.count}</span>
               </button>
             ))}
           </div>
 
           {activeTab === "inhouse" && (
             <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
-              <button onClick={() => setInhouseSubTab("printing_pending")} className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "printing_pending" ? "bg-white text-blue-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                Printing Pending <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "printing_pending" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>{printingPendingCount}</span>
+              <button onClick={() => setInhouseSubTab("printing_pending")} className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "printing_pending" ? "bg-white text-brand-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                Printing Pending <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "printing_pending" ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>{printingPendingCount}</span>
               </button>
               <button onClick={() => setInhouseSubTab("processing_pending")} className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${inhouseSubTab === "processing_pending" ? "bg-white text-yellow-600 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                 Processing Pending <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${inhouseSubTab === "processing_pending" ? "bg-yellow-100 text-yellow-700" : "bg-slate-200 text-slate-500"}`}>{processingPendingCount}</span>
@@ -1170,7 +1170,7 @@ export default function ProductionPage() {
                           Files {designFiles.length}
                         </button>
                         <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                        <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading} className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">
+                        <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading} className="flex-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">
                           {isUploading ? "Uploading..." : "Upload"}
                         </button>
                       </div>
@@ -1261,7 +1261,7 @@ export default function ProductionPage() {
                               accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps"
                               onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
                             <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={isUploading}
-                              className="inline-flex items-center gap-0.5 rounded-md bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                              className="inline-flex items-center gap-0.5 rounded-md bg-brand-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
                               {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
                               {isUploading ? "..." : "Upload"}
                             </button>
@@ -1387,7 +1387,7 @@ export default function ProductionPage() {
                             <div className="mt-2 flex gap-2">
                               <button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold ${df.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>Files {df.length}</button>
                               <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                              <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
+                              <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
                             </div>
                             {isExp && df.length > 0 && (
                               <div className="mt-3 space-y-2 rounded-xl bg-blue-50 p-3">
@@ -1471,7 +1471,7 @@ export default function ProductionPage() {
                                 <td className="px-3 py-2 text-slate-500">{completedJw?.vendorInvoiceNo ?? "—"}</td>
                               )}
 <td className="px-3 py-2">
-                                {(() => { const df = item.designFiles ?? []; const isExp = expandedFileItemId === item.id; return (<div className="flex flex-col gap-1"><div className="flex items-center gap-1"><button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium border ${df.length > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-500"}`}><Paperclip className="h-3 w-3" />{df.length}</button><input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} /><button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"><Upload className="h-3 w-3" /></button></div>{isExp && df.length > 0 && (<div className="space-y-0.5 mt-1">{df.map((f: any) => (<div key={f.filename} className="flex items-center gap-1 rounded bg-white border border-slate-200 px-1.5 py-0.5"><FileText className="h-3 w-3 text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-600 truncate max-w-[100px]">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="text-slate-400 hover:text-blue-600 ml-auto"><Download className="h-3 w-3" /></button></div>))}</div>)}</div>); })()}
+                                {(() => { const df = item.designFiles ?? []; const isExp = expandedFileItemId === item.id; return (<div className="flex flex-col gap-1"><div className="flex items-center gap-1"><button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium border ${df.length > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-500"}`}><Paperclip className="h-3 w-3" />{df.length}</button><input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} /><button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="inline-flex items-center gap-1 rounded-md bg-brand-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"><Upload className="h-3 w-3" /></button></div>{isExp && df.length > 0 && (<div className="space-y-0.5 mt-1">{df.map((f: any) => (<div key={f.filename} className="flex items-center gap-1 rounded bg-white border border-slate-200 px-1.5 py-0.5"><FileText className="h-3 w-3 text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-600 truncate max-w-[100px]">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="text-slate-400 hover:text-blue-600 ml-auto"><Download className="h-3 w-3" /></button></div>))}</div>)}</div>); })()}
                               </td>
                               <td className="px-3 py-2">
                                 {clubSubTab === "unassigned" && (
@@ -1650,7 +1650,7 @@ export default function ProductionPage() {
                               <div className="mt-2 flex gap-2">
                                 <button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold ${df.length > 0 ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>Files {df.length}</button>
                                 <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
-                                <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
+                                <button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="flex-1 rounded-lg bg-brand-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Upload</button>
                               </div>
                               {isExp && df.length > 0 && <div className="mt-3 space-y-2 rounded-xl bg-blue-50 p-3">{df.map((f: any) => <div key={f.filename} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs"><FileText className="h-3 w-3 text-slate-400" /><span className="min-w-0 flex-1 truncate">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="font-bold text-blue-700">Open</button></div>)}</div>}
                               <div className="mt-2">
@@ -1738,7 +1738,7 @@ export default function ProductionPage() {
                             <td className="px-3 py-2 text-orange-600 font-semibold">{assigned}</td>
                             <td className="px-3 py-2 text-cyan-700 font-bold">{balance}</td>
 <td className="px-3 py-2">
-                              {(() => { const df = item.designFiles ?? []; const isExp = expandedFileItemId === item.id; return (<div className="flex flex-col gap-1"><div className="flex items-center gap-1"><button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium border ${df.length > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-500"}`}><Paperclip className="h-3 w-3" />{df.length}</button><input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} /><button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"><Upload className="h-3 w-3" /></button></div>{isExp && df.length > 0 && (<div className="space-y-0.5 mt-1">{df.map((f: any) => (<div key={f.filename} className="flex items-center gap-1 rounded bg-white border border-slate-200 px-1.5 py-0.5"><FileText className="h-3 w-3 text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-600 truncate max-w-[100px]">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="text-slate-400 hover:text-blue-600 ml-auto"><Download className="h-3 w-3" /></button></div>))}</div>)}</div>); })()}
+                              {(() => { const df = item.designFiles ?? []; const isExp = expandedFileItemId === item.id; return (<div className="flex flex-col gap-1"><div className="flex items-center gap-1"><button onClick={() => setExpandedFileItemId(isExp ? null : item.id)} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium border ${df.length > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-500"}`}><Paperclip className="h-3 w-3" />{df.length}</button><input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden" accept=".pdf,.ai,.psd,.cdr,.png,.jpg,.svg,.eps,.zip" onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} /><button onClick={() => { const inp = fileInputRefs.current[item.id]; if (inp) { inp.value = ""; inp.click(); } }} disabled={uploadingItemId === item.id} className="inline-flex items-center gap-1 rounded-md bg-brand-600 px-1.5 py-0.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"><Upload className="h-3 w-3" /></button></div>{isExp && df.length > 0 && (<div className="space-y-0.5 mt-1">{df.map((f: any) => (<div key={f.filename} className="flex items-center gap-1 rounded bg-white border border-slate-200 px-1.5 py-0.5"><FileText className="h-3 w-3 text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-600 truncate max-w-[100px]">{f.originalName}</span><button onClick={() => downloadFile(item.id, f.filename, f.originalName)} className="text-slate-400 hover:text-blue-600 ml-auto"><Download className="h-3 w-3" /></button></div>))}</div>)}</div>); })()}
                             </td>
                             <td className="px-3 py-2">
                               {compatibleSheets.length === 0 ? (
@@ -1900,9 +1900,9 @@ export default function ProductionPage() {
                 <div className="space-y-3">
                   <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
                     <button onClick={() => setProcessingSubTab("printing")}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "printing" ? "bg-white shadow-sm text-blue-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                      className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${processingSubTab === "printing" ? "bg-white shadow-sm text-brand-700 border border-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                       Printing Sheets
-                      <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "printing" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
+                      <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${processingSubTab === "printing" ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>
                         {sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length}
                       </span>
                     </button>
@@ -2518,7 +2518,7 @@ export default function ProductionPage() {
             <div className="flex justify-end gap-2">
               <button onClick={() => setSettingDialog(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
               <button onClick={submitSettingDialog} disabled={savingSetting}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
                 {savingSetting ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Submit and Move to Printing
               </button>
             </div>

@@ -1,11 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#1e3a5f"/>
-  <rect x="104" y="108" width="304" height="296" rx="36" fill="#ffffff"/>
-  <rect x="140" y="152" width="232" height="38" rx="10" fill="#1e3a5f"/>
-  <rect x="140" y="222" width="104" height="24" rx="8" fill="#0ea5e9"/>
-  <rect x="268" y="222" width="104" height="24" rx="8" fill="#f97316"/>
-  <rect x="140" y="278" width="232" height="24" rx="8" fill="#94a3b8"/>
-  <rect x="140" y="334" width="160" height="24" rx="8" fill="#94a3b8"/>
-  <circle cx="360" cy="356" r="48" fill="#0ea5e9"/>
-  <path d="M337 356l16 16 32-36" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="512" height="512" rx="112" fill="#ee1c25"/>
+  <circle cx="256" cy="256" r="196" fill="none" stroke="#1e3a8a" stroke-width="18"/>
+  <text x="256" y="340" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="260" fill="#ffffff">R</text>
 </svg>

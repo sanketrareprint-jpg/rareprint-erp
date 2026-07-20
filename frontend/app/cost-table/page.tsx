@@ -766,7 +766,7 @@ export default function CostTablePage() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={importing || products.length === 0}
-              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={14} /> {importing ? `Importing ${importProgress?.done ?? 0}/${importProgress?.total ?? 0}` : "Import CSV"}
             </button>
@@ -819,7 +819,7 @@ export default function CostTablePage() {
               onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "profit" | "checker" | "settings")}
               className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === key
-                  ? "border-blue-600 text-blue-600"
+                  ? "border-brand-600 text-brand-600"
                   : "border-transparent text-gray-500 hover:text-gray-700"
               }`}
             >
@@ -1032,7 +1032,7 @@ export default function CostTablePage() {
                             </div>
                             <div className="flex gap-2 pb-0.5">
                               <button onClick={() => addSlab(product.id)}
-                                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                                className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">
                                 Add Slab
                               </button>
                               <button onClick={() => setAddingFor(null)}
@@ -1216,7 +1216,7 @@ export default function CostTablePage() {
               <button
                 onClick={runCheck}
                 disabled={checkerLoading || !checker.productId || !checker.quantity || !checker.salePrice}
-                className="w-full py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {checkerLoading ? "Checking…" : "Check Margin & Approval"}
               </button>
@@ -1373,7 +1373,7 @@ export default function CostTablePage() {
                                 setAddCostModal({ productId: item.productId, sku: item.sku, productName: item.productName, orderNo: order.orderNo });
                                 setModalSlab({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
                               }}
-                              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-brand-600 text-white rounded-lg hover:bg-brand-700"
                             >
                               <Plus size={12} /> Add Cost
                             </button>
@@ -1541,7 +1541,7 @@ export default function CostTablePage() {
                 <button
                   onClick={saveSettings}
                   disabled={settingsSaving}
-                  className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white text-sm font-semibold rounded-lg hover:bg-brand-700 disabled:opacity-50"
                 >
                   <Save size={14} /> {settingsSaving ? "Saving..." : "Save Settings"}
                 </button>
@@ -1649,7 +1649,7 @@ export default function CostTablePage() {
               <button
                 onClick={saveModalCostSlab}
                 disabled={modalSaving || !modalSlab.minQuantity || !modalSlab.unitPrice}
-                className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {modalSaving ? "Saving..." : "Save Cost Slab"}
               </button>

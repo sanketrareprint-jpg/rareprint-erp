@@ -452,11 +452,11 @@ export default function DispatchPage() {
             {/* Tab switcher */}
             <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
               <button onClick={() => setTab("queue")}
-                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${tab === "queue" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${tab === "queue" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Package className="h-3.5 w-3.5" /> Queue ({orders.length})
               </button>
               <button onClick={() => setTab("history")}
-                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "history" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "history" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <History className="h-3.5 w-3.5" /> History
               </button>
             </div>
@@ -684,8 +684,8 @@ export default function DispatchPage() {
                           const isSelected = orderSelected.has(item.id);
                           return (
                             <div key={item.id} onClick={() => toggleItem(o.id, item.id)}
-                              className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${isSelected ? "border-blue-400 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
-                              {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <Square className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+                              className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${isSelected ? "border-brand-400 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
+                              {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-brand-600 shrink-0" /> : <Square className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
                               <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold shrink-0">{o.orderNo}-{idx + 1}</span>
                               <span className="font-semibold text-slate-900 text-xs">{item.productName}</span>
                               <span className="text-[10px] text-slate-400">({item.sku})</span>
@@ -712,7 +712,7 @@ export default function DispatchPage() {
                       ].map(opt => (
                         <button key={opt.key} type="button"
                           onClick={() => { setDispatchMethod(prev => ({ ...prev, [o.id]: opt.key as DispatchMethod })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
-                          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition ${method === opt.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                          className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition ${method === opt.key ? "border-brand-500 bg-brand-50 text-brand-800" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
                           {opt.label}
                         </button>
                       ))}
@@ -819,7 +819,7 @@ export default function DispatchPage() {
                               .filter(r => courierFilter === "ALL" || r.carrierName === courierFilter)
                               .map(r => (
                                 <label key={r.rateId}
-                                  className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${selectedRate[o.id] === r.rateId ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
+                                  className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${selectedRate[o.id] === r.rateId ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
                                   <input type="radio" name={`rate-${o.id}`} className="sr-only"
                                     checked={selectedRate[o.id] === r.rateId}
                                     onChange={() => setSelectedRate(prev => ({ ...prev, [o.id]: r.rateId }))} />
@@ -832,7 +832,7 @@ export default function DispatchPage() {
                           </div>
                           <div className="flex justify-end">
                             <button onClick={() => book(o.id)} disabled={bookingId === o.id || !someSelected}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                              className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
                               {bookingId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                               Dispatch {orderSelected.size} Item{orderSelected.size !== 1 ? "s" : ""}
                             </button>
@@ -862,7 +862,7 @@ export default function DispatchPage() {
                         )}
                         <div className="mt-2 flex justify-end">
                           <button onClick={() => bookTransport(o.id)} disabled={bookingId === o.id || !someSelected}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
                             {bookingId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                             Dispatch by Transport
                           </button>

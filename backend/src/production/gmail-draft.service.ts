@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
+import * as nodemailer from 'nodemailer';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -118,38 +119,40 @@ export class GmailDraftService {
     return { draftId: res.data.id ?? '' };
   }
 
+  // SMTP transport for actually-sent mail (as opposed to createDraft's Gmail
+  // API drafts above). Deliberately kept separate from the OAuth client:
+  // OAuth refresh tokens for a "Testing" Google Cloud app expire every 7
+  // days unless the app goes through full verification, which is overkill
+  // for sending from one mailbox. An App Password (requires 2-Step
+  // Verification on the sending account, generated once at
+  // myaccount.google.com/apppasswords) sidesteps all of that.
+  private smtpTransport() {
+    const user = this.config.get<string>('SMTP_USER');
+    const pass = this.config.get<string>('SMTP_APP_PASSWORD');
+    if (!user || !pass) {
+      throw new Error('SMTP_USER / SMTP_APP_PASSWORD are not configured (see gmail-draft.service.ts sendMail())');
+    }
+    return nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: { user, pass },
+    });
+  }
+
   /**
    * Actually sends an email (not just a draft) — used for the HR agreement
    * link, which needs to reach the employee's inbox without a human having
-   * to open Gmail and hit send.
+   * to open Gmail and hit send. Uses SMTP + an App Password, not the Gmail
+   * API OAuth client above (see smtpTransport()).
    */
   async sendMail(to: string, subject: string, body: string): Promise<{ messageId: string }> {
-    const auth = this.getOAuth2Client();
-    const gmail = google.gmail({ version: 'v1', auth });
-    const from = this.config.get('GMAIL_FROM') ?? 'purchase.rareprint@gmail.com';
+    const transport = this.smtpTransport();
+    const from = this.config.get<string>('SMTP_USER')!;
 
-    const rawMessage = [
-      `From: ${from}`,
-      `To: ${to}`,
-      `Subject: ${subject}`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/plain; charset=utf-8`,
-      ``,
-      body,
-    ].join('\r\n');
+    const info = await transport.sendMail({ from, to, subject, text: body });
 
-    const encoded = Buffer.from(rawMessage)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    const res = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw: encoded },
-    });
-
-    this.logger.log(`Gmail sent: ${res.data.id} → TO: ${to} | subject: ${subject}`);
-    return { messageId: res.data.id ?? '' };
+    this.logger.log(`SMTP mail sent: ${info.messageId} → TO: ${to} | subject: ${subject}`);
+    return { messageId: info.messageId ?? '' };
   }
 }

@@ -314,14 +314,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           marginBottom: "20px", paddingLeft: "18px", paddingRight: "18px", width: "100%",
         }}>
           <div style={{
-            width: "34px", height: "34px", background: "#2563eb", flexShrink: 0,
-            borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center",
+            width: "34px", height: "34px", background: "#ee1c25", flexShrink: 0,
+            borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+            border: "2px solid #1e3a8a",
           }}>
-            <Printer size={18} color="white" />
+            <span style={{ color: "white", fontWeight: 900, fontSize: "16px", fontFamily: "Arial, Helvetica, sans-serif", lineHeight: 1 }}>R</span>
           </div>
           <span style={{ fontSize: "18px", fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap" }}>
-            <span style={{ color: "#0f172a" }}>Rare</span>
-            <span style={{ color: "#2563eb" }}>Print</span>
+            <span style={{ color: "#ee1c25" }}>Rare</span>
+            <span style={{ color: "#ee1c25" }}>Print</span>
           </span>
         </div>
 
@@ -370,7 +371,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         }}>
           <div style={{
             width: "34px", height: "34px", borderRadius: "50%",
-            background: "#2563eb", display: "flex", alignItems: "center",
+            background: "#ee1c25", display: "flex", alignItems: "center",
             justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white",
             flexShrink: 0,
           }}>

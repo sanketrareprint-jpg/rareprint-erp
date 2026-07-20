@@ -594,7 +594,7 @@ export default function OrdersPage() {
                   </button>
                 )}
                 <button onClick={() => router.push("/orders/create")}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700">
                   <Plus className="h-3.5 w-3.5" /> Create New Order
                 </button>
               </div>
@@ -672,7 +672,7 @@ export default function OrdersPage() {
                   onClick={() => { setActiveTab(tab.key); setSelectedOrderIds(new Set()); setCustomerError(null); }}
                   className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                   {tab.label}
-                  <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"}`}>
+                  <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>
                     {tab.count}
                   </span>
                 </button>
@@ -714,7 +714,7 @@ export default function OrdersPage() {
                   </div>
                 ) : filteredOrders.map(o => (
                   <div key={o.id} className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${selectedOrderIds.has(o.id) ? "ring-2 ring-indigo-200" : ""}`}>
-                    <div className="bg-blue-700 px-3 py-2 text-white">
+                    <div className="bg-brand-700 px-3 py-2 text-white">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -730,10 +730,10 @@ export default function OrdersPage() {
                             </span>
                           </div>
                           <p className="mt-1 truncate text-sm font-semibold">{o.customerName}</p>
-                          <p className="text-xs text-blue-100">{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} · {o.customerPhone ?? "No phone"}</p>
+                          <p className="text-xs text-brand-100">{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} · {o.customerPhone ?? "No phone"}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs text-blue-100">Balance</p>
+                          <p className="text-xs text-brand-100">Balance</p>
                           <p className="text-sm font-bold">{fmt(o.balanceDue)}</p>
                         </div>
                       </div>
@@ -1177,7 +1177,7 @@ export default function OrdersPage() {
                         accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps,.svg"
                         onChange={e => { const f = e.target.files?.[0]; if (f) uploadDesignFile(item.id, f); }} />
                       <button onClick={() => fileInputRefs.current[item.id]?.click()} disabled={uploadingItemId === item.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
                         <Upload className="h-3.5 w-3.5" />
                         {uploadingItemId === item.id ? "Uploading…" : "Upload File"}
                       </button>
@@ -1321,7 +1321,7 @@ export default function OrdersPage() {
                   <div className="grid grid-cols-4 gap-1.5 mb-2">
                     {[{key:"COURIER",label:"🚚 Courier"},{key:"TRANSPORT",label:"🚛 Transport"},{key:"BY_HAND",label:"🚶 By Hand"},{key:"SELF_COLLECTED",label:"🏪 Self Collect"}].map(dt => (
                       <button key={dt.key} onClick={() => setBookingForm(p => ({ ...p, dispatchType: dt.key }))}
-                        className={`rounded-md border px-2 py-1.5 text-[10px] font-semibold text-left transition ${bookingForm.dispatchType === dt.key ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-600"}`}>
+                        className={`rounded-md border px-2 py-1.5 text-[10px] font-semibold text-left transition ${bookingForm.dispatchType === dt.key ? "border-brand-500 bg-brand-50 text-brand-800" : "border-slate-200 text-slate-600"}`}>
                         {dt.label}
                       </button>
                     ))}
@@ -1390,7 +1390,7 @@ export default function OrdersPage() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
                       <button onClick={fetchRates} disabled={ratesLoading}
-                        className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-60">
+                        className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 hover:bg-brand-100 disabled:opacity-60">
                         {ratesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                         Fetch Shiprocket Rates
                       </button>
@@ -1399,9 +1399,9 @@ export default function OrdersPage() {
                       <div className="grid grid-cols-4 gap-1.5 mb-2">
                         {rates.map((r, i) => (
                           <button key={i} onClick={() => setBookingForm(p => ({ ...p, courierCharges: r.amount.toString() }))}
-                            className={`rounded-md border p-1.5 text-[10px] text-left transition ${bookingForm.courierCharges === r.amount.toString() ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
+                            className={`rounded-md border p-1.5 text-[10px] text-left transition ${bookingForm.courierCharges === r.amount.toString() ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
                             <p className="font-semibold text-slate-800 truncate">{r.carrierName}</p>
-                            <p className="text-blue-700 font-bold">{fmt(r.amount)}</p>
+                            <p className="text-brand-700 font-bold">{fmt(r.amount)}</p>
                             <p className="text-slate-400">~{r.estimatedDays}d</p>
                           </button>
                         ))}
@@ -1639,7 +1639,7 @@ export default function OrdersPage() {
               <button onClick={() => setEditingPayment(null)}
                 className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
               <button onClick={savePaymentEdit} disabled={savingPaymentEdit}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 font-semibold">
 
                 {savingPaymentEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                 Save Changes

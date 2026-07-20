@@ -114,7 +114,7 @@ export default function HrAgreementPage() {
                 <button
                   onClick={handleAccept}
                   disabled={!agreed || !signatureName.trim() || submitting}
-                  className="inline-flex items-center gap-2 text-sm font-semibold bg-blue-600 text-white rounded-lg px-4 py-2.5 hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 text-sm font-semibold bg-brand-600 text-white rounded-lg px-4 py-2.5 hover:bg-brand-700 disabled:opacity-50"
                 >
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                   Accept & Sign

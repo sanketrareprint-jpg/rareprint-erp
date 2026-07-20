@@ -528,7 +528,7 @@ function MarketingPageContent() {
             <button
               key={key}
               onClick={() => setActiveTab(key as any)}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === key ? "bg-blue-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === key ? "bg-brand-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
             >
               {label}
             </button>
@@ -558,7 +558,7 @@ function MarketingPageContent() {
                   <input type="checkbox" checked={campaignForm.createdThisWeek} onChange={(e) => setCampaignForm({ ...campaignForm, createdThisWeek: e.target.checked })} />
                   Only this week's new contacts
                 </label>
-                <button onClick={createCampaign} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
+                <button onClick={createCampaign} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white">
                   <Plus size={16} />
                   Save Campaign
                 </button>
@@ -655,7 +655,7 @@ function MarketingPageContent() {
                 type="button"
                 onClick={importContacts}
                 disabled={importingContacts}
-                className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+                className="mt-3 w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
               >
                 {importingContacts ? "Importing..." : "Import Contacts"}
               </button>
@@ -701,7 +701,7 @@ function MarketingPageContent() {
                   </p>
                 )}
                 <textarea className="h-28 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Internal note / message preview" value={templateForm.body} onChange={(e) => setTemplateForm({ ...templateForm, body: e.target.value })} />
-                <button onClick={createTemplate} className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save Template</button>
+                <button onClick={createTemplate} className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white">Save Template</button>
               </div>
             </section>
             <section className="grid gap-3 md:grid-cols-2">
@@ -853,7 +853,7 @@ function MarketingPageContent() {
                 <button
                   onClick={saveSettings}
                   disabled={savingSettings}
-                  className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+                  className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
                 >
                   {savingSettings ? "Saving..." : "Save Settings"}
                 </button>
