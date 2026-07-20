@@ -134,6 +134,11 @@ export class GmailDraftService {
     if (!user || !pass) {
       throw new Error('SMTP_USER / SMTP_APP_PASSWORD are not configured (see gmail-draft.service.ts sendMail())');
     }
+    // Cast to `any`: @types/nodemailer's createTransport<T> overload
+    // resolution is version-sensitive about inferring plain SMTP option
+    // objects (Railway's fresh `npm install` resolved a stricter version
+    // than the one tested locally, and rejected this literal outright).
+    // The object shape itself is correct per nodemailer's own docs.
     return nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
@@ -152,7 +157,7 @@ export class GmailDraftService {
       connectionTimeout: 15000,
       greetingTimeout: 15000,
       socketTimeout: 15000,
-    });
+    } as any);
   }
 
   /**
