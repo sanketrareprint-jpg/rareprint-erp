@@ -96,8 +96,9 @@ export default function LoginPage() {
             href="/"
             className="inline-flex flex-col items-center gap-3 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
           >
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-blue-900 bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg shadow-brand-600/30">
-              <span className="text-3xl font-black">R</span>
+            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full shadow-lg shadow-brand-600/30">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/rareprint-icon.png" alt="RarePrint" className="h-full w-full object-contain" />
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">

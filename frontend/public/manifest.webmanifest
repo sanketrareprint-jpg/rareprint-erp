@@ -10,9 +10,9 @@
   "theme_color": "#ee1c25",
   "icons": [
     {
-      "src": "/rareprint-app-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/rareprint-app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ],

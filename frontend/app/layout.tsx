@@ -13,8 +13,8 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   icons: {
-    icon: "/rareprint-app-icon.svg",
-    apple: "/rareprint-app-icon.svg",
+    icon: "/rareprint-app-icon.png",
+    apple: "/rareprint-app-icon.png",
   },
 };
 

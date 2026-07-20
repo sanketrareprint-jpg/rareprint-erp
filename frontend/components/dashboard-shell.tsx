@@ -289,7 +289,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Menu size={22} />
         </button>
         <Link href="/dashboard" className="erp-mobile-brand" aria-label="RarePrint dashboard">
-          <span className="erp-mobile-logo"><Printer size={18} /></span>
+          <span className="erp-mobile-logo"><img src="/rareprint-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>
           <span>
             <strong>RarePrint</strong>
             <small>{role.replace("_", " ")}</small>
@@ -313,13 +313,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           display: "flex", alignItems: "center", gap: "10px",
           marginBottom: "20px", paddingLeft: "18px", paddingRight: "18px", width: "100%",
         }}>
-          <div style={{
-            width: "34px", height: "34px", background: "#ee1c25", flexShrink: 0,
-            borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-            border: "2px solid #1e3a8a",
-          }}>
-            <span style={{ color: "white", fontWeight: 900, fontSize: "16px", fontFamily: "Arial, Helvetica, sans-serif", lineHeight: 1 }}>R</span>
-          </div>
+          <img src="/rareprint-icon.png" alt="RarePrint" style={{ width: "34px", height: "34px", objectFit: "contain", flexShrink: 0 }} />
           <span style={{ fontSize: "18px", fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap" }}>
             <span style={{ color: "#ee1c25" }}>Rare</span>
             <span style={{ color: "#ee1c25" }}>Print</span>
@@ -433,7 +427,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <div className="erp-mobile-menu" onClick={(event) => event.stopPropagation()}>
             <div className="erp-mobile-menu-head">
               <div className="erp-mobile-brand">
-                <span className="erp-mobile-logo"><Printer size={18} /></span>
+                <span className="erp-mobile-logo"><img src="/rareprint-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>
                 <span>
                   <strong>RarePrint ERP</strong>
                   <small>{name}</small>
