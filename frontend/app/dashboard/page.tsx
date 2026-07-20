@@ -108,15 +108,29 @@ export default function DashboardPage() {
 
   // Monthly sales comparison chart geometry
   const monthlyMax = Math.max(1, ...monthlySales.flatMap(p => [p.thisMonth ?? 0, p.lastMonth ?? 0]));
+  const leftMargin = 46, bottomMargin = 18;
   const chartW = 600, chartH = 90;
-  const stepX = monthlySales.length > 1 ? chartW / (monthlySales.length - 1) : chartW;
+  const plotW = chartW - leftMargin;
+  const stepX = monthlySales.length > 1 ? plotW / (monthlySales.length - 1) : plotW;
   const toPoints = (key: "thisMonth" | "lastMonth") =>
     monthlySales
-      .map((p, i) => (p[key] != null ? `${i * stepX},${chartH - ((p[key] as number) / monthlyMax) * chartH}` : null))
+      .map((p, i) => (p[key] != null ? `${leftMargin + i * stepX},${chartH - ((p[key] as number) / monthlyMax) * chartH}` : null))
       .filter((v): v is string => v !== null)
       .join(" ");
   const thisMonthPoints = toPoints("thisMonth");
   const lastMonthPoints = toPoints("lastMonth");
+  const yTicks = [0, 0.5, 1].map(f => ({ y: chartH - f * chartH, value: monthlyMax * f }));
+  const dayTickCount = Math.min(6, monthlySales.length);
+  const dayTicks = monthlySales.length > 0
+    ? Array.from({ length: dayTickCount }, (_, i) => {
+        const idx = dayTickCount > 1 ? Math.round((i * (monthlySales.length - 1)) / (dayTickCount - 1)) : 0;
+        return { x: leftMargin + idx * stepX, day: monthlySales[idx].day };
+      })
+    : [];
+  const now = new Date();
+  const thisMonthLabel = now.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+  const lastMonthLabel = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    .toLocaleDateString("en-IN", { month: "short", year: "numeric" });
 
   return (
     <DashboardShell>
@@ -168,14 +182,25 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-xs font-semibold text-slate-700">Monthly Sales — This Month vs Last Month</p>
             <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />This month</span>
-              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block" />Last month</span>
+              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />This month ({thisMonthLabel})</span>
+              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block" />Last month ({lastMonthLabel})</span>
             </div>
           </div>
           {monthlySales.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
           ) : (
-            <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full" style={{ height: "110px" }} preserveAspectRatio="none">
+            <svg viewBox={`0 0 ${chartW} ${chartH + bottomMargin}`} className="w-full" style={{ height: "130px" }} preserveAspectRatio="none">
+              {/* Y-axis gridlines + sales amount labels */}
+              {yTicks.map((t, i) => (
+                <g key={i}>
+                  <line x1={leftMargin} y1={t.y} x2={chartW} y2={t.y} stroke="#f1f5f9" strokeWidth="1" />
+                  <text x={leftMargin - 6} y={t.y + 3} fontSize="9" fill="#94a3b8" textAnchor="end">{fmt(t.value)}</text>
+                </g>
+              ))}
+              {/* X-axis day-of-month labels */}
+              {dayTicks.map((t, i) => (
+                <text key={i} x={t.x} y={chartH + 13} fontSize="9" fill="#94a3b8" textAnchor="middle">{`Day ${t.day}`}</text>
+              ))}
               <polyline points={lastMonthPoints} fill="none" stroke="#cbd5e1" strokeWidth="2" />
               <polyline points={thisMonthPoints} fill="none" stroke="#3b82f6" strokeWidth="2" />
             </svg>
