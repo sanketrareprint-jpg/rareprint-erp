@@ -298,60 +298,58 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <NotificationBell userRole={role} />
       </header>
 
-      {/* ── Dark navy icon sidebar ── */}
+      {/* ── White list-style sidebar ── */}
       <aside className="erp-sidebar" style={{
-        width: "116px", minWidth: "116px",
-        background: "#1e3a5f",
-        display: "flex", flexDirection: "column", alignItems: "center",
-        paddingTop: "12px", paddingBottom: "12px",
+        width: "236px", minWidth: "236px",
+        background: "#ffffff",
+        borderRight: "1px solid #eef1f5",
+        display: "flex", flexDirection: "column",
+        paddingTop: "18px", paddingBottom: "12px",
         height: "100vh", position: "sticky", top: 0,
         overflowY: "auto", overflowX: "hidden",
       }}>
         {/* Logo + Brand */}
         <div style={{
-          display: "flex", alignItems: "center", gap: "8px",
-          marginBottom: "12px", paddingLeft: "6px", paddingRight: "6px", width: "100%",
+          display: "flex", alignItems: "center", gap: "10px",
+          marginBottom: "20px", paddingLeft: "18px", paddingRight: "18px", width: "100%",
         }}>
           <div style={{
-            width: "32px", height: "32px", background: "#2563eb", flexShrink: 0,
-            borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center",
+            width: "34px", height: "34px", background: "#2563eb", flexShrink: 0,
+            borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <Printer size={16} color="white" />
+            <Printer size={18} color="white" />
           </div>
-          <span style={{
-            fontSize: "11px", fontWeight: 700, color: "#93c5fd",
-            letterSpacing: "0.04em", textTransform: "uppercase", lineHeight: 1.1,
-          }}>
-            Rare<br />Print
+          <span style={{ fontSize: "18px", fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap" }}>
+            <span style={{ color: "#0f172a" }}>Rare</span>
+            <span style={{ color: "#2563eb" }}>Print</span>
           </span>
         </div>
 
-        {/* Nav — 2-column grid */}
+        {/* Nav — single column list */}
         <nav style={{
-          flex: 1, display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "3px",
-          width: "100%", padding: "0 4px",
-          alignContent: "start",
+          flex: 1, display: "flex", flexDirection: "column",
+          gap: "2px",
+          width: "100%", padding: "0 8px",
         }}>
           {navItems.map((item) => {
             const Icon   = item.icon;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link key={item.href} href={item.href} className="erp-sidebar-link" style={{
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                height: "46px", borderRadius: "8px",
-                background: active ? "#2563eb" : "transparent",
-                color: active ? "#ffffff" : "#93c5fd",
-                textDecoration: "none", gap: "3px",
-                transition: "background 0.15s, color 0.15s",
+                display: "flex", flexDirection: "row",
+                alignItems: "center", gap: "14px",
+                height: "44px", borderRadius: "8px", padding: "0 14px",
+                background: "transparent",
+                color: active ? "#0f172a" : "#64748b",
+                textDecoration: "none",
+                fontSize: "14.5px", fontWeight: active ? 600 : 500,
+                transition: "color 0.15s, background 0.15s",
               }}
-                onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "#1d4ed8"; (e.currentTarget as HTMLElement).style.color = "#fff"; } }}
-                onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#93c5fd"; } }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#f8fafc"; if (!active) (e.currentTarget as HTMLElement).style.color = "#0f172a"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; if (!active) (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
               >
-                <Icon size={20} strokeWidth={2.2} />
-                <span style={{ fontSize: "8px", fontWeight: 600, textAlign: "center", lineHeight: 1.1, maxWidth: "48px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <Icon size={19} strokeWidth={1.75} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.label}
                 </span>
               </Link>
@@ -359,46 +357,50 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
           {/* Notification Bell */}
-          <div className="erp-desktop-notifications">
+          <div className="erp-desktop-notifications" style={{ padding: "8px 18px 0" }}>
             <NotificationBell userRole={role} />
           </div>
 
         {/* User + logout */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginTop: "8px", width: "100%", paddingLeft: "6px", paddingRight: "6px" }}>
-          {/* Coin wallet badge — shown for Prajakta */}
-          {coins !== null && (
-            <div title={`${coins} reward coins`} style={{
-              display: "flex", flexDirection: "column", alignItems: "center",
-              background: "#92400e", borderRadius: "8px",
-              padding: "4px 6px", marginBottom: "2px",
-              cursor: "default",
-            }}>
-              <span style={{ fontSize: "14px", lineHeight: 1 }}>🪙</span>
-              <span style={{ fontSize: "9px", fontWeight: 700, color: "#fde68a", lineHeight: 1.2 }}>
-                {coins}
-              </span>
-            </div>
-          )}
+        <div style={{
+          display: "flex", alignItems: "center", gap: "10px",
+          marginTop: "12px", paddingTop: "12px", width: "100%",
+          paddingLeft: "18px", paddingRight: "14px",
+          borderTop: "1px solid #eef1f5",
+        }}>
           <div style={{
             width: "34px", height: "34px", borderRadius: "50%",
             background: "#2563eb", display: "flex", alignItems: "center",
             justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white",
+            flexShrink: 0,
           }}>
             {name.charAt(0).toUpperCase()}
           </div>
-          <span style={{ fontSize: "8px", color: "#93c5fd", textAlign: "center", maxWidth: "64px", wordBreak: "break-word", lineHeight: 1.2 }}>
-            {role.replace("_", " ")}
-          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {name}
+            </div>
+            <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+              {role.replace("_", " ")}
+            </div>
+            {coins !== null && (
+              <div title={`${coins} reward coins`} style={{
+                display: "inline-flex", alignItems: "center", gap: "4px",
+                marginTop: "2px", fontSize: "11px", fontWeight: 700, color: "#b45309",
+              }}>
+                🪙 {coins}
+              </div>
+            )}
+          </div>
           <button onClick={handleLogout} title="Sign out" style={{
-            marginTop: "2px", background: "transparent", border: "none", cursor: "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: "2px",
-            color: "#64748b", padding: "5px", borderRadius: "8px",
+            background: "transparent", border: "none", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#94a3b8", padding: "6px", borderRadius: "8px", flexShrink: 0,
           }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94a3b8"; }}
           >
-            <LogOut size={18} strokeWidth={2.2} />
-            <span style={{ fontSize: "9px", fontWeight: 600 }}>Sign out</span>
+            <LogOut size={18} strokeWidth={2} />
           </button>
         </div>
       </aside>
