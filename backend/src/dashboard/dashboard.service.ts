@@ -1,7 +1,12 @@
 // backend/src/dashboard/dashboard.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CostTableService } from '../cost-table/cost-table.service';
 import { OrderStatus, OrderProductionStage, ProductionCategory } from '@prisma/client';
+
+// Profit is sensitive — only Sanket (super-admin) sees it on the dashboard.
+// Matches the SUPER_ADMIN_EMAIL convention already used in accounts.service.ts.
+const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 
 type ProductionKpiMetric = {
   key: string;
@@ -16,16 +21,23 @@ type ProductionKpiMetric = {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly costTable: CostTableService,
+  ) {}
 
-  async getSummary() {
-    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult] = await Promise.allSettled([
+  async getSummary(userEmail?: string) {
+    const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL;
+
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, monthlySalesResult, profitResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
       this.getAvgProductionTime(),
       this.getLeadSourceAnalytics(),
       this.withTimeout(this.getProductionKpis(), 10000, this.getEmptyProductionKpis()),
+      this.getMonthlySalesComparison(),
+      isSuperAdmin ? this.getProfitKpis() : Promise.resolve(null),
     ]);
 
     return {
@@ -37,7 +49,83 @@ export class DashboardService {
       productionKpis: productionKpisResult.status === 'fulfilled'
         ? productionKpisResult.value
         : { metrics: [], categoryCycleTimes: [], bottlenecks: [] },
+      monthlySales: monthlySalesResult.status === 'fulfilled' ? monthlySalesResult.value : [],
+      // null for everyone except the super-admin — the frontend only renders
+      // the profit cards when this key is present.
+      profit: profitResult.status === 'fulfilled' ? profitResult.value : null,
     };
+  }
+
+  // ── IST day/month boundaries shared by profit + monthly-sales helpers ────
+  private istBoundaries() {
+    const now = new Date();
+    const istOffsetMs = 330 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    const istYear = istNow.getUTCFullYear();
+    const istMonth = istNow.getUTCMonth();
+    const istDate = istNow.getUTCDate();
+    const fromIstStart = (year: number, month: number, day: number) =>
+      new Date(Date.UTC(year, month, day) - istOffsetMs);
+    return {
+      istOffsetMs, istYear, istMonth, istDate,
+      startOfToday: fromIstStart(istYear, istMonth, istDate),
+      startOfTomorrow: fromIstStart(istYear, istMonth, istDate + 1),
+      startOfMonth: fromIstStart(istYear, istMonth, 1),
+      startOfNextMonth: fromIstStart(istYear, istMonth + 1, 1),
+      startOfLastMonth: fromIstStart(istYear, istMonth - 1, 1),
+    };
+  }
+
+  // ── Profit KPIs (admin-only) ─────────────────────────────────────────────
+  async getProfitKpis() {
+    const b = this.istBoundaries();
+    const [today, thisMonth, lastMonth] = await Promise.all([
+      this.costTable.getGrossProfitForRange(b.startOfToday, b.startOfTomorrow),
+      this.costTable.getGrossProfitForRange(b.startOfMonth, b.startOfNextMonth),
+      this.costTable.getGrossProfitForRange(b.startOfLastMonth, b.startOfMonth),
+    ]);
+    return { today, thisMonth, lastMonth };
+  }
+
+  // ── Monthly sales comparison — daily series for this month vs last month ─
+  async getMonthlySalesComparison() {
+    const b = this.istBoundaries();
+    const [thisMonthOrders, lastMonthOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { orderDate: { gte: b.startOfMonth, lt: b.startOfNextMonth }, status: { not: OrderStatus.CANCELLED } },
+        select: { orderDate: true, grandTotal: true },
+      }),
+      this.prisma.order.findMany({
+        where: { orderDate: { gte: b.startOfLastMonth, lt: b.startOfMonth }, status: { not: OrderStatus.CANCELLED } },
+        select: { orderDate: true, grandTotal: true },
+      }),
+    ]);
+
+    const byDay = (orders: { orderDate: Date; grandTotal: unknown }[]) => {
+      const map: Record<number, number> = {};
+      for (const o of orders) {
+        const istDate = new Date(o.orderDate.getTime() + b.istOffsetMs);
+        const day = istDate.getUTCDate();
+        map[day] = (map[day] ?? 0) + Number(o.grandTotal);
+      }
+      return map;
+    };
+
+    const thisMonthMap = byDay(thisMonthOrders);
+    const lastMonthMap = byDay(lastMonthOrders);
+
+    const daysInThisMonth = new Date(Date.UTC(b.istYear, b.istMonth + 1, 0)).getUTCDate();
+    const daysInLastMonth = new Date(Date.UTC(b.istYear, b.istMonth, 0)).getUTCDate();
+    const maxDays = Math.max(daysInThisMonth, daysInLastMonth);
+
+    return Array.from({ length: maxDays }, (_, i) => {
+      const day = i + 1;
+      return {
+        day,
+        thisMonth: day <= daysInThisMonth ? (thisMonthMap[day] ?? 0) : null,
+        lastMonth: day <= daysInLastMonth ? (lastMonthMap[day] ?? 0) : null,
+      };
+    });
   }
 
   private getEmptyProductionKpis() {

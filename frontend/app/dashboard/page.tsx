@@ -27,10 +27,11 @@ type CatStage      = { category: string; printing: number; processing: number; r
 type AvgProd       = { category: string; avgHours: number; avgDays: number; sampleSize: number };
 type LeadSource    = { source: string; count: number; revenue: number };
 type LeadAnalytics = { allTime: LeadSource[]; thisMonth: LeadSource[] };
-type AcademyRow    = { id: string; name: string; completedTopics: number; lastActiveDate: string | null; streak: number };
 type ProductionKpiMetric = { key: string; label: string; avgHours: number | null; avgDays: number | null; avgDaysMonth: number | null; avgDaysWeek: number | null; sampleSize: number; note: string };
 type ProductionCategoryCycle = { category: string; avgHours: number | null; avgDays: number | null; avgDaysMonth: number | null; avgDaysWeek: number | null; sampleSize: number };
 type ProductionKpis = { metrics: ProductionKpiMetric[]; categoryCycleTimes: ProductionCategoryCycle[]; bottlenecks: ProductionKpiMetric[] };
+type MonthlySalesPoint = { day: number; thisMonth: number | null; lastMonth: number | null };
+type ProfitKpis = { today: number; thisMonth: number; lastMonth: number };
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -63,8 +64,9 @@ export default function DashboardPage() {
   const [catStages, setCatStages] = useState<CatStage[]>([]);
   const [avgProd,   setAvgProd]   = useState<AvgProd[]>([]);
   const [leadData,  setLeadData]  = useState<LeadAnalytics | null>(null);
-  const [academy,   setAcademy]   = useState<AcademyRow[]>([]);
   const [productionKpis, setProductionKpis] = useState<ProductionKpis | null>(null);
+  const [monthlySales, setMonthlySales] = useState<MonthlySalesPoint[]>([]);
+  const [profit, setProfit] = useState<ProfitKpis | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
 
@@ -72,10 +74,7 @@ export default function DashboardPage() {
     setLoading(true); setError(null);
     try {
       const h = getAuthHeaders();
-      const [res, academyRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/dashboard/summary`, { headers: h }),
-        fetch(`${API_BASE_URL}/sales-learning/admin/analytics`, { headers: h }).catch(() => null),
-      ]);
+      const res = await fetch(`${API_BASE_URL}/dashboard/summary`, { headers: h });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
       const data = await res.json();
@@ -85,11 +84,8 @@ export default function DashboardPage() {
       setAvgProd(data.avgProd ?? []);
       setLeadData(data.leadData ?? null);
       setProductionKpis(data.productionKpis ?? null);
-
-      if (academyRes?.ok) {
-        const academyData = await academyRes.json().catch(() => null);
-        setAcademy(academyData?.leaderboard ?? []);
-      }
+      setMonthlySales(data.monthlySales ?? []);
+      setProfit(data.profit ?? null);
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, [router]);
@@ -109,6 +105,18 @@ export default function DashboardPage() {
 
   const maxDay = Math.max(...stats.orders.last7Days.map(d => d.count), 1);
   const activeAgents = [...agents].sort((a, b) => b.monthRevenue - a.monthRevenue || b.monthOrders - a.monthOrders);
+
+  // Monthly sales comparison chart geometry
+  const monthlyMax = Math.max(1, ...monthlySales.flatMap(p => [p.thisMonth ?? 0, p.lastMonth ?? 0]));
+  const chartW = 600, chartH = 90;
+  const stepX = monthlySales.length > 1 ? chartW / (monthlySales.length - 1) : chartW;
+  const toPoints = (key: "thisMonth" | "lastMonth") =>
+    monthlySales
+      .map((p, i) => (p[key] != null ? `${i * stepX},${chartH - ((p[key] as number) / monthlyMax) * chartH}` : null))
+      .filter((v): v is string => v !== null)
+      .join(" ");
+  const thisMonthPoints = toPoints("thisMonth");
+  const lastMonthPoints = toPoints("lastMonth");
 
   return (
     <DashboardShell>
@@ -139,9 +147,44 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* ── Production Speed KPIs ── */}
+        {/* ── Profit KPIs — visible to Sanket (admin) only ── */}
+        {profit && (
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: "Today's Profit",      value: fmt(profit.today) },
+              { label: "This Month Profit",   value: fmt(profit.thisMonth) },
+              { label: "Last Month Profit",   value: fmt(profit.lastMonth) },
+            ].map((card, i) => (
+              <div key={i} className="bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-2 shadow-sm">
+                <p className="text-xs text-emerald-700 font-medium truncate">{card.label} <span className="opacity-60">(admin only)</span></p>
+                <p className="text-lg font-bold text-emerald-800 leading-tight mt-0.5">{card.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Monthly Sales — This Month vs Last Month ── */}
         <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs font-semibold text-slate-700">Monthly Sales — This Month vs Last Month</p>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />This month</span>
+              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block" />Last month</span>
+            </div>
+          </div>
+          {monthlySales.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
+          ) : (
+            <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full" style={{ height: "110px" }} preserveAspectRatio="none">
+              <polyline points={lastMonthPoints} fill="none" stroke="#cbd5e1" strokeWidth="2" />
+              <polyline points={thisMonthPoints} fill="none" stroke="#3b82f6" strokeWidth="2" />
+            </svg>
+          )}
+        </div>
+
+        {/* ── Production Speed KPIs ── */}
+        <div className="bg-white rounded-lg border border-slate-200 px-3 py-2.5 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-2.5">
             <Clock className="h-3 w-3 text-cyan-600" />
             <p className="text-xs font-semibold text-slate-700">Production Time KPIs</p>
             <span className="text-xs text-slate-400 ml-auto">all time &nbsp;·&nbsp; this month &nbsp;·&nbsp; this week</span>
@@ -149,14 +192,14 @@ export default function DashboardPage() {
           {!productionKpis || productionKpis.metrics.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
           ) : (
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-3">
               {productionKpis.metrics.map((metric) => (
-                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 min-w-0">
-                  <p className="text-slate-500 font-medium truncate mb-1" style={{ fontSize: "10px" }}>{metric.label}</p>
-                  <p className={`text-base font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
+                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-3 py-3 min-w-0">
+                  <p className="text-slate-500 font-medium truncate mb-1.5" style={{ fontSize: "11px" }}>{metric.label}</p>
+                  <p className={`text-xl font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
                     {fmtDuration(metric.avgHours)}
                   </p>
-                  <div className="mt-1.5 flex items-center gap-1 text-xs">
+                  <div className="mt-2 flex items-center gap-1.5 text-sm">
                     <span className={`font-bold ${metric.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
                       {metric.avgDaysMonth != null ? metric.avgDaysMonth+"d" : "—"}
                     </span>
@@ -165,7 +208,7 @@ export default function DashboardPage() {
                       {metric.avgDaysWeek != null ? metric.avgDaysWeek+"d" : "—"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 text-xs">
+                  <div className="flex items-center gap-1.5 text-xs">
                     <span className="text-emerald-400 font-medium">mo</span>
                     <span className="text-slate-300">/</span>
                     <span className="text-blue-400 font-medium">wk</span>
@@ -254,7 +297,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Row 3: Leaderboard + Production + Recent Orders ── */}
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-3 gap-2">
 
           {/* Leaderboard */}
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
@@ -277,38 +320,6 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <p className="font-bold text-emerald-600 flex-shrink-0" style={{ fontSize: "12px" }}>{fmt(agent.monthRevenue)}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Sales Academy Leaderboard */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1 mb-1.5">
-              <Trophy className="h-3 w-3 text-blue-500" />
-              <p className="text-xs font-semibold text-slate-700">Sales Academy Leaderboard</p>
-              <span className="text-xs text-slate-400 ml-auto">{academy.length} users</span>
-            </div>
-            {academy.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">No academy progress yet</p>
-            ) : (
-              <div className="space-y-1">
-                {academy.map((user, i) => (
-                  <div key={user.id} className={`flex items-center justify-between rounded px-1.5 py-1 ${i === 0 ? "bg-blue-50" : ""}`}>
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="w-5 flex-shrink-0 text-slate-500" style={{ fontSize: "12px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-900 truncate" style={{ fontSize: "12px", lineHeight: 1.15 }}>{user.name}</p>
-                        <p className="text-slate-400" style={{ fontSize: "10px", lineHeight: 1.15 }}>
-                          {user.lastActiveDate ? new Date(user.lastActiveDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "No activity"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="font-bold text-blue-600" style={{ fontSize: "12px" }}>{user.completedTopics} topics</p>
-                      <p className="text-slate-400" style={{ fontSize: "10px" }}>{user.streak} day streak</p>
-                    </div>
                   </div>
                 ))}
               </div>

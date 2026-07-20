@@ -152,6 +152,15 @@ export class CostTableService {
     });
   }
 
+  // ── Gross profit summed across a date range (used by admin-only dashboard
+  // profit KPIs). Reuses profitRows(), so it's the same "not CANCELLED, not
+  // isSample, sum grossProfit skipping orders with a missing cost slab"
+  // definition already used for the monthly profit summary.
+  async getGrossProfitForRange(start: Date, end: Date): Promise<number> {
+    const rows = await this.profitRows(start, end);
+    return rows.reduce((sum, row) => sum + (row.grossProfit ?? 0), 0);
+  }
+
   // ── Single-order gross profit (used by loyalty points earn calc) ──────────
   // Same cost-lookup approach as profitRows() above: sum lineCostTotal() per
   // item, and if ANY item is missing a cost slab, grossProfit comes back null

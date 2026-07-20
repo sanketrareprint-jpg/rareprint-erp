@@ -1,7 +1,10 @@
 // backend/src/dashboard/dashboard.controller.ts
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Request } from 'express';
 import { DashboardService } from './dashboard.service';
+
+type JwtUser = { id: string; role: string; email: string };
 
 @Controller('dashboard')
 @UseGuards(AuthGuard('jwt'))
@@ -9,7 +12,9 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('summary')
-  getSummary() { return this.dashboardService.getSummary(); }
+  getSummary(@Req() req: Request & { user: JwtUser }) {
+    return this.dashboardService.getSummary(req.user?.email);
+  }
 
   @Get('stats')
   getStats() { return this.dashboardService.getStats(); }
