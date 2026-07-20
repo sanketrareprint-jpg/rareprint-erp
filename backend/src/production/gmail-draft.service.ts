@@ -125,7 +125,9 @@ export class GmailDraftService {
   // days unless the app goes through full verification, which is overkill
   // for sending from one mailbox. An App Password (requires 2-Step
   // Verification on the sending account, generated once at
-  // myaccount.google.com/apppasswords) sidesteps all of that.
+  // myaccount.google.com/apppasswords) sidesteps all of that. Requires the
+  // Railway service to be on a Pro/Enterprise plan — outbound SMTP
+  // (ports 465/587) is blocked on Hobby.
   private smtpTransport() {
     const user = this.config.get<string>('SMTP_USER');
     const pass = this.config.get<string>('SMTP_APP_PASSWORD');
@@ -137,6 +139,13 @@ export class GmailDraftService {
       port: 465,
       secure: true,
       auth: { user, pass },
+      // Short, explicit timeouts so a blocked/unreachable port fails fast
+      // and visibly (an error in the logs) instead of hanging the request
+      // indefinitely — that's what made the original SMTP attempt look like
+      // a dead button rather than a diagnosable failure.
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
     });
   }
 
