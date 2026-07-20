@@ -139,6 +139,12 @@ export class GmailDraftService {
       port: 465,
       secure: true,
       auth: { user, pass },
+      // Force IPv4. Node resolves smtp.gmail.com to both an IPv4 and IPv6
+      // address and tries IPv6 first by default — on platforms (Railway
+      // included) where IPv6 egress is broken or unrouted, that connection
+      // just hangs until timeout even though IPv4 works fine. This was the
+      // actual cause of the "Connection timeout" errors in the logs.
+      family: 4,
       // Short, explicit timeouts so a blocked/unreachable port fails fast
       // and visibly (an error in the logs) instead of hanging the request
       // indefinitely — that's what made the original SMTP attempt look like
