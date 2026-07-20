@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
 import * as nodemailer from 'nodemailer';
+import { promises as dns } from 'dns';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -128,27 +129,40 @@ export class GmailDraftService {
   // myaccount.google.com/apppasswords) sidesteps all of that. Requires the
   // Railway service to be on a Pro/Enterprise plan — outbound SMTP
   // (ports 465/587) is blocked on Hobby.
-  private smtpTransport() {
+  private async smtpTransport() {
     const user = this.config.get<string>('SMTP_USER');
     const pass = this.config.get<string>('SMTP_APP_PASSWORD');
     if (!user || !pass) {
       throw new Error('SMTP_USER / SMTP_APP_PASSWORD are not configured (see gmail-draft.service.ts sendMail())');
     }
+
+    // Resolve smtp.gmail.com to a literal IPv4 address ourselves and connect
+    // to that directly. Passing `family: 4` to nodemailer was NOT enough on
+    // Railway — it still attempted Google's IPv6 address and failed with
+    // ENETUNREACH (the container has no IPv6 route at all). Connecting by
+    // IP removes DNS/family resolution from the picture entirely.
+    // `tls.servername` keeps SNI/certificate validation targeting the real
+    // hostname, since the cert Google presents is for smtp.gmail.com, not
+    // the bare IP.
+    let host = 'smtp.gmail.com';
+    try {
+      const { address } = await dns.lookup('smtp.gmail.com', { family: 4 });
+      host = address;
+    } catch (err) {
+      this.logger.warn(`IPv4 lookup for smtp.gmail.com failed, falling back to hostname: ${err}`);
+    }
+
     // Cast to `any`: @types/nodemailer's createTransport<T> overload
     // resolution is version-sensitive about inferring plain SMTP option
     // objects (Railway's fresh `npm install` resolved a stricter version
     // than the one tested locally, and rejected this literal outright).
     // The object shape itself is correct per nodemailer's own docs.
     return nodemailer.createTransport({
-      host: 'smtp.gmail.com',
+      host,
       port: 465,
       secure: true,
+      tls: { servername: 'smtp.gmail.com' },
       auth: { user, pass },
-      // Force IPv4. Node resolves smtp.gmail.com to both an IPv4 and IPv6
-      // address and tries IPv6 first by default — on platforms (Railway
-      // included) where IPv6 egress is broken or unrouted, that connection
-      // just hangs until timeout even though IPv4 works fine. This was the
-      // actual cause of the "Connection timeout" errors in the logs.
       family: 4,
       // Short, explicit timeouts so a blocked/unreachable port fails fast
       // and visibly (an error in the logs) instead of hanging the request
@@ -167,7 +181,7 @@ export class GmailDraftService {
    * API OAuth client above (see smtpTransport()).
    */
   async sendMail(to: string, subject: string, body: string): Promise<{ messageId: string }> {
-    const transport = this.smtpTransport();
+    const transport = await this.smtpTransport();
     const from = this.config.get<string>('SMTP_USER')!;
 
     const info = await transport.sendMail({ from, to, subject, text: body });
