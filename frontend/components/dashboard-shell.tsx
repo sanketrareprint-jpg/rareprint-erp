@@ -314,9 +314,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           marginBottom: "20px", paddingLeft: "18px", paddingRight: "18px", width: "100%",
         }}>
           <img src="/rareprint-icon.png" alt="RarePrint" style={{ width: "34px", height: "34px", objectFit: "contain", flexShrink: 0 }} />
-          <span style={{ fontSize: "18px", fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap" }}>
-            <span style={{ color: "#ee1c25" }}>Rare</span>
-            <span style={{ color: "#ee1c25" }}>Print</span>
+          <span style={{
+            fontSize: "19px", fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap",
+            fontFamily: "'Arial Black', Arial, Helvetica, sans-serif",
+            color: "#ee1c25", letterSpacing: "0.2px",
+            textShadow: "0 1px 0 rgba(0,0,0,0.12)",
+          }}>
+            RarePrint
           </span>
         </div>
 

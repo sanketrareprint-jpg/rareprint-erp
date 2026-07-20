@@ -165,9 +165,13 @@ textarea {
   }
 
   .erp-mobile-brand strong {
-    font-size: 15px;
+    font-size: 16px;
     line-height: 1.05;
-    letter-spacing: 0;
+    letter-spacing: 0.2px;
+    font-family: "Arial Black", Arial, Helvetica, sans-serif;
+    font-weight: 900;
+    color: #ee1c25;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
   }
 
   .erp-mobile-brand small {
