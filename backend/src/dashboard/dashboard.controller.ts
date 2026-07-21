@@ -13,7 +13,7 @@ export class DashboardController {
 
   @Get('summary')
   getSummary(@Req() req: Request & { user: JwtUser }) {
-    return this.dashboardService.getSummary(req.user?.email, req.user?.role);
+    return this.dashboardService.getSummary(req.user?.email);
   }
 
   @Get('stats')

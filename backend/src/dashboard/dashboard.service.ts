@@ -26,12 +26,10 @@ export class DashboardService {
     private readonly costTable: CostTableService,
   ) {}
 
-  async getSummary(userEmail?: string, userRole?: string) {
-    // Profit is sensitive — visible to the hardcoded super-admin email OR any
-    // user whose server-verified JWT role is ADMIN. Role comes from the JWT
-    // payload (req.user.role), never from the client body, so this can't be
-    // spoofed by a non-admin caller.
-    const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL || userRole === 'ADMIN';
+  async getSummary(userEmail?: string) {
+    // Profit is sensitive — visible only to the owner's hardcoded email, not
+    // to every ADMIN-role account.
+    const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL;
 
     const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult] = await Promise.allSettled([
       this.getStats(),

@@ -110,7 +110,10 @@ export default function DashboardPage() {
 
   // Sales-by-month bar chart geometry (mirrors the "Orders — Last 7 Days" bar chart below)
   const maxMonthSales = Math.max(...salesByMonth.map(m => m.total), 1);
-  const isAdmin = currentUser?.role === "ADMIN";
+  // Profit is owner-only — not every ADMIN account, just this one email.
+  // The backend is the real gate (profit comes back null for anyone else);
+  // this is just a matching frontend check so the UI never flashes it.
+  const isOwner = currentUser?.email === "sanket.rareprint@gmail.com";
 
   return (
     <DashboardShell>
@@ -141,11 +144,11 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* ── Profit KPIs — visible to admins only ── */}
-        {isAdmin && profit && (
+        {/* ── Profit KPIs — owner only ── */}
+        {isOwner && profit && (
           <div className="bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-2 shadow-sm">
             <div className="flex items-center justify-between mb-1.5">
-              <p className="text-xs font-semibold text-emerald-800">Profit <span className="opacity-60 font-normal">(admin only)</span></p>
+              <p className="text-xs font-semibold text-emerald-800">Profit <span className="opacity-60 font-normal">(owner only)</span></p>
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1 text-xs text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />Net profit</span>
                 <span className="flex items-center gap-1 text-xs text-blue-700"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />Gross profit</span>
