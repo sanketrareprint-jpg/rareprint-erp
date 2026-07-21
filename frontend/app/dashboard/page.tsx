@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
-import { clearAuth, getAuthHeaders } from "@/lib/auth";
+import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap } from "lucide-react";
 
@@ -30,8 +30,9 @@ type LeadAnalytics = { allTime: LeadSource[]; thisMonth: LeadSource[] };
 type ProductionKpiMetric = { key: string; label: string; avgHours: number | null; avgDays: number | null; avgDaysMonth: number | null; avgDaysWeek: number | null; sampleSize: number; note: string };
 type ProductionCategoryCycle = { category: string; avgHours: number | null; avgDays: number | null; avgDaysMonth: number | null; avgDaysWeek: number | null; sampleSize: number };
 type ProductionKpis = { metrics: ProductionKpiMetric[]; categoryCycleTimes: ProductionCategoryCycle[]; bottlenecks: ProductionKpiMetric[] };
-type MonthlySalesPoint = { day: number; thisMonth: number | null; lastMonth: number | null };
-type ProfitKpis = { today: number; thisMonth: number; lastMonth: number };
+type ProfitPeriod = { gross: number; net: number };
+type ProfitKpis = { today: ProfitPeriod; thisMonth: ProfitPeriod; lastMonth: ProfitPeriod };
+type SalesByMonthPoint = { month: string; total: number };
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -65,10 +66,11 @@ export default function DashboardPage() {
   const [avgProd,   setAvgProd]   = useState<AvgProd[]>([]);
   const [leadData,  setLeadData]  = useState<LeadAnalytics | null>(null);
   const [productionKpis, setProductionKpis] = useState<ProductionKpis | null>(null);
-  const [monthlySales, setMonthlySales] = useState<MonthlySalesPoint[]>([]);
+  const [salesByMonth, setSalesByMonth] = useState<SalesByMonthPoint[]>([]);
   const [profit, setProfit] = useState<ProfitKpis | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
+  const [currentUser] = useState(() => getStoredUser());
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -84,7 +86,7 @@ export default function DashboardPage() {
       setAvgProd(data.avgProd ?? []);
       setLeadData(data.leadData ?? null);
       setProductionKpis(data.productionKpis ?? null);
-      setMonthlySales(data.monthlySales ?? []);
+      setSalesByMonth(data.salesByMonth ?? []);
       setProfit(data.profit ?? null);
     } catch { setError("Network error"); }
     finally { setLoading(false); }
@@ -106,31 +108,9 @@ export default function DashboardPage() {
   const maxDay = Math.max(...stats.orders.last7Days.map(d => d.count), 1);
   const activeAgents = [...agents].sort((a, b) => b.monthRevenue - a.monthRevenue || b.monthOrders - a.monthOrders);
 
-  // Monthly sales comparison chart geometry
-  const monthlyMax = Math.max(1, ...monthlySales.flatMap(p => [p.thisMonth ?? 0, p.lastMonth ?? 0]));
-  const leftMargin = 46, bottomMargin = 18;
-  const chartW = 600, chartH = 90;
-  const plotW = chartW - leftMargin;
-  const stepX = monthlySales.length > 1 ? plotW / (monthlySales.length - 1) : plotW;
-  const toPoints = (key: "thisMonth" | "lastMonth") =>
-    monthlySales
-      .map((p, i) => (p[key] != null ? `${leftMargin + i * stepX},${chartH - ((p[key] as number) / monthlyMax) * chartH}` : null))
-      .filter((v): v is string => v !== null)
-      .join(" ");
-  const thisMonthPoints = toPoints("thisMonth");
-  const lastMonthPoints = toPoints("lastMonth");
-  const yTicks = [0, 0.5, 1].map(f => ({ y: chartH - f * chartH, value: monthlyMax * f }));
-  const dayTickCount = Math.min(6, monthlySales.length);
-  const dayTicks = monthlySales.length > 0
-    ? Array.from({ length: dayTickCount }, (_, i) => {
-        const idx = dayTickCount > 1 ? Math.round((i * (monthlySales.length - 1)) / (dayTickCount - 1)) : 0;
-        return { x: leftMargin + idx * stepX, day: monthlySales[idx].day };
-      })
-    : [];
-  const now = new Date();
-  const thisMonthLabel = now.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
-  const lastMonthLabel = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    .toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+  // Sales-by-month bar chart geometry (mirrors the "Orders — Last 7 Days" bar chart below)
+  const maxMonthSales = Math.max(...salesByMonth.map(m => m.total), 1);
+  const isAdmin = currentUser?.role === "ADMIN";
 
   return (
     <DashboardShell>
@@ -161,49 +141,60 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* ── Profit KPIs — visible to Sanket (admin) only ── */}
-        {profit && (
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: "Today's Profit",      value: fmt(profit.today) },
-              { label: "This Month Profit",   value: fmt(profit.thisMonth) },
-              { label: "Last Month Profit",   value: fmt(profit.lastMonth) },
-            ].map((card, i) => (
-              <div key={i} className="bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-2 shadow-sm">
-                <p className="text-xs text-emerald-700 font-medium truncate">{card.label} <span className="opacity-60">(admin only)</span></p>
-                <p className="text-lg font-bold text-emerald-800 leading-tight mt-0.5">{card.value}</p>
+        {/* ── Profit KPIs — visible to admins only ── */}
+        {isAdmin && profit && (
+          <div className="bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-2 shadow-sm">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-semibold text-emerald-800">Profit <span className="opacity-60 font-normal">(admin only)</span></p>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1 text-xs text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />Net profit</span>
+                <span className="flex items-center gap-1 text-xs text-blue-700"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />Gross profit</span>
               </div>
-            ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Today's Profit",    data: profit.today },
+                { label: "This Month Profit", data: profit.thisMonth },
+                { label: "Last Month Profit", data: profit.lastMonth },
+              ].map((card, i) => (
+                <div key={i} className="bg-white rounded-md border border-emerald-100 px-3 py-2">
+                  <p className="text-xs text-slate-500 font-medium truncate">{card.label}</p>
+                  <div className="mt-0.5 flex items-baseline gap-1.5">
+                    <span className="text-lg font-bold text-emerald-600 leading-tight">{fmt(card.data.net)}</span>
+                    <span className="text-slate-300 font-bold">/</span>
+                    <span className="text-lg font-bold text-blue-600 leading-tight">{fmt(card.data.gross)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="text-emerald-400 font-medium">net</span>
+                    <span className="text-slate-300">/</span>
+                    <span className="text-blue-400 font-medium">gross</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* ── Monthly Sales — This Month vs Last Month ── */}
+        {/* ── Sales by Month ── */}
         <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-xs font-semibold text-slate-700">Monthly Sales — This Month vs Last Month</p>
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />This month ({thisMonthLabel})</span>
-              <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block" />Last month ({lastMonthLabel})</span>
-            </div>
-          </div>
-          {monthlySales.length === 0 ? (
+          <p className="text-xs font-semibold text-slate-700 mb-1.5">Sales — Last {salesByMonth.length || 6} Months</p>
+          {salesByMonth.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
           ) : (
-            <svg viewBox={`0 0 ${chartW} ${chartH + bottomMargin}`} className="w-full" style={{ height: "130px" }} preserveAspectRatio="none">
-              {/* Y-axis gridlines + sales amount labels */}
-              {yTicks.map((t, i) => (
-                <g key={i}>
-                  <line x1={leftMargin} y1={t.y} x2={chartW} y2={t.y} stroke="#f1f5f9" strokeWidth="1" />
-                  <text x={leftMargin - 6} y={t.y + 3} fontSize="9" fill="#94a3b8" textAnchor="end">{fmt(t.value)}</text>
-                </g>
-              ))}
-              {/* X-axis day-of-month labels */}
-              {dayTicks.map((t, i) => (
-                <text key={i} x={t.x} y={chartH + 13} fontSize="9" fill="#94a3b8" textAnchor="middle">{`Day ${t.day}`}</text>
-              ))}
-              <polyline points={lastMonthPoints} fill="none" stroke="#cbd5e1" strokeWidth="2" />
-              <polyline points={thisMonthPoints} fill="none" stroke="#3b82f6" strokeWidth="2" />
-            </svg>
+            <div className="flex items-end gap-2" style={{ height: "130px" }}>
+              {salesByMonth.map((m, i) => {
+                const barH = m.total > 0 ? Math.max(Math.round((m.total / maxMonthSales) * 96), 8) : 2;
+                return (
+                  <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
+                    <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{m.total > 0 ? fmt(m.total) : ""}</span>
+                    <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
+                      <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: m.total > 0 ? 1 : 0.2 }} />
+                    </div>
+                    <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "9px" }}>{m.month}</span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 

@@ -376,7 +376,7 @@ export default function TasksPage() {
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-3">
+          <div className="flex min-h-0 min-w-0 flex-col gap-3">
             <div className="grid flex-none gap-2 md:grid-cols-4">
               {goalHorizonOrder.map(goalHorizon => (
                 <button
@@ -459,7 +459,7 @@ export default function TasksPage() {
                 )}
               </div>
             ) : (
-              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 pb-4">
+              <div className="min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto overflow-x-auto pr-1 pb-4">
                 {visibleTasks.map(task => (
                   <div
                     key={task.id}

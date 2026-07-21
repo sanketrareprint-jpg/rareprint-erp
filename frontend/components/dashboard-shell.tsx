@@ -411,7 +411,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="erp-main" style={{ flex: 1, overflow: "auto", background: "#f8fafc" }}>
+      <main className="erp-main" style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#f8fafc" }}>
         {children}
       </main>
 

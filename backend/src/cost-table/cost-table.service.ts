@@ -161,6 +161,17 @@ export class CostTableService {
     return rows.reduce((sum, row) => sum + (row.grossProfit ?? 0), 0);
   }
 
+  // ── Gross + net (after sales commission) profit summed across a date range
+  // (used by admin-only dashboard profit KPIs). "gross" = sale - material cost;
+  // "net" = gross - commission paid to the sales agent on that order.
+  async getProfitBreakdownForRange(start: Date, end: Date): Promise<{ gross: number; net: number }> {
+    const rows = await this.profitRows(start, end);
+    return {
+      gross: rows.reduce((sum, row) => sum + (row.grossProfit ?? 0), 0),
+      net: rows.reduce((sum, row) => sum + (row.netGrossProfit ?? 0), 0),
+    };
+  }
+
   // ── Single-order gross profit (used by loyalty points earn calc) ──────────
   // Same cost-lookup approach as profitRows() above: sum lineCostTotal() per
   // item, and if ANY item is missing a cost slab, grossProfit comes back null

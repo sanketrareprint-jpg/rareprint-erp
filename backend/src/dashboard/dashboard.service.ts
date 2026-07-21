@@ -26,17 +26,21 @@ export class DashboardService {
     private readonly costTable: CostTableService,
   ) {}
 
-  async getSummary(userEmail?: string) {
-    const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL;
+  async getSummary(userEmail?: string, userRole?: string) {
+    // Profit is sensitive — visible to the hardcoded super-admin email OR any
+    // user whose server-verified JWT role is ADMIN. Role comes from the JWT
+    // payload (req.user.role), never from the client body, so this can't be
+    // spoofed by a non-admin caller.
+    const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL || userRole === 'ADMIN';
 
-    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, monthlySalesResult, profitResult] = await Promise.allSettled([
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
       this.getAvgProductionTime(),
       this.getLeadSourceAnalytics(),
       this.withTimeout(this.getProductionKpis(), 10000, this.getEmptyProductionKpis()),
-      this.getMonthlySalesComparison(),
+      this.getSalesByMonth(6),
       isSuperAdmin ? this.getProfitKpis() : Promise.resolve(null),
     ]);
 
@@ -49,11 +53,42 @@ export class DashboardService {
       productionKpis: productionKpisResult.status === 'fulfilled'
         ? productionKpisResult.value
         : { metrics: [], categoryCycleTimes: [], bottlenecks: [] },
-      monthlySales: monthlySalesResult.status === 'fulfilled' ? monthlySalesResult.value : [],
-      // null for everyone except the super-admin — the frontend only renders
-      // the profit cards when this key is present.
+      salesByMonth: salesByMonthResult.status === 'fulfilled' ? salesByMonthResult.value : [],
+      // null for everyone except admins — the frontend only renders the
+      // profit cards when this key is present (defense in depth on top of
+      // the frontend's own role check).
       profit: profitResult.status === 'fulfilled' ? profitResult.value : null,
     };
+  }
+
+  // ── Sales totals for the last N calendar months (bar-chart friendly) ─────
+  async getSalesByMonth(monthsBack = 6) {
+    const b = this.istBoundaries();
+    const from = new Date(Date.UTC(b.istYear, b.istMonth - (monthsBack - 1), 1) - b.istOffsetMs);
+
+    const orders = await this.prisma.order.findMany({
+      where: { orderDate: { gte: from }, status: { not: OrderStatus.CANCELLED } },
+      select: { orderDate: true, grandTotal: true },
+    });
+
+    const byKey: Record<string, number> = {};
+    for (const o of orders) {
+      const istDate = new Date(o.orderDate.getTime() + b.istOffsetMs);
+      const key = `${istDate.getUTCFullYear()}-${istDate.getUTCMonth()}`;
+      byKey[key] = (byKey[key] ?? 0) + Number(o.grandTotal);
+    }
+
+    return Array.from({ length: monthsBack }, (_, i) => {
+      const offset = monthsBack - 1 - i;
+      const year = b.istYear;
+      const month = b.istMonth - offset;
+      const d = new Date(Date.UTC(year, month, 1));
+      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+      return {
+        month: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+        total: byKey[key] ?? 0,
+      };
+    });
   }
 
   // ── IST day/month boundaries shared by profit + monthly-sales helpers ────
@@ -76,13 +111,14 @@ export class DashboardService {
     };
   }
 
-  // ── Profit KPIs (admin-only) ─────────────────────────────────────────────
+  // ── Profit KPIs (admin-only) — each period returns both gross profit
+  // (sale - material cost) and net profit (gross - sales commission) ───────
   async getProfitKpis() {
     const b = this.istBoundaries();
     const [today, thisMonth, lastMonth] = await Promise.all([
-      this.costTable.getGrossProfitForRange(b.startOfToday, b.startOfTomorrow),
-      this.costTable.getGrossProfitForRange(b.startOfMonth, b.startOfNextMonth),
-      this.costTable.getGrossProfitForRange(b.startOfLastMonth, b.startOfMonth),
+      this.costTable.getProfitBreakdownForRange(b.startOfToday, b.startOfTomorrow),
+      this.costTable.getProfitBreakdownForRange(b.startOfMonth, b.startOfNextMonth),
+      this.costTable.getProfitBreakdownForRange(b.startOfLastMonth, b.startOfMonth),
     ]);
     return { today, thisMonth, lastMonth };
   }
