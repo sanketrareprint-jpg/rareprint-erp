@@ -4,8 +4,11 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiFetch";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign, Download } from "lucide-react";
 import { useRouter } from "next/navigation";
+import jsPDF from "jspdf";
+import { autoTable } from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
 type OrderItem = {
@@ -727,6 +730,95 @@ export default function AccountsPage() {
       setSavingCommRow(null);
     }
   }, [selectedAgent, selectedMonth, loadCommissionSheet, handleLoadError]);
+
+  // Column definitions shared by the PDF and Excel commission-sheet exports,
+  // so both formats always show exactly the same columns (respecting the
+  // ADMIN/ACCOUNTS-only "canSeeDetails" columns) without drifting apart.
+  const buildCommissionExportColumns = useCallback((): { header: string; value: (row: CommissionRow) => string | number }[] => {
+    const cols: { header: string; value: (row: CommissionRow) => string | number }[] = [
+      { header: "Date", value: (r) => new Date(r.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "2-digit" }) },
+      { header: "Invoice", value: (r) => r.invoiceNo },
+      { header: "Party Name", value: (r) => r.partyName },
+      { header: "Item", value: (r) => r.itemName },
+      { header: "Size / GSM", value: (r) => [r.sizeInches ? `${r.sizeInches}"` : "", r.gsm ? `${r.gsm}GSM` : "", r.sides === "SINGLE_SIDE" ? "1S" : r.sides === "DOUBLE_SIDE" ? "2S" : ""].filter(Boolean).join(" ") || "—" },
+    ];
+    if (canSeeDetails) cols.push({ header: "Order Status", value: (r) => r.orderStatus ? r.orderStatus.replace(/_/g, " ") : "—" });
+    cols.push({ header: "Qty", value: (r) => r.quantity });
+    cols.push({ header: "Amount", value: (r) => r.amount });
+    if (canSeeDetails) {
+      cols.push({ header: "Rate Total", value: (r) => r.ratePerUnit ?? "—" });
+      cols.push({ header: "Disc%", value: (r) => (r.discountPct > 0 ? `-${r.discountPct.toFixed(1)}%` : "No disc") });
+      cols.push({ header: "Cost", value: (r) => r.cost ?? "—" });
+      cols.push({ header: "Gr. Profit", value: (r) => r.grossProfit ?? "—" });
+      cols.push({ header: "Margin", value: (r) => (r.marginPct != null ? `${r.marginPct.toFixed(1)}%` : "—") });
+    }
+    cols.push({ header: "Rate%", value: (r) => (r.hasCost ? `${r.commissionPct}%` : "—") });
+    if (canSeeDetails) cols.push({ header: "Balance Due", value: (r) => (r.balanceDue > 0 ? r.balanceDue : "Paid") });
+    cols.push({ header: "Commission", value: (r) => (r.hasCost ? r.commissionAmt : "—") });
+    return cols;
+  }, [canSeeDetails]);
+
+  const commissionExportFilename = useCallback((ext: string) => {
+    const agentName = (selectedAgent?.name ?? "agent").replace(/[^\w]+/g, "_");
+    return `Commission_${agentName}_${selectedMonth || "sheet"}.${ext}`;
+  }, [selectedAgent, selectedMonth]);
+
+  const downloadCommissionPdf = useCallback(() => {
+    if (!commissionSheet || !selectedAgent) return;
+    const columns = buildCommissionExportColumns();
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+
+    doc.setFontSize(14);
+    doc.text(`Commission Sheet — ${selectedAgent.name} — ${selectedMonth}`, 40, 40);
+    doc.setFontSize(9);
+    doc.setTextColor(90);
+    doc.text(
+      `Category ${selectedAgent.category ?? "—"}   ·   Commission Rate ${commissionSheet.commissionPct}%   ·   ` +
+      `${commissionSheet.verification ? `Verified by ${commissionSheet.verification.verifiedBy}` : "Not verified"}`,
+      40, 58,
+    );
+    doc.setTextColor(20);
+    doc.setFontSize(10);
+    doc.text(
+      `Total Sales: ${fmt(commissionSheet.saleTotal)}    Commission: ${fmt(commissionSheet.commissionTotal)}    ` +
+      `Bonus: ${fmt(commissionSheet.bonus)}    TOTAL PAYABLE: ${fmt(commissionSheet.totalPayable)}`,
+      40, 76,
+    );
+
+    autoTable(doc, {
+      head: [columns.map(c => c.header)],
+      body: commissionSheet.rows.map(row => columns.map(c => {
+        const v = c.value(row);
+        return typeof v === "number" ? v.toLocaleString("en-IN") : v;
+      })),
+      startY: 90,
+      styles: { fontSize: 7, cellPadding: 3, overflow: "linebreak" },
+      headStyles: { fillColor: [51, 65, 85], textColor: 255, fontSize: 7.5 },
+      margin: { left: 40, right: 40 },
+    });
+
+    doc.save(commissionExportFilename("pdf"));
+  }, [commissionSheet, selectedAgent, selectedMonth, buildCommissionExportColumns, commissionExportFilename]);
+
+  const downloadCommissionExcel = useCallback(() => {
+    if (!commissionSheet || !selectedAgent) return;
+    const columns = buildCommissionExportColumns();
+
+    const sheetData: (string | number)[][] = [
+      [`Commission Sheet — ${selectedAgent.name} — ${selectedMonth}`],
+      [`Category ${selectedAgent.category ?? "—"}`, `Commission Rate ${commissionSheet.commissionPct}%`],
+      ["Total Sales", commissionSheet.saleTotal, "Commission", commissionSheet.commissionTotal, "Bonus", commissionSheet.bonus, "Total Payable", commissionSheet.totalPayable],
+      [],
+      columns.map(c => c.header),
+      ...commissionSheet.rows.map(row => columns.map(c => c.value(row))),
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    ws["!cols"] = columns.map(c => ({ wch: Math.max(10, c.header.length + 2) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Commission");
+    XLSX.writeFile(wb, commissionExportFilename("xlsx"));
+  }, [commissionSheet, selectedAgent, selectedMonth, buildCommissionExportColumns, commissionExportFilename]);
 
   const handleVerifyCommission = useCallback(async () => {
     if (!selectedAgent || !selectedMonth) return;
@@ -2772,6 +2864,22 @@ await loadHistory();
                         })}
                       </div>
                     </div>
+                    {commissionSheet && commissionSheet.rows.length > 0 && (
+                      <div className="flex justify-end gap-2 mt-3">
+                        <button
+                          onClick={downloadCommissionPdf}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download PDF
+                        </button>
+                        <button
+                          onClick={downloadCommissionExcel}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download Excel
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Verification status banner — visible to ADMIN and ACCOUNTS only */}
