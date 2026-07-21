@@ -1426,7 +1426,7 @@ await loadHistory();
   return (
     <>
       <DashboardShell>
-        <div className={`p-4 lg:p-6 space-y-4 ${tab === "commission" && selectedAgent ? "max-w-full" : "max-w-7xl mx-auto"}`}>
+        <div className={`p-4 lg:p-6 space-y-4 min-w-0 ${tab === "commission" && selectedAgent ? "max-w-full" : "max-w-7xl mx-auto"}`}>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Accounts</h1>
             <p className="text-xs text-slate-500 mt-0.5">Approve orders, dispatch, and manage vendor payments.</p>
@@ -2813,7 +2813,7 @@ await loadHistory();
 
               {/* Commission sheet view */}
               {selectedAgent && (
-                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden w-full max-w-full min-w-0">
                   {/* Sheet header */}
                   <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-200 px-6 py-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
@@ -3022,9 +3022,13 @@ await loadHistory();
                         <span className="text-amber-500">(+₹1,000 per ₹1L above ₹1L)</span>
                       </div>
 
-                      {/* Commission table */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full" style={{ fontSize: "12.5px", borderCollapse: "collapse" }}>
+                      {/* Commission table — the table gets an explicit min-width so
+                          browsers never squeeze its 15 whitespace-nowrap columns to
+                          fit 100%; instead this wrapper scrolls horizontally on its
+                          own, contained to this card, without the page itself
+                          growing wider than the viewport. */}
+                      <div className="overflow-x-auto w-full">
+                        <table className="w-full min-w-[1180px]" style={{ fontSize: "12.5px", borderCollapse: "collapse" }}>
                           <thead className="bg-slate-700 text-white">
                             <tr>
                               <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">Date</th>
