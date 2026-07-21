@@ -6,7 +6,7 @@
 // is already registered globally in app.module.ts, so no extra wiring is
 // needed beyond adding this provider to ComplaintsModule.
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ComplaintsNotifications } from './complaints.notifications';
 import { ComplaintStatus, StatusInterval, computePausedDurationMs, effectiveResolutionDueAt, isEligibleForAutoClose, shouldEscalate } from './complaints.calc';
@@ -36,7 +36,10 @@ export class ComplaintsSlaService {
   }
 
   // ── Runs every 15 minutes: SLA breach escalation + auto-close sweep ─────
-  @Cron(CronExpression.EVERY_15_MINUTES)
+  // Raw cron string (sec min hour day month weekday) rather than
+  // CronExpression.EVERY_15_MINUTES — this repo's installed @nestjs/schedule
+  // version only ships 5/10/30-minute presets, not 15.
+  @Cron('0 */15 * * * *')
   async runSlaChecks() {
     await Promise.allSettled([this.escalateBreachedTickets(), this.autoCloseStaleResolved()]);
   }
