@@ -3022,43 +3022,60 @@ await loadHistory();
                         <span className="text-amber-500">(+₹1,000 per ₹1L above ₹1L)</span>
                       </div>
 
-                      {/* Commission table — the table gets an explicit min-width so
-                          browsers never squeeze its 15 whitespace-nowrap columns to
-                          fit 100%; instead this wrapper scrolls horizontally on its
-                          own, contained to this card, without the page itself
-                          growing wider than the viewport. */}
-                      <div className="overflow-x-auto w-full">
-                        <table className="w-full min-w-[1180px]" style={{ fontSize: "12.5px", borderCollapse: "collapse" }}>
+                      {/* Commission table — table-layout:fixed + a matching <colgroup>
+                          makes the table strictly obey the card's width (never wider
+                          than the screen). Cell text wraps instead of forcing extra
+                          column width, so this fits without needing to scroll. */}
+                      <div className="w-full overflow-hidden">
+                        <table className="w-full" style={{ fontSize: "11px", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                          <colgroup>
+                            <col style={{ width: "6%" }} />
+                            <col style={{ width: "6%" }} />
+                            <col style={{ width: "13%" }} />
+                            <col style={{ width: "12%" }} />
+                            <col style={{ width: "7%" }} />
+                            {canSeeDetails && <col style={{ width: "7%" }} />}
+                            <col style={{ width: "4%" }} />
+                            <col style={{ width: "6%" }} />
+                            {canSeeDetails && <col style={{ width: "6%" }} />}
+                            {canSeeDetails && <col style={{ width: "4%" }} />}
+                            {canSeeDetails && <col style={{ width: "5%" }} />}
+                            {canSeeDetails && <col style={{ width: "5%" }} />}
+                            {canSeeDetails && <col style={{ width: "4%" }} />}
+                            <col style={{ width: "4%" }} />
+                            {canSeeDetails && <col style={{ width: "5%" }} />}
+                            <col style={{ width: "6%" }} />
+                          </colgroup>
                           <thead className="bg-slate-700 text-white">
                             <tr>
-                              <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">Date</th>
-                              <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">Invoice</th>
-                              <th className="px-1.5 py-2 text-left font-semibold">Party Name</th>
-                              <th className="px-1.5 py-2 text-left font-semibold">Item</th>
-                              <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">Size / GSM</th>
-                              {canSeeDetails && <th className="px-1.5 py-2 text-left font-semibold whitespace-nowrap">Order Status</th>}
-                              <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Qty</th>
-                              <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Amount</th>
-                              {canSeeDetails && <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Rate Total</th>}
-                              {canSeeDetails && <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Disc%</th>}
-                              {canSeeDetails && <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Cost</th>}
-                              {canSeeDetails && <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Gr. Profit</th>}
-                              {canSeeDetails && <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Margin</th>}
-                              <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Rate%</th>
-                              {canSeeDetails && <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Balance Due</th>}
-                              <th className="px-1.5 py-2 text-right font-semibold whitespace-nowrap">Commission</th>
+                              <th className="px-1 py-1.5 text-left font-semibold">Date</th>
+                              <th className="px-1 py-1.5 text-left font-semibold">Invoice</th>
+                              <th className="px-1 py-1.5 text-left font-semibold">Party Name</th>
+                              <th className="px-1 py-1.5 text-left font-semibold">Item</th>
+                              <th className="px-1 py-1.5 text-left font-semibold">Size / GSM</th>
+                              {canSeeDetails && <th className="px-1 py-1.5 text-left font-semibold">Order Status</th>}
+                              <th className="px-1 py-1.5 text-right font-semibold">Qty</th>
+                              <th className="px-1 py-1.5 text-right font-semibold">Amount</th>
+                              {canSeeDetails && <th className="px-1 py-1.5 text-right font-semibold">Rate Total</th>}
+                              {canSeeDetails && <th className="px-1 py-1.5 text-right font-semibold">Disc%</th>}
+                              {canSeeDetails && <th className="px-1 py-1.5 text-right font-semibold">Cost</th>}
+                              {canSeeDetails && <th className="px-1 py-1.5 text-right font-semibold">Gr. Profit</th>}
+                              {canSeeDetails && <th className="px-1 py-1.5 text-right font-semibold">Margin</th>}
+                              <th className="px-1 py-1.5 text-right font-semibold">Rate%</th>
+                              {canSeeDetails && <th className="px-1 py-1.5 text-right font-semibold">Balance Due</th>}
+                              <th className="px-1 py-1.5 text-right font-semibold">Commission</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {commissionSheet.rows.map((row, i) => (
                               <tr key={i} className={`hover:bg-slate-50 ${!row.hasCost ? "opacity-60" : ""}`}>
-                                <td className="px-1.5 py-1.5 text-slate-500 whitespace-nowrap">
+                                <td className="px-1 py-1 text-slate-500 break-words">
                                   {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "2-digit" })}
                                 </td>
-                                <td className="px-1.5 py-1.5 font-mono text-blue-700 whitespace-nowrap">{row.invoiceNo}</td>
-                                <td className="px-1.5 py-1.5 text-slate-700 max-w-[110px] truncate" title={row.partyName}>{row.partyName}</td>
-                                <td className="px-1.5 py-1.5 text-slate-700 max-w-[100px] truncate" title={row.itemName}>{row.itemName}</td>
-                                <td className="px-1.5 py-1.5 whitespace-nowrap">
+                                <td className="px-1 py-1 font-mono text-blue-700 break-words">{row.invoiceNo}</td>
+                                <td className="px-1 py-1 text-slate-700 truncate" title={row.partyName}>{row.partyName}</td>
+                                <td className="px-1 py-1 text-slate-700 truncate" title={row.itemName}>{row.itemName}</td>
+                                <td className="px-1 py-1 break-words">
                                   <div className="flex flex-col" style={{ gap: "1px" }}>
                                     {row.sizeInches && <span className="font-semibold text-slate-800">{row.sizeInches}"</span>}
                                     <span className="text-slate-500">
@@ -3070,9 +3087,9 @@ await loadHistory();
                                   </div>
                                 </td>
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5">
+                                  <td className="px-1 py-1 break-words">
                                     {row.orderStatus ? (
-                                      <span className={`font-semibold whitespace-nowrap ${
+                                      <span className={`font-semibold ${
                                         row.orderStatus === "DELIVERED" ? "text-green-700" :
                                         row.orderStatus === "DISPATCHED" || row.orderStatus === "PARTIALLY_DISPATCHED" ? "text-blue-700" :
                                         row.orderStatus === "IN_PRODUCTION" || row.orderStatus === "READY_FOR_DISPATCH" ? "text-purple-700" :
@@ -3085,17 +3102,17 @@ await loadHistory();
                                     ) : <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
-                                <td className="px-1.5 py-1.5 text-right font-mono text-slate-700" style={{ fontSize: "13.5px" }}>{row.quantity.toLocaleString("en-IN")}</td>
-                                <td className="px-1.5 py-1.5 text-right font-mono font-semibold text-slate-800 whitespace-nowrap" style={{ fontSize: "13.5px" }}>₹{row.amount.toLocaleString("en-IN")}</td>
+                                <td className="px-1 py-1 text-right font-mono text-slate-700" style={{ fontSize: "12px" }}>{row.quantity.toLocaleString("en-IN")}</td>
+                                <td className="px-1 py-1 text-right font-mono font-semibold text-slate-800 break-words" style={{ fontSize: "12px" }}>₹{row.amount.toLocaleString("en-IN")}</td>
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5 text-right font-mono text-slate-600 whitespace-nowrap">
+                                  <td className="px-1 py-1 text-right font-mono text-slate-600 break-words">
                                     {row.ratePerUnit != null
                                       ? `₹${row.ratePerUnit.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
                                       : <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5 text-right whitespace-nowrap">
+                                  <td className="px-1 py-1 text-right break-words">
                                     {row.ratePerUnit != null ? (
                                       row.discountPct > 0 ? (
                                         <span className={`font-semibold ${row.discountPct > 5 ? "text-red-600" : "text-amber-600"}`}>
@@ -3108,12 +3125,12 @@ await loadHistory();
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5 text-right font-mono text-slate-500 whitespace-nowrap">
+                                  <td className="px-1 py-1 text-right font-mono text-slate-500 break-words">
                                     {row.cost != null ? `₹${row.cost.toLocaleString("en-IN")}` : <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5 text-right font-mono font-semibold whitespace-nowrap">
+                                  <td className="px-1 py-1 text-right font-mono font-semibold break-words">
                                     {row.grossProfit != null ? (
                                       <span className={row.grossProfit >= 0 ? "text-green-700" : "text-red-600"}>
                                         ₹{row.grossProfit.toLocaleString("en-IN")}
@@ -3122,7 +3139,7 @@ await loadHistory();
                                   </td>
                                 )}
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">
+                                  <td className="px-1 py-1 text-right font-semibold break-words">
                                     {row.marginPct != null ? (
                                       <span className={row.marginPct >= 35 ? "text-green-700" : row.marginPct >= 25 ? "text-amber-600" : "text-red-600"}>
                                         {row.marginPct.toFixed(1)}%
@@ -3130,7 +3147,7 @@ await loadHistory();
                                     ) : <span className="text-slate-300">—</span>}
                                   </td>
                                 )}
-                                <td className="px-1.5 py-1.5 text-right whitespace-nowrap">
+                                <td className="px-1 py-1 text-right break-words">
                                   {row.hasCost ? (
                                     <span className="font-bold text-green-700">{row.commissionPct}%</span>
                                   ) : (
@@ -3138,7 +3155,7 @@ await loadHistory();
                                   )}
                                 </td>
                                 {canSeeDetails && (
-                                  <td className="px-1.5 py-1.5 text-right font-mono font-semibold whitespace-nowrap">
+                                  <td className="px-1 py-1 text-right font-mono font-semibold break-words">
                                     {row.balanceDue > 0 ? (
                                       <span className="text-red-600">₹{row.balanceDue.toLocaleString("en-IN")}</span>
                                     ) : (
@@ -3146,7 +3163,7 @@ await loadHistory();
                                     )}
                                   </td>
                                 )}
-                                <td className="px-1.5 py-1.5 text-right font-mono font-bold text-blue-700 whitespace-nowrap" style={{ fontSize: "13.5px" }}>
+                                <td className="px-1 py-1 text-right font-mono font-bold text-blue-700 break-words" style={{ fontSize: "12px" }}>
                                   {row.hasCost ? (
                                     savingCommRow === i ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 inline-block" />
@@ -3234,27 +3251,27 @@ await loadHistory();
                               </tr>
                             ))}
                           </tbody>
-                          <tfoot className="bg-slate-100 border-t-2 border-slate-300" style={{ fontSize: "13px" }}>
+                          <tfoot className="bg-slate-100 border-t-2 border-slate-300" style={{ fontSize: "11.5px" }}>
                             <tr>
                               {/* Date Invoice Party Item Specs [Status] Qty = 6 or 7 */}
-                              <td colSpan={canSeeDetails ? 7 : 6} className="px-1.5 py-2 font-bold text-slate-700">TOTAL</td>
-                              <td className="px-1.5 py-2 text-right font-bold text-slate-800 font-mono whitespace-nowrap" style={{ fontSize: "14px" }}>₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
-                              {canSeeDetails && <td colSpan={5} className="px-1.5 py-1.5"></td>}
-                              <td className="px-1.5 py-2 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
-                              {canSeeDetails && <td className="px-1.5 py-1.5"></td>}
-                              <td className="px-1.5 py-2 text-right font-bold font-mono whitespace-nowrap" style={{ fontSize: "14px" }}>
+                              <td colSpan={canSeeDetails ? 7 : 6} className="px-1 py-1.5 font-bold text-slate-700">TOTAL</td>
+                              <td className="px-1 py-1.5 text-right font-bold text-slate-800 font-mono break-words" style={{ fontSize: "12.5px" }}>₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</td>
+                              {canSeeDetails && <td colSpan={5} className="px-1 py-1"></td>}
+                              <td className="px-1 py-1.5 text-right font-bold text-slate-600">{commissionSheet.commissionPct}%</td>
+                              {canSeeDetails && <td className="px-1 py-1"></td>}
+                              <td className="px-1 py-1.5 text-right font-bold font-mono break-words" style={{ fontSize: "12.5px" }}>
                                 <span className={commissionSheet.rows.some(r => r.isOverridden) ? "text-purple-700" : "text-blue-700"}>
                                   ₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}
                                 </span>
                               </td>
                             </tr>
                             <tr className="bg-green-50 border-t border-green-200">
-                              <td colSpan={canSeeDetails ? 15 : 8} className="px-1.5 py-2 font-bold text-slate-700">BONUS</td>
-                              <td className="px-1.5 py-2 text-right font-bold text-green-700 font-mono whitespace-nowrap" style={{ fontSize: "14px" }}>₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
+                              <td colSpan={canSeeDetails ? 15 : 8} className="px-1 py-1.5 font-bold text-slate-700">BONUS</td>
+                              <td className="px-1 py-1.5 text-right font-bold text-green-700 font-mono break-words" style={{ fontSize: "12.5px" }}>₹{commissionSheet.bonus.toLocaleString("en-IN")}</td>
                             </tr>
                             <tr className="bg-green-100 border-t border-green-300">
-                              <td colSpan={canSeeDetails ? 15 : 8} className="px-1.5 py-2 font-bold text-green-800">TOTAL PAYABLE</td>
-                              <td className="px-1.5 py-2 text-right font-bold font-mono whitespace-nowrap" style={{ fontSize: "15px" }}>
+                              <td colSpan={canSeeDetails ? 15 : 8} className="px-1 py-1.5 font-bold text-green-800">TOTAL PAYABLE</td>
+                              <td className="px-1 py-1.5 text-right font-bold font-mono break-words" style={{ fontSize: "13px" }}>
                                 <span className={commissionSheet.rows.some(r => r.isOverridden) ? "text-purple-800" : "text-green-800"}>
                                   ₹{commissionSheet.totalPayable.toLocaleString("en-IN")}
                                 </span>
