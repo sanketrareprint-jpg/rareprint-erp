@@ -53,6 +53,8 @@ model User {
   attendanceImports            AttendanceImportSession[] @relation("AttendanceImports")
   employeesApproved            Employee[]                @relation("EmployeeApprovedBy")
   companyTermsCreated          CompanyTerms[]            @relation("CompanyTermsCreatedBy")
+  complaintsRaised              Complaint[]               @relation("ComplaintRaisedBy")
+  complaintsAssigned             Complaint[]               @relation("ComplaintAssignedTo")
 }
 
 model Customer {
@@ -75,6 +77,7 @@ model Customer {
   orders           Order[]
   ledgerEntries    AccountingLedgerEntry[]
   creditDebitNotes AccountingNote[]
+  complaints       Complaint[]
 }
 
 model ProductCategory {
@@ -230,6 +233,7 @@ model Vendor {
   vendorPayments      VendorPayment[]
   ledgerEntries       AccountingLedgerEntry[]
   creditDebitNotes    AccountingNote[]
+  complaints          Complaint[]
 }
 
 // ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
@@ -382,6 +386,7 @@ model Order {
   reassuranceLogs  OrderReassuranceLog[]
   remittanceMatches   RemittanceRecord[]  @relation("RemittanceMatchedOrder")
   remittanceSuggested RemittanceRecord[]  @relation("RemittanceSuggestedOrder")
+  complaints          Complaint[]
 
   @@index([status, orderDate])
   @@index([status, updatedAt])
@@ -2089,4 +2094,160 @@ model UserActivitySession {
 
   @@index([userId])
   @@index([startedAt])
+}
+
+// ── Complaint / Ticket Management (see complaint-ticket-module-spec.md) ─────
+
+enum ComplaintChannel {
+  WHATSAPP
+  CALL
+  EMAIL
+  WEB_PORTAL
+  WALK_IN
+  SALES_AGENT
+}
+
+enum ComplaintCategory {
+  PRODUCT_QUALITY
+  DELIVERY_DELAY
+  WRONG_ITEM
+  DAMAGED_IN_TRANSIT
+  DESIGN_ERROR
+  PRODUCTION_DEFECT
+  BILLING_DISPUTE
+  PAYMENT_ISSUE
+  VENDOR_ISSUE
+  SERVICE_COMPLAINT
+  OTHER
+}
+
+enum ComplaintPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ComplaintStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  PENDING_CUSTOMER
+  PENDING_VENDOR
+  RESOLVED
+  CLOSED
+  REOPENED
+}
+
+enum ComplaintResolutionType {
+  REPRINT
+  REFUND
+  PARTIAL_REFUND
+  REPLACEMENT
+  DISCOUNT_CREDIT
+  APOLOGY_ONLY
+  NO_FAULT_FOUND
+  GOODWILL
+}
+
+enum ComplaintCommentVisibility {
+  INTERNAL
+  CUSTOMER
+}
+
+model Complaint {
+  id                 String                   @id @default(cuid())
+  ticketNumber       String                   @unique // CMP-2026-00001
+  customerId         String
+  orderId            String?
+  orderItemId        String?
+  productId          String?
+  channel            ComplaintChannel
+  category           ComplaintCategory
+  priority           ComplaintPriority        @default(MEDIUM)
+  status             ComplaintStatus          @default(OPEN)
+  subject            String
+  description        String
+
+  raisedById         String?                  // staff who logged it (null if customer self-service)
+  assignedToId       String?
+  assignedTeam       String?                  // "PRODUCTION" | "DISPATCH" | "ACCOUNTS" | "DESIGN" | "SALES"
+
+  slaResponseDueAt   DateTime?
+  slaResolutionDueAt DateTime?
+  firstRespondedAt   DateTime?
+  resolvedAt         DateTime?
+  closedAt           DateTime?
+
+  resolutionType     ComplaintResolutionType?
+  resolutionNotes    String?
+  rootCause          String?
+  vendorId           String?                  // set if root cause traces to a job-work vendor
+
+  reopenCount        Int                      @default(0)
+  escalatedToAdmin   Boolean                  @default(false)
+  escalatedAt        DateTime?
+
+  csatRating         Int?                     // 1-5, captured after CLOSED
+  csatFeedback       String?
+
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  customer           Customer                 @relation(fields: [customerId], references: [id])
+  order              Order?                   @relation(fields: [orderId], references: [id])
+  raisedBy           User?                    @relation("ComplaintRaisedBy", fields: [raisedById], references: [id])
+  assignedTo         User?                    @relation("ComplaintAssignedTo", fields: [assignedToId], references: [id])
+  vendor             Vendor?                  @relation(fields: [vendorId], references: [id])
+  comments           ComplaintComment[]
+  attachments        ComplaintAttachment[]
+  statusLogs         ComplaintStatusLog[]
+
+  @@index([status, priority])
+  @@index([customerId, createdAt])
+  @@index([orderId])
+  @@index([assignedToId, status])
+  @@index([slaResolutionDueAt, status])
+}
+
+model ComplaintComment {
+  id           String                     @id @default(cuid())
+  complaintId  String
+  authorId     String?                    // null = customer/system message
+  authorName   String
+  visibility   ComplaintCommentVisibility @default(INTERNAL)
+  message      String
+  createdAt    DateTime                   @default(now())
+
+  complaint    Complaint                  @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId, createdAt])
+}
+
+model ComplaintAttachment {
+  id           String    @id @default(cuid())
+  complaintId  String
+  url          String
+  fileName     String
+  fileType     String?
+  uploadedById String?
+  createdAt    DateTime  @default(now())
+
+  complaint    Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId])
+}
+
+model ComplaintStatusLog {
+  id          String           @id @default(cuid())
+  complaintId String
+  fromStatus  ComplaintStatus?
+  toStatus    ComplaintStatus
+  changedById String?
+  reason      String?
+  createdAt   DateTime         @default(now())
+
+  complaint   Complaint        @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId, createdAt])
 }

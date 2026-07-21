@@ -245,6 +245,28 @@ export class WhatsAppService {
     });
   }
 
+  // ── Complaint/ticket update — assignment, resolution, new customer reply.
+  // Mirrors sendOrderUpdate()'s shape but for the complaints module.
+  async sendComplaintUpdate(params: {
+    customerName: string;
+    customerPhone: string;
+    ticketNumber: string;
+    subject: string;
+    status: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_COMPLAINT_UPDATE_CAMPAIGN ?? 'complaint_update_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.ticketNumber,
+        params.subject,
+        params.status,
+      ],
+    });
+  }
+
   async sendLoyaltyPointsEarned(params: {
     customerName: string;
     customerPhone: string;
@@ -262,6 +284,26 @@ export class WhatsAppService {
         params.orderNo,
         String(params.pointsEarned),
         String(params.newBalance),
+      ],
+    });
+  }
+
+  // ── Bulk "you have loyalty points" reminder — used by LoyaltyService's
+  // bulk-send job to nudge every customer who has ever earned points,
+  // regardless of current balance. Separate Aisensy campaign from the
+  // per-order "just earned" one above since the copy/context differs.
+  async sendLoyaltyReminder(params: {
+    customerName: string;
+    customerPhone: string;
+    pointsBalance: number;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_LOYALTY_REMINDER_CAMPAIGN ?? 'loyalty_points_reminder_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      templateParams: [
+        params.customerName || 'Customer',
+        String(params.pointsBalance),
       ],
     });
   }

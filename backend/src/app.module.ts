@@ -39,6 +39,7 @@ import { RemittanceModule } from './remittance/remittance.module';
 import { HrModule } from './hr/hr.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
+import { ComplaintsModule } from './complaints/complaints.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
     HrModule,
     AttendanceModule,
     LoyaltyModule,
+    ComplaintsModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
