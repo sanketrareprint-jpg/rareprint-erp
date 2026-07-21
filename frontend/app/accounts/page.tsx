@@ -100,6 +100,7 @@ type CustomerOutstanding = {
   orderStatuses?: string;
   reminderOrderNumbers?: string;
   productStatuses?: string;
+  sellerNames?: string;
 };
 
 type ReceiptHistory = {
@@ -391,6 +392,7 @@ export default function AccountsPage() {
   const [outstandingSearch, setOutstandingSearch] = useState("");
   const [outstandingStatus, setOutstandingStatus] = useState("");
   const [outstandingOrderStatus, setOutstandingOrderStatus] = useState("READY_DELIVERED");
+  const [outstandingSeller, setOutstandingSeller] = useState("");
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
   // COD tracking
@@ -1305,6 +1307,7 @@ await loadHistory();
     const q = outstandingSearch.trim().toLowerCase();
     return outstanding.filter(row =>
       (!outstandingStatus || (row.productStatuses ?? "").split(", ").includes(outstandingStatus)) &&
+      (!outstandingSeller || (row.sellerNames ?? "").split(", ").includes(outstandingSeller)) &&
       // When the user is actively searching (name/phone/email/order#), ignore the "Ready/Delivered"
       // default scoping so a customer with outstanding balance on ANY order status is still found.
       (!!q || outstandingOrderStatus !== "READY_DELIVERED" || row.reminderAmount > 0) &&
@@ -1315,12 +1318,15 @@ await loadHistory();
         row.customerEmail?.toLowerCase().includes(q) ||
         row.orderNumbers.toLowerCase().includes(q))
     );
-  }, [outstanding, outstandingSearch, outstandingStatus, outstandingOrderStatus]);
+  }, [outstanding, outstandingSearch, outstandingStatus, outstandingOrderStatus, outstandingSeller]);
   const outstandingStatuses = useMemo(() => (
     Array.from(new Set(outstanding.flatMap(row => (row.productStatuses ?? "").split(", ").filter(Boolean)))).sort()
   ), [outstanding]);
   const outstandingOrderStatuses = useMemo(() => (
     Array.from(new Set(outstanding.flatMap(row => (row.orderStatuses ?? "").split(", ").filter(Boolean)))).sort()
+  ), [outstanding]);
+  const outstandingSellers = useMemo(() => (
+    Array.from(new Set(outstanding.flatMap(row => (row.sellerNames ?? "").split(", ").filter(Boolean)))).sort()
   ), [outstanding]);
   const outstandingTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.outstandingAmount, 0), [filteredOutstanding]);
   const outstandingPaidTotal = useMemo(() => filteredOutstanding.reduce((sum, row) => sum + row.paidAmount, 0), [filteredOutstanding]);
@@ -1821,6 +1827,16 @@ await loadHistory();
                       <option key={status} value={status}>{orderStatusLabels[status] ?? status.replace(/_/g, " ")}</option>
                     ))}
                   </select>
+                  <select
+                    value={outstandingSeller}
+                    onChange={e => setOutstandingSeller(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400"
+                  >
+                    <option value="">All Sellers</option>
+                    {outstandingSellers.map(seller => (
+                      <option key={seller} value={seller}>{seller}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -1838,6 +1854,7 @@ await loadHistory();
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600 w-6"></th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Seller</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Orders</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Total Billing</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Paid</th>
@@ -1879,6 +1896,7 @@ await loadHistory();
                                   </div>
                                 )}
                               </td>
+                              <td className="px-3 py-2 text-slate-600">{row.sellerNames || "—"}</td>
                               <td className="px-3 py-2 text-right font-semibold text-slate-700">{row.orderCount}</td>
                               <td className="px-3 py-2 text-right font-semibold text-slate-700">{fmt(row.totalAmount)}</td>
                               <td className="px-3 py-2 text-right font-semibold text-green-700">{fmt(row.paidAmount)}</td>
@@ -1919,7 +1937,7 @@ await loadHistory();
                             {/* ── COD / Courier Expanded Row ── */}
                             {isExpanded && (
                               <tr>
-                                <td colSpan={11} className="px-0 py-0 bg-orange-50 border-b border-orange-100">
+                                <td colSpan={12} className="px-0 py-0 bg-orange-50 border-b border-orange-100">
                                   <div className="px-4 py-3">
                                     <div className="text-[11px] font-semibold text-orange-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                                       <Truck className="h-3.5 w-3.5" />

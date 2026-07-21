@@ -1230,6 +1230,7 @@ export class AccountsService {
           o.id,
           o."orderNumber",
           o."customerId",
+          o."salesAgentId",
           o."orderDate",
           o.status,
           o."grandTotal",
@@ -1265,10 +1266,12 @@ export class AccountsService {
             FILTER (WHERE ob.status IN ('READY_FOR_DISPATCH', 'DELIVERED') AND ob."balanceAmount" > 0),
           0
         ) AS "reminderAmount",
-        STRING_AGG(DISTINCT ois."productStatuses", ', ') AS "productStatuses"
+        STRING_AGG(DISTINCT ois."productStatuses", ', ') AS "productStatuses",
+        STRING_AGG(DISTINCT u."fullName", ', ' ORDER BY u."fullName") AS "sellerNames"
       FROM order_balances ob
       JOIN "Customer" c ON c.id = ob."customerId"
       LEFT JOIN order_item_statuses ois ON ois."orderId" = ob.id
+      LEFT JOIN "User" u ON u.id = ob."salesAgentId"
       GROUP BY c.id, c."businessName", c.phone, c.email
       HAVING SUM(ob."balanceAmount") > 0
       ORDER BY SUM(ob."balanceAmount") DESC, c."businessName" ASC
@@ -1284,6 +1287,7 @@ export class AccountsService {
       productStatuses: Array.from(new Set(String(row.productStatuses ?? '').split(', ').filter(Boolean))).join(', '),
       orderStatuses: Array.from(new Set(String(row.orderStatuses ?? '').split(', ').filter(Boolean))).join(', '),
       reminderOrderNumbers: row.reminderOrderNumbers ?? '',
+      sellerNames: Array.from(new Set(String(row.sellerNames ?? '').split(', ').filter(Boolean))).join(', '),
     }));
   }
 
