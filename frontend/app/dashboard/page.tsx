@@ -117,10 +117,10 @@ export default function DashboardPage() {
 
   return (
     <DashboardShell>
-      <div className="p-3 space-y-2">
+      <div className="p-2.5 space-y-1.5">
 
         {/* Header */}
-        <div>
+        <div className="flex items-baseline gap-2">
           <h1 className="text-sm font-bold text-slate-900">Dashboard</h1>
           <p className="text-xs text-slate-400">RarePrint ERP — Operations Overview</p>
         </div>
@@ -136,7 +136,7 @@ export default function DashboardPage() {
             { label: "Outstanding",       value: fmt(stats.finance.totalOutstanding),       sub: `Billed: ${fmt(stats.finance.totalOrderValue)}`, color: "text-red-600" },
             { label: "Needs Attention",   value: String(stats.pending.approval + stats.pending.dispatchApproval), sub: `${stats.pending.approval} approvals`, color: "text-orange-600" },
           ].map((card, i) => (
-            <div key={i} className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
+            <div key={i} className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
               <p className="text-xs text-slate-500 font-medium truncate">{card.label}</p>
               <p className={`text-lg font-bold ${card.color} leading-tight mt-0.5`}>{card.value}</p>
               <p className="text-xs text-slate-400 truncate mt-0.5">{card.sub}</p>
@@ -146,8 +146,8 @@ export default function DashboardPage() {
 
         {/* ── Profit KPIs — owner only ── */}
         {isOwner && profit && (
-          <div className="bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center justify-between mb-1.5">
+          <div className="bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-semibold text-emerald-800">Profit <span className="opacity-60 font-normal">(owner only)</span></p>
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1 text-xs text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />Net profit</span>
@@ -160,7 +160,7 @@ export default function DashboardPage() {
                 { label: "This Month Profit", data: profit.thisMonth },
                 { label: "Last Month Profit", data: profit.lastMonth },
               ].map((card, i) => (
-                <div key={i} className="bg-white rounded-md border border-emerald-100 px-3 py-2">
+                <div key={i} className="bg-white rounded-md border border-emerald-100 px-3 py-1.5">
                   <p className="text-xs text-slate-500 font-medium truncate">{card.label}</p>
                   <div className="mt-0.5 flex items-baseline gap-1.5">
                     <span className="text-lg font-bold text-emerald-600 leading-tight">{fmt(card.data.net)}</span>
@@ -178,32 +178,52 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Sales by Month ── */}
-        <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-          <p className="text-xs font-semibold text-slate-700 mb-1.5">Sales — Last {salesByMonth.length || 6} Months</p>
-          {salesByMonth.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
-          ) : (
-            <div className="flex items-end gap-1" style={{ height: "80px" }}>
-              {salesByMonth.map((m, i) => {
-                const barH = m.total > 0 ? Math.max(Math.round((m.total / maxMonthSales) * 60), 8) : 2;
+        {/* ── Sales by Month + Sales by Week (side by side) ── */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Sales — Last {salesByMonth.length || 6} Months</p>
+            {salesByMonth.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
+            ) : (
+              <div className="flex items-end gap-1" style={{ height: "70px" }}>
+                {salesByMonth.map((m, i) => {
+                  const barH = m.total > 0 ? Math.max(Math.round((m.total / maxMonthSales) * 52), 8) : 2;
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
+                      <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{m.total > 0 ? fmt(m.total) : ""}</span>
+                      <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
+                        <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: m.total > 0 ? 1 : 0.2 }} />
+                      </div>
+                      <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "8px" }}>{m.month}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Sales — Last 7 Days</p>
+            <div className="flex items-end gap-1" style={{ height: "70px" }}>
+              {stats.orders.last7Days.map((d, i) => {
+                const barH = d.revenue > 0 ? Math.max(Math.round((d.revenue / maxDayRevenue) * 52), 8) : 2;
                 return (
                   <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
-                    <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{m.total > 0 ? fmt(m.total) : ""}</span>
+                    <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{d.revenue > 0 ? fmt(d.revenue) : ""}</span>
                     <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
-                      <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: m.total > 0 ? 1 : 0.2 }} />
+                      <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: d.revenue > 0 ? 1 : 0.2 }} />
                     </div>
-                    <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "8px" }}>{m.month}</span>
+                    <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "8px" }}>{d.date}</span>
                   </div>
                 );
               })}
             </div>
-          )}
+          </div>
         </div>
 
         {/* ── Production Speed KPIs ── */}
-        <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
-          <div className="flex items-center gap-1.5 mb-1">
+        <div className="bg-white rounded-lg border border-slate-200 px-3 py-1 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-0.5">
             <Clock className="h-3 w-3 text-cyan-600" />
             <p className="text-xs font-semibold text-slate-700">Production Time KPIs</p>
             <span className="text-xs text-slate-400 ml-auto">all time &nbsp;·&nbsp; this month &nbsp;·&nbsp; this week</span>
@@ -211,11 +231,11 @@ export default function DashboardPage() {
           {!productionKpis || productionKpis.metrics.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
           ) : (
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-1.5">
               {productionKpis.metrics.map((metric) => (
-                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5 min-w-0">
+                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1 min-w-0">
                   <p className="text-slate-500 font-medium truncate mb-0.5" style={{ fontSize: "10px" }}>{metric.label}</p>
-                  <p className={`text-base font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
+                  <p className={`text-sm font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
                     {fmtDuration(metric.avgHours)}
                   </p>
                   <div className="mt-0.5 flex items-center gap-1 text-xs">
@@ -234,32 +254,13 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* ── Row 2: Chart + Pipeline + Lead Sources ── */}
-        <div className="grid grid-cols-3 gap-2">
-
-          {/* Chart */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <p className="text-xs font-semibold text-slate-700 mb-1.5">Sales — Last 7 Days</p>
-            <div className="flex items-end gap-1" style={{ height: "80px" }}>
-              {stats.orders.last7Days.map((d, i) => {
-                const barH = d.revenue > 0 ? Math.max(Math.round((d.revenue / maxDayRevenue) * 60), 8) : 2;
-                return (
-                  <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
-                    <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{d.revenue > 0 ? fmt(d.revenue) : ""}</span>
-                    <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
-                      <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: d.revenue > 0 ? 1 : 0.2 }} />
-                    </div>
-                    <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "8px" }}>{d.date}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        {/* ── Row 2: Pipeline + Lead Sources ── */}
+        <div className="grid grid-cols-2 gap-2">
 
           {/* Pipeline */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <p className="text-xs font-semibold text-slate-700 mb-1.5">Order Pipeline</p>
-            <div className="space-y-1">
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Order Pipeline</p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
               {[
                 { label: "Pending Approval",  value: stats.pending.approval,         icon: AlertCircle, color: "text-yellow-600", bg: "bg-yellow-50" },
                 { label: "In Production",     value: stats.pending.inProduction,     icon: Factory,     color: "text-purple-600", bg: "bg-purple-50" },
@@ -267,22 +268,22 @@ export default function DashboardPage() {
                 { label: "Dispatch Approval", value: stats.pending.dispatchApproval, icon: Clock,       color: "text-orange-600", bg: "bg-orange-50" },
                 { label: "Dispatched",        value: stats.orders.byStatus["DISPATCHED"] ?? 0, icon: Truck, color: "text-green-600", bg: "bg-green-50" },
               ].map((item, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
+                <div key={i} className="flex items-center justify-between gap-1 min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <div className={`w-5 h-5 rounded ${item.bg} flex items-center justify-center flex-shrink-0`}>
                       <item.icon className={`h-2.5 w-2.5 ${item.color}`} />
                     </div>
-                    <span className="text-xs text-slate-600">{item.label}</span>
+                    <span className="text-xs text-slate-600 truncate">{item.label}</span>
                   </div>
-                  <span className={`text-xs font-bold ${item.color}`}>{item.value}</span>
+                  <span className={`text-xs font-bold flex-shrink-0 ${item.color}`}>{item.value}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Lead Sources */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1 mb-1.5">
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1 mb-1">
               <Target className="h-3 w-3 text-blue-500" />
               <p className="text-xs font-semibold text-slate-700">Lead Sources</p>
               <span className="text-xs text-slate-400 ml-auto">This month</span>
@@ -290,15 +291,15 @@ export default function DashboardPage() {
             {!leadData || leadData.thisMonth.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-3">No lead source data yet</p>
             ) : (
-              <div className="space-y-1.5">
-                {leadData.thisMonth.slice(0, 5).map((src, i) => {
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                {leadData.thisMonth.slice(0, 4).map((src, i) => {
                   const maxRev = leadData.thisMonth[0]?.revenue ?? 1;
                   const pct = Math.round((src.revenue / maxRev) * 100);
                   return (
-                    <div key={i}>
-                      <div className="flex justify-between mb-0.5">
-                        <span className="text-xs font-medium text-slate-700 truncate max-w-[110px]">{fmtSource(src.source)}</span>
-                        <span className="text-slate-400" style={{ fontSize: "10px" }}>{src.count} · {fmt(src.revenue)}</span>
+                    <div key={i} className="min-w-0">
+                      <div className="flex justify-between mb-0.5 gap-1">
+                        <span className="text-xs font-medium text-slate-700 truncate">{fmtSource(src.source)}</span>
+                        <span className="text-slate-400 flex-shrink-0" style={{ fontSize: "10px" }}>{fmt(src.revenue)}</span>
                       </div>
                       <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
                         <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
@@ -315,8 +316,8 @@ export default function DashboardPage() {
         <div className="grid grid-cols-3 gap-2">
 
           {/* Leaderboard */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1 mb-1.5">
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1 mb-1">
               <Trophy className="h-3 w-3 text-amber-500" />
               <p className="text-xs font-semibold text-slate-700">Sales Leaderboard</p>
               <span className="text-xs text-slate-400 ml-auto">{activeAgents.length} agents</span>
@@ -324,9 +325,9 @@ export default function DashboardPage() {
             {agents.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-3">No sales agents yet</p>
             ) : (
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                 {activeAgents.map((agent, i) => (
-                  <div key={agent.id} className={`flex items-center justify-between rounded px-1.5 py-1 min-w-0 ${i === 0 ? "bg-amber-50" : ""}`}>
+                  <div key={agent.id} className={`flex items-center justify-between rounded px-1.5 py-0.5 min-w-0 ${i === 0 ? "bg-amber-50" : ""}`}>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="w-5 flex-shrink-0 text-slate-500" style={{ fontSize: "12px" }}>{MEDAL[i] ?? `${i + 1}.`}</span>
                       <div className="min-w-0">
@@ -342,8 +343,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Production by Category + Avg Time */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1 mb-1.5">
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1 mb-1">
               <BarChart2 className="h-3 w-3 text-purple-500" />
               <p className="text-xs font-semibold text-slate-700">Production by Category</p>
             </div>
@@ -388,12 +389,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Category Cycle Times */}
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <div className="flex items-center gap-1.5 mb-2">
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-1">
               <Factory className="h-3 w-3 text-rose-500" />
               <p className="text-xs font-semibold text-slate-700">Category Cycle Times</p>
             </div>
-            <div className="grid grid-cols-3 mb-1.5 px-1">
+            <div className="grid grid-cols-3 mb-1 px-1">
               <span className="text-xs text-slate-400 font-medium">Category</span>
               <span className="text-xs text-slate-500 font-semibold text-center">All</span>
               <span className="text-xs text-slate-400 text-right">
