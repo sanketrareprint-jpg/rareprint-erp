@@ -94,6 +94,35 @@ function buildImportKey(
   return createHash('sha256').update(rawKey).digest('hex');
 }
 
+// Calendar day in IST — deliberately looser than buildImportKey() above.
+// Some re-exports produce a slightly different exact timestamp for the same
+// real transaction (same day, same direction, same amount, same
+// description), which slips past the exact-instant importKey check. Adding
+// `balance` as a required match makes this safe to auto-skip: two genuinely
+// separate real transactions cannot both leave the account at the exact
+// same running balance, so a day+direction+amount+description+balance match
+// is very strong evidence it's the same transaction, not a coincidence
+// (e.g. two real, different payments to the same vendor on the same day for
+// the same amount would leave two different balances, and are correctly
+// left alone by this check).
+function dayKeyIst(date: Date | string): string {
+  const d = new Date(date);
+  const ist = new Date(d.getTime() + 330 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+}
+
+function buildLooseKey(
+  row: Pick<RawBankRow, 'txnDate' | 'crDr' | 'amount' | 'description' | 'balance'>,
+): string {
+  return [
+    dayKeyIst(row.txnDate),
+    row.crDr,
+    moneyKey(row.amount),
+    normalizeText(row.description),
+    moneyKey(row.balance),
+  ].join('|');
+}
+
 function extractAccountNumber(sheet: XLSX.WorkSheet): string {
   for (let r = 0; r < 6; r++) {
     const cell = sheet[XLSX.utils.encode_cell({ r, c: 1 })];
@@ -184,22 +213,45 @@ export class BankStatementService {
     if (rows.length === 0)
       throw new BadRequestException('No valid transactions found in file');
 
-    // Application-level dedup. Running balance is not unique: a debit followed by
-    // a credit can return to the same balance, so use the full row fingerprint.
-    // Read stored importKeys directly — never recompute from stored fields,
-    // because Prisma/Postgres datetime normalization can produce a different
-    // hash than what was originally stored.
+    // Application-level dedup, two tiers:
+    //  1. Exact-instant match (importKey) — read stored importKeys directly,
+    //     never recompute from stored fields, because Prisma/Postgres
+    //     datetime normalization can produce a different hash than what was
+    //     originally stored.
+    //  2. Same-day loose match (dayKeyIst + direction + amount + description
+    //     + balance) — catches the same real transaction re-exported with a
+    //     slightly different exact timestamp, which tier 1 alone would miss.
+    //     See buildLooseKey() above for why including balance keeps this safe.
     const existing = await this.prisma.bankTransaction.findMany({
       where: { accountNumber },
-      select: { importKey: true },
+      select: { importKey: true, txnDate: true, crDr: true, amount: true, description: true, balance: true },
     });
     const existingImportKeys = new Set(existing.map((r) => r.importKey));
+    const existingLooseKeys = new Set(
+      existing.map((r) =>
+        buildLooseKey({
+          txnDate: r.txnDate,
+          crDr: r.crDr,
+          amount: Number(r.amount),
+          description: r.description,
+          balance: Number(r.balance),
+        }),
+      ),
+    );
     const rowsSeenInFile = new Set<string>();
+    const looseRowsSeenInFile = new Set<string>();
     const newRows = rows.filter((r) => {
       const importKey = buildImportKey(r);
-      if (existingImportKeys.has(importKey) || rowsSeenInFile.has(importKey))
+      const looseKey = buildLooseKey(r);
+      if (
+        existingImportKeys.has(importKey) ||
+        rowsSeenInFile.has(importKey) ||
+        existingLooseKeys.has(looseKey) ||
+        looseRowsSeenInFile.has(looseKey)
+      )
         return false;
       rowsSeenInFile.add(importKey);
+      looseRowsSeenInFile.add(looseKey);
       return true;
     });
     let skipped = rows.length - newRows.length;
