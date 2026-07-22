@@ -419,12 +419,18 @@ export default function CreateOrderPage() {
                   onFocus={() => customerMatches.length > 0 && setCustomerSearchOpen(true)}
                   inputMode="numeric" maxLength={10}
                   placeholder="10-digit mobile number" style={S.input} />
+                {customer.phone.length > 0 && customer.phone.length !== 10 && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>Please enter a 10-digit phone number</p>
+                )}
               </div>
               <div>
                 <label style={S.label}>Phone 2</label>
                 <input value={customer.phone2} onChange={e => setCustomer(c => ({ ...c, phone2: sanitizePhone(e.target.value) }))}
                   inputMode="numeric" maxLength={10}
                   placeholder="10-digit mobile number (optional)" style={S.input} />
+                {customer.phone2.length > 0 && customer.phone2.length !== 10 && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>Please enter a 10-digit phone number</p>
+                )}
               </div>
               <div>
                 <label style={S.label}>Email</label>

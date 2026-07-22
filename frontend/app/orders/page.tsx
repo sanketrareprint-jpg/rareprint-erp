@@ -129,6 +129,7 @@ export default function OrdersPage() {
   const [readyOrders, setReadyOrders] = useState<Order[]>([]);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [ordersPage, setOrdersPage] = useState(1);
   const [readyPage, setReadyPage] = useState(1);
@@ -270,6 +271,7 @@ export default function OrdersPage() {
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     append ? setLoadingMore(true) : setLoading(true);
+    setLoadError(null);
     const headers = getAuthHeaders();
     const params = new URLSearchParams({
       page: String(nextPage),
@@ -283,6 +285,13 @@ export default function OrdersPage() {
     }
     const oRes = await fetch(`${API_BASE_URL}/orders?${params}`, { headers });
     if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+    if (!oRes.ok) {
+      const body = await oRes.json().catch(() => null);
+      setLoadError(body?.message || `Could not load orders (server returned ${oRes.status}).`);
+      if (!append) setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
     const ordersPayload: PagedOrders = await oRes.json();
     setOrders(prev => append ? [...prev, ...(ordersPayload.data ?? [])] : (ordersPayload.data ?? []));
     setOrdersPage(ordersPayload.page ?? nextPage);
@@ -599,6 +608,15 @@ export default function OrdersPage() {
                 </button>
               </div>
             </div>
+
+            {loadError && (
+              <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <span>{loadError}</span>
+                <button onClick={() => load()} className="shrink-0 rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100">
+                  Retry
+                </button>
+              </div>
+            )}
 
             {/* Search + Filter */}
             <div className="flex flex-wrap gap-2">
