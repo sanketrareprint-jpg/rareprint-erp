@@ -505,7 +505,7 @@ export default function TasksPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
                         <button
                           type="button"
                           draggable
@@ -526,16 +526,16 @@ export default function TasksPage() {
                         </button>
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass[task.priority]}`}>{priorityLabels[task.priority]}</span>
                         <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{goalHorizonLabels[task.goalHorizon]}</span>
-                        <div className="min-w-0 flex-1">
-                          <span className="text-sm font-semibold text-slate-900 truncate">{task.title}</span>
-                          <span className="ml-2 text-xs text-slate-400 truncate hidden md:inline">
+                        <div className="min-w-[160px] flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-900">{task.title}</div>
+                          <div className="hidden truncate text-xs text-slate-400 md:block">
                             <UserCheck className="inline h-3 w-3 mb-0.5" /> {task.assignedTo.fullName}
                             <span className="mx-1">·</span>Created: {task.createdBy.fullName}
                             {task.dueDate && <><span className="mx-1">·</span><Clock className="inline h-3 w-3 mb-0.5" /> {new Date(task.dueDate).toLocaleDateString("en-IN")}</>}
                             {task.completedAt && <><span className="mx-1">·</span><CheckCircle2 className="inline h-3 w-3 mb-0.5" /> {new Date(task.completedAt).toLocaleDateString("en-IN")}</>}
-                          </span>
+                          </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
+                        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
                           <button onClick={() => startEdit(task)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                             <Pencil className="h-3 w-3" /> Edit
                           </button>
