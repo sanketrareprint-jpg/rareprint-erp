@@ -1,7 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { GmailDraftService } from '../production/gmail-draft.service';
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 type JwtUserPayload = {
   sub: string;
@@ -23,6 +27,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly gmail: GmailDraftService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<AuthUser> {
@@ -81,5 +86,55 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  // ── Forgot password (tokenized reset link, mirrors the HR agreement flow) ──
+
+  async requestPasswordReset(email: string, frontendOrigin: string): Promise<{ sent: true }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    // Always report success even if the account doesn't exist or is
+    // inactive — otherwise this endpoint becomes a way to enumerate which
+    // emails have accounts.
+    if (!user || !user.isActive) {
+      return { sent: true };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+    const link = `${frontendOrigin.replace(/\/$/, '')}/reset-password/${token}`;
+    const body =
+      `Hi ${user.fullName},\n\n` +
+      `We received a request to reset your RarePrint ERP password. Click the link below to set a new one:\n\n` +
+      `${link}\n\n` +
+      `This link expires in 1 hour and can only be used once. If you didn't request this, you can safely ignore this email — your password won't change.\n\n` +
+      `Regards,\nRarePrint`;
+
+    // Send first, persist second — if Gmail fails we must not store a
+    // token the user was never actually able to see.
+    await this.gmail.sendMail(user.email, 'Reset your RarePrint ERP password', body);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordResetToken: token, passwordResetExpiresAt: expiresAt },
+    });
+
+    return { sent: true };
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ success: true }> {
+    const user = await this.prisma.user.findUnique({ where: { passwordResetToken: token } });
+
+    if (!user || !user.passwordResetExpiresAt || user.passwordResetExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('This reset link is invalid or has expired. Please request a new one.');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, passwordResetToken: null, passwordResetExpiresAt: null },
+    });
+
+    return { success: true };
   }
 }

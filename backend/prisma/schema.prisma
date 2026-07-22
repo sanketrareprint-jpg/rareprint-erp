@@ -13,6 +13,8 @@ model User {
   email              String                @unique
   phone              String?
   passwordHash       String
+  passwordResetToken      String?               @unique
+  passwordResetExpiresAt  DateTime?
   role               UserRole
   salesAgentCategory SalesAgentCategory?
   baseSalary         Decimal?              @db.Decimal(12, 2)
