@@ -306,7 +306,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* ── White list-style sidebar ── */}
       <aside className="erp-sidebar" style={{
-        width: "236px", minWidth: "236px",
+        width: "200px", minWidth: "200px",
         background: "#ffffff",
         borderRight: "1px solid #eef1f5",
         display: "flex", flexDirection: "column",
