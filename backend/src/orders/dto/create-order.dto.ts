@@ -4,13 +4,20 @@ import {
   IsArray,
   IsEmail,
   IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsObject,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
+
+// Frontend already strips spaces, leading 0, and +91/91 prefixes before
+// sending — this is the server-side backstop so the DB never ends up with
+// a malformed phone number regardless of what calls this endpoint.
+const PHONE_10_DIGIT = /^\d{10}$/;
 
 export class CreateOrderCustomerDto {
   @IsOptional()
@@ -21,8 +28,12 @@ export class CreateOrderCustomerDto {
   name: string;
 
   @IsOptional()
-  @IsString()
+  @Matches(PHONE_10_DIGIT, { message: 'Phone must be exactly 10 digits' })
   phone?: string;
+
+  @IsOptional()
+  @Matches(PHONE_10_DIGIT, { message: 'Phone 2 must be exactly 10 digits' })
+  phone2?: string;
 
   @IsOptional()
   @IsEmail()
@@ -104,9 +115,9 @@ export class CreateOrderDto {
   @IsString()
   notes?: string;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'Lead source is required' })
   @IsString()
-  leadSource?: string;
+  leadSource: string;
 
   @IsOptional()
   isSample?: boolean;

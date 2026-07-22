@@ -15,12 +15,19 @@ type CustomerSearchRow = {
   businessName: string;
   contactPerson?: string | null;
   phone?: string | null;
+  phone2?: string | null;
   email?: string | null;
   address?: string | null;
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
   orderCount?: number;
+};
+
+type PostOfficeResult = {
+  Name: string;
+  District: string;
+  State: string;
 };
 
 const LEAD_SOURCES = [
@@ -39,6 +46,25 @@ const LEAD_SOURCES = [
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+
+const INDIAN_STATES = [
+  "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar",
+  "Chandigarh", "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa",
+  "Gujarat", "Haryana", "Himachal Pradesh", "Jammu and Kashmir", "Jharkhand", "Karnataka",
+  "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya",
+  "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
+  "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
+];
+
+// Strip spaces, a leading 0 (STD-style prefix), and a +91/91 country code,
+// then cap at 10 digits — so however the user types it, the stored value
+// is always a plain 10-digit number.
+function sanitizePhone(raw: string): string {
+  let digits = raw.replace(/\D/g, "");
+  if (digits.length > 10 && digits.startsWith("91")) digits = digits.slice(2);
+  if (digits.length > 10 && digits.startsWith("0")) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
@@ -61,11 +87,14 @@ export default function CreateOrderPage() {
   const [productSearch, setProductSearch] = useState<Record<number, string>>({});
   const [productDropdownOpen, setProductDropdownOpen] = useState<Record<number, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
+  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "" });
   const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState("");
+  const [citySuggestions, setCitySuggestions] = useState<PostOfficeResult[]>([]);
+  const [citySearchOpen, setCitySearchOpen] = useState(false);
+  const [citySearchLoading, setCitySearchLoading] = useState(false);
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
   const [orderFields, setOrderFields] = useState<CustomField[]>([]);
   const [itemFields, setItemFields] = useState<CustomField[]>([]);
@@ -110,6 +139,7 @@ export default function CreateOrderPage() {
       customerId: row.id,
       name: row.businessName ?? "",
       phone: row.phone ?? "",
+      phone2: row.phone2 ?? "",
       email: row.email ?? "",
       address: row.address ?? "",
       city: row.city ?? "",
@@ -154,6 +184,83 @@ export default function CreateOrderPage() {
 
     return () => window.clearTimeout(timer);
   }, [customer.name, customer.phone, customer.customerId, selectedCustomerLabel, router]);
+
+  // Pincode → City/State autofill, via India Post's public pincode API.
+  // Fires once a full 6-digit pincode is entered. Best-effort: if the
+  // lookup fails (offline, rate-limited, unknown pincode) we just leave
+  // City/State as-is rather than blocking the user.
+  useEffect(() => {
+    const pin = customer.pincode;
+    if (pin.length !== 6) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const postOffice: PostOfficeResult | undefined = data?.[0]?.PostOffice?.[0];
+        if (!postOffice || cancelled) return;
+        setCustomer((c) => (c.pincode === pin ? { ...c, city: postOffice.District, state: postOffice.State } : c));
+      } catch {
+        // Ignore — pincode autofill is a convenience, not a requirement.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [customer.pincode]);
+
+  // City → State autofill + India-wide city/town search, via the same
+  // India Post API (searching by post-office/area name).
+  useEffect(() => {
+    const query = customer.city.trim();
+    if (query.length < 3) {
+      setCitySuggestions([]);
+      setCitySearchOpen(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setCitySearchLoading(true);
+      try {
+        const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(query)}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const results: PostOfficeResult[] = data?.[0]?.PostOffice ?? [];
+        // De-dupe by District+State pair (a single town has many post offices)
+        const seen = new Set<string>();
+        const deduped = results.filter((r) => {
+          const key = `${r.District}|${r.State}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, 8);
+        if (cancelled) return;
+        setCitySuggestions(deduped);
+        setCitySearchOpen(deduped.length > 0);
+        // Unambiguous match (every result agrees on the same state) — safe
+        // to fill State automatically, per the requirement that typing a
+        // city must fill State without an explicit selection.
+        const uniqueStates = new Set(deduped.map((r) => r.State));
+        if (uniqueStates.size === 1) {
+          setCustomer((c) => (c.city.trim() === query ? { ...c, state: deduped[0].State } : c));
+        }
+      } catch {
+        // Ignore — city search is a convenience, not a requirement.
+      } finally {
+        if (!cancelled) setCitySearchLoading(false);
+      }
+    }, 300);
+
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [customer.city]);
+
+  function selectCitySuggestion(result: PostOfficeResult) {
+    setCustomer((c) => ({ ...c, city: result.District, state: result.State }));
+    setCitySuggestions([]);
+    setCitySearchOpen(false);
+  }
 
   function updateLine(index: number, field: keyof LineItem, value: string | number) {
     setLineItems(prev => {
@@ -206,6 +313,9 @@ export default function CreateOrderPage() {
 
   async function submitOrder() {
     if (!customer.name.trim()) { alert("Customer name is required"); return; }
+    if (customer.phone && customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
+    if (customer.phone2 && customer.phone2.length !== 10) { alert("Phone 2 number must be exactly 10 digits"); return; }
+    if (!leadSource) { alert("Lead source is required"); return; }
     if (lineItems.some(i => !i.productId || i.quantity <= 0)) {
       alert("Please fill all product lines"); return;
     }
@@ -304,10 +414,17 @@ export default function CreateOrderPage() {
                 <label style={S.label}>Phone</label>
                 <input value={customer.phone} onChange={e => {
                   setSelectedCustomerLabel("");
-                  setCustomer(c => ({ ...c, customerId: "", phone: e.target.value }));
+                  setCustomer(c => ({ ...c, customerId: "", phone: sanitizePhone(e.target.value) }));
                 }}
                   onFocus={() => customerMatches.length > 0 && setCustomerSearchOpen(true)}
-                  placeholder="09XXXXXXXXX" style={S.input} />
+                  inputMode="numeric" maxLength={10}
+                  placeholder="10-digit mobile number" style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Phone 2</label>
+                <input value={customer.phone2} onChange={e => setCustomer(c => ({ ...c, phone2: sanitizePhone(e.target.value) }))}
+                  inputMode="numeric" maxLength={10}
+                  placeholder="10-digit mobile number (optional)" style={S.input} />
               </div>
               <div>
                 <label style={S.label}>Email</label>
@@ -319,17 +436,39 @@ export default function CreateOrderPage() {
                 <input value={customer.address} onChange={e => setCustomer(c => ({ ...c, address: e.target.value }))}
                   placeholder="Street address" style={S.input} />
               </div>
-              <div>
+              <div style={{ position: "relative" }}>
                 <label style={S.label}>City</label>
-                <input value={customer.city} onChange={e => setCustomer(c => ({ ...c, city: e.target.value }))} style={S.input} />
+                <input value={customer.city}
+                  onChange={e => setCustomer(c => ({ ...c, city: e.target.value }))}
+                  onFocus={() => citySuggestions.length > 0 && setCitySearchOpen(true)}
+                  onBlur={() => window.setTimeout(() => setCitySearchOpen(false), 180)}
+                  placeholder="Search any city/town in India" style={S.input} autoComplete="off" />
+                {citySearchOpen && (
+                  <div style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, marginTop: "4px", maxHeight: "200px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "8px", background: "white", boxShadow: "0 12px 24px rgba(15,23,42,0.14)" }}>
+                    {citySuggestions.map((r, i) => (
+                      <button key={`${r.District}-${r.State}-${i}`} type="button" onMouseDown={() => selectCitySuggestion(r)}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer", fontSize: "12px" }}>
+                        <span style={{ fontWeight: 700, color: "#0f172a" }}>{r.District}</span>
+                        <span style={{ color: "#64748b" }}>, {r.State}</span>
+                      </button>
+                    ))}
+                    {citySearchLoading && <div style={{ padding: "7px 10px", fontSize: "11px", color: "#64748b" }}>Searching...</div>}
+                  </div>
+                )}
               </div>
               <div>
                 <label style={S.label}>State</label>
-                <input value={customer.state} onChange={e => setCustomer(c => ({ ...c, state: e.target.value }))} style={S.input} />
+                <select value={customer.state} onChange={e => setCustomer(c => ({ ...c, state: e.target.value }))} style={S.input}>
+                  <option value="">Select state...</option>
+                  {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
               <div>
                 <label style={S.label}>Pincode</label>
-                <input value={customer.pincode} onChange={e => setCustomer(c => ({ ...c, pincode: e.target.value }))} style={S.input} />
+                <input value={customer.pincode}
+                  onChange={e => setCustomer(c => ({ ...c, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                  inputMode="numeric" maxLength={6}
+                  placeholder="6-digit pincode" style={S.input} />
               </div>
             </div>
           </div>
@@ -351,10 +490,10 @@ export default function CreateOrderPage() {
           {/* Lead Source + Notes stacked */}
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             <div className="create-order-section" style={S.section}>
-              <p style={S.sectionTitle}>Lead Source</p>
+              <p style={S.sectionTitle}>Lead Source *</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <div>
-                  <label style={S.label}>Source</label>
+                  <label style={S.label}>Source *</label>
                   <select value={leadSource} onChange={e => setLeadSource(e.target.value)} style={S.input}>
                     {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
