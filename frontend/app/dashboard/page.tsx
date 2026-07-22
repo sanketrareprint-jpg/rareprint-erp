@@ -17,7 +17,7 @@ type DashboardStats = {
     daysElapsed?: number;
     daysInMonth?: number;
   };
-  orders: { total: number; thisMonth: number; byStatus: Record<string, number>; last7Days: { date: string; count: number }[] };
+  orders: { total: number; thisMonth: number; byStatus: Record<string, number>; last7Days: { date: string; count: number; revenue: number }[] };
   finance: { totalOrderValue: number; totalPaid: number; totalOutstanding: number };
   pending: { approval: number; dispatchApproval: number; inProduction: number; readyForDispatch: number };
   recentOrders: { id: string; orderNo: string; status: string; total: number; date: string }[];
@@ -105,7 +105,7 @@ export default function DashboardPage() {
     <DashboardShell><div className="p-6 text-red-500">{error ?? "Failed"}</div></DashboardShell>
   );
 
-  const maxDay = Math.max(...stats.orders.last7Days.map(d => d.count), 1);
+  const maxDayRevenue = Math.max(...stats.orders.last7Days.map(d => d.revenue), 1);
   const activeAgents = [...agents].sort((a, b) => b.monthRevenue - a.monthRevenue || b.monthOrders - a.monthOrders);
 
   // Sales-by-month bar chart geometry (mirrors the "Orders — Last 7 Days" bar chart below)
@@ -184,16 +184,16 @@ export default function DashboardPage() {
           {salesByMonth.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
           ) : (
-            <div className="flex items-end gap-2" style={{ height: "130px" }}>
+            <div className="flex items-end gap-1" style={{ height: "80px" }}>
               {salesByMonth.map((m, i) => {
-                const barH = m.total > 0 ? Math.max(Math.round((m.total / maxMonthSales) * 96), 8) : 2;
+                const barH = m.total > 0 ? Math.max(Math.round((m.total / maxMonthSales) * 60), 8) : 2;
                 return (
                   <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
                     <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{m.total > 0 ? fmt(m.total) : ""}</span>
                     <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
                       <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: m.total > 0 ? 1 : 0.2 }} />
                     </div>
-                    <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "9px" }}>{m.month}</span>
+                    <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "8px" }}>{m.month}</span>
                   </div>
                 );
               })}
@@ -202,8 +202,8 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Production Speed KPIs ── */}
-        <div className="bg-white rounded-lg border border-slate-200 px-3 py-2.5 shadow-sm">
-          <div className="flex items-center gap-1.5 mb-2.5">
+        <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-1">
             <Clock className="h-3 w-3 text-cyan-600" />
             <p className="text-xs font-semibold text-slate-700">Production Time KPIs</p>
             <span className="text-xs text-slate-400 ml-auto">all time &nbsp;·&nbsp; this month &nbsp;·&nbsp; this week</span>
@@ -211,14 +211,14 @@ export default function DashboardPage() {
           {!productionKpis || productionKpis.metrics.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
           ) : (
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-5 gap-2">
               {productionKpis.metrics.map((metric) => (
-                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-3 py-3 min-w-0">
-                  <p className="text-slate-500 font-medium truncate mb-1.5" style={{ fontSize: "11px" }}>{metric.label}</p>
-                  <p className={`text-xl font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
+                <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5 min-w-0">
+                  <p className="text-slate-500 font-medium truncate mb-0.5" style={{ fontSize: "10px" }}>{metric.label}</p>
+                  <p className={`text-base font-bold leading-tight ${metric.avgHours === null ? "text-slate-400" : "text-cyan-700"}`}>
                     {fmtDuration(metric.avgHours)}
                   </p>
-                  <div className="mt-2 flex items-center gap-1.5 text-sm">
+                  <div className="mt-0.5 flex items-center gap-1 text-xs">
                     <span className={`font-bold ${metric.avgDaysMonth != null ? "text-emerald-600" : "text-slate-300"}`}>
                       {metric.avgDaysMonth != null ? metric.avgDaysMonth+"d" : "—"}
                     </span>
@@ -226,11 +226,7 @@ export default function DashboardPage() {
                     <span className={`font-bold ${metric.avgDaysWeek != null ? "text-blue-600" : "text-slate-300"}`}>
                       {metric.avgDaysWeek != null ? metric.avgDaysWeek+"d" : "—"}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="text-emerald-400 font-medium">mo</span>
-                    <span className="text-slate-300">/</span>
-                    <span className="text-blue-400 font-medium">wk</span>
+                    <span className="text-slate-300" style={{ fontSize: "9px" }}>(mo/wk)</span>
                   </div>
                 </div>
               ))}
@@ -243,15 +239,15 @@ export default function DashboardPage() {
 
           {/* Chart */}
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm">
-            <p className="text-xs font-semibold text-slate-700 mb-1.5">Orders — Last 7 Days</p>
+            <p className="text-xs font-semibold text-slate-700 mb-1.5">Sales — Last 7 Days</p>
             <div className="flex items-end gap-1" style={{ height: "80px" }}>
               {stats.orders.last7Days.map((d, i) => {
-                const barH = d.count > 0 ? Math.max(Math.round((d.count / maxDay) * 60), 8) : 2;
+                const barH = d.revenue > 0 ? Math.max(Math.round((d.revenue / maxDayRevenue) * 60), 8) : 2;
                 return (
                   <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
-                    <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{d.count > 0 ? d.count : ""}</span>
+                    <span className="text-slate-600 font-semibold" style={{ fontSize: "9px" }}>{d.revenue > 0 ? fmt(d.revenue) : ""}</span>
                     <div style={{ flex: 1, display: "flex", alignItems: "flex-end", width: "100%" }}>
-                      <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: d.count > 0 ? 1 : 0.2 }} />
+                      <div className="w-full rounded-t bg-blue-500" style={{ height: `${barH}px`, opacity: d.revenue > 0 ? 1 : 0.2 }} />
                     </div>
                     <span className="text-slate-400 whitespace-nowrap" style={{ fontSize: "8px" }}>{d.date}</span>
                   </div>
