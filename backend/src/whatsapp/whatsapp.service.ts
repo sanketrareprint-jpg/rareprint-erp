@@ -245,24 +245,62 @@ export class WhatsAppService {
     });
   }
 
-  // ── Complaint/ticket update — assignment, resolution, new customer reply.
-  // Mirrors sendOrderUpdate()'s shape but for the complaints module.
-  async sendComplaintUpdate(params: {
+  // ── Complaint/ticket updates — three distinct templates (assigned,
+  // resolved, new reply) rather than one generic wrapper, so each reads
+  // naturally instead of forcing unrelated events through the same copy.
+
+  async sendComplaintAssigned(params: {
     customerName: string;
     customerPhone: string;
     ticketNumber: string;
     subject: string;
-    status: string;
   }): Promise<boolean> {
     return this.sendCampaign({
-      campaignName: process.env.AISENSY_COMPLAINT_UPDATE_CAMPAIGN ?? 'complaint_update_erp',
+      campaignName: process.env.AISENSY_COMPLAINT_ASSIGNED_CAMPAIGN ?? 'complaint_assigned_erp',
       customerName: params.customerName || 'Customer',
       customerPhone: params.customerPhone,
       templateParams: [
         params.customerName || 'Customer',
         params.ticketNumber,
         params.subject,
-        params.status,
+      ],
+    });
+  }
+
+  async sendComplaintResolved(params: {
+    customerName: string;
+    customerPhone: string;
+    ticketNumber: string;
+    subject: string;
+    resolutionSummary: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_COMPLAINT_RESOLVED_CAMPAIGN ?? 'complaint_resolved_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.ticketNumber,
+        params.subject,
+        params.resolutionSummary,
+      ],
+    });
+  }
+
+  async sendComplaintReply(params: {
+    customerName: string;
+    customerPhone: string;
+    ticketNumber: string;
+    message: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_COMPLAINT_REPLY_CAMPAIGN ?? 'complaint_reply_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.ticketNumber,
+        params.message,
       ],
     });
   }
@@ -496,6 +534,82 @@ export class WhatsAppService {
         String(params.totalCount),
       ],
     });
+  }
+
+  // ── Delivery → Rating/Review/Testimonial request ─────────────────────────
+  // Sent once from Dispatch > History when staff click "Delivered". This is a
+  // WhatsApp UTILITY-category template (post-purchase, not marketing) with an
+  // IMAGE header. The header image + body copy must be created once in the
+  // AiSensy template editor (see the template text this method assumes,
+  // documented above sendCampaign's call site in dispatch.service.ts and in
+  // the PR description) — campaignName here must exactly match whatever name
+  // you give that template in AiSensy.
+  //
+  // Body variables (in order): {{1}} customer name, {{2}} order number,
+  // {{3}} loyalty points already earned on this order. The Google rating/
+  // review link and "share a testimonial" link/CTA should be added as a
+  // static URL button on the template itself in AiSensy (they don't change
+  // per-message, so they don't need to be template variables) — see
+  // AISENSY_DELIVERY_REVIEW_IMAGE_URL below for the header image.
+  async sendDeliveryReviewRequest(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    pointsBalance: number;
+  }): Promise<boolean> {
+    if (!params.customerPhone) {
+      this.logger.warn(`No phone for order ${params.orderNo}, skipping delivery review WhatsApp`);
+      return false;
+    }
+    const phone = this.normalizePhone(params.customerPhone);
+    if (!phone) {
+      this.logger.warn(`Invalid phone ${params.customerPhone} for order ${params.orderNo}`);
+      return false;
+    }
+
+    const imageUrl = process.env.AISENSY_DELIVERY_REVIEW_IMAGE_URL;
+    if (!imageUrl) {
+      this.logger.warn(
+        `AISENSY_DELIVERY_REVIEW_IMAGE_URL not set — skipping delivery review WhatsApp for order ${params.orderNo}. ` +
+        `Set this env var to a public HTTPS image URL matching the approved template's header image.`,
+      );
+      return false;
+    }
+
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName: process.env.AISENSY_DELIVERY_REVIEW_CAMPAIGN ?? 'delivery_review_request_erp',
+      destination: phone,
+      userName: params.customerName || 'Customer',
+      templateParams: [
+        params.customerName || 'Customer', // {{1}}
+        params.orderNo,                    // {{2}}
+        String(params.pointsBalance ?? 0), // {{3}}
+      ],
+      source: 'rareprint-erp',
+      media: { url: imageUrl, filename: 'delivery-review-request.jpg' },
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+
+    try {
+      const res = await fetch(AISENSY_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        this.logger.log(`✅ Delivery review WhatsApp sent to ${phone} for order ${params.orderNo}`);
+        return true;
+      }
+      this.logger.error(`❌ Delivery review WhatsApp failed for ${params.orderNo}: ${JSON.stringify(data)}`);
+      return false;
+    } catch (err) {
+      this.logger.error(`❌ Delivery review WhatsApp error for ${params.orderNo}: ${err}`);
+      return false;
+    }
   }
 
   // Plain text message (for Virtual CEO reports, internal alerts)

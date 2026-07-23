@@ -165,4 +165,12 @@ export class DispatchController {
   ) {
     return this.dispatchService.returnToQueue(orderId, req.user.id);
   }
+
+  @Post('shipments/:shipmentId/mark-delivered')
+  markDelivered(
+    @Param('shipmentId') shipmentId: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.dispatchService.markDelivered(shipmentId, req.user.id);
+  }
 }

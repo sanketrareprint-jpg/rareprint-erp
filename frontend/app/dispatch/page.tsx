@@ -123,6 +123,24 @@ export default function DispatchPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
   const [returningId, setReturningId] = useState<string | null>(null);
+  const [markingDeliveredId, setMarkingDeliveredId] = useState<string | null>(null);
+
+  const markDelivered = async (shipmentId: string) => {
+    if (!confirm("Mark this shipment as delivered? This sends the customer a WhatsApp message asking for a Google rating, review, and testimonial.")) return;
+    setMarkingDeliveredId(shipmentId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/shipments/${shipmentId}/mark-delivered`, {
+        method: "POST", headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadHistory();
+      alert("Marked delivered — review request sent to the customer.");
+    } catch (e) {
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setMarkingDeliveredId(null);
+    }
+  };
 
   const returnToQueue = async (orderId: string) => {
     if (!confirm("Return this order to the dispatch queue?")) return;
@@ -547,6 +565,14 @@ export default function DispatchPage() {
                                 disabled={returningId === h.orderId}
                                 className="mt-1 block w-full rounded border border-orange-300 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
                               >↩ Queue</button>
+                            )}
+                            {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                              <button
+                                onClick={() => void markDelivered(h.id)}
+                                disabled={markingDeliveredId === h.id}
+                                title="Mark delivered and send the customer a WhatsApp review/testimonial request"
+                                className="mt-1 block w-full rounded border border-green-300 bg-green-50 px-1 py-0.5 text-[10px] font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50"
+                              >{markingDeliveredId === h.id ? "…" : "✅ Delivered"}</button>
                             )}
                           </td>
                         </tr>

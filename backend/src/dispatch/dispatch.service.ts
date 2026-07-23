@@ -1204,4 +1204,57 @@ export class DispatchService {
     return { success: true };
   }
 
+  /** Mark a shipment (and its order) DELIVERED from the Dispatch > History list, and
+   *  fire the "rate us / review / testimonial" WhatsApp utility template to the customer —
+   *  see WhatsAppService.sendDeliveryReviewRequest for the template copy/points breakdown. */
+  async markDelivered(shipmentId: string, userId: string) {
+    const shipment = await this.prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      include: {
+        order: {
+          include: {
+            customer: true,
+          },
+        },
+      },
+    });
+    if (!shipment) throw new NotFoundException(`Shipment ${shipmentId} not found`);
+    if (shipment.status === ShipmentStatus.DELIVERED) {
+      return shipment;
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedShipment = await tx.shipment.update({
+        where: { id: shipment.id },
+        data: { status: ShipmentStatus.DELIVERED, deliveredAt: new Date() },
+      });
+      await tx.order.update({
+        where: { id: shipment.orderId },
+        data: { status: OrderStatus.DELIVERED },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId: shipment.orderId,
+          fromStatus: shipment.order.status,
+          toStatus: OrderStatus.DELIVERED,
+          changedById: userId,
+          reason: 'Marked delivered from Dispatch history',
+          metadata: { shipmentNumber: shipment.shipmentNumber },
+        },
+      });
+      return updatedShipment;
+    });
+
+    if (shipment.order.customer.phone) {
+      void this.whatsapp.sendDeliveryReviewRequest({
+        customerName: shipment.order.customer.businessName,
+        customerPhone: shipment.order.customer.phone,
+        orderNo: shipment.order.orderNumber,
+        pointsBalance: shipment.order.loyaltyPointsEarned ?? 0,
+      });
+    }
+
+    return updated;
+  }
+
 }
