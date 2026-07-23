@@ -1207,7 +1207,11 @@ export default function ProductionPage() {
                 <tbody className="divide-y divide-slate-100">
                   {flatItems.length === 0 ? (
                     <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
-                  ) : flatItems.map(item => {
+                  ) : (() => {
+                    let groupIdx = -1;
+                    return flatItems.map(item => {
+                    if (item.isFirstInOrder) groupIdx++;
+                    const groupShade = groupIdx % 2 === 1 ? "bg-slate-50/60" : "";
                     const { size, gsm, sides } = getItemDetails(item);
                     const isUpdating = updatingItemId === item.id;
                     const isUploading = uploadingItemId === item.id;
@@ -1215,12 +1219,15 @@ export default function ProductionPage() {
                     const isExpanded = expandedFileItemId === item.id;
                     return (
                       <React.Fragment key={item.id}>
-                        <tr className={`hover:bg-slate-50 ${item.itemProductionStage === "READY_FOR_DISPATCH" ? "bg-green-50/30" : ""}`}>
-                          <td className="px-3 py-1.5 whitespace-nowrap">{item.isFirstInOrder && <div><p className="font-bold text-blue-700">{item.orderNo}</p><p className="text-slate-400">{new Date(item.orderDate).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p></div>}</td>
-                          <td className="px-3 py-1.5 whitespace-nowrap">{item.isFirstInOrder && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>}</td>
-                          <td className="px-3 py-1.5">{item.isFirstInOrder && <div><p className="font-medium text-slate-800 whitespace-nowrap">{item.customerName}</p>{item.customerPhone && <p className="text-slate-400">{item.customerPhone}</p>}</div>}</td>
-                          <td className="px-3 py-1.5">{item.isFirstInOrder && item.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{item.salesAgentName}</span>}</td>
-                          <td className="px-3 py-1.5"><p className="font-medium text-slate-900 whitespace-nowrap">{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate max-w-[120px]">{item.artworkNotes}</p>}</td>
+                        <tr
+                          className={`hover:bg-slate-100 ${item.itemProductionStage === "READY_FOR_DISPATCH" ? "bg-green-50/30" : groupShade}`}
+                          style={item.isFirstInOrder && groupIdx > 0 ? { borderTop: "2px solid #cbd5e1" } : undefined}
+                        >
+                          <td className="px-3 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <div><p className="font-bold text-blue-700">{item.orderNo}</p><p className="text-slate-400">{new Date(item.orderDate).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p></div>}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>}</td>
+                          <td className="px-3 py-1.5 align-top" style={{ maxWidth: "110px" }}>{item.isFirstInOrder && <div><p className="font-medium text-slate-800" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.customerName}</p>{item.customerPhone && <p className="text-slate-400 whitespace-nowrap">{item.customerPhone}</p>}</div>}</td>
+                          <td className="px-3 py-1.5 align-top" style={{ maxWidth: "100px" }}>{item.isFirstInOrder && item.salesAgentName && <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium text-center" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.salesAgentName}</span>}</td>
+                          <td className="px-3 py-1.5 align-top"><p className="font-medium text-slate-900 whitespace-nowrap">{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate max-w-[120px]">{item.artworkNotes}</p>}</td>
                           <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{size ?? "—"}</td>
                           <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{gsm ?? "—"}</td>
                           <td className="px-3 py-1.5 font-semibold text-slate-800">{item.quantity}</td>
@@ -1289,7 +1296,8 @@ export default function ProductionPage() {
                         )}
                       </React.Fragment>
                     );
-                  })}
+                  });
+                  })()}
                 </tbody>
               </table>
             </div>
