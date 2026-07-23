@@ -893,9 +893,9 @@ export default function OrdersPage() {
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
                           </td>
                           <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
-                          <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                          <td className="px-2 py-1.5 align-top" style={{ maxWidth: "90px" }}>
                             {o.salesAgentName
-                              ? <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium">{o.salesAgentName}</span>
+                              ? <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium" style={{ wordBreak: "break-word", whiteSpace: "normal", lineHeight: "1.3" }}>{o.salesAgentName}</span>
                               : <span className="text-slate-300">—</span>}
                           </td>
                           {renderProductsCell(o)}
