@@ -3439,6 +3439,7 @@ await loadHistory();
                     <tr className="bg-slate-100">
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Description</th>
+                      <th className="border border-slate-300 px-3 py-2 text-right font-bold text-slate-800">Amount</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Vendor / Expense</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Payment Description</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Checked</th>
@@ -3452,6 +3453,7 @@ await loadHistory();
                           {new Date(entry.txnDate).toLocaleDateString("en-IN")}
                         </td>
                         <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">{entry.description}</td>
+                        <td className="border border-slate-300 px-3 py-2 align-top text-right font-semibold text-red-600 whitespace-nowrap">-{fmt(entry.amount)}</td>
                         <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">
                           {entry.vendorOrExpenseName || "—"}
                           {entry.commissionInfo && (
@@ -3530,6 +3532,7 @@ await loadHistory();
                     <tr className="bg-slate-100">
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Description</th>
+                      <th className="border border-slate-300 px-3 py-2 text-right font-bold text-slate-800">Amount</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Vendor / Expense</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Payment Description</th>
                       <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Checked</th>
@@ -3541,6 +3544,7 @@ await loadHistory();
                       <tr key={p.id} className="hover:bg-slate-50">
                         <td className="border border-slate-300 px-3 py-2 whitespace-nowrap text-slate-600">{new Date(p.txnDate).toLocaleDateString("en-IN")}</td>
                         <td className="border border-slate-300 px-3 py-2 text-slate-700">{p.description}</td>
+                        <td className="border border-slate-300 px-3 py-2 text-right font-semibold text-red-600 whitespace-nowrap">-{fmt(p.amount)}</td>
                         <td className="border border-slate-300 px-3 py-2 text-slate-700">
                           {p.vendorOrExpenseName || "—"}
                           {p.commissionInfo && <div className="text-[11px] text-blue-600 mt-0.5">{p.commissionInfo.label}</div>}
