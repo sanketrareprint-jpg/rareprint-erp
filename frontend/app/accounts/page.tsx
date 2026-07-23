@@ -247,6 +247,8 @@ type PaymentVerificationEntry = {
   crDr: string;
   reconcileStatus: string;
   vendorOrExpenseName: string | null;
+  matchedVendorId: string | null;
+  expenseCategoryId: string | null;
   commissionInfo: CommissionInfo | null;
   accountantNote: string | null;
   checkedById: string | null;
@@ -454,6 +456,9 @@ export default function AccountsPage() {
   const [pvSavingNoteId, setPvSavingNoteId] = useState<string | null>(null);
   const [pvCheckingId, setPvCheckingId] = useState<string | null>(null);
   const [pvRecheckingId, setPvRecheckingId] = useState<string | null>(null);
+  const [pvVendors, setPvVendors] = useState<{ id: string; name: string }[]>([]);
+  const [pvExpenseCategories, setPvExpenseCategories] = useState<{ id: string; name: string }[]>([]);
+  const [pvVendorExpenseSavingId, setPvVendorExpenseSavingId] = useState<string | null>(null);
 
   // Billing and GST accounting
   const [accountingLoading, setAccountingLoading] = useState(false);
@@ -521,9 +526,14 @@ export default function AccountsPage() {
     setPvQueueLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification`, { headers: getAuthHeaders() });
-      if (res.ok) {
-        const data: PaymentVerificationEntry[] = await res.json();
+      const headers = getAuthHeaders();
+      const [txnRes, vendorRes, expenseRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/payment-verification`, { headers }),
+        pvVendors.length ? Promise.resolve(null) : fetch(`${API_BASE_URL}/vendors`, { headers }),
+        pvExpenseCategories.length ? Promise.resolve(null) : fetch(`${API_BASE_URL}/bank-statement/expense-categories`, { headers }),
+      ]);
+      if (txnRes.ok) {
+        const data: PaymentVerificationEntry[] = await txnRes.json();
         setPvQueue(data);
         setPvNoteDrafts(prev => {
           const next = { ...prev };
@@ -531,10 +541,12 @@ export default function AccountsPage() {
           return next;
         });
       }
+      if (vendorRes?.ok) setPvVendors(await vendorRes.json());
+      if (expenseRes?.ok) setPvExpenseCategories(await expenseRes.json());
     } catch (error) {
       handleLoadError("Payment verification", error);
     } finally { setPvQueueLoading(false); }
-  }, [handleLoadError]);
+  }, [handleLoadError, pvVendors.length, pvExpenseCategories.length]);
 
   const loadPaymentVerificationHistory = useCallback(async () => {
     setPvHistoryLoading(true);
@@ -565,6 +577,39 @@ export default function AccountsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : "Could not save note");
     } finally { setPvSavingNoteId(null); }
+  }
+
+  async function handleSetVendorExpense(entry: PaymentVerificationEntry, value: string) {
+    if (!value) return;
+    const [kind, id] = value.split(":");
+    const isVendor = kind === "vendor";
+    const name = isVendor ? pvVendors.find(v => v.id === id)?.name : pvExpenseCategories.find(c => c.id === id)?.name;
+    setPvVendorExpenseSavingId(entry.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/bank-statement/transactions/${entry.id}/reconcile`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          reconcileStatus: isVendor ? "MATCHED_VENDOR" : "MATCHED_EXPENSE",
+          matchedVendorId: isVendor ? id : undefined,
+          expenseCategoryId: isVendor ? undefined : id,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not update vendor/expense");
+      }
+      setPvQueue(prev => prev.map(e => (e.id === entry.id ? {
+        ...e,
+        reconcileStatus: isVendor ? "MATCHED_VENDOR" : "MATCHED_EXPENSE",
+        vendorOrExpenseName: name ?? e.vendorOrExpenseName,
+        matchedVendorId: isVendor ? id : null,
+        expenseCategoryId: isVendor ? null : id,
+        commissionInfo: null,
+      } : e)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not update vendor/expense");
+    } finally { setPvVendorExpenseSavingId(null); }
   }
 
   async function handleCheckVerification(entry: PaymentVerificationEntry) {
@@ -3455,9 +3500,30 @@ await loadHistory();
                         <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">{entry.description}</td>
                         <td className="border border-slate-300 px-3 py-2 align-top text-right font-semibold text-red-600 whitespace-nowrap">-{fmt(entry.amount)}</td>
                         <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">
-                          {entry.vendorOrExpenseName || "—"}
-                          {entry.commissionInfo && (
-                            <div className="text-[11px] text-blue-600 mt-0.5">{entry.commissionInfo.label}</div>
+                          {entry.checkedAt ? (
+                            <>
+                              {entry.vendorOrExpenseName || "—"}
+                              {entry.commissionInfo && (
+                                <div className="text-[11px] text-blue-600 mt-0.5">{entry.commissionInfo.label}</div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-1.5 min-w-[160px]">
+                              <select
+                                className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                value={entry.matchedVendorId ? `vendor:${entry.matchedVendorId}` : entry.expenseCategoryId ? `expense:${entry.expenseCategoryId}` : ""}
+                                onChange={e => handleSetVendorExpense(entry, e.target.value)}
+                              >
+                                <option value="">{entry.vendorOrExpenseName || "— Select —"}</option>
+                                <optgroup label="Vendors">
+                                  {pvVendors.map(v => <option key={v.id} value={`vendor:${v.id}`}>{v.name}</option>)}
+                                </optgroup>
+                                <optgroup label="Expense Categories">
+                                  {pvExpenseCategories.map(c => <option key={c.id} value={`expense:${c.id}`}>{c.name}</option>)}
+                                </optgroup>
+                              </select>
+                              {pvVendorExpenseSavingId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
+                            </div>
                           )}
                         </td>
                         <td className="border border-slate-300 px-3 py-2 align-top">

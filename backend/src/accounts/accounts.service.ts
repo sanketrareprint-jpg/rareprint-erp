@@ -1811,6 +1811,8 @@ export class AccountsService {
       crDr: t.crDr,
       reconcileStatus: t.reconcileStatus,
       vendorOrExpenseName,
+      matchedVendorId: t.matchedVendor?.id ?? null,
+      expenseCategoryId: t.expenseCategory?.id ?? null,
       commissionInfo,
       accountantNote: t.accountantNote,
       checkedById: t.checkedById,
