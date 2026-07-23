@@ -376,6 +376,7 @@ export class OrdersService {
       advanceAmount?: number;
       paymentAccountId?: string;
       paymentMethod?: string;
+      requestedLoyaltyRedemption?: number;
     },
     salesAgentId: string,
   ) {
