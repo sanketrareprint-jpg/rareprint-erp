@@ -3494,7 +3494,17 @@ await loadHistory();
                 ) : pvQueue.length === 0 ? (
                   <div className="p-10 text-center text-slate-400">Nothing waiting on verification right now.</div>
                 ) : (
-                  <table className="w-full text-sm border-collapse">
+                  <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
+                    <colgroup>
+                      <col className="w-[85px]" />
+                      <col />
+                      <col className="w-[95px]" />
+                      <col className="w-[150px]" />
+                      <col className="w-[110px]" />
+                      <col className="w-[170px]" />
+                      <col className="w-[100px]" />
+                      <col className="w-[100px]" />
+                    </colgroup>
                     <thead>
                       <tr className="bg-slate-100">
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
@@ -3513,7 +3523,7 @@ await loadHistory();
                           <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap text-slate-600">
                             {new Date(entry.txnDate).toLocaleDateString("en-IN")}
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">{entry.description}</td>
+                          <td className="border border-slate-300 px-3 py-2 align-top text-slate-700 truncate max-w-0" title={entry.description}>{entry.description}</td>
                           <td className="border border-slate-300 px-3 py-2 align-top text-right font-semibold text-red-600 whitespace-nowrap">-{fmt(entry.amount)}</td>
                           <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">
                             {entry.checkedAt ? (
@@ -3524,7 +3534,7 @@ await loadHistory();
                                 )}
                               </>
                             ) : (
-                              <div className="flex items-center gap-1.5 min-w-[140px]">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
                                   className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -3543,7 +3553,7 @@ await loadHistory();
                             {entry.checkedAt ? (
                               <span className="text-slate-600">{entry.expensePeriodLabel || "—"}</span>
                             ) : (
-                              <div className="flex items-center gap-1.5 min-w-[130px]">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="month"
                                   className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -3558,7 +3568,7 @@ await loadHistory();
                             {entry.checkedAt ? (
                               <span className="text-slate-600">{entry.accountantNote || "—"}</span>
                             ) : (
-                              <div className="flex items-center gap-1.5 min-w-[160px]">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
                                   className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -3644,7 +3654,17 @@ await loadHistory();
                 ) : pvHistory.length === 0 ? (
                   <div className="p-10 text-center text-slate-400">No rechecked entries yet.</div>
                 ) : (
-                  <table className="w-full text-sm border-collapse">
+                  <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
+                    <colgroup>
+                      <col className="w-[85px]" />
+                      <col />
+                      <col className="w-[95px]" />
+                      <col className="w-[150px]" />
+                      <col className="w-[110px]" />
+                      <col className="w-[170px]" />
+                      <col className="w-[100px]" />
+                      <col className="w-[100px]" />
+                    </colgroup>
                     <thead>
                       <tr className="bg-slate-100">
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
@@ -3661,7 +3681,7 @@ await loadHistory();
                       {pvHistory.slice((pvHistoryPage - 1) * PV_PAGE_SIZE, pvHistoryPage * PV_PAGE_SIZE).map(p => (
                         <tr key={p.id} className="hover:bg-slate-50">
                           <td className="border border-slate-300 px-3 py-2 whitespace-nowrap text-slate-600">{new Date(p.txnDate).toLocaleDateString("en-IN")}</td>
-                          <td className="border border-slate-300 px-3 py-2 text-slate-700">{p.description}</td>
+                          <td className="border border-slate-300 px-3 py-2 text-slate-700 truncate max-w-0" title={p.description}>{p.description}</td>
                           <td className="border border-slate-300 px-3 py-2 text-right font-semibold text-red-600 whitespace-nowrap">-{fmt(p.amount)}</td>
                           <td className="border border-slate-300 px-3 py-2 text-slate-700">
                             {p.vendorOrExpenseName || "—"}
