@@ -1188,20 +1188,20 @@ export default function ProductionPage() {
               <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-3 py-2 font-semibold text-slate-600">Order</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Age</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Agent</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Product</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Size</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">GSM</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Qty</th>
-                    {activeTab === "all" && <th className="px-3 py-2 font-semibold text-slate-600">Type</th>}
-                    <th className="px-3 py-2 font-semibold text-slate-600">Stage</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Schedule</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Sheets</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Files</th>
-                    <th className="px-3 py-2 font-semibold text-slate-600">Upload</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Order</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Age</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Customer</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Agent</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Product</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Size</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">GSM</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Qty</th>
+                    {activeTab === "all" && <th className="px-1.5 py-2 font-semibold text-slate-600">Type</th>}
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Stage</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Schedule</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Sheets</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Files</th>
+                    <th className="px-1.5 py-2 font-semibold text-slate-600">Upload</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1223,21 +1223,21 @@ export default function ProductionPage() {
                           className={`hover:bg-slate-100 ${item.itemProductionStage === "READY_FOR_DISPATCH" ? "bg-green-50/30" : groupShade}`}
                           style={item.isFirstInOrder && groupIdx > 0 ? { borderTop: "2px solid #cbd5e1" } : undefined}
                         >
-                          <td className="px-3 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <div><p className="font-bold text-blue-700">{item.orderNo}</p><p className="text-slate-400">{new Date(item.orderDate).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p></div>}</td>
-                          <td className="px-3 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>}</td>
-                          <td className="px-3 py-1.5 align-top" style={{ width: "72px", maxWidth: "72px" }}>{item.isFirstInOrder && <div><p className="font-medium text-slate-800" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.customerName}</p>{item.customerPhone && <p className="text-slate-400" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.customerPhone}</p>}</div>}</td>
-                          <td className="px-3 py-1.5 align-top" style={{ maxWidth: "100px" }}>{item.isFirstInOrder && item.salesAgentName && <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium text-center" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.salesAgentName}</span>}</td>
-                          <td className="px-3 py-1.5 align-top" style={{ width: "85px", maxWidth: "85px" }}><p className="font-medium text-slate-900" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate" style={{ maxWidth: "85px" }}>{item.artworkNotes}</p>}</td>
-                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{size ?? "—"}</td>
-                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{gsm ?? "—"}</td>
-                          <td className="px-3 py-1.5 font-semibold text-slate-800">{item.quantity}</td>
-                          {activeTab === "all" && <td className="px-3 py-1.5">
+                          <td className="px-1.5 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <div><p className="font-bold text-blue-700">{item.orderNo}</p><p className="text-slate-400">{new Date(item.orderDate).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p></div>}</td>
+                          <td className="px-1.5 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>}</td>
+                          <td className="px-1.5 py-1.5 align-top" style={{ width: "80px", maxWidth: "80px" }}>{item.isFirstInOrder && <div><p className="font-medium text-slate-800" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.customerName}</p>{item.customerPhone && <p className="text-slate-400" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.customerPhone}</p>}</div>}</td>
+                          <td className="px-1.5 py-1.5 align-top" style={{ maxWidth: "88px" }}>{item.isFirstInOrder && item.salesAgentName && <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium text-center" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.salesAgentName}</span>}</td>
+                          <td className="px-1.5 py-1.5 align-top" style={{ width: "75px", maxWidth: "75px" }}><p className="font-medium text-slate-900" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate" style={{ maxWidth: "75px" }}>{item.artworkNotes}</p>}</td>
+                          <td className="px-1.5 py-1.5 text-slate-600 whitespace-nowrap">{size ?? "—"}</td>
+                          <td className="px-1.5 py-1.5 text-slate-600 whitespace-nowrap">{gsm ?? "—"}</td>
+                          <td className="px-1.5 py-1.5 font-semibold text-slate-800">{item.quantity}</td>
+                          {activeTab === "all" && <td className="px-1.5 py-1.5">
                             <div className="flex items-center gap-1">
                               {item.productionCategory ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${categoryColors[item.productionCategory]}`}>{categoryLabels[item.productionCategory]}</span> : <span className="rounded-full bg-red-50 text-red-500 px-1.5 py-0.5 text-xs font-semibold">Unassigned</span>}
                               {userRole !== "INHOUSE" && item.productionCategory && <button title="Unassign category" onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200">✕</button>}
                             </div>
                           </td>}
-                          <td className="px-3 py-1.5">
+                          <td className="px-1.5 py-1.5">
                             <div className="flex items-center gap-1">
                               {isUpdating && <Loader2 className="h-3 w-3 animate-spin text-blue-600" />}
                               <select value={item.itemProductionStage} disabled={isUpdating} onChange={e => updateItemStage(item.id, e.target.value as ProductionStage)}
@@ -1246,13 +1246,13 @@ export default function ProductionPage() {
                               </select>
                             </div>
                           </td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-1.5 py-1.5">
                             {item.itemProductionStage === "PROCESSING" ? (
                               <input type="date" key={item.processingFollowUpDate ?? "empty"} defaultValue={dateInputValue(item.processingFollowUpDate)} onChange={e => { if (e.target.value || e.target.value === "") updateInhouseFollowUpDate(item.id, e.target.value); }}
-                                className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
+                                className="w-24 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
                             ) : <span className="text-slate-300 text-xs">—</span>}
                           </td>
-                          <td className="px-3 py-1.5 max-w-[160px]">
+                          <td className="px-1.5 py-1.5 max-w-[110px]">
                             {(() => {
                               const sa = sheetsData.flatMap(s => s.items.filter(si => si.orderItem.id === item.id).map(si => ({ no: s.sheetNo, qty: si.quantityOnSheet })));
                               if (!sa.length) return <span className="text-slate-300 text-xs">—</span>;
@@ -1261,13 +1261,13 @@ export default function ProductionPage() {
                               ))}</div>;
                             })()} 
                           </td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-1.5 py-1.5">
                             <button onClick={() => setExpandedFileItemId(isExpanded ? null : item.id)}
                               className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium border ${designFiles.length > 0 ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-500"}`}>
                               <Paperclip className="h-3 w-3" />{designFiles.length}
                             </button>
                           </td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-1.5 py-1.5">
                             <input type="file" ref={el => { fileInputRefs.current[item.id] = el; }} className="hidden"
                               accept="image/*,.pdf,.zip,.ai,.psd,.cdr,.eps"
                               onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(item.id, f); }} />
