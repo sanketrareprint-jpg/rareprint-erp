@@ -1792,6 +1792,9 @@ export class AccountsService {
     } else if (t.matchedPayment?.order?.customer?.businessName) {
       vendorOrExpenseName = `${t.matchedPayment.order.customer.businessName} (${t.matchedPayment.order.orderNumber})`;
     }
+    // The accountant's free-text label (typed directly in the Payment
+    // Verification queue) always wins over the auto-matched name.
+    if (t.vendorExpenseOverride) vendorOrExpenseName = t.vendorExpenseOverride;
 
     const commissionInfo = t.matchedCommissionVerification
       ? {
@@ -1802,6 +1805,8 @@ export class AccountsService {
         }
       : null;
 
+    const expensePeriod: Date | null = t.expensePeriod ?? null;
+
     return {
       id: t.id,
       txnDate: t.txnDate,
@@ -1811,10 +1816,12 @@ export class AccountsService {
       crDr: t.crDr,
       reconcileStatus: t.reconcileStatus,
       vendorOrExpenseName,
-      matchedVendorId: t.matchedVendor?.id ?? null,
-      expenseCategoryId: t.expenseCategory?.id ?? null,
       commissionInfo,
       accountantNote: t.accountantNote,
+      expensePeriod: expensePeriod ? expensePeriod.toISOString() : null,
+      expensePeriodLabel: expensePeriod
+        ? `${this.monthNames[expensePeriod.getUTCMonth()]} ${expensePeriod.getUTCFullYear()}`
+        : null,
       checkedById: t.checkedById,
       checkedByName: t.checkedBy?.fullName ?? null,
       checkedAt: t.checkedAt,
@@ -1862,6 +1869,42 @@ export class AccountsService {
     const updated = await this.prisma.bankTransaction.update({
       where: { id },
       data: { accountantNote: note } as any,
+      include: this.paymentVerificationInclude,
+    });
+    return this.mapPaymentVerificationEntry(updated);
+  }
+
+  async updatePaymentVerificationVendorExpense(id: string, user: AccountsUser, label: string) {
+    assertAccountsUser(user);
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    if ((txn as any).checkedAt) {
+      throw new BadRequestException('This entry has already been checked and can no longer be edited');
+    }
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id },
+      data: { vendorExpenseOverride: label || null } as any,
+      include: this.paymentVerificationInclude,
+    });
+    return this.mapPaymentVerificationEntry(updated);
+  }
+
+  async updatePaymentVerificationExpenseMonth(id: string, user: AccountsUser, period: string | null) {
+    assertAccountsUser(user);
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    if ((txn as any).checkedAt) {
+      throw new BadRequestException('This entry has already been checked and can no longer be edited');
+    }
+    let expensePeriod: Date | null = null;
+    if (period) {
+      const match = /^(\d{4})-(\d{2})$/.exec(period);
+      if (!match) throw new BadRequestException('Expected month in YYYY-MM format');
+      expensePeriod = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+    }
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id },
+      data: { expensePeriod } as any,
       include: this.paymentVerificationInclude,
     });
     return this.mapPaymentVerificationEntry(updated);

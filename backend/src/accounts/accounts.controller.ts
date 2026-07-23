@@ -270,6 +270,24 @@ export class AccountsController {
     return this.accountsService.updatePaymentVerificationNote(id, req.user, note ?? '');
   }
 
+  @Patch('payment-verification/:id/vendor-expense')
+  updatePaymentVerificationVendorExpense(
+    @Param('id') id: string,
+    @Body('label') label: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.updatePaymentVerificationVendorExpense(id, req.user, label ?? '');
+  }
+
+  @Patch('payment-verification/:id/expense-month')
+  updatePaymentVerificationExpenseMonth(
+    @Param('id') id: string,
+    @Body('period') period: string | null,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.updatePaymentVerificationExpenseMonth(id, req.user, period ?? null);
+  }
+
   @Patch('payment-verification/:id/check')
   checkPaymentVerification(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.checkPaymentVerification(id, req.user);

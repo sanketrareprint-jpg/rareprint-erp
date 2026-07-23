@@ -1912,6 +1912,12 @@ model BankTransaction {
   checkedAt         DateTime?
   recheckedById     String?
   recheckedAt       DateTime?
+  // Free-text override for the Vendor/Expense column (lighter than picking a
+  // linked Vendor/ExpenseCategory record — this is just a display label for
+  // the verification screen) and the accounting month an expense applies to,
+  // for cases like rent paid in July that actually belongs to June.
+  vendorExpenseOverride String?
+  expensePeriod     DateTime?
 
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
