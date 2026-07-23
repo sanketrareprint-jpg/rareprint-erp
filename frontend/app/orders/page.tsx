@@ -889,13 +889,13 @@ export default function OrdersPage() {
                             {o.orderNo}
                             {o.isTest && <span className="ml-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300 px-1 py-0 text-xs font-bold">TEST</span>}
                           </td>
-                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "100px" }}>
+                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "90px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
                           </td>
                           <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
-                          <td className="px-2 py-1.5 align-top" style={{ maxWidth: "90px" }}>
+                          <td className="px-2 py-1.5 align-top" style={{ maxWidth: "110px" }}>
                             {o.salesAgentName
-                              ? <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium" style={{ wordBreak: "break-word", whiteSpace: "normal", lineHeight: "1.3" }}>{o.salesAgentName}</span>
+                              ? <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium text-center" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{o.salesAgentName}</span>
                               : <span className="text-slate-300">—</span>}
                           </td>
                           {renderProductsCell(o)}
