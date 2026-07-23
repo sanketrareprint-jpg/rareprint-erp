@@ -551,16 +551,16 @@ export default function OrdersPage() {
   function renderProductsCell(o: Order) {
     if (o.itemDetails && o.itemDetails.length > 0) {
       return (
-        <td className="px-2 py-1.5 align-top">
-          <div style={{ minWidth: "300px" }}>
+        <td className="px-1.5 py-1 align-top">
+          <div style={{ minWidth: "230px" }}>
             {o.itemDetails.map((item, i) => (
-              <div key={i} className="flex items-center gap-2 py-0.5 border-b border-slate-50 last:border-0 text-xs">
-                <span className="text-slate-800 font-medium" style={{ minWidth: "70px" }}>{item.productName}</span>
-                <span className="text-slate-500" style={{ minWidth: "35px" }}>{item.size ?? "—"}</span>
-                <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.gsm ?? "—"}</span>
-                <span className="text-slate-500" style={{ minWidth: "35px" }}>{item.sides ?? "—"}</span>
-                <span className="text-slate-500" style={{ minWidth: "20px" }}>{item.quantity}</span>
-                <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "60px" }}>{fmt(item.lineTotal)}</span>
+              <div key={i} className="flex items-center gap-1.5 py-0.5 border-b border-slate-50 last:border-0 text-xs">
+                <span className="text-slate-800 font-medium" style={{ minWidth: "55px" }}>{item.productName}</span>
+                <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.size ?? "—"}</span>
+                <span className="text-slate-500" style={{ minWidth: "22px" }}>{item.gsm ?? "—"}</span>
+                <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.sides ?? "—"}</span>
+                <span className="text-slate-500" style={{ minWidth: "16px" }}>{item.quantity}</span>
+                <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "50px" }}>{fmt(item.lineTotal)}</span>
                 <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>
                   {itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
                 </span>
@@ -571,7 +571,7 @@ export default function OrdersPage() {
       );
     }
     return (
-      <td className="px-2 py-1.5 text-slate-600 align-top" style={{ minWidth: "180px" }}>
+      <td className="px-1.5 py-1 text-slate-600 align-top" style={{ minWidth: "140px" }}>
         <div className="space-y-0.5">
           {o.products.split(' | ').map((p, i) => <div key={i} className="text-xs leading-snug">{p}</div>)}
         </div>
@@ -832,35 +832,35 @@ export default function OrdersPage() {
                 <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                   <thead>
                     <tr>
-                      {activeTab === "dispatch" && <th className="px-2 py-2 w-8 font-semibold border-b border-slate-200" style={TH}></th>}
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Date</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Age</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Order No</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Customer</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Phone</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Agent</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>
-                        <div className="flex items-center gap-3">
-                          <span style={{ minWidth: "70px" }}>Product</span>
-                          <span style={{ minWidth: "35px" }}>Size</span>
-                          <span style={{ minWidth: "28px" }}>GSM</span>
-                          <span style={{ minWidth: "35px" }}>Sides</span>
-                          <span style={{ minWidth: "20px" }}>Qty</span>
-                          <span style={{ minWidth: "60px" }}>Amt</span>
+                      {activeTab === "dispatch" && <th className="px-1.5 py-1.5 w-8 font-semibold border-b border-slate-200" style={TH}></th>}
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Date</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Age</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Order No</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Customer</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Phone</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Agent</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>
+                        <div className="flex items-center gap-2">
+                          <span style={{ minWidth: "55px" }}>Product</span>
+                          <span style={{ minWidth: "28px" }}>Size</span>
+                          <span style={{ minWidth: "22px" }}>GSM</span>
+                          <span style={{ minWidth: "28px" }}>Sides</span>
+                          <span style={{ minWidth: "16px" }}>Qty</span>
+                          <span style={{ minWidth: "50px" }}>Amt</span>
                           <span>Stage</span>
                         </div>
                       </th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Total</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Paid</th>
-                      <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Balance</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Total</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Paid</th>
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Balance</th>
                       {canViewMargin && (
-                        <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Margin</th>
+                        <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Margin</th>
                       )}
                       {canViewMargin && (
-                        <th className="px-2 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Commission</th>
+                        <th className="px-1.5 py-1.5 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Commission</th>
                       )}
-                      <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
-                      {activeTab === "dispatch" && <th className="px-2 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Ready</th>}
+                      <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
+                      {activeTab === "dispatch" && <th className="px-1.5 py-1.5 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Ready</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -872,43 +872,43 @@ export default function OrdersPage() {
                       <React.Fragment key={o.id}>
                         <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
                           {activeTab === "dispatch" && (
-                            <td className="px-2 py-1.5 align-top">
+                            <td className="px-1.5 py-1 align-top">
                               <button onClick={() => toggleOrderSelection(o.id, o.customerName)}>
                                 {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4 text-indigo-600" /> : <Square className="h-4 w-4 text-slate-400" />}
                               </button>
                             </td>
                           )}
-                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">
+                          <td className="px-1.5 py-1 text-slate-500 align-top whitespace-nowrap">
                             {new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
                           </td>
-                          <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                          <td className="px-1.5 py-1 align-top whitespace-nowrap">
                             <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(o.date)}`}>{orderAge(o.date)}</span>
                           </td>
                           {/* Short order number */}
-                          <td className="px-2 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap" style={{ maxWidth: "70px" }}>
+                          <td className="px-1.5 py-1 font-bold text-blue-700 align-top whitespace-nowrap" style={{ maxWidth: "60px" }}>
                             {o.orderNo}
                             {o.isTest && <span className="ml-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300 px-1 py-0 text-xs font-bold">TEST</span>}
                           </td>
-                          <td className="px-2 py-1.5 text-slate-700 align-top" style={{ maxWidth: "90px" }}>
+                          <td className="px-1.5 py-1 text-slate-700 align-top" style={{ maxWidth: "80px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
                           </td>
-                          <td className="px-2 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
-                          <td className="px-2 py-1.5 align-top" style={{ maxWidth: "110px" }}>
+                          <td className="px-1.5 py-1 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
+                          <td className="px-1.5 py-1 align-top" style={{ maxWidth: "100px" }}>
                             {o.salesAgentName
                               ? <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium text-center" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{o.salesAgentName}</span>
                               : <span className="text-slate-300">—</span>}
                           </td>
                           {renderProductsCell(o)}
-                          <td className="px-2 py-1.5 font-medium align-top whitespace-nowrap">{fmt(o.totalAmount)}</td>
-                          <td className="px-2 py-1.5 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
-                          <td className="px-2 py-1.5 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
+                          <td className="px-1.5 py-1 font-medium align-top whitespace-nowrap">{fmt(o.totalAmount)}</td>
+                          <td className="px-1.5 py-1 text-emerald-700 font-medium align-top whitespace-nowrap">{fmt(o.advancePaid)}</td>
+                          <td className="px-1.5 py-1 text-red-600 font-medium align-top whitespace-nowrap">{fmt(o.balanceDue)}</td>
                           {canViewMargin && (
-                            <td className={`px-2 py-1.5 font-bold align-top whitespace-nowrap ${marginColor(o.marginPct)}`}>
+                            <td className={`px-1.5 py-1 font-bold align-top whitespace-nowrap ${marginColor(o.marginPct)}`}>
                               {marginText(o.marginPct)}
                             </td>
                           )}
                           {canViewMargin && (
-                            <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                            <td className="px-1.5 py-1 align-top whitespace-nowrap">
                               {o.commissionTotal == null ? (
                                 <span className="text-xs text-slate-400">No cost</span>
                               ) : (
@@ -919,28 +919,28 @@ export default function OrdersPage() {
                               )}
                             </td>
                           )}
-                          <td className="px-2 py-1.5 align-top">
-                            <div className="flex flex-row gap-1 items-center">
+                          <td className="px-1.5 py-1 align-top">
+                            <div className="flex flex-row gap-0.5 items-center">
                               {/* Pay */}
                               <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
-                                className="p-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
-                                <CreditCard className="h-3.5 w-3.5" />
+                                className="p-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
+                                <CreditCard className="h-3 w-3" />
                               </button>
                               {/* Payment History */}
                               <button title="Payment History" onClick={() => togglePayments(o.id)}
-                                className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
-                                {expandedPayments === o.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                className="p-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
+                                {expandedPayments === o.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                               </button>
                               {/* Journey */}
                               <button title="Order Journey" onClick={() => toggleJourney(o.id)}
-                                className="p-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">
-                                <FileText className="h-3.5 w-3.5" />
+                                className="p-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">
+                                <FileText className="h-3 w-3" />
                               </button>
                               {/* Edit */}
                               {o.status === "PENDING_APPROVAL" && (
                                 <button title="Edit Order" onClick={() => router.push(`/orders/edit?id=${o.id}`)}
-                                  className="p-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                  className="p-1 rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 </button>
                               )}
                               {/* Delete — always shown for test orders; PENDING_APPROVAL only for real orders */}
@@ -949,15 +949,15 @@ export default function OrdersPage() {
                                   if (!confirm(`Delete order ${o.orderNo}? Cannot be undone.`)) return;
                                   const res = await fetch(`${API_BASE_URL}/orders/${o.id}`, { method: "DELETE", headers: getAuthHeaders() });
                                   if (res.ok) { alert("Order deleted!"); load(); } else { alert("Delete failed"); }
-                                }} className={`p-1.5 rounded-md border ${o.isTest ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"}`}>
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                }} className={`p-1 rounded-md border ${o.isTest ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"}`}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                                 </button>
                               )}
                               {/* Files */}
                               {o.items && o.items.length > 0 && (
                                 <button title="Design Files" onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
-                                  className="relative p-1.5 rounded-md border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100">
-                                  <Paperclip className="h-3.5 w-3.5" />
+                                  className="relative p-1 rounded-md border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100">
+                                  <Paperclip className="h-3 w-3" />
                                   {o.items.reduce((s: number, i: any) => s + (Array.isArray(i.designFiles) ? i.designFiles.length : 0), 0) > 0 && (
                                     <span className="absolute -top-1 -right-1 rounded-full bg-purple-600 text-white w-3.5 h-3.5 flex items-center justify-center font-bold" style={{fontSize:'9px'}}>
                                       {o.items.reduce((s: number, i: any) => s + (Array.isArray(i.designFiles) ? i.designFiles.length : 0), 0)}
@@ -968,7 +968,7 @@ export default function OrdersPage() {
                             </div>
                           </td>
                           {activeTab === "dispatch" && (
-                            <td className="px-2 py-1.5 align-top">
+                            <td className="px-1.5 py-1 align-top">
                               <span className="rounded-full bg-green-100 text-green-700 px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap">
                                 {o.readyItemsCount ?? 0}/{o.totalItemsCount ?? 0}
                               </span>
