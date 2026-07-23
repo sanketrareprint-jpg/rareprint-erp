@@ -1227,11 +1227,16 @@ export default function ProductionPage() {
                           <td className="px-3 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(item.orderDate)}`}>{orderAge(item.orderDate)}</span>}</td>
                           <td className="px-3 py-1.5 align-top" style={{ width: "72px", maxWidth: "72px" }}>{item.isFirstInOrder && <div><p className="font-medium text-slate-800" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.customerName}</p>{item.customerPhone && <p className="text-slate-400" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.customerPhone}</p>}</div>}</td>
                           <td className="px-3 py-1.5 align-top" style={{ maxWidth: "100px" }}>{item.isFirstInOrder && item.salesAgentName && <span className="inline-block rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs font-medium text-center" style={{ whiteSpace: "normal", overflowWrap: "normal", wordBreak: "keep-all", lineHeight: "1.3" }}>{item.salesAgentName}</span>}</td>
-                          <td className="px-3 py-1.5 align-top"><p className="font-medium text-slate-900 whitespace-nowrap">{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate max-w-[120px]">{item.artworkNotes}</p>}</td>
+                          <td className="px-3 py-1.5 align-top" style={{ width: "85px", maxWidth: "85px" }}><p className="font-medium text-slate-900" style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{item.productName}</p>{item.artworkNotes && <p className="text-slate-400 truncate" style={{ maxWidth: "85px" }}>{item.artworkNotes}</p>}</td>
                           <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{size ?? "—"}</td>
                           <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{gsm ?? "—"}</td>
                           <td className="px-3 py-1.5 font-semibold text-slate-800">{item.quantity}</td>
-                          {activeTab === "all" && <td className="px-3 py-1.5">{item.productionCategory ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${categoryColors[item.productionCategory]}`}>{categoryLabels[item.productionCategory]}</span> : <span className="rounded-full bg-red-50 text-red-500 px-1.5 py-0.5 text-xs font-semibold">Unassigned</span>}</td>}
+                          {activeTab === "all" && <td className="px-3 py-1.5">
+                            <div className="flex items-center gap-1">
+                              {item.productionCategory ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${categoryColors[item.productionCategory]}`}>{categoryLabels[item.productionCategory]}</span> : <span className="rounded-full bg-red-50 text-red-500 px-1.5 py-0.5 text-xs font-semibold">Unassigned</span>}
+                              {userRole !== "INHOUSE" && item.productionCategory && <button title="Unassign category" onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200">✕</button>}
+                            </div>
+                          </td>}
                           <td className="px-3 py-1.5">
                             <div className="flex items-center gap-1">
                               {isUpdating && <Loader2 className="h-3 w-3 animate-spin text-blue-600" />}
@@ -1247,7 +1252,6 @@ export default function ProductionPage() {
                                 className="w-32 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-semibold outline-none" />
                             ) : <span className="text-slate-300 text-xs">—</span>}
                           </td>
-                              {userRole !== "INHOUSE" && <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200 ml-1">✕</button>}
                           <td className="px-3 py-1.5 max-w-[160px]">
                             {(() => {
                               const sa = sheetsData.flatMap(s => s.items.filter(si => si.orderItem.id === item.id).map(si => ({ no: s.sheetNo, qty: si.quantityOnSheet })));
