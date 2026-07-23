@@ -3428,143 +3428,134 @@ await loadHistory();
 
           {/* ── PAYMENT VERIFICATION TAB ── */}
           {tab === "payment_verification" && (
-            <div className="space-y-3">
-              <p className="text-xs text-slate-500">
-                Every matched or needs-review debit from the bank statement lands here in sequence. An accountant/admin
-                checks each one; Sanket then rechecks it to move it into Payment History.
-              </p>
+            <div className="overflow-x-auto rounded-xl border border-slate-300">
               {pvQueueLoading ? (
                 <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
               ) : pvQueue.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
-                  Nothing waiting on verification right now.
-                </div>
+                <div className="p-10 text-center text-slate-400">Nothing waiting on verification right now.</div>
               ) : (
-                pvQueue.map((entry, idx) => {
-                  const meta = PV_STATUS_META[entry.reconcileStatus] ?? { label: entry.reconcileStatus, color: "bg-slate-100 text-slate-600" };
-                  const noteChanged = (pvNoteDrafts[entry.id] ?? "") !== (entry.accountantNote ?? "");
-                  return (
-                    <div key={entry.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                      <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-mono text-slate-400">#{idx + 1}</span>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-800">{entry.description}</div>
-                            <div className="text-xs text-slate-500">{new Date(entry.txnDate).toLocaleDateString("en-IN")}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${meta.color}`}>{meta.label}</span>
-                          <span className="text-sm font-bold text-red-600">-{fmt(entry.amount)}</span>
-                        </div>
-                      </div>
-
-                      <div className="px-4 py-3 space-y-3">
-                        <div className="grid sm:grid-cols-2 gap-3">
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Vendor / Expense</div>
-                            <div className="text-sm text-slate-700">{entry.vendorOrExpenseName || "—"}</div>
-                          </div>
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Description</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Vendor / Expense</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Payment Description</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Checked</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Rechecked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pvQueue.map(entry => (
+                      <tr key={entry.id} className="hover:bg-slate-50">
+                        <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap text-slate-600">
+                          {new Date(entry.txnDate).toLocaleDateString("en-IN")}
+                        </td>
+                        <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">{entry.description}</td>
+                        <td className="border border-slate-300 px-3 py-2 align-top text-slate-700">
+                          {entry.vendorOrExpenseName || "—"}
                           {entry.commissionInfo && (
-                            <div>
-                              <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Commission &amp; Salary Month</div>
-                              <div className="text-sm text-blue-700 font-medium">{entry.commissionInfo.label}</div>
-                            </div>
+                            <div className="text-[11px] text-blue-600 mt-0.5">{entry.commissionInfo.label}</div>
                           )}
-                        </div>
-
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Accountant Note</div>
+                        </td>
+                        <td className="border border-slate-300 px-3 py-2 align-top">
                           {entry.checkedAt ? (
-                            <div className="text-sm text-slate-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-                              {entry.accountantNote || <span className="text-slate-400">No note added.</span>}
-                            </div>
+                            <span className="text-slate-600">{entry.accountantNote || "—"}</span>
                           ) : (
-                            <div className="flex gap-2 items-start">
-                              <textarea
-                                className="flex-1 border border-slate-300 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                rows={2}
-                                placeholder="Optional note for this entry..."
+                            <div className="flex items-center gap-1.5 min-w-[160px]">
+                              <input
+                                type="text"
+                                className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                placeholder="Add note..."
                                 value={pvNoteDrafts[entry.id] ?? ""}
                                 onChange={e => setPvNoteDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
+                                onBlur={() => {
+                                  if ((pvNoteDrafts[entry.id] ?? "") !== (entry.accountantNote ?? "")) saveVerificationNote(entry.id);
+                                }}
                               />
-                              <button
-                                onClick={() => saveVerificationNote(entry.id)}
-                                disabled={!noteChanged || pvSavingNoteId === entry.id}
-                                className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 whitespace-nowrap">
-                                {pvSavingNoteId === entry.id ? "Saving..." : "Save"}
-                              </button>
+                              {pvSavingNoteId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
                             </div>
                           )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 pt-1">
+                        </td>
+                        <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap">
                           {entry.checkedAt ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 text-green-800 px-3 py-1 text-xs font-semibold">
-                              <Check className="h-3.5 w-3.5" /> Checked by {entry.checkedByName || "—"} · {new Date(entry.checkedAt).toLocaleDateString("en-IN")}
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                              <Check className="h-3.5 w-3.5" /> {entry.checkedByName || "Checked"}
                             </span>
                           ) : canCheckPayments ? (
                             <button
                               onClick={() => handleCheckVerification(entry)}
                               disabled={pvCheckingId === entry.id}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
-                              <Check className="h-3.5 w-3.5" /> {pvCheckingId === entry.id ? "Saving..." : "Checked"}
+                              className="px-2.5 py-1 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
+                              {pvCheckingId === entry.id ? "..." : "Checked"}
                             </button>
                           ) : (
-                            <span className="text-xs text-slate-400">Awaiting accountant check</span>
+                            <span className="text-xs text-slate-400">Pending</span>
                           )}
-
-                          {isSuperAdmin && entry.checkedAt && !entry.recheckedAt && (
+                        </td>
+                        <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap">
+                          {entry.recheckedAt ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
+                              <ShieldCheck className="h-3.5 w-3.5" /> {entry.recheckedByName || "Rechecked"}
+                            </span>
+                          ) : isSuperAdmin && entry.checkedAt ? (
                             <button
                               onClick={() => handleRecheckVerification(entry)}
                               disabled={pvRecheckingId === entry.id}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
-                              <ShieldCheck className="h-3.5 w-3.5" /> {pvRecheckingId === entry.id ? "Moving..." : "Rechecked"}
+                              className="px-2.5 py-1 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
+                              {pvRecheckingId === entry.id ? "..." : "Recheck"}
                             </button>
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
                           )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
           )}
 
           {/* ── PAYMENT HISTORY TAB ── */}
           {tab === "payment_history" && (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl border border-slate-300">
               {pvHistoryLoading ? (
                 <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
               ) : pvHistory.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-sm">No rechecked entries yet.</div>
+                <div className="p-10 text-center text-slate-400">No rechecked entries yet.</div>
               ) : (
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Description</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Vendor / Expense</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Commission Month</th>
-                      <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Note</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Checked By</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Rechecked By</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Rechecked At</th>
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Description</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Vendor / Expense</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Payment Description</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Checked</th>
+                      <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Rechecked</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {pvHistory.map(p => (
                       <tr key={p.id} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(p.txnDate).toLocaleDateString("en-IN")}</td>
-                        <td className="px-3 py-2 text-slate-700">{p.description}</td>
-                        <td className="px-3 py-2 text-slate-600">{p.vendorOrExpenseName || "—"}</td>
-                        <td className="px-3 py-2 text-blue-700">{p.commissionInfo?.label || "—"}</td>
-                        <td className="px-3 py-2 text-right font-bold text-red-600">-{fmt(p.amount)}</td>
-                        <td className="px-3 py-2 text-slate-500 text-xs max-w-[200px] truncate" title={p.accountantNote || ""}>{p.accountantNote || "—"}</td>
-                        <td className="px-3 py-2 text-slate-600 text-xs">{p.checkedByName || "—"}</td>
-                        <td className="px-3 py-2 text-slate-600 text-xs">{p.recheckedByName || "—"}</td>
-                        <td className="px-3 py-2 text-slate-400 text-xs whitespace-nowrap">{p.recheckedAt ? new Date(p.recheckedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                        <td className="border border-slate-300 px-3 py-2 whitespace-nowrap text-slate-600">{new Date(p.txnDate).toLocaleDateString("en-IN")}</td>
+                        <td className="border border-slate-300 px-3 py-2 text-slate-700">{p.description}</td>
+                        <td className="border border-slate-300 px-3 py-2 text-slate-700">
+                          {p.vendorOrExpenseName || "—"}
+                          {p.commissionInfo && <div className="text-[11px] text-blue-600 mt-0.5">{p.commissionInfo.label}</div>}
+                        </td>
+                        <td className="border border-slate-300 px-3 py-2 text-slate-600">{p.accountantNote || "—"}</td>
+                        <td className="border border-slate-300 px-3 py-2 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                            <Check className="h-3.5 w-3.5" /> {p.checkedByName || "—"}
+                          </span>
+                        </td>
+                        <td className="border border-slate-300 px-3 py-2 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
+                            <ShieldCheck className="h-3.5 w-3.5" /> {p.recheckedByName || "—"}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

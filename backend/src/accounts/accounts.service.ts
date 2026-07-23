@@ -1822,7 +1822,7 @@ export class AccountsService {
     };
   }
 
-  /** GET /accounts/payment-verification — the active queue (not yet rechecked), in bank-statement sequence. */
+  /** GET /accounts/payment-verification — the active queue (not yet rechecked), latest entry first. */
   async getPaymentVerificationQueue() {
     const txns = await this.prisma.bankTransaction.findMany({
       where: {
@@ -1830,13 +1830,13 @@ export class AccountsService {
         reconcileStatus: { in: this.paymentVerificationStatuses },
         recheckedAt: null,
       },
-      orderBy: [{ txnDate: 'asc' }, { srl: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ txnDate: 'desc' }, { srl: 'desc' }, { createdAt: 'desc' }],
       include: this.paymentVerificationInclude,
     });
     return txns.map((t) => this.mapPaymentVerificationEntry(t));
   }
 
-  /** GET /accounts/payment-verification-history — entries Sanket has rechecked, oldest first. */
+  /** GET /accounts/payment-verification-history — entries Sanket has rechecked, most recently rechecked first. */
   async getPaymentVerificationHistory() {
     const txns = await this.prisma.bankTransaction.findMany({
       where: {
@@ -1844,7 +1844,7 @@ export class AccountsService {
         reconcileStatus: { in: this.paymentVerificationStatuses },
         recheckedAt: { not: null },
       },
-      orderBy: [{ recheckedAt: 'asc' }],
+      orderBy: [{ recheckedAt: 'desc' }],
       include: this.paymentVerificationInclude,
     });
     return txns.map((t) => this.mapPaymentVerificationEntry(t));
