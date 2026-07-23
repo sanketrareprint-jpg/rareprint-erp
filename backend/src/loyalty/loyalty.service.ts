@@ -537,41 +537,63 @@ export class LoyaltyService {
     return wallet;
   }
 
-  // ── All customers with a wallet, for the Loyalty page's list view (same
-  // shape of ask as Accounts > Customer Outstanding) ─────────────────────────
+  // ── All customers in the ERP, with loyalty points if any, for the Loyalty
+  // page's list view (same shape of ask as Accounts > Customer Outstanding).
+  // Customer-table-centric (not wallet-centric) so customers who have never
+  // earned a point still show up with 0 — wallet.phone is normalized
+  // ('91XXXXXXXXXX' via WhatsAppService.normalizePhone) while Customer.phone
+  // is stored as the raw 10-digit number, so the join matches either form.
   async listCustomers() {
-    const wallets = await (this.prisma as any).customerLoyaltyWallet.findMany({
-      orderBy: { points: 'desc' },
-    });
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        customerId: string;
+        customerName: string | null;
+        phone: string | null;
+        points: number;
+        lastActivityAt: Date | null;
+        lastOrderNumber: string | null;
+        lastOrderValue: any;
+        salesAgentName: string | null;
+      }>
+    >`
+      WITH latest_order AS (
+        SELECT DISTINCT ON (o."customerId")
+          o."customerId",
+          o."orderNumber",
+          o."grandTotal",
+          o."orderDate",
+          u."fullName" AS "salesAgentName"
+        FROM "Order" o
+        LEFT JOIN "User" u ON u.id = o."salesAgentId"
+        WHERE COALESCE(o."isTest", false) = false
+        ORDER BY o."customerId", o."orderDate" DESC
+      )
+      SELECT
+        c.id AS "customerId",
+        c."businessName" AS "customerName",
+        c.phone AS "phone",
+        COALESCE(w.points, 0) AS "points",
+        w."updatedAt" AS "lastActivityAt",
+        lo."orderNumber" AS "lastOrderNumber",
+        lo."grandTotal" AS "lastOrderValue",
+        lo."salesAgentName" AS "salesAgentName"
+      FROM "Customer" c
+      LEFT JOIN "CustomerLoyaltyWallet" w
+        ON w.phone = c.phone OR w.phone = ('91' || c.phone)
+      LEFT JOIN latest_order lo ON lo."customerId" = c.id
+      ORDER BY COALESCE(w.points, 0) DESC, c."businessName" ASC
+    `;
 
-    const customerIds = wallets.map((w: any) => w.customerId).filter(Boolean);
-    const customers = customerIds.length
-      ? await this.prisma.customer.findMany({ where: { id: { in: customerIds } } })
-      : [];
-    const customerById = new Map(customers.map((c) => [c.id, c]));
-
-    // Last activity per wallet, for a quick "still active?" glance — one
-    // query for all wallets rather than N+1.
-    const lastTxns = wallets.length
-      ? await (this.prisma as any).customerLoyaltyTransaction.groupBy({
-          by: ['walletId'],
-          where: { walletId: { in: wallets.map((w: any) => w.id) } },
-          _max: { createdAt: true },
-        })
-      : [];
-    const lastActivityByWallet = new Map(lastTxns.map((t: any) => [t.walletId, t._max.createdAt]));
-
-    return wallets.map((w: any) => {
-      const customer = customerById.get(w.customerId);
-      return {
-        walletId: w.id,
-        customerId: w.customerId,
-        customerName: customer?.businessName ?? null,
-        phone: w.phone,
-        points: w.points,
-        lastActivityAt: lastActivityByWallet.get(w.id) ?? null,
-      };
-    });
+    return rows.map((r) => ({
+      customerId: r.customerId,
+      customerName: r.customerName,
+      phone: r.phone,
+      points: Number(r.points ?? 0),
+      lastActivityAt: r.lastActivityAt,
+      lastOrderNumber: r.lastOrderNumber,
+      lastOrderValue: r.lastOrderValue != null ? Number(r.lastOrderValue) : null,
+      salesAgentName: r.salesAgentName,
+    }));
   }
 
   // ── Bulk reminder ────────────────────────────────────────────────────────

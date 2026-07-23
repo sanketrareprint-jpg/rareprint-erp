@@ -39,12 +39,14 @@ interface LoyaltyConfig {
 }
 
 interface LoyaltyCustomerRow {
-  walletId: string;
-  customerId: string | null;
+  customerId: string;
   customerName: string | null;
-  phone: string;
+  phone: string | null;
   points: number;
   lastActivityAt: string | null;
+  lastOrderNumber: string | null;
+  lastOrderValue: number | null;
+  salesAgentName: string | null;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -75,6 +77,8 @@ export default function LoyaltyPage() {
   const [allCustomers, setAllCustomers] = useState<LoyaltyCustomerRow[]>([]);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [customerListSearch, setCustomerListSearch] = useState("");
+  const [customerListPage, setCustomerListPage] = useState(1);
+  const CUSTOMER_LIST_PAGE_SIZE = 50;
 
   const [configDraft, setConfigDraft] = useState<LoyaltyConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -152,8 +156,16 @@ export default function LoyaltyPage() {
   const filteredCustomers = allCustomers.filter((row) => {
     const q = customerListSearch.trim().toLowerCase();
     if (!q) return true;
-    return (row.customerName ?? "").toLowerCase().includes(q) || row.phone.includes(q);
+    return (row.customerName ?? "").toLowerCase().includes(q) || (row.phone ?? "").includes(q);
   });
+
+  useEffect(() => { setCustomerListPage(1); }, [customerListSearch]);
+
+  const customerListTotalPages = Math.max(1, Math.ceil(filteredCustomers.length / CUSTOMER_LIST_PAGE_SIZE));
+  const pagedCustomers = filteredCustomers.slice(
+    (customerListPage - 1) * CUSTOMER_LIST_PAGE_SIZE,
+    customerListPage * CUSTOMER_LIST_PAGE_SIZE,
+  );
 
   const fetchWallet = async (phone: string) => {
     if (!phone) return;
@@ -502,58 +514,6 @@ export default function LoyaltyPage() {
           </div>
         )}
 
-        {/* ── All customers with a wallet ── */}
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-gray-800">All Customers</h2>
-            <input
-              type="text"
-              value={customerListSearch}
-              onChange={(e) => setCustomerListSearch(e.target.value)}
-              placeholder="Search name or phone..."
-              className="w-56 rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-pink-400"
-            />
-          </div>
-          {customersLoading ? (
-            <div className="flex items-center justify-center gap-2 text-sm text-gray-500 py-8">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading customers…
-            </div>
-          ) : filteredCustomers.length === 0 ? (
-            <p className="text-sm text-gray-400 px-5 py-8 text-center">
-              {allCustomers.length === 0 ? "No customers have earned loyalty points yet." : "No customers match that search."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto max-h-96 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Phone</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Points Balance</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Last Activity</th>
-                    <th className="px-4 py-2.5 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredCustomers.map((row) => (
-                    <tr
-                      key={row.walletId}
-                      className="hover:bg-gray-50 cursor-pointer"
-                      onClick={() => { setPhoneInput(row.phone); void fetchWallet(row.phone); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }}
-                    >
-                      <td className="px-4 py-2.5 text-gray-800">{row.customerName ?? <span className="text-gray-400">— unknown —</span>}</td>
-                      <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{row.phone}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-pink-700 whitespace-nowrap">{row.points.toLocaleString("en-IN")} pts</td>
-                      <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{row.lastActivityAt ? fmtDate(row.lastActivityAt) : "—"}</td>
-                      <td className="px-4 py-2.5 text-gray-300"><Search className="w-3.5 h-3.5" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
         {/* ── Search ── */}
         <form onSubmit={handleSearch} className="bg-white border border-gray-200 rounded-xl p-5">
           <label className="block text-xs font-medium text-gray-500 mb-1.5">Customer phone number</label>
@@ -575,6 +535,109 @@ export default function LoyaltyPage() {
             </button>
           </div>
         </form>
+
+        {/* ── All customers ── */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-gray-800">All Customers</h2>
+            <input
+              type="text"
+              value={customerListSearch}
+              onChange={(e) => setCustomerListSearch(e.target.value)}
+              placeholder="Search name or phone..."
+              className="w-56 rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-pink-400"
+            />
+          </div>
+          {customersLoading ? (
+            <div className="flex items-center justify-center gap-2 text-sm text-gray-500 py-8">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading customers…
+            </div>
+          ) : filteredCustomers.length === 0 ? (
+            <p className="text-sm text-gray-400 px-5 py-8 text-center">
+              {allCustomers.length === 0 ? "No customers found." : "No customers match that search."}
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm table-fixed min-w-[900px]">
+                  <colgroup>
+                    <col className="w-[180px]" />
+                    <col className="w-[120px]" />
+                    <col className="w-[110px]" />
+                    <col className="w-[150px]" />
+                    <col className="w-[120px]" />
+                    <col className="w-[110px]" />
+                    <col className="w-[130px]" />
+                    <col className="w-8" />
+                  </colgroup>
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Phone</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Points Balance</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Sales Agent</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Order Number</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Order Value</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Last Activity</th>
+                      <th className="px-4 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {pagedCustomers.map((row) => (
+                      <tr
+                        key={row.customerId}
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => {
+                          if (!row.phone) return;
+                          setPhoneInput(row.phone);
+                          void fetchWallet(row.phone);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                      >
+                        <td className="px-4 py-2.5 text-gray-800 truncate" title={row.customerName ?? ""}>
+                          {row.customerName ?? <span className="text-gray-400">— unknown —</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{row.phone ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-pink-700 whitespace-nowrap">{row.points.toLocaleString("en-IN")} pts</td>
+                        <td className="px-4 py-2.5 text-gray-600 truncate" title={row.salesAgentName ?? ""}>{row.salesAgentName ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-gray-600 truncate" title={row.lastOrderNumber ?? ""}>{row.lastOrderNumber ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600 whitespace-nowrap">
+                          {row.lastOrderValue != null ? `₹${row.lastOrderValue.toLocaleString("en-IN")}` : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{row.lastActivityAt ? fmtDate(row.lastActivityAt) : "—"}</td>
+                        <td className="px-4 py-2.5 text-gray-300"><Search className="w-3.5 h-3.5" /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between px-5 py-2.5 border-t border-gray-100 text-xs text-gray-500">
+                <span>
+                  Showing {(customerListPage - 1) * CUSTOMER_LIST_PAGE_SIZE + 1}–
+                  {Math.min(customerListPage * CUSTOMER_LIST_PAGE_SIZE, filteredCustomers.length)} of {filteredCustomers.length}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={customerListPage <= 1}
+                    onClick={() => setCustomerListPage((p) => Math.max(1, p - 1))}
+                    className="px-2.5 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    disabled={customerListPage >= customerListTotalPages}
+                    onClick={() => setCustomerListPage((p) => Math.min(customerListTotalPages, p + 1))}
+                    className="px-2.5 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* ── Error ── */}
         {error && (
