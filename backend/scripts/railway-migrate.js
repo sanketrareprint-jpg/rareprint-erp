@@ -32,3 +32,4 @@ run('npx', ['prisma', 'migrate', 'deploy']);
 // one specifically). Verify/create it directly so a stale migration
 // record can never again silently break the commission-override feature.
 run('node', ['scripts/ensure-commission-override-table.js'], { allowFailure: true });
+run('node', ['scripts/ensure-customer-phone2-column.js'], { allowFailure: true });
