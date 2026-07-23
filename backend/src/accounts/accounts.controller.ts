@@ -248,4 +248,35 @@ export class AccountsController {
   markSheetStagePaid(@Param('id') id: string) {
     return this.accountsService.markSheetStagePaid(id);
   }
+
+  // ── Payment Verification (bank statement debit sign-off) ──────────────────
+
+  @Get('payment-verification')
+  getPaymentVerificationQueue() {
+    return this.accountsService.getPaymentVerificationQueue();
+  }
+
+  @Get('payment-verification-history')
+  getPaymentVerificationHistory() {
+    return this.accountsService.getPaymentVerificationHistory();
+  }
+
+  @Patch('payment-verification/:id/note')
+  updatePaymentVerificationNote(
+    @Param('id') id: string,
+    @Body('note') note: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.updatePaymentVerificationNote(id, req.user, note ?? '');
+  }
+
+  @Patch('payment-verification/:id/check')
+  checkPaymentVerification(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.checkPaymentVerification(id, req.user);
+  }
+
+  @Patch('payment-verification/:id/recheck')
+  recheckPaymentVerification(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.recheckPaymentVerification(id, req.user);
+  }
 }

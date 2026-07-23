@@ -42,6 +42,8 @@ model User {
   marketingCampaigns MarketingCampaign[]   @relation("MarketingCampaignCreator")
   bankImports               BankImportSession[]        @relation("BankImports")
   bankTxnReconciled         BankTransaction[]          @relation("BankTxnReconciledBy")
+  bankTxnChecked            BankTransaction[]          @relation("BankTxnCheckedBy")
+  bankTxnRechecked          BankTransaction[]          @relation("BankTxnRecheckedBy")
   commissionsVerified       CommissionVerification[]   @relation("CommVerifBy")
   commissionVerifications   CommissionVerification[]   @relation("CommVerifAgent")
   activitySessions          UserActivitySession[]       @relation("UserActivitySessions")
@@ -1897,6 +1899,20 @@ model BankTransaction {
   reviewNote        String?
   reconciledAt      DateTime?
   reconciledById    String?
+
+  // ── Accounts > Payment Verification workflow ──────────────────────────────
+  // Every matched/needs-review DEBIT bank entry surfaces in the Accounts >
+  // Payment Verification queue. An accountant/admin adds an optional note and
+  // clicks "Checked" (one-way — cannot be undone by them). Once checked, only
+  // the super-admin (Sanket) sees a "Rechecked" action, which stamps
+  // recheckedById/recheckedAt and moves the entry out of the queue into
+  // Accounts > Payment History. See AccountsService.getPaymentVerificationQueue.
+  accountantNote    String?
+  checkedById       String?
+  checkedAt         DateTime?
+  recheckedById     String?
+  recheckedAt       DateTime?
+
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   session           BankImportSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -1905,8 +1921,11 @@ model BankTransaction {
   expenseCategory   ExpenseCategory?    @relation(fields: [expenseCategoryId], references: [id])
   matchedCommissionVerification CommissionVerification? @relation("BankTxnCommission", fields: [matchedCommissionVerificationId], references: [id])
   reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
+  checkedBy         User?               @relation("BankTxnCheckedBy", fields: [checkedById], references: [id])
+  recheckedBy       User?               @relation("BankTxnRecheckedBy", fields: [recheckedById], references: [id])
 
   @@unique([accountNumber, importKey])
+  @@index([recheckedAt])
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])

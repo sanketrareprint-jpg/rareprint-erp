@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiFetch";
-import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign, Download } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign, Download, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
@@ -198,6 +198,13 @@ function marginClass(marginPct?: number | null) {
   if (marginPct < 20) return "text-amber-600";
   return "text-green-700";
 }
+const PV_STATUS_META: Record<string, { label: string; color: string }> = {
+  MATCHED_PAYMENT: { label: "Payment Matched", color: "bg-green-100 text-green-800" },
+  MATCHED_VENDOR: { label: "Vendor Matched", color: "bg-blue-100 text-blue-800" },
+  MATCHED_EXPENSE: { label: "Expense Matched", color: "bg-purple-100 text-purple-800" },
+  MATCHED_COMMISSION: { label: "Commission Matched", color: "bg-blue-100 text-blue-800" },
+  MANUAL_REVIEW: { label: "Needs Review", color: "bg-yellow-100 text-yellow-800" },
+};
 function parseNotes(notes?: string) {
   if (!notes) return {};
   const size = notes.match(/Size:\s*([^,]+)/)?.[1]?.trim();
@@ -227,7 +234,28 @@ type CodForm = {
   courierOrderId: string;
 };
 
-type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors" | "commission";
+type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors" | "commission" | "payment_verification" | "payment_history";
+
+// ── Payment Verification (bank statement debit sign-off) ───────────────────
+type CommissionInfo = { agentName: string; month: string; year: number; label: string };
+type PaymentVerificationEntry = {
+  id: string;
+  txnDate: string;
+  description: string;
+  amount: number;
+  balance: number;
+  crDr: string;
+  reconcileStatus: string;
+  vendorOrExpenseName: string | null;
+  commissionInfo: CommissionInfo | null;
+  accountantNote: string | null;
+  checkedById: string | null;
+  checkedByName: string | null;
+  checkedAt: string | null;
+  recheckedById: string | null;
+  recheckedByName: string | null;
+  recheckedAt: string | null;
+};
 
 type SampleOrder = {
   id: string;
@@ -417,6 +445,16 @@ export default function AccountsPage() {
   const [markingPaid, setMarkingPaid] = useState<string | null>(null);
   const [vendorSearch, setVendorSearch] = useState("");
 
+  // Payment Verification (bank statement debit sign-off)
+  const [pvQueue, setPvQueue] = useState<PaymentVerificationEntry[]>([]);
+  const [pvQueueLoading, setPvQueueLoading] = useState(false);
+  const [pvHistory, setPvHistory] = useState<PaymentVerificationEntry[]>([]);
+  const [pvHistoryLoading, setPvHistoryLoading] = useState(false);
+  const [pvNoteDrafts, setPvNoteDrafts] = useState<Record<string, string>>({});
+  const [pvSavingNoteId, setPvSavingNoteId] = useState<string | null>(null);
+  const [pvCheckingId, setPvCheckingId] = useState<string | null>(null);
+  const [pvRecheckingId, setPvRecheckingId] = useState<string | null>(null);
+
   // Billing and GST accounting
   const [accountingLoading, setAccountingLoading] = useState(false);
   const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
@@ -478,6 +516,96 @@ export default function AccountsPage() {
       handleLoadError("Vendor statements", error);
     } finally { setVendorLoading(false); }
   }, [handleLoadError]);
+
+  const loadPaymentVerification = useCallback(async () => {
+    setPvQueueLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data: PaymentVerificationEntry[] = await res.json();
+        setPvQueue(data);
+        setPvNoteDrafts(prev => {
+          const next = { ...prev };
+          for (const entry of data) if (next[entry.id] === undefined) next[entry.id] = entry.accountantNote ?? "";
+          return next;
+        });
+      }
+    } catch (error) {
+      handleLoadError("Payment verification", error);
+    } finally { setPvQueueLoading(false); }
+  }, [handleLoadError]);
+
+  const loadPaymentVerificationHistory = useCallback(async () => {
+    setPvHistoryLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification-history`, { headers: getAuthHeaders() });
+      if (res.ok) setPvHistory(await res.json());
+    } catch (error) {
+      handleLoadError("Payment history", error);
+    } finally { setPvHistoryLoading(false); }
+  }, [handleLoadError]);
+
+  async function saveVerificationNote(id: string) {
+    const note = pvNoteDrafts[id] ?? "";
+    setPvSavingNoteId(id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/note`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ note }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not save note");
+      }
+      const updated: PaymentVerificationEntry = await res.json();
+      setPvQueue(prev => prev.map(e => (e.id === id ? updated : e)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not save note");
+    } finally { setPvSavingNoteId(null); }
+  }
+
+  async function handleCheckVerification(entry: PaymentVerificationEntry) {
+    if (!confirm(`Mark this ₹${fmt(entry.amount)} entry as Checked? This cannot be undone by you.`)) return;
+    setPvCheckingId(entry.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${entry.id}/check`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not mark as checked");
+      }
+      const updated: PaymentVerificationEntry = await res.json();
+      setPvQueue(prev => prev.map(e => (e.id === entry.id ? updated : e)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not mark as checked");
+    } finally { setPvCheckingId(null); }
+  }
+
+  async function handleRecheckVerification(entry: PaymentVerificationEntry) {
+    if (!confirm(`Recheck this entry and move it to Payment History?`)) return;
+    setPvRecheckingId(entry.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${entry.id}/recheck`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not recheck");
+      }
+      const updated: PaymentVerificationEntry = await res.json();
+      // Move locally: drop from the queue, add to history — no refetch, no page reload.
+      setPvQueue(prev => prev.filter(e => e.id !== entry.id));
+      setPvHistory(prev => [...prev, updated]);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not recheck");
+    } finally { setPvRecheckingId(null); }
+  }
 
   const loadReceipts = useCallback(async () => {
     setReceiptsLoading(true);
@@ -628,6 +756,8 @@ export default function AccountsPage() {
     } finally { setHistoryLoading(false); }
   }, [handleLoadError]);
   useEffect(() => { if (tab === "vendors") void loadVendors(); if (tab === "receipt_history") void loadHistory(); }, [tab, loadVendors, loadHistory]);
+  useEffect(() => { if (tab === "payment_verification") void loadPaymentVerification(); }, [tab, loadPaymentVerification]);
+  useEffect(() => { if (tab === "payment_history") void loadPaymentVerificationHistory(); }, [tab, loadPaymentVerificationHistory]);
 
   // ── Commission state ────────────────────────────────────────────────────
   const [commissionSummary, setCommissionSummary] = useState<CommissionSummary | null>(null);
@@ -660,6 +790,8 @@ export default function AccountsPage() {
   });
   const isAdmin = currentUser?.role === "ADMIN";
   const canSeeDetails = currentUser?.role === "ADMIN" || currentUser?.role === "ACCOUNTS";
+  const isSuperAdmin = currentUser?.email?.toLowerCase?.() === "sanket.rareprint@gmail.com";
+  const canCheckPayments = isSuperAdmin || currentUser?.role === "ADMIN" || currentUser?.role === "ACCOUNTS";
 
   const [commissionError, setCommissionError] = useState<string | null>(null);
   const loadCommissionSummary = useCallback(async (year: number, month: number) => {
@@ -1451,6 +1583,8 @@ await loadHistory();
                 { key: "receipt_history", label: "Receipt History", count: receiptHistory.length },
                 { key: "vendors", label: "Vendor Statements", count: vendorEntries.filter(e => !e.isPaid).length },
                 { key: "commission", label: "Commission", count: 0 },
+                { key: "payment_verification", label: "Payment Verification", count: pvQueue.length },
+                { key: "payment_history", label: "Payment History", count: 0 },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
                   className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
@@ -3288,6 +3422,153 @@ await loadHistory();
                     </>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ── PAYMENT VERIFICATION TAB ── */}
+          {tab === "payment_verification" && (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500">
+                Every matched or needs-review debit from the bank statement lands here in sequence. An accountant/admin
+                checks each one; Sanket then rechecks it to move it into Payment History.
+              </p>
+              {pvQueueLoading ? (
+                <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+              ) : pvQueue.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  Nothing waiting on verification right now.
+                </div>
+              ) : (
+                pvQueue.map((entry, idx) => {
+                  const meta = PV_STATUS_META[entry.reconcileStatus] ?? { label: entry.reconcileStatus, color: "bg-slate-100 text-slate-600" };
+                  const noteChanged = (pvNoteDrafts[entry.id] ?? "") !== (entry.accountantNote ?? "");
+                  return (
+                    <div key={entry.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                      <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-slate-400">#{idx + 1}</span>
+                          <div>
+                            <div className="text-sm font-semibold text-slate-800">{entry.description}</div>
+                            <div className="text-xs text-slate-500">{new Date(entry.txnDate).toLocaleDateString("en-IN")}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${meta.color}`}>{meta.label}</span>
+                          <span className="text-sm font-bold text-red-600">-{fmt(entry.amount)}</span>
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-3 space-y-3">
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Vendor / Expense</div>
+                            <div className="text-sm text-slate-700">{entry.vendorOrExpenseName || "—"}</div>
+                          </div>
+                          {entry.commissionInfo && (
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Commission &amp; Salary Month</div>
+                              <div className="text-sm text-blue-700 font-medium">{entry.commissionInfo.label}</div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Accountant Note</div>
+                          {entry.checkedAt ? (
+                            <div className="text-sm text-slate-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                              {entry.accountantNote || <span className="text-slate-400">No note added.</span>}
+                            </div>
+                          ) : (
+                            <div className="flex gap-2 items-start">
+                              <textarea
+                                className="flex-1 border border-slate-300 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                rows={2}
+                                placeholder="Optional note for this entry..."
+                                value={pvNoteDrafts[entry.id] ?? ""}
+                                onChange={e => setPvNoteDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
+                              />
+                              <button
+                                onClick={() => saveVerificationNote(entry.id)}
+                                disabled={!noteChanged || pvSavingNoteId === entry.id}
+                                className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 whitespace-nowrap">
+                                {pvSavingNoteId === entry.id ? "Saving..." : "Save"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 pt-1">
+                          {entry.checkedAt ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 text-green-800 px-3 py-1 text-xs font-semibold">
+                              <Check className="h-3.5 w-3.5" /> Checked by {entry.checkedByName || "—"} · {new Date(entry.checkedAt).toLocaleDateString("en-IN")}
+                            </span>
+                          ) : canCheckPayments ? (
+                            <button
+                              onClick={() => handleCheckVerification(entry)}
+                              disabled={pvCheckingId === entry.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
+                              <Check className="h-3.5 w-3.5" /> {pvCheckingId === entry.id ? "Saving..." : "Checked"}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-400">Awaiting accountant check</span>
+                          )}
+
+                          {isSuperAdmin && entry.checkedAt && !entry.recheckedAt && (
+                            <button
+                              onClick={() => handleRecheckVerification(entry)}
+                              disabled={pvRecheckingId === entry.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
+                              <ShieldCheck className="h-3.5 w-3.5" /> {pvRecheckingId === entry.id ? "Moving..." : "Rechecked"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* ── PAYMENT HISTORY TAB ── */}
+          {tab === "payment_history" && (
+            <div className="overflow-x-auto">
+              {pvHistoryLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+              ) : pvHistory.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">No rechecked entries yet.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Description</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Vendor / Expense</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Commission Month</th>
+                      <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Note</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Checked By</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Rechecked By</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Rechecked At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pvHistory.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(p.txnDate).toLocaleDateString("en-IN")}</td>
+                        <td className="px-3 py-2 text-slate-700">{p.description}</td>
+                        <td className="px-3 py-2 text-slate-600">{p.vendorOrExpenseName || "—"}</td>
+                        <td className="px-3 py-2 text-blue-700">{p.commissionInfo?.label || "—"}</td>
+                        <td className="px-3 py-2 text-right font-bold text-red-600">-{fmt(p.amount)}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs max-w-[200px] truncate" title={p.accountantNote || ""}>{p.accountantNote || "—"}</td>
+                        <td className="px-3 py-2 text-slate-600 text-xs">{p.checkedByName || "—"}</td>
+                        <td className="px-3 py-2 text-slate-600 text-xs">{p.recheckedByName || "—"}</td>
+                        <td className="px-3 py-2 text-slate-400 text-xs whitespace-nowrap">{p.recheckedAt ? new Date(p.recheckedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
           )}

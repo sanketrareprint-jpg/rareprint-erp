@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   AccountingNoteType,
   AccountingPartyType,
+  BankReconcileStatus,
   GstTreatment,
   LedgerEntryType,
   OrderStatus,
@@ -1744,4 +1745,158 @@ export class AccountsService {
     });
   }
 
+  // ── Payment Verification (Accounts > Bank Statement debit sign-off) ────────
+  // Every matched/needs-review DEBIT bank entry needs a two-step sign-off:
+  // an accountant/admin clicks "Checked" (one-way, they can't undo it), then
+  // only Sanket (super-admin) sees a "Rechecked" action, which moves the
+  // entry out of the queue and into Accounts > Payment History. The FKs live
+  // on BankTransaction — see migration 20260723140000_add_payment_verification_workflow.
+
+  private readonly paymentVerificationStatuses: BankReconcileStatus[] = [
+    BankReconcileStatus.MATCHED_PAYMENT,
+    BankReconcileStatus.MATCHED_VENDOR,
+    BankReconcileStatus.MATCHED_EXPENSE,
+    BankReconcileStatus.MATCHED_COMMISSION,
+    BankReconcileStatus.MANUAL_REVIEW,
+  ];
+
+  private readonly paymentVerificationInclude = {
+    matchedPayment: {
+      select: {
+        id: true,
+        amount: true,
+        referenceNumber: true,
+        order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
+      },
+    },
+    matchedVendor: { select: { id: true, name: true } },
+    expenseCategory: { select: { id: true, name: true } },
+    matchedCommissionVerification: {
+      select: { year: true, month: true, agent: { select: { fullName: true } } },
+    },
+    checkedBy: { select: { id: true, fullName: true } },
+    recheckedBy: { select: { id: true, fullName: true } },
+  } as const;
+
+  private readonly monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  private mapPaymentVerificationEntry(t: any) {
+    let vendorOrExpenseName: string | null = null;
+    if (t.matchedVendor) vendorOrExpenseName = t.matchedVendor.name;
+    else if (t.expenseCategory) vendorOrExpenseName = t.expenseCategory.name;
+    else if (t.matchedCommissionVerification) {
+      vendorOrExpenseName = `Commission — ${t.matchedCommissionVerification.agent.fullName}`;
+    } else if (t.matchedPayment?.order?.customer?.businessName) {
+      vendorOrExpenseName = `${t.matchedPayment.order.customer.businessName} (${t.matchedPayment.order.orderNumber})`;
+    }
+
+    const commissionInfo = t.matchedCommissionVerification
+      ? {
+          agentName: t.matchedCommissionVerification.agent.fullName,
+          month: this.monthNames[t.matchedCommissionVerification.month - 1] ?? String(t.matchedCommissionVerification.month),
+          year: t.matchedCommissionVerification.year,
+          label: `Commission & Salary — ${this.monthNames[t.matchedCommissionVerification.month - 1]} ${t.matchedCommissionVerification.year}`,
+        }
+      : null;
+
+    return {
+      id: t.id,
+      txnDate: t.txnDate,
+      description: t.description,
+      amount: Number(t.amount),
+      balance: Number(t.balance),
+      crDr: t.crDr,
+      reconcileStatus: t.reconcileStatus,
+      vendorOrExpenseName,
+      commissionInfo,
+      accountantNote: t.accountantNote,
+      checkedById: t.checkedById,
+      checkedByName: t.checkedBy?.fullName ?? null,
+      checkedAt: t.checkedAt,
+      recheckedById: t.recheckedById,
+      recheckedByName: t.recheckedBy?.fullName ?? null,
+      recheckedAt: t.recheckedAt,
+    };
+  }
+
+  /** GET /accounts/payment-verification — the active queue (not yet rechecked), in bank-statement sequence. */
+  async getPaymentVerificationQueue() {
+    const txns = await this.prisma.bankTransaction.findMany({
+      where: {
+        crDr: 'DR',
+        reconcileStatus: { in: this.paymentVerificationStatuses },
+        recheckedAt: null,
+      },
+      orderBy: [{ txnDate: 'asc' }, { srl: 'asc' }, { createdAt: 'asc' }],
+      include: this.paymentVerificationInclude,
+    });
+    return txns.map((t) => this.mapPaymentVerificationEntry(t));
+  }
+
+  /** GET /accounts/payment-verification-history — entries Sanket has rechecked, oldest first. */
+  async getPaymentVerificationHistory() {
+    const txns = await this.prisma.bankTransaction.findMany({
+      where: {
+        crDr: 'DR',
+        reconcileStatus: { in: this.paymentVerificationStatuses },
+        recheckedAt: { not: null },
+      },
+      orderBy: [{ recheckedAt: 'asc' }],
+      include: this.paymentVerificationInclude,
+    });
+    return txns.map((t) => this.mapPaymentVerificationEntry(t));
+  }
+
+  async updatePaymentVerificationNote(id: string, user: AccountsUser, note: string) {
+    assertAccountsUser(user);
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    if ((txn as any).recheckedAt) {
+      throw new BadRequestException('This entry has moved to Payment History and can no longer be edited');
+    }
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id },
+      data: { accountantNote: note } as any,
+      include: this.paymentVerificationInclude,
+    });
+    return this.mapPaymentVerificationEntry(updated);
+  }
+
+  async checkPaymentVerification(id: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    if ((txn as any).checkedAt) {
+      throw new BadRequestException('This entry has already been checked');
+    }
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id },
+      data: { checkedById: user.id, checkedAt: new Date() } as any,
+      include: this.paymentVerificationInclude,
+    });
+    return this.mapPaymentVerificationEntry(updated);
+  }
+
+  async recheckPaymentVerification(id: string, user: AccountsUser) {
+    if (user.email !== SUPER_ADMIN_EMAIL) {
+      throw new ForbiddenException('Only Sanket can recheck and move this entry to Payment History');
+    }
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    if (!(txn as any).checkedAt) {
+      throw new BadRequestException('This entry must be checked before it can be rechecked');
+    }
+    if ((txn as any).recheckedAt) {
+      throw new BadRequestException('This entry has already been rechecked');
+    }
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id },
+      data: { recheckedById: user.id, recheckedAt: new Date() } as any,
+      include: this.paymentVerificationInclude,
+    });
+    return this.mapPaymentVerificationEntry(updated);
+  }
 }
