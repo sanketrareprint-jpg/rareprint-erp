@@ -1220,7 +1220,7 @@ export default function ProductionPage() {
                     return (
                       <React.Fragment key={item.id}>
                         <tr
-                          className={`hover:bg-slate-100 ${item.itemProductionStage === "READY_FOR_DISPATCH" ? "bg-green-50/30" : groupShade}`}
+                          className={`group hover:bg-slate-100 ${item.itemProductionStage === "READY_FOR_DISPATCH" ? "bg-green-50/30" : groupShade}`}
                           style={item.isFirstInOrder && groupIdx > 0 ? { borderTop: "2px solid #cbd5e1" } : undefined}
                         >
                           <td className="px-1.5 py-1.5 whitespace-nowrap align-top">{item.isFirstInOrder && <div><p className="font-bold text-blue-700">{item.orderNo}</p><p className="text-slate-400">{new Date(item.orderDate).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</p></div>}</td>
@@ -1234,7 +1234,7 @@ export default function ProductionPage() {
                           {activeTab === "all" && <td className="px-1.5 py-1.5">
                             <div className="flex items-center gap-1">
                               {item.productionCategory ? <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${categoryColors[item.productionCategory]}`}>{categoryLabels[item.productionCategory]}</span> : <span className="rounded-full bg-red-50 text-red-500 px-1.5 py-0.5 text-xs font-semibold">Unassigned</span>}
-                              {userRole !== "INHOUSE" && item.productionCategory && <button title="Unassign category" onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200">✕</button>}
+                              {userRole !== "INHOUSE" && item.productionCategory && <button title="Unassign category" onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-1.5 py-0.5 text-xs font-semibold text-red-600 hover:bg-red-200 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>}
                             </div>
                           </td>}
                           <td className="px-1.5 py-1.5">
