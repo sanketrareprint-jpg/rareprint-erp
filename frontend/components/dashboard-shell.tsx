@@ -9,6 +9,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -171,6 +172,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const [user] = useState<StoredUser | null>(() => getStoredUser());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("rareprint_sidebar_collapsed") === "1";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("rareprint_sidebar_collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
   useActivityTracker(); // Track active time when cursor is moving
   const [coins, setCoins] = useState<number | null>(null);
   const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
@@ -306,107 +315,151 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* ── White list-style sidebar ── */}
       <aside className="erp-sidebar" style={{
-        width: "200px", minWidth: "200px",
+        width: collapsed ? "60px" : "148px", minWidth: collapsed ? "60px" : "148px", flexShrink: 0,
         background: "#ffffff",
         borderRight: "1px solid #eef1f5",
         display: "flex", flexDirection: "column",
         paddingTop: "18px", paddingBottom: "12px",
         height: "100vh", position: "sticky", top: 0,
         overflowY: "auto", overflowX: "hidden",
+        transition: "width 0.15s ease, min-width 0.15s ease",
       }}>
-        {/* Logo + Brand */}
+        {/* Collapse/expand toggle */}
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          style={{
+            position: "absolute", top: "18px", right: "-11px", zIndex: 5,
+            width: "22px", height: "22px", borderRadius: "50%",
+            background: "#ffffff", border: "1px solid #e2e8f0",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", color: "#64748b", boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#0f172a"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
+        >
+          {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+        </button>
+
+        {/* Logo + Brand — stacked vertically */}
         <div style={{
-          display: "flex", alignItems: "center", gap: "10px",
-          marginBottom: "20px", paddingLeft: "18px", paddingRight: "18px", width: "100%",
+          display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
+          marginBottom: "16px", paddingLeft: "8px", paddingRight: "8px", width: "100%",
         }}>
-          <img src="/rareprint-icon.png" alt="RarePrint" style={{ width: "34px", height: "34px", objectFit: "contain", flexShrink: 0 }} />
-          <span style={{
-            fontSize: "19px", fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap",
-            fontFamily: "'Arial Black', Arial, Helvetica, sans-serif",
-            color: "#ee1c25", letterSpacing: "0.2px",
-            textShadow: "0 1px 0 rgba(0,0,0,0.12)",
-          }}>
-            RarePrint
-          </span>
+          <img src="/rareprint-icon.png" alt="RarePrint" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
+          {!collapsed && (
+            <span style={{
+              fontSize: "15px", fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap",
+              fontFamily: "'Arial Black', Arial, Helvetica, sans-serif",
+              color: "#ee1c25", letterSpacing: "0.2px",
+              textShadow: "0 1px 0 rgba(0,0,0,0.12)",
+            }}>
+              RarePrint
+            </span>
+          )}
         </div>
 
         {/* Nav — single column list */}
         <nav style={{
           flex: 1, display: "flex", flexDirection: "column",
           gap: "2px",
-          width: "100%", padding: "0 8px",
+          width: "100%", padding: collapsed ? "0 6px" : "0 6px",
         }}>
           {navItems.map((item) => {
             const Icon   = item.icon;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
-              <Link key={item.href} href={item.href} className="erp-sidebar-link" style={{
+              <Link key={item.href} href={item.href} className="erp-sidebar-link" title={collapsed ? item.label : undefined} style={{
                 display: "flex", flexDirection: "row",
-                alignItems: "center", gap: "14px",
-                height: "44px", borderRadius: "8px", padding: "0 14px",
+                alignItems: "center", gap: collapsed ? 0 : "10px",
+                justifyContent: collapsed ? "center" : "flex-start",
+                minHeight: "40px", borderRadius: "8px",
+                padding: collapsed ? "8px 0" : "6px 8px",
                 background: "transparent",
                 color: active ? "#0f172a" : "#64748b",
                 textDecoration: "none",
-                fontSize: "14.5px", fontWeight: active ? 600 : 500,
+                fontSize: "12px", fontWeight: active ? 600 : 500, lineHeight: "1.2",
                 transition: "color 0.15s, background 0.15s",
               }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#f8fafc"; if (!active) (e.currentTarget as HTMLElement).style.color = "#0f172a"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; if (!active) (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
               >
-                <Icon size={19} strokeWidth={1.75} style={{ flexShrink: 0 }} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.label}
-                </span>
+                <Icon size={18} strokeWidth={1.75} style={{ flexShrink: 0 }} />
+                {!collapsed && (
+                  <span style={{ overflowWrap: "normal", wordBreak: "normal", whiteSpace: "normal" }}>
+                    {item.label}
+                  </span>
+                )}
               </Link>
             );
           })}
         </nav>
           {/* Notification Bell */}
-          <div className="erp-desktop-notifications" style={{ padding: "8px 18px 0" }}>
+          <div className="erp-desktop-notifications" style={{ padding: "8px 8px 0", display: "flex", justifyContent: collapsed ? "center" : "flex-start" }}>
             <NotificationBell userRole={role} />
           </div>
 
         {/* User + logout */}
         <div style={{
-          display: "flex", alignItems: "center", gap: "10px",
+          display: "flex", alignItems: "center", gap: collapsed ? 0 : "8px",
+          justifyContent: collapsed ? "center" : "flex-start",
+          flexWrap: "wrap",
           marginTop: "12px", paddingTop: "12px", width: "100%",
-          paddingLeft: "18px", paddingRight: "14px",
+          paddingLeft: "8px", paddingRight: "8px",
           borderTop: "1px solid #eef1f5",
         }}>
           <div style={{
-            width: "34px", height: "34px", borderRadius: "50%",
+            width: "30px", height: "30px", borderRadius: "50%",
             background: "#ee1c25", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white",
+            justifyContent: "center", fontSize: "12px", fontWeight: 700, color: "white",
             flexShrink: 0,
           }}>
             {name.charAt(0).toUpperCase()}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {name}
-            </div>
-            <div style={{ fontSize: "11px", color: "#94a3b8" }}>
-              {role.replace("_", " ")}
-            </div>
-            {coins !== null && (
-              <div title={`${coins} reward coins`} style={{
-                display: "inline-flex", alignItems: "center", gap: "4px",
-                marginTop: "2px", fontSize: "11px", fontWeight: 700, color: "#b45309",
-              }}>
-                🪙 {coins}
+          {!collapsed && (
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {name}
+                </div>
+                <div style={{ fontSize: "10.5px", color: "#94a3b8" }}>
+                  {role.replace("_", " ")}
+                </div>
+                {coins !== null && (
+                  <div title={`${coins} reward coins`} style={{
+                    display: "inline-flex", alignItems: "center", gap: "4px",
+                    marginTop: "2px", fontSize: "11px", fontWeight: 700, color: "#b45309",
+                  }}>
+                    🪙 {coins}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <button onClick={handleLogout} title="Sign out" style={{
-            background: "transparent", border: "none", cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#94a3b8", padding: "6px", borderRadius: "8px", flexShrink: 0,
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94a3b8"; }}
-          >
-            <LogOut size={18} strokeWidth={2} />
-          </button>
+              <button onClick={handleLogout} title="Sign out" style={{
+                background: "transparent", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#94a3b8", padding: "6px", borderRadius: "8px", flexShrink: 0,
+              }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94a3b8"; }}
+              >
+                <LogOut size={16} strokeWidth={2} />
+              </button>
+            </>
+          )}
+          {collapsed && (
+            <button onClick={handleLogout} title="Sign out" style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#94a3b8", padding: "4px", borderRadius: "8px", flexShrink: 0,
+              width: "100%", marginTop: "4px",
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94a3b8"; }}
+            >
+              <LogOut size={16} strokeWidth={2} />
+            </button>
+          )}
         </div>
       </aside>
 
