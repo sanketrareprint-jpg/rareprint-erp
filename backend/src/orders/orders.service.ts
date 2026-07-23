@@ -538,6 +538,7 @@ export class OrdersService {
           notes: dto.notes,
           isSample: dto.isSample ?? false,
           samplePaymentType: (dto.isSample ?? false) ? (advance > 0 ? 'PREPAID' : 'COD') : null,
+          requestedLoyaltyRedemption: dto.requestedLoyaltyRedemption ?? null,
           items: { create: itemsData },
         } as any,
       });

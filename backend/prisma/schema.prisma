@@ -375,6 +375,9 @@ model Order {
   loyaltyPointsEarned    Int?              // points credited on invoicing (see CustomerLoyaltyTransaction)
   loyaltyPointsRedeemed  Int?              // points redeemed against this bill
   loyaltyDiscountAmount  Decimal?          @db.Decimal(12, 2) // ₹ value of redeemed points — excluded from `discount` on purpose
+  requestedLoyaltyRedemption Int?          // sales agent's requested redeem amount, captured at order creation;
+                                            // actually applied via LoyaltyService.redeemForOrder once accounts approves
+                                            // the order and the invoice exists (see AccountsService.approveOrder)
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   productionStage  OrderProductionStage    @default(NOT_PRINTED)

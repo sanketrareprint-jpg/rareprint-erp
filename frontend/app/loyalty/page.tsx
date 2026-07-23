@@ -6,6 +6,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import {
   Gift, Search, Loader2, AlertCircle, CheckCircle, XCircle,
   ArrowUpCircle, ArrowDownCircle, RotateCcw, Settings2, Save, FlaskConical, Trash2,
+  Send,
 } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -37,6 +38,15 @@ interface LoyaltyConfig {
   redemptionCapPct: number;
 }
 
+interface LoyaltyCustomerRow {
+  walletId: string;
+  customerId: string | null;
+  customerName: string | null;
+  phone: string;
+  points: number;
+  lastActivityAt: string | null;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmtDate(d: string) {
@@ -61,6 +71,11 @@ export default function LoyaltyPage() {
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
 
+  // ── All customers with a wallet — list view like Accounts > Customer Outstanding ──
+  const [allCustomers, setAllCustomers] = useState<LoyaltyCustomerRow[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(true);
+  const [customerListSearch, setCustomerListSearch] = useState("");
+
   const [configDraft, setConfigDraft] = useState<LoyaltyConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
@@ -81,6 +96,35 @@ export default function LoyaltyPage() {
   const [testError, setTestError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ action: string; data: any } | null>(null);
 
+  // ── Bulk WhatsApp reminder to every customer who has ever earned points ──
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{
+    total: number; sent: number; optedOut: number; noPhone: number; failed: number;
+  } | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  const handleBulkSend = async () => {
+    if (!window.confirm(
+      "This sends a real WhatsApp message (via AiSensy) to every customer who has ever earned loyalty points. This cannot be undone. Continue?",
+    )) return;
+    setBulkSending(true);
+    setBulkError(null);
+    setBulkResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/loyalty/bulk-send-reminder`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message ?? `Bulk send failed (${res.status})`);
+      setBulkResult(data);
+    } catch (err: any) {
+      setBulkError(err?.message ?? "Bulk send failed");
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
   useEffect(() => {
     fetch(`${API_BASE_URL}/loyalty/config`, { headers: getAuthHeaders() })
       .then((r) => (r.ok ? r.json() : null))
@@ -90,6 +134,26 @@ export default function LoyaltyPage() {
       .catch(() => {/* keep defaults hidden if it fails to load */})
       .finally(() => setConfigLoading(false));
   }, []);
+
+  const loadAllCustomers = async () => {
+    setCustomersLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/loyalty/customers`, { headers: getAuthHeaders() });
+      if (res.ok) setAllCustomers(await res.json());
+    } catch {
+      /* leave list empty — the phone lookup below still works */
+    } finally {
+      setCustomersLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadAllCustomers(); }, []);
+
+  const filteredCustomers = allCustomers.filter((row) => {
+    const q = customerListSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (row.customerName ?? "").toLowerCase().includes(q) || row.phone.includes(q);
+  });
 
   const fetchWallet = async (phone: string) => {
     if (!phone) return;
@@ -201,6 +265,14 @@ export default function LoyaltyPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={handleBulkSend}
+              disabled={bulkSending}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              {bulkSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Bulk send reminder
+            </button>
+            <button
               onClick={() => setShowTestMode((v) => !v)}
               className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
             >
@@ -216,6 +288,27 @@ export default function LoyaltyPage() {
             </button>
           </div>
         </div>
+
+        {/* ── Bulk send result ── */}
+        {bulkError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{bulkError}</p>
+            <button onClick={() => setBulkError(null)} className="ml-auto text-red-600 hover:text-red-800">
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        {bulkResult && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
+            <p className="font-semibold flex items-center gap-1.5 mb-1">
+              <CheckCircle className="w-4 h-4" /> Bulk reminder finished
+            </p>
+            <p className="text-xs text-green-700">
+              {bulkResult.total} customers found · {bulkResult.sent} sent · {bulkResult.optedOut} opted-out (skipped) · {bulkResult.noPhone} no valid phone · {bulkResult.failed} failed
+            </p>
+          </div>
+        )}
 
         {/* ── Test mode panel ── */}
         {showTestMode && (
@@ -408,6 +501,58 @@ export default function LoyaltyPage() {
             )}
           </div>
         )}
+
+        {/* ── All customers with a wallet ── */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-gray-800">All Customers</h2>
+            <input
+              type="text"
+              value={customerListSearch}
+              onChange={(e) => setCustomerListSearch(e.target.value)}
+              placeholder="Search name or phone..."
+              className="w-56 rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-pink-400"
+            />
+          </div>
+          {customersLoading ? (
+            <div className="flex items-center justify-center gap-2 text-sm text-gray-500 py-8">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading customers…
+            </div>
+          ) : filteredCustomers.length === 0 ? (
+            <p className="text-sm text-gray-400 px-5 py-8 text-center">
+              {allCustomers.length === 0 ? "No customers have earned loyalty points yet." : "No customers match that search."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto max-h-96 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Phone</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Points Balance</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Last Activity</th>
+                    <th className="px-4 py-2.5 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filteredCustomers.map((row) => (
+                    <tr
+                      key={row.walletId}
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => { setPhoneInput(row.phone); void fetchWallet(row.phone); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }}
+                    >
+                      <td className="px-4 py-2.5 text-gray-800">{row.customerName ?? <span className="text-gray-400">— unknown —</span>}</td>
+                      <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{row.phone}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-pink-700 whitespace-nowrap">{row.points.toLocaleString("en-IN")} pts</td>
+                      <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{row.lastActivityAt ? fmtDate(row.lastActivityAt) : "—"}</td>
+                      <td className="px-4 py-2.5 text-gray-300"><Search className="w-3.5 h-3.5" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         {/* ── Search ── */}
         <form onSubmit={handleSearch} className="bg-white border border-gray-200 rounded-xl p-5">

@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Gift } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Product = { id: string; name: string; sku: string; gsm: number; paperType?: string; sizeInches: string; sides: string; };
@@ -106,13 +106,22 @@ export default function CreateOrderPage() {
   const [leadMonth, setLeadMonth] = useState(String(new Date().getMonth() + 1));
   const [leadYear, setLeadYear] = useState(String(CURRENT_YEAR));
 
+  // Loyalty points — shown once the customer is matched by phone, so the
+  // sales agent can offer redemption right at order creation. Actually
+  // deducted from the wallet later, at accounts approval/invoicing time.
+  const [loyaltyPoints, setLoyaltyPoints] = useState<number | null>(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [redemptionCapPct, setRedemptionCapPct] = useState(50);
+  const [redeemPointsInput, setRedeemPointsInput] = useState("");
+
   const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
 
   const load = useCallback(async () => {
-    const [res, cfgRes, offerRes] = await Promise.all([
+    const [res, cfgRes, offerRes, loyaltyCfgRes] = await Promise.all([
       fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/erp-config/offer-codes`, { headers: getAuthHeaders() }),
+      fetch(`${API_BASE_URL}/loyalty/config`, { headers: getAuthHeaders() }),
     ]);
     if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     setProducts(await res.json());
@@ -124,6 +133,10 @@ export default function CreateOrderPage() {
     if (offerRes.ok) {
       const codes: OfferCode[] = await offerRes.json();
       setOfferCodes(codes.filter(c => c.isActive));
+    }
+    if (loyaltyCfgRes.ok) {
+      const loyaltyCfg = await loyaltyCfgRes.json();
+      if (typeof loyaltyCfg?.redemptionCapPct === "number") setRedemptionCapPct(loyaltyCfg.redemptionCapPct);
     }
   }, [router]);
 
@@ -150,6 +163,28 @@ export default function CreateOrderPage() {
     setCustomerMatches([]);
     setCustomerSearchOpen(false);
   }
+
+  // Loyalty wallet lookup — fires once an existing customer is matched by
+  // phone (fillCustomer sets customerId), and clears if they edit the phone
+  // away from that match.
+  useEffect(() => {
+    const phone = normalizePhone(customer.phone);
+    if (!customer.customerId || phone.length !== 10) {
+      setLoyaltyPoints(null);
+      setRedeemPointsInput("");
+      return;
+    }
+    let cancelled = false;
+    setLoyaltyLoading(true);
+    fetch(`${API_BASE_URL}/loyalty/wallet/${encodeURIComponent(phone)}`, { headers: getAuthHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { points?: number } | null) => {
+        if (!cancelled) setLoyaltyPoints(data?.points ?? 0);
+      })
+      .catch(() => { if (!cancelled) setLoyaltyPoints(null); })
+      .finally(() => { if (!cancelled) setLoyaltyLoading(false); });
+    return () => { cancelled = true; };
+  }, [customer.customerId, customer.phone]);
 
   useEffect(() => {
     const byPhone = normalizePhone(customer.phone);
@@ -310,6 +345,11 @@ export default function CreateOrderPage() {
   }
 
   const orderTotal = lineItems.reduce((sum, i) => sum + (i.lineTotal || i.quantity * i.unitPrice), 0);
+  const maxRedeemablePoints = Math.max(0, Math.min(
+    loyaltyPoints ?? 0,
+    Math.floor((orderTotal * redemptionCapPct) / 100),
+  ));
+  const redeemPoints = Math.max(0, Math.min(maxRedeemablePoints, Number(redeemPointsInput) || 0));
 
   async function submitOrder() {
     if (!customer.name.trim()) { alert("Customer name is required"); return; }
@@ -348,6 +388,7 @@ export default function CreateOrderPage() {
           leadSource: leadSourceValue,
           isSample:   isSample || undefined,
           customFields: customOrderFields,
+          requestedLoyaltyRedemption: redeemPoints > 0 ? redeemPoints : undefined,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
@@ -478,6 +519,42 @@ export default function CreateOrderPage() {
               </div>
             </div>
           </div>
+
+          {customer.customerId && (loyaltyLoading || loyaltyPoints !== null) && (
+            <div style={{ background: "#fdf2f8", border: "1px solid #fbcfe8", borderRadius: "10px", padding: "10px 14px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <Gift size={16} color="#db2777" />
+              {loyaltyLoading ? (
+                <span style={{ fontSize: "12px", color: "#9d174d" }}>Checking loyalty points…</span>
+              ) : (
+                <>
+                  <span style={{ fontSize: "12px", color: "#9d174d", fontWeight: 600 }}>
+                    {(loyaltyPoints ?? 0).toLocaleString("en-IN")} loyalty points available
+                  </span>
+                  {maxRedeemablePoints > 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", flexWrap: "wrap" }}>
+                      <label style={{ fontSize: "11px", color: "#9d174d" }}>Redeem:</label>
+                      <input
+                        type="number" min={0} max={maxRedeemablePoints}
+                        value={redeemPointsInput}
+                        onChange={e => setRedeemPointsInput(e.target.value)}
+                        placeholder="0"
+                        style={{ width: "80px", borderRadius: "6px", border: "1px solid #fbcfe8", padding: "4px 8px", fontSize: "12px" }}
+                      />
+                      <button type="button" onClick={() => setRedeemPointsInput(String(maxRedeemablePoints))}
+                        style={{ fontSize: "11px", color: "#db2777", fontWeight: 600, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                        Max ({maxRedeemablePoints})
+                      </button>
+                      <span style={{ fontSize: "11px", color: "#9d174d" }}>pts = ₹{redeemPoints.toLocaleString("en-IN")} off</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: "11px", color: "#9d174d", marginLeft: "auto" }}>
+                      Not redeemable yet — add product lines first (cap is {redemptionCapPct}% of order value)
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {orderFields.length > 0 && (
             <div className="create-order-section" style={S.section}>

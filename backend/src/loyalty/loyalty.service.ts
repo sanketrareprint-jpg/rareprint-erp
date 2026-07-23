@@ -536,4 +536,99 @@ export class LoyaltyService {
     if (!wallet) return { phone, points: 0, transactions: [] };
     return wallet;
   }
+
+  // ── All customers with a wallet, for the Loyalty page's list view (same
+  // shape of ask as Accounts > Customer Outstanding) ─────────────────────────
+  async listCustomers() {
+    const wallets = await (this.prisma as any).customerLoyaltyWallet.findMany({
+      orderBy: { points: 'desc' },
+    });
+
+    const customerIds = wallets.map((w: any) => w.customerId).filter(Boolean);
+    const customers = customerIds.length
+      ? await this.prisma.customer.findMany({ where: { id: { in: customerIds } } })
+      : [];
+    const customerById = new Map(customers.map((c) => [c.id, c]));
+
+    // Last activity per wallet, for a quick "still active?" glance — one
+    // query for all wallets rather than N+1.
+    const lastTxns = wallets.length
+      ? await (this.prisma as any).customerLoyaltyTransaction.groupBy({
+          by: ['walletId'],
+          where: { walletId: { in: wallets.map((w: any) => w.id) } },
+          _max: { createdAt: true },
+        })
+      : [];
+    const lastActivityByWallet = new Map(lastTxns.map((t: any) => [t.walletId, t._max.createdAt]));
+
+    return wallets.map((w: any) => {
+      const customer = customerById.get(w.customerId);
+      return {
+        walletId: w.id,
+        customerId: w.customerId,
+        customerName: customer?.businessName ?? null,
+        phone: w.phone,
+        points: w.points,
+        lastActivityAt: lastActivityByWallet.get(w.id) ?? null,
+      };
+    });
+  }
+
+  // ── Bulk reminder ────────────────────────────────────────────────────────
+  // Sends the "you have loyalty points" WhatsApp nudge to every customer who
+  // has ever actually earned points on a real order (customerId is only set
+  // by earnForOrder, never by the Test Mode simulators — see simulateEarn —
+  // so this can't be triggered by test data). Regardless of current balance,
+  // per how this was scoped: it's a program-engagement broadcast, not just a
+  // "you still have money on the table" reminder.
+  //
+  // Sequential with a small delay between sends rather than Promise.all — a
+  // few hundred customers hitting AiSensy at once risks rate-limiting, and
+  // this doesn't need the full scheduled-batch machinery marketing.service.ts
+  // uses for large recurring campaigns. If the customer base grows past a
+  // few hundred, move this onto that batch/queue system instead.
+  async bulkSendReminder(): Promise<{
+    total: number;
+    sent: number;
+    optedOut: number;
+    noPhone: number;
+    failed: number;
+  }> {
+    const wallets = await (this.prisma as any).customerLoyaltyWallet.findMany({
+      where: { customerId: { not: null } },
+    });
+
+    const customerIds = wallets.map((w: any) => w.customerId).filter(Boolean);
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: customerIds } },
+    });
+    const customerById = new Map(customers.map((c) => [c.id, c]));
+
+    let sent = 0, optedOut = 0, noPhone = 0, failed = 0;
+
+    for (const wallet of wallets) {
+      const customer = customerById.get(wallet.customerId);
+      const phone = this.normalizePhoneOrNull(wallet.phone);
+      if (!phone) { noPhone++; continue; }
+
+      if (await this.isOptedOut(phone)) { optedOut++; continue; }
+
+      try {
+        const ok = await this.whatsapp.sendLoyaltyReminder({
+          customerName: customer?.businessName ?? 'Customer',
+          customerPhone: phone,
+          pointsBalance: Number(wallet.points),
+        });
+        if (ok) sent++; else failed++;
+      } catch (err) {
+        this.logger.error(`Loyalty bulk reminder failed for ${phone}: ${err}`);
+        failed++;
+      }
+
+      // Small gap between sends — see comment above.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    return { total: wallets.length, sent, optedOut, noPhone, failed };
+  }
 }

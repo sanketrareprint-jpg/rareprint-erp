@@ -578,6 +578,16 @@ export class AccountsService {
       console.error(`Loyalty earnForOrder failed for order ${orderId}:`, err),
     );
 
+    // If the sales agent requested a loyalty-points redemption when creating
+    // the order (see CreateOrderDto.requestedLoyaltyRedemption), apply it now
+    // that the invoice exists — same fire-and-forget pattern as earn above.
+    const requestedRedemption = Number((order as any).requestedLoyaltyRedemption ?? 0);
+    if (requestedRedemption > 0) {
+      this.loyalty.redeemForOrder(orderId, requestedRedemption).catch((err) =>
+        console.error(`Loyalty redeemForOrder failed for order ${orderId}:`, err),
+      );
+    }
+
     return result.approved;
   }
 

@@ -14,6 +14,12 @@ export class LoyaltyController {
     return this.loyaltyService.getWalletByPhone(phone);
   }
 
+  // ── All customers with a wallet, for the Loyalty page's list view ────────
+  @Get('customers')
+  listCustomers() {
+    return this.loyaltyService.listCustomers();
+  }
+
   // ── Redeem points against an order at billing time ───────────────────────
   @Post('orders/:orderId/redeem')
   redeem(@Param('orderId') orderId: string, @Body() body: { points?: number }) {
@@ -25,6 +31,12 @@ export class LoyaltyController {
   @Post('orders/:orderId/reverse')
   reverse(@Param('orderId') orderId: string, @Body() body: { reason?: string }) {
     return this.loyaltyService.reverseForOrder(orderId, body?.reason || 'Manual reversal');
+  }
+
+  // ── Bulk WhatsApp reminder to every customer who has ever earned points ──
+  @Post('bulk-send-reminder')
+  bulkSendReminder() {
+    return this.loyaltyService.bulkSendReminder();
   }
 
   // ── Configurable thresholds (earn rate, GP rate, point cap, redemption cap) ─

@@ -125,4 +125,13 @@ export class CreateOrderDto {
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
+
+  // Sales agent's requested loyalty-points redemption, captured here at
+  // creation time; actually applied at invoicing (see AccountsService
+  // .approveOrder → LoyaltyService.redeemForOrder).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  requestedLoyaltyRedemption?: number;
 }
