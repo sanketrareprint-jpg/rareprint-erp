@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing" | "nwbag";
+type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing";
 type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
@@ -1011,31 +1011,6 @@ export default function RateCalculatorPage() {
   const [rPenNumber, setRPenNumber] = useState("PEN1");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
-  // ── NW Bag Cost Calculator State ──
-  const [nwBag, setNwBag] = useState({
-    description: "",
-    weightGm: "",
-    quantity: "",
-    ratePerKg: "",
-    printingCostPerBag: "",
-    plateMode: "1" as "1" | "2",
-    perPlateRate: "",
-  });
-  const nwCalc = (() => {
-    const wt = parseFloat(nwBag.weightGm) || 0;
-    const qty = parseFloat(nwBag.quantity) || 0;
-    const rkg = parseFloat(nwBag.ratePerKg) || 0;
-    const prt = parseFloat(nwBag.printingCostPerBag) || 0;
-    const plates = nwBag.plateMode === "2" ? 2 : 1;
-    const ppr = parseFloat(nwBag.perPlateRate) || 0;
-    if (!wt || !qty || !rkg) return null;
-    const fabricCost = (wt * qty / 1000) * rkg;
-    const printingCost = prt * qty;
-    const plateCost = plates * ppr;
-    const totalCost = fabricCost + printingCost + plateCost;
-    const costPerBag = qty > 0 ? totalCost / qty : 0;
-    return { fabricCost, printingCost, plateCost, totalCost, costPerBag, plates };
-  })();
 
   // Auto-set size/parent when product changes
   useEffect(() => {
@@ -1373,7 +1348,6 @@ export default function RateCalculatorPage() {
   const ALL_TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: "forward",  label: "→ Forward" },
     { id: "reverse",  label: "↺ Reverse" },
-    { id: "nwbag",   label: "🧺 NW Bag Cost" },
     { id: "rates",    label: "⚙ Rates",    adminOnly: true },
     { id: "history",  label: "📋 History" },
     { id: "clubbing", label: "🤝 Clubbing", adminOnly: true },
@@ -2017,146 +1991,6 @@ export default function RateCalculatorPage() {
             </div>
           </div>
         )}
-        {/* ── NW BAG COST CALCULATOR ── */}
-        {tab === "nwbag" && (
-          <div className="max-w-2xl space-y-4 pt-1">
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-              <div>
-                <p className="text-sm font-bold text-slate-800">🧺 Non Woven Bag Cost Calculator</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Formula: (Weight/bag × Qty ÷ 1000 × Rate/kg) + (Printing/bag × Qty) + (Plates × Per plate rate)
-                </p>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Bag Description / Size (optional)</label>
-                <input
-                  type="text"
-                  value={nwBag.description}
-                  onChange={e => setNwBag(s => ({ ...s, description: e.target.value }))}
-                  placeholder="e.g. 12×15 inch W-Cut Non Woven Bag"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Weight per Bag (gm) *</label>
-                  <input type="number" step="0.1" value={nwBag.weightGm}
-                    onChange={e => setNwBag(s => ({ ...s, weightGm: e.target.value }))}
-                    placeholder="e.g. 45"
-                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Size-wise fabric weight</p>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Total Quantity (bags) *</label>
-                  <input type="number" value={nwBag.quantity}
-                    onChange={e => setNwBag(s => ({ ...s, quantity: e.target.value }))}
-                    placeholder="e.g. 1000"
-                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Rate per KG (₹/kg) *</label>
-                  <input type="number" step="0.01" value={nwBag.ratePerKg}
-                    onChange={e => setNwBag(s => ({ ...s, ratePerKg: e.target.value }))}
-                    placeholder="e.g. 120"
-                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Non woven fabric cost/kg</p>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Printing Cost per Bag (₹)</label>
-                  <input type="number" step="0.01" value={nwBag.printingCostPerBag}
-                    onChange={e => setNwBag(s => ({ ...s, printingCostPerBag: e.target.value }))}
-                    placeholder="e.g. 2.50"
-                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
-                </div>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Plate Configuration</p>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700">
-                    <input type="radio" name="nwPlateMode" value="1" checked={nwBag.plateMode === "1"}
-                      onChange={() => setNwBag(s => ({ ...s, plateMode: "1" }))} className="accent-blue-600" />
-                    1 Plate <span className="text-[10px] text-slate-400">(Same design front &amp; back)</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700">
-                    <input type="radio" name="nwPlateMode" value="2" checked={nwBag.plateMode === "2"}
-                      onChange={() => setNwBag(s => ({ ...s, plateMode: "2" }))} className="accent-blue-600" />
-                    2 Plates <span className="text-[10px] text-slate-400">(Different design front &amp; back)</span>
-                  </label>
-                </div>
-                <div className="w-44">
-                  <label className="text-[10px] font-semibold text-slate-400 block mb-0.5">Per Plate Rate (₹)</label>
-                  <input type="number" step="1" value={nwBag.perPlateRate}
-                    onChange={e => setNwBag(s => ({ ...s, perPlateRate: e.target.value }))}
-                    placeholder="e.g. 500"
-                    className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />
-                </div>
-              </div>
-
-              <button onClick={() => setNwBag({ description: "", weightGm: "", quantity: "", ratePerKg: "", printingCostPerBag: "", plateMode: "1", perPlateRate: "" })}
-                className="text-[10px] text-slate-400 hover:text-slate-600 underline">
-                Clear all
-              </button>
-            </div>
-
-            {nwCalc && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
-                <p className="text-sm font-bold text-green-800">
-                  📊 Cost Breakdown
-                  {nwBag.description && <span className="text-green-600 font-normal ml-2">— {nwBag.description}</span>}
-                </p>
-
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs py-1.5 border-b border-green-100">
-                    <div>
-                      <span className="text-slate-700">Fabric Cost</span>
-                      <p className="text-slate-400">{nwBag.weightGm}gm × {Number(nwBag.quantity).toLocaleString("en-IN")} bags ÷ 1000 × ₹{nwBag.ratePerKg}/kg = {((parseFloat(nwBag.weightGm) * parseFloat(nwBag.quantity)) / 1000).toFixed(2)} kg</p>
-                    </div>
-                    <span className="font-semibold text-slate-800 ml-4">{fmt(nwCalc.fabricCost)}</span>
-                  </div>
-                  {nwCalc.printingCost > 0 && (
-                    <div className="flex justify-between text-xs py-1.5 border-b border-green-100">
-                      <div>
-                        <span className="text-slate-700">Printing Cost</span>
-                        <p className="text-slate-400">₹{nwBag.printingCostPerBag}/bag × {Number(nwBag.quantity).toLocaleString("en-IN")} bags</p>
-                      </div>
-                      <span className="font-semibold text-slate-800 ml-4">{fmt(nwCalc.printingCost)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-xs py-1.5 border-b border-green-100">
-                    <div>
-                      <span className="text-slate-700">Plate Cost</span>
-                      <p className="text-slate-400">{nwCalc.plates} plate{nwCalc.plates > 1 ? "s" : ""} × ₹{nwBag.perPlateRate || "0"} ({nwBag.plateMode === "2" ? "different design front & back" : "same design front & back"})</p>
-                    </div>
-                    <span className="font-semibold text-slate-800 ml-4">{fmt(nwCalc.plateCost)}</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div className="rounded-lg bg-brand-600 text-white p-4 text-center">
-                    <div className="text-xs opacity-80 mb-1">Total Cost</div>
-                    <div className="text-2xl font-extrabold">{fmt(nwCalc.totalCost)}</div>
-                    <div className="text-xs opacity-70 mt-0.5">for {Number(nwBag.quantity).toLocaleString("en-IN")} bags</div>
-                  </div>
-                  <div className="rounded-lg bg-green-700 text-white p-4 text-center">
-                    <div className="text-xs opacity-80 mb-1">Cost per Bag</div>
-                    <div className="text-2xl font-extrabold">{fmt(nwCalc.costPerBag)}</div>
-                    <div className="text-xs opacity-70 mt-0.5">per piece</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!nwCalc && (nwBag.weightGm || nwBag.quantity || nwBag.ratePerKg) && (
-              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-700">
-                Fill in Weight per Bag, Quantity, and Rate per KG to see the cost breakdown.
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── MASTER RATES ── */}
         {tab === "rates" && (
           ratesLoading ? (
