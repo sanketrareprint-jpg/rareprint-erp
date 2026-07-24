@@ -28,6 +28,7 @@ type PostOfficeResult = {
   Name: string;
   District: string;
   State: string;
+  Block?: string; // Taluka/tehsil, per India Post's API — often more specific than District.
 };
 
 const LEAD_SOURCES = [
@@ -277,14 +278,17 @@ export default function CreateOrderPage() {
         if (!res.ok || cancelled) return;
         const data = await res.json();
         const results: PostOfficeResult[] = data?.[0]?.PostOffice ?? [];
-        // De-dupe by District+State pair (a single town has many post offices)
+        // De-dupe by Taluka(Block)+District+State — keeping Block in the key
+        // (not just District+State) means different talukas within the same
+        // district each get their own row instead of collapsing into one,
+        // so both city-level and taluka-level matches all show up.
         const seen = new Set<string>();
         const deduped = results.filter((r) => {
-          const key = `${r.District}|${r.State}`;
+          const key = `${r.Block ?? ""}|${r.District}|${r.State}`;
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
-        }).slice(0, 8);
+        }).slice(0, 12);
         if (cancelled) return;
         setCitySuggestions(deduped);
         setCitySearchOpen(deduped.length > 0);
@@ -306,7 +310,12 @@ export default function CreateOrderPage() {
   }, [customer.city]);
 
   function selectCitySuggestion(result: PostOfficeResult) {
-    setCustomer((c) => ({ ...c, city: result.District, state: result.State }));
+    // Prefer the taluka (Block) as the City value when it's a distinct,
+    // more specific place than the district — that's usually the more
+    // accurate match for the customer's actual address. Falls back to the
+    // district name when there's no taluka info or it's the same string.
+    const isDistinctTaluka = result.Block && result.Block.trim() && result.Block.trim().toLowerCase() !== result.District.trim().toLowerCase();
+    setCustomer((c) => ({ ...c, city: isDistinctTaluka ? result.Block!.trim() : result.District, state: result.State }));
     setCitySuggestions([]);
     setCitySearchOpen(false);
   }
@@ -506,13 +515,17 @@ export default function CreateOrderPage() {
                   placeholder="Search any city/town in India" style={S.input} autoComplete="off" />
                 {citySearchOpen && (
                   <div style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, marginTop: "4px", maxHeight: "200px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "8px", background: "white", boxShadow: "0 12px 24px rgba(15,23,42,0.14)" }}>
-                    {citySuggestions.map((r, i) => (
-                      <button key={`${r.District}-${r.State}-${i}`} type="button" onMouseDown={() => selectCitySuggestion(r)}
-                        style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer", fontSize: "12px" }}>
-                        <span style={{ fontWeight: 700, color: "#0f172a" }}>{r.District}</span>
-                        <span style={{ color: "#64748b" }}>, {r.State}</span>
-                      </button>
-                    ))}
+                    {citySuggestions.map((r, i) => {
+                      const isDistinctTaluka = r.Block && r.Block.trim() && r.Block.trim().toLowerCase() !== r.District.trim().toLowerCase();
+                      return (
+                        <button key={`${r.Block ?? ""}-${r.District}-${r.State}-${i}`} type="button" onMouseDown={() => selectCitySuggestion(r)}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer", fontSize: "12px" }}>
+                          <span style={{ fontWeight: 700, color: "#0f172a" }}>{isDistinctTaluka ? r.Block : r.District}</span>
+                          {isDistinctTaluka && <span style={{ color: "#94a3b8" }}> (Taluka), {r.District}</span>}
+                          <span style={{ color: "#64748b" }}>, {r.State}</span>
+                        </button>
+                      );
+                    })}
                     {citySearchLoading && <div style={{ padding: "7px 10px", fontSize: "11px", color: "#64748b" }}>Searching...</div>}
                   </div>
                 )}
