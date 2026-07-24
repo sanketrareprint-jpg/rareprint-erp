@@ -781,6 +781,29 @@ export class OrdersService {
     });
     if (!order) throw new NotFoundException('Order not found');
 
+    // Guard against the same real-world payment (bank UTR/UPI ref, cheque no,
+    // etc.) being recorded against more than one order — e.g. an accountant
+    // copy-pasting the wrong reference from the bank statement. Once a
+    // reference number is attached to one order, it can't be reused on
+    // another. Blank/placeholder references are exempt since cash payments
+    // often have none.
+    const trimmedRef = data.referenceNumber?.trim();
+    if (trimmedRef) {
+      const conflict = await this.prisma.payment.findFirst({
+        where: {
+          referenceNumber: { equals: trimmedRef, mode: 'insensitive' },
+          orderId: { not: orderId },
+        },
+        include: { order: { select: { orderNumber: true, customer: { select: { businessName: true } } } } },
+      });
+      if (conflict) {
+        throw new BadRequestException(
+          `Reference "${trimmedRef}" is already linked to order ${conflict.order.orderNumber} (${conflict.order.customer.businessName}). ` +
+          `Each payment reference can only be linked to one order — double-check the bank statement before recording this payment.`,
+        );
+      }
+    }
+
     const payment = await this.prisma.payment.create({
       data: {
         orderId,
