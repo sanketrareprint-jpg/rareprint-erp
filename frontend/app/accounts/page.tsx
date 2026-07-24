@@ -627,7 +627,6 @@ export default function AccountsPage() {
   }
 
   async function handleCheckVerification(entry: PaymentVerificationEntry) {
-    if (!confirm(`Mark this ₹${fmt(entry.amount)} entry as Checked? This cannot be undone by you.`)) return;
     setPvCheckingId(entry.id);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${entry.id}/check`, {
@@ -646,7 +645,6 @@ export default function AccountsPage() {
   }
 
   async function handleRecheckVerification(entry: PaymentVerificationEntry) {
-    if (!confirm(`Verify this ₹${fmt(entry.amount)} entry as Sanket and move it to Payment History? This does not change the Checked status.`)) return;
     setPvRecheckingId(entry.id);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${entry.id}/recheck`, {
