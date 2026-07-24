@@ -94,6 +94,12 @@ const DEFAULT_RATES: any = {
       '12x18': 14,
       '16x21': 18,
     },
+    // Defaults for the "Custom (weight-based)" costing mode — same formula
+    // as the standalone NW Bag Cost tool: (weight/bag × qty ÷ 1000 × rate/kg)
+    // + (printing/bag × qty) + (plates × per-plate rate).
+    ratePerKg: 120,
+    printingCostPerBag: 2,
+    perPlateRate: 500,
   },
   dotMatrixBill: {
     multiplier: 1.67,
@@ -686,6 +692,42 @@ export class RateCalculatorService {
     if (product === 'nonwovenbag') {
       const nw = rates.nonWovenBag ?? DEFAULT_RATES.nonWovenBag;
       const bagQty = Number(qty ?? 0);
+      const costMode = dto.nonWovenCostMode === 'weight' ? 'weight' : 'size';
+
+      // ── Custom (weight-based) costing — same formula as the standalone NW
+      // Bag Cost tool: (weight/bag × qty ÷ 1000 × rate/kg) + (printing/bag ×
+      // qty) + (plates × per-plate rate), then the usual multiplier on top so
+      // it becomes a full customer quote like every other Reverse product.
+      if (costMode === 'weight') {
+        const weightGm = Number(dto.nonWovenWeightGm ?? 0);
+        const ratePerKg = Number(dto.nonWovenRatePerKg ?? nw.ratePerKg ?? DEFAULT_RATES.nonWovenBag.ratePerKg);
+        const printingCostPerBag = Number(dto.nonWovenPrintingCostPerBag ?? nw.printingCostPerBag ?? DEFAULT_RATES.nonWovenBag.printingCostPerBag);
+        const plates = dto.nonWovenPlateMode === '2' ? 2 : 1;
+        const perPlateRate = Number(dto.nonWovenPerPlateRate ?? nw.perPlateRate ?? DEFAULT_RATES.nonWovenBag.perPlateRate);
+        const fabricKg = (weightGm * bagQty) / 1000;
+        const fabricCost = fabricKg * ratePerKg;
+        const printingCost = printingCostPerBag * bagQty;
+        const plateCost = plates * perPlateRate;
+        const subtotal = fabricCost + printingCost + plateCost;
+        const weightMultiplier = dtoMult ?? nw.multiplier ?? DEFAULT_RATES.nonWovenBag.multiplier;
+        const total = subtotal * weightMultiplier;
+        const breakdown: any[] = [
+          { label: `Fabric (${weightGm}gm x ${bagQty.toLocaleString()} bags / 1000 = ${fabricKg.toFixed(2)} kg x Rs.${ratePerKg}/kg)`, amount: fabricCost },
+        ];
+        if (printingCost > 0) breakdown.push({ label: `Printing (Rs.${printingCostPerBag}/bag x ${bagQty.toLocaleString()} bags)`, amount: printingCost });
+        if (plateCost > 0) breakdown.push({ label: `Plates (${plates} plate${plates > 1 ? 's' : ''} x Rs.${perPlateRate})`, amount: plateCost });
+        return {
+          breakdown,
+          subtotal,
+          total,
+          perPiece: bagQty > 0 ? total / bagQty : 0,
+          totalPieces: bagQty,
+          description: `${bagQty.toLocaleString()} non woven bags | custom weight-based (${weightGm}gm/bag, Rs.${ratePerKg}/kg)`,
+          multiplier: weightMultiplier,
+          customer,
+        };
+      }
+
       const size = String(dto.nonWovenSize ?? '12x15');
       const printMode = dto.nonWovenPrintMode === 'multicolor' ? 'multicolor' : 'single';
 
