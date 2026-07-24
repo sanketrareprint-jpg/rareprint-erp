@@ -534,6 +534,19 @@ export class HrService {
     }
 
     const token = randomBytes(24).toString('hex');
+    const link = `${frontendOrigin.replace(/\/$/, '')}/hr-agreement/${token}`;
+    const body =
+      `Hi ${employee.fullName},\n\n` +
+      `Please review and accept the RarePrint HR agreement (${terms.title}) using the secure link below:\n\n` +
+      `${link}\n\n` +
+      `This link is unique to you — no login or OTP needed, just review the terms and confirm by typing your name.\n\n` +
+      `Regards,\nRarePrint`;
+
+    // Send first, persist second — if Gmail fails (expired token, quota,
+    // etc.) we must not mark this as "sent" in the DB, or the UI will show
+    // "awaiting acceptance" for a link that was never actually delivered.
+    await this.gmail.sendMail(employee.email, `RarePrint HR Agreement — ${terms.title}`, body);
+
     await this.prisma.employee.update({
       where: { id: employeeId },
       data: {
@@ -546,15 +559,6 @@ export class HrService {
       },
     });
 
-    const link = `${frontendOrigin.replace(/\/$/, '')}/hr-agreement/${token}`;
-    const body =
-      `Hi ${employee.fullName},\n\n` +
-      `Please review and accept the RarePrint HR agreement (${terms.title}) using the secure link below:\n\n` +
-      `${link}\n\n` +
-      `This link is unique to you — no login or OTP needed, just review the terms and confirm by typing your name.\n\n` +
-      `Regards,\nRarePrint`;
-
-    await this.gmail.sendMail(employee.email, `RarePrint HR Agreement — ${terms.title}`, body);
     return { sent: true, link };
   }
 

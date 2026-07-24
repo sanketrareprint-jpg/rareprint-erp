@@ -24,6 +24,11 @@ const AUTO_CLOSE_KEY = 'complaint.autoCloseDays';
 const DEFAULT_REOPEN_WINDOW_DAYS = 7;
 const DEFAULT_AUTO_CLOSE_DAYS = 3;
 
+function humanizeResolutionType(type?: string | null): string {
+  if (!type) return 'Resolved';
+  return type.toLowerCase().replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
 @Injectable()
 export class ComplaintsService {
   private readonly logger = new Logger(ComplaintsService.name);
@@ -299,7 +304,7 @@ export class ComplaintsService {
     void this.notifications.notifyAssignment(updated).catch(() => {});
     if (isFreshAssignment) {
       const full = await this.getById(id);
-      void this.notifications.notifyCustomerStatusChange(full, full.customer, 'Assigned to our team').catch(() => {});
+      void this.notifications.notifyCustomerAssigned(full, full.customer).catch(() => {});
     }
     return this.getById(id);
   }
@@ -331,7 +336,7 @@ export class ComplaintsService {
 
     if (toStatus === 'RESOLVED') {
       const full = await this.getById(id);
-      void this.notifications.notifyCustomerStatusChange(full, full.customer, 'Resolved').catch(() => {});
+      void this.notifications.notifyCustomerResolved(full, full.customer, humanizeResolutionType(full.resolutionType)).catch(() => {});
     }
     return this.getById(id);
   }
@@ -362,7 +367,7 @@ export class ComplaintsService {
     });
 
     const full = await this.getById(id);
-    void this.notifications.notifyCustomerStatusChange(full, full.customer, 'Resolved').catch(() => {});
+    void this.notifications.notifyCustomerResolved(full, full.customer, humanizeResolutionType(body.resolutionType)).catch(() => {});
     return full;
   }
 
@@ -424,7 +429,7 @@ export class ComplaintsService {
 
     if (comment.visibility === 'CUSTOMER') {
       const full = await this.getById(id);
-      void this.notifications.notifyCustomerComment(full, full.customer, comment.message).catch(() => {});
+      void this.notifications.notifyCustomerReply(full, full.customer, comment.message).catch(() => {});
     }
     return comment;
   }

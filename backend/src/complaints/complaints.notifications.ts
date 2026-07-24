@@ -77,39 +77,49 @@ export class ComplaintsNotifications {
     }
   }
 
-  // ── Customer-facing: status change (ASSIGNED / RESOLVED) via WhatsApp ───
-  async notifyCustomerStatusChange(
-    complaint: ComplaintForNotify,
-    customer: CustomerForNotify,
-    statusLabel: string,
-  ): Promise<void> {
+  // ── Customer-facing: ticket assigned to our team → WhatsApp ─────────────
+  async notifyCustomerAssigned(complaint: ComplaintForNotify, customer: CustomerForNotify): Promise<void> {
     if (!customer.phone) return;
     try {
-      await this.whatsapp.sendComplaintUpdate({
+      await this.whatsapp.sendComplaintAssigned({
         customerName: customer.businessName,
         customerPhone: customer.phone,
         ticketNumber: complaint.ticketNumber,
         subject: complaint.subject,
-        status: statusLabel,
       });
     } catch (e) {
-      this.logger.warn(`notifyCustomerStatusChange failed for ${complaint.ticketNumber}: ${e instanceof Error ? e.message : e}`);
+      this.logger.warn(`notifyCustomerAssigned failed for ${complaint.ticketNumber}: ${e instanceof Error ? e.message : e}`);
     }
   }
 
-  // ── Customer-facing: new customer-visible reply via WhatsApp ────────────
-  async notifyCustomerComment(complaint: ComplaintForNotify, customer: CustomerForNotify, message: string): Promise<void> {
+  // ── Customer-facing: ticket resolved → WhatsApp ──────────────────────────
+  async notifyCustomerResolved(complaint: ComplaintForNotify, customer: CustomerForNotify, resolutionSummary: string): Promise<void> {
     if (!customer.phone) return;
     try {
-      await this.whatsapp.sendComplaintUpdate({
+      await this.whatsapp.sendComplaintResolved({
         customerName: customer.businessName,
         customerPhone: customer.phone,
         ticketNumber: complaint.ticketNumber,
         subject: complaint.subject,
-        status: `New reply: ${message}`,
+        resolutionSummary,
       });
     } catch (e) {
-      this.logger.warn(`notifyCustomerComment failed for ${complaint.ticketNumber}: ${e instanceof Error ? e.message : e}`);
+      this.logger.warn(`notifyCustomerResolved failed for ${complaint.ticketNumber}: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  // ── Customer-facing: new customer-visible reply → WhatsApp ──────────────
+  async notifyCustomerReply(complaint: ComplaintForNotify, customer: CustomerForNotify, message: string): Promise<void> {
+    if (!customer.phone) return;
+    try {
+      await this.whatsapp.sendComplaintReply({
+        customerName: customer.businessName,
+        customerPhone: customer.phone,
+        ticketNumber: complaint.ticketNumber,
+        message,
+      });
+    } catch (e) {
+      this.logger.warn(`notifyCustomerReply failed for ${complaint.ticketNumber}: ${e instanceof Error ? e.message : e}`);
     }
   }
 }
