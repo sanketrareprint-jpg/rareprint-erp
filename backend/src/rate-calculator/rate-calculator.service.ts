@@ -57,7 +57,7 @@ const DEFAULT_RATES: any = {
     env9x12:    5,    // 9x12 catalog
     env11x17:   6,    // 11x17 large
   },
-  sticker: { vendorRate: 0.035, minQty: 1000, transport: 100, halfCutPct: 30 },
+  sticker: { vendorRate: 0.035, minQty: 1000, transport: 100, halfCutPct: 30, dieRatePerSqIn: 6, punchingRatePer1000: 500 },
   ppFiles: {
     gstPct: 18,
     clip: 1.25,
@@ -500,8 +500,28 @@ export class RateCalculatorService {
       const nonTearableBaseSubtotal = sheetsNeeded * nonTearableSheetRate;
       const plainHalfCutCost = halfCut ? plainBaseSubtotal * halfCutPct / 100 : 0;
       const nonTearableHalfCutCost = halfCut ? nonTearableBaseSubtotal * halfCutPct / 100 : 0;
-      const plainSubtotal = plainBaseSubtotal + plainHalfCutCost;
-      const nonTearableSubtotal = nonTearableBaseSubtotal + nonTearableHalfCutCost;
+
+      // ── Die Cutting (shaped stickers) ────────────────────────────────────
+      // A punching die is needed to cut a custom shape out of the sheet. The
+      // die must be 1" larger than the printed block on every side so there's
+      // room to punch cleanly, so: die W/H = block W/H + 2". Die is a one-time
+      // tool cost (area × ₹/sq in); punching is a running cost per 1000
+      // sheets fed through it. Both are added on top of whichever sticker
+      // type (plain/non tearable) is selected.
+      const dieCutting = dto.dieCutting === true;
+      const dieRatePerSqIn = Number(stickerRates.dieRatePerSqIn ?? DEFAULT_RATES.sticker.dieRatePerSqIn ?? 6);
+      const punchingRatePer1000 = Number(stickerRates.punchingRatePer1000 ?? DEFAULT_RATES.sticker.punchingRatePer1000 ?? 500);
+      const dieBlockW = fit.columns * width;
+      const dieBlockH = fit.rows * height;
+      const dieW = dieBlockW > 0 ? dieBlockW + 2 : 0;
+      const dieH = dieBlockH > 0 ? dieBlockH + 2 : 0;
+      const dieArea = dieW * dieH;
+      const dieCost = dieCutting ? dieArea * dieRatePerSqIn : 0;
+      const punchingCost = dieCutting ? (sheetsNeeded / 1000) * punchingRatePer1000 : 0;
+      const dieCuttingCost = dieCost + punchingCost;
+
+      const plainSubtotal = plainBaseSubtotal + plainHalfCutCost + dieCuttingCost;
+      const nonTearableSubtotal = nonTearableBaseSubtotal + nonTearableHalfCutCost + dieCuttingCost;
       const subtotal = selectedType === 'nontearable' ? nonTearableSubtotal : plainSubtotal;
       const multiplier = this.getStickerMultiplier(subtotal);
       const total = subtotal * multiplier;
@@ -521,6 +541,10 @@ export class RateCalculatorService {
       if (halfCut) {
         breakdown.push({ label: `Half Cutting (${halfCutPct}% on ${selectedType === 'nontearable' ? 'non tearable' : 'plain'} sticker cost)`, amount: selectedType === 'nontearable' ? nonTearableHalfCutCost : plainHalfCutCost });
       }
+      if (dieCutting) {
+        breakdown.push({ label: `Die Cutting — die (${dieW.toFixed(1)}x${dieH.toFixed(1)} in = ${dieArea.toFixed(1)} sq in x Rs.${dieRatePerSqIn})`, amount: dieCost });
+        breakdown.push({ label: `Die Cutting — punching (${sheetsNeeded.toLocaleString()} sheets @ Rs.${punchingRatePer1000}/1000 sheets)`, amount: punchingCost });
+      }
       if (clubbingCost != null) {
         const blockLabel = clubbingBlock && clubbingBlock.stickers > 1
           ? `${clubbingBlock.columns} x ${clubbingBlock.rows} = ${clubbingBlock.stickers} stickers/block, ${clubbingSets.toLocaleString()} blocks`
@@ -533,7 +557,7 @@ export class RateCalculatorService {
         total,
         perPiece: stickerQty > 0 ? total / stickerQty : 0,
         totalPieces: stickerQty,
-        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}${halfCut ? ' | half cutting' : ''}`,
+        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}${halfCut ? ' | half cutting' : ''}${dieCutting ? ' | die cutting' : ''}`,
         multiplier,
         customer,
         sticker: {
@@ -550,6 +574,17 @@ export class RateCalculatorService {
           selectedType,
           halfCut,
           halfCutPct,
+          dieCutting,
+          dieRatePerSqIn,
+          punchingRatePer1000,
+          dieBlockW,
+          dieBlockH,
+          dieW,
+          dieH,
+          dieArea,
+          dieCost,
+          punchingCost,
+          dieCuttingCost,
           plainBaseSubtotal,
           nonTearableBaseSubtotal,
           plainHalfCutCost,

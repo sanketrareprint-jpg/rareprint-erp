@@ -37,6 +37,7 @@ type QuoteInputParams = {
   stickerH?: number;
   stickerType?: string;
   halfCut?: boolean;
+  dieCutting?: boolean;
   nonWovenSize?: string;
   nonWovenPrintMode?: string;
   dotMatrixSize?: string;
@@ -76,6 +77,17 @@ type Result = {
     selectedType: "plain" | "nontearable";
     halfCut?: boolean;
     halfCutPct?: number;
+    dieCutting?: boolean;
+    dieRatePerSqIn?: number;
+    punchingRatePer1000?: number;
+    dieBlockW?: number;
+    dieBlockH?: number;
+    dieW?: number;
+    dieH?: number;
+    dieArea?: number;
+    dieCost?: number;
+    punchingCost?: number;
+    dieCuttingCost?: number;
     plainBaseSubtotal?: number;
     nonTearableBaseSubtotal?: number;
     plainHalfCutCost?: number;
@@ -277,6 +289,7 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
       details.push(`Sticker Size: ${inputParams.stickerW || 0} x ${inputParams.stickerH || 0} inch`);
       details.push(`Sticker Type: ${inputParams.stickerType === "nontearable" ? "Non Tearable" : "Plain"}`);
       details.push(`Half Cutting: ${inputParams.halfCut ? `Yes${sticker?.halfCutPct ? ` (${sticker.halfCutPct}%)` : ""}` : "No"}`);
+      details.push(`Die Cutting: ${inputParams.dieCutting ? `Yes (die ${sticker?.dieW?.toFixed(1) ?? ""}x${sticker?.dieH?.toFixed(1) ?? ""} in)` : "No"}`);
       if (sticker) {
         details.push(`Area: ${sticker.area.toFixed(2)} sq inch each`);
         details.push(`Sheet Layout: ${sticker.columns} x ${sticker.rows} = ${sticker.stickersPerSheet} stickers per sheet`);
@@ -968,6 +981,7 @@ export default function RateCalculatorPage() {
   const [rStickerH, setRStickerH] = useState(3);
   const [rStickerType, setRStickerType] = useState<"plain" | "nontearable">("plain");
   const [rStickerHalfCut, setRStickerHalfCut] = useState(false);
+  const [rStickerDieCutting, setRStickerDieCutting] = useState(false);
   const [rNonWovenSize, setRNonWovenSize] = useState("12x15");
   const [rNonWovenPrintMode, setRNonWovenPrintMode] = useState<"single" | "multicolor">("single");
   const [rNonWovenPlateMode, setRNonWovenPlateMode] = useState<"1" | "2">("1");
@@ -1104,7 +1118,17 @@ export default function RateCalculatorPage() {
   const stickerHalfCutPct = Number(rates?.sticker?.halfCutPct ?? 30);
   const stickerSelectedBaseCost = rStickerType === "nontearable" ? stickerNonTearableCost : stickerPlainCost;
   const stickerHalfCutCost = rStickerHalfCut ? stickerSelectedBaseCost * stickerHalfCutPct / 100 : 0;
-  const stickerSelectedCost = stickerSelectedBaseCost + stickerHalfCutCost;
+  const stickerDieRatePerSqIn = Number(rates?.sticker?.dieRatePerSqIn ?? 6);
+  const stickerPunchingRatePer1000 = Number(rates?.sticker?.punchingRatePer1000 ?? 500);
+  const stickerDieBlockW = stickerBestFit.cols * rStickerW;
+  const stickerDieBlockH = stickerBestFit.rows * rStickerH;
+  const stickerDieW = stickerDieBlockW > 0 ? stickerDieBlockW + 2 : 0;
+  const stickerDieH = stickerDieBlockH > 0 ? stickerDieBlockH + 2 : 0;
+  const stickerDieArea = stickerDieW * stickerDieH;
+  const stickerDieCost = rStickerDieCutting ? stickerDieArea * stickerDieRatePerSqIn : 0;
+  const stickerPunchingCost = rStickerDieCutting ? (stickerSheetsNeeded / 1000) * stickerPunchingRatePer1000 : 0;
+  const stickerDieCuttingCost = stickerDieCost + stickerPunchingCost;
+  const stickerSelectedCost = stickerSelectedBaseCost + stickerHalfCutCost + stickerDieCuttingCost;
   const stickerAutoMultiplier = getStickerMultiplier(stickerSelectedCost);
   const stickerClubCols = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(5 / rStickerW));
   const stickerClubRows = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(6 / (stickerClubCols * stickerArea)));
@@ -1245,6 +1269,7 @@ export default function RateCalculatorPage() {
       bagSize: rBagSize,
       stickerW: rStickerW, stickerH: rStickerH, stickerType: rStickerType,
       halfCut: rProduct === "sticker" ? rStickerHalfCut : undefined,
+      dieCutting: rProduct === "sticker" ? rStickerDieCutting : undefined,
       nonWovenSize: rNonWovenSize,
       nonWovenPrintMode: rNonWovenPrintMode,
       nonWovenPlateMode: rNonWovenPlateMode,
@@ -1557,13 +1582,25 @@ export default function RateCalculatorPage() {
                           Apply
                         </label>
                       </Field>
+                      <Field label={`Die Cutting (Rs.${stickerDieRatePerSqIn}/sq in + Rs.${stickerPunchingRatePer1000}/1000 sheets)`}>
+                        <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
+                          <input type="checkbox" checked={rStickerDieCutting} onChange={e => setRStickerDieCutting(e.target.checked)} />
+                          Apply
+                        </label>
+                      </Field>
                     </div>
+                    {rStickerDieCutting && stickerBestFit.perSheet > 0 && (
+                      <div className="mt-2 bg-orange-50 border border-orange-200 rounded p-2 text-xs text-orange-800">
+                        Die Cutting: block <strong>{stickerBestFit.cols}×{stickerBestFit.rows}</strong> = <strong>{stickerDieBlockW.toFixed(2)}×{stickerDieBlockH.toFixed(2)} in</strong> → die (+1" each side) <strong>{stickerDieW.toFixed(2)}×{stickerDieH.toFixed(2)} in</strong> = <strong>{stickerDieArea.toFixed(2)} sq in</strong>{" "}
+                        → die cost <strong>{fmt(stickerDieCost)}</strong> + punching ({stickerSheetsNeeded.toLocaleString()} sheets) <strong>{fmt(stickerPunchingCost)}</strong> = <strong>{fmt(stickerDieCuttingCost)}</strong>
+                      </div>
+                    )}
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                       <strong>{rQty.toLocaleString()} stickers</strong> · {stickerArea.toFixed(2)} sq inch each → open sheet <strong>12×18"</strong>, usable <strong>11.5×17.5"</strong> →{" "}
                       {stickerBestFit.perSheet > 0 ? (
                         <>
                           <strong>{stickerBestFit.cols}×{stickerBestFit.rows} = {stickerBestFit.perSheet}/sheet</strong>{stickerBestFit.rotated ? " (rotated)" : ""} → <strong>{stickerSheetsNeeded.toLocaleString()} sheets</strong>
-                          {" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
+                          {" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""}{rStickerDieCutting ? <> + die cutting <strong>{fmt(stickerDieCuttingCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
                         </>
                       ) : (
                         <span className="text-amber-600 font-semibold">size does not fit usable area</span>
@@ -2237,6 +2274,15 @@ export default function RateCalculatorPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Half Cutting Extra (%)">
                       <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
+                    </Field>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-3 mb-2">Die Cutting (shaped stickers): die = printed block + 1" margin on all 4 sides, priced per sq in, plus a punching charge per 1000 sheets.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Die Rate (₹/sq in)">
+                      <Input type="number" step="0.01" value={rates.sticker?.dieRatePerSqIn ?? 6} onChange={e => updateRate("sticker.dieRatePerSqIn", +e.target.value)} />
+                    </Field>
+                    <Field label="Punching Rate (₹/1000 sheets)">
+                      <Input type="number" step="0.01" value={rates.sticker?.punchingRatePer1000 ?? 500} onChange={e => updateRate("sticker.punchingRatePer1000", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>
