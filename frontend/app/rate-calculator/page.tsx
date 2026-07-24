@@ -1118,17 +1118,7 @@ export default function RateCalculatorPage() {
   const stickerHalfCutPct = Number(rates?.sticker?.halfCutPct ?? 30);
   const stickerSelectedBaseCost = rStickerType === "nontearable" ? stickerNonTearableCost : stickerPlainCost;
   const stickerHalfCutCost = rStickerHalfCut ? stickerSelectedBaseCost * stickerHalfCutPct / 100 : 0;
-  const stickerDieRatePerSqIn = Number(rates?.sticker?.dieRatePerSqIn ?? 6);
-  const stickerPunchingRatePer1000 = Number(rates?.sticker?.punchingRatePer1000 ?? 500);
-  const stickerDieBlockW = stickerBestFit.cols * rStickerW;
-  const stickerDieBlockH = stickerBestFit.rows * rStickerH;
-  const stickerDieW = stickerDieBlockW > 0 ? stickerDieBlockW + 2 : 0;
-  const stickerDieH = stickerDieBlockH > 0 ? stickerDieBlockH + 2 : 0;
-  const stickerDieArea = stickerDieW * stickerDieH;
-  const stickerDieCost = rStickerDieCutting ? stickerDieArea * stickerDieRatePerSqIn : 0;
-  const stickerPunchingCost = rStickerDieCutting ? (stickerSheetsNeeded / 1000) * stickerPunchingRatePer1000 : 0;
-  const stickerDieCuttingCost = stickerDieCost + stickerPunchingCost;
-  const stickerSelectedCost = stickerSelectedBaseCost + stickerHalfCutCost + stickerDieCuttingCost;
+  const stickerSelectedCost = stickerSelectedBaseCost + stickerHalfCutCost;
   const stickerAutoMultiplier = getStickerMultiplier(stickerSelectedCost);
   const stickerClubCols = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(5 / rStickerW));
   const stickerClubRows = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(6 / (stickerClubCols * stickerArea)));
@@ -1136,7 +1126,22 @@ export default function RateCalculatorPage() {
   const stickerClubBlockArea = stickerArea * stickerClubPerBlock;
   const stickerClubSets = stickerClubPerBlock > 0 ? Math.ceil(rQty / stickerClubPerBlock) : 0;
   const stickerClubEligible = rQty >= 1000 && stickerClubBlockArea >= 6;
-  const stickerClubCost = stickerClubEligible ? stickerClubBlockArea * stickerClubSets * 0.035 + 150 : 0;
+  const stickerClubBaseCost = stickerClubEligible ? stickerClubBlockArea * stickerClubSets * 0.035 + 150 : 0;
+  // Die Cutting — clubbing only, not in-house plain/non tearable. Die is the
+  // clubbing block + 1" margin per side; punching is a flat per-1000-sheets
+  // charge (clubbing always runs 1000 sheets per batch, same as backend).
+  const stickerDieRatePerSqIn = Number(rates?.sticker?.dieRatePerSqIn ?? 6);
+  const stickerPunchingRatePer1000 = Number(rates?.sticker?.punchingRatePer1000 ?? 500);
+  const stickerDieBlockW = stickerClubCols * rStickerW;
+  const stickerDieBlockH = stickerClubRows * rStickerH;
+  const stickerDieW = stickerDieBlockW > 0 ? stickerDieBlockW + 2 : 0;
+  const stickerDieH = stickerDieBlockH > 0 ? stickerDieBlockH + 2 : 0;
+  const stickerDieArea = stickerDieW * stickerDieH;
+  const stickerDieCuttingApplies = rStickerDieCutting && stickerClubEligible;
+  const stickerDieCost = stickerDieCuttingApplies ? stickerDieArea * stickerDieRatePerSqIn : 0;
+  const stickerPunchingCost = stickerDieCuttingApplies ? stickerPunchingRatePer1000 : 0;
+  const stickerDieCuttingCost = stickerDieCost + stickerPunchingCost;
+  const stickerClubCost = stickerClubEligible ? stickerClubBaseCost + stickerDieCuttingCost : 0;
   const stickerClubMultiplier = stickerClubEligible ? getStickerMultiplier(stickerClubCost) : 0;
 
   const loadRates = useCallback(async () => {
@@ -1589,23 +1594,22 @@ export default function RateCalculatorPage() {
                         </label>
                       </Field>
                     </div>
-                    {rStickerDieCutting && stickerBestFit.perSheet > 0 && (
-                      <div className="mt-2 bg-orange-50 border border-orange-200 rounded p-2 text-xs text-orange-800">
-                        Die Cutting: block <strong>{stickerBestFit.cols}×{stickerBestFit.rows}</strong> = <strong>{stickerDieBlockW.toFixed(2)}×{stickerDieBlockH.toFixed(2)} in</strong> → die (+1" each side) <strong>{stickerDieW.toFixed(2)}×{stickerDieH.toFixed(2)} in</strong> = <strong>{stickerDieArea.toFixed(2)} sq in</strong>{" "}
-                        → die cost <strong>{fmt(stickerDieCost)}</strong> + punching ({stickerSheetsNeeded.toLocaleString()} sheets) <strong>{fmt(stickerPunchingCost)}</strong> = <strong>{fmt(stickerDieCuttingCost)}</strong>
-                      </div>
-                    )}
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                       <strong>{rQty.toLocaleString()} stickers</strong> · {stickerArea.toFixed(2)} sq inch each → open sheet <strong>12×18"</strong>, usable <strong>11.5×17.5"</strong> →{" "}
                       {stickerBestFit.perSheet > 0 ? (
                         <>
                           <strong>{stickerBestFit.cols}×{stickerBestFit.rows} = {stickerBestFit.perSheet}/sheet</strong>{stickerBestFit.rotated ? " (rotated)" : ""} → <strong>{stickerSheetsNeeded.toLocaleString()} sheets</strong>
-                          {" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""}{rStickerDieCutting ? <> + die cutting <strong>{fmt(stickerDieCuttingCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
+                          {" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
                         </>
                       ) : (
                         <span className="text-amber-600 font-semibold">size does not fit usable area</span>
                       )}
                     </div>
+                    {rStickerDieCutting && !stickerClubEligible && (
+                      <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                        Die Cutting only applies on the Clubbing route (not in-house plain/non tearable) — needs min 1000 pcs and 6 sq inch block area to apply.
+                      </div>
+                    )}
                     {rQty < 1000 || !stickerClubEligible ? (
                       <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
                         Clubbing Nil: minimum 1000 pcs and 6 sq inch block area required. Clubbing is only for plain stickers.
@@ -1616,7 +1620,11 @@ export default function RateCalculatorPage() {
                         {stickerClubPerBlock > 1 && (
                           <>{stickerClubCols}×{stickerClubRows} = {stickerClubPerBlock} stickers/block · {stickerClubSets.toLocaleString()} blocks · </>
                         )}
-                        cost {fmt(stickerClubCost)} → auto multiplier ×{stickerClubMultiplier}.
+                        base cost {fmt(stickerClubBaseCost)}
+                        {stickerDieCuttingApplies && (
+                          <> + die cutting (die {stickerDieW.toFixed(2)}×{stickerDieH.toFixed(2)} in = {stickerDieArea.toFixed(2)} sq in → {fmt(stickerDieCost)} + punching {fmt(stickerPunchingCost)}) = {fmt(stickerDieCuttingCost)}</>
+                        )}
+                        {" "}→ total cost {fmt(stickerClubCost)} → auto multiplier ×{stickerClubMultiplier}.
                       </div>
                     )}
                   </>

@@ -500,28 +500,8 @@ export class RateCalculatorService {
       const nonTearableBaseSubtotal = sheetsNeeded * nonTearableSheetRate;
       const plainHalfCutCost = halfCut ? plainBaseSubtotal * halfCutPct / 100 : 0;
       const nonTearableHalfCutCost = halfCut ? nonTearableBaseSubtotal * halfCutPct / 100 : 0;
-
-      // ── Die Cutting (shaped stickers) ────────────────────────────────────
-      // A punching die is needed to cut a custom shape out of the sheet. The
-      // die must be 1" larger than the printed block on every side so there's
-      // room to punch cleanly, so: die W/H = block W/H + 2". Die is a one-time
-      // tool cost (area × ₹/sq in); punching is a running cost per 1000
-      // sheets fed through it. Both are added on top of whichever sticker
-      // type (plain/non tearable) is selected.
-      const dieCutting = dto.dieCutting === true;
-      const dieRatePerSqIn = Number(stickerRates.dieRatePerSqIn ?? DEFAULT_RATES.sticker.dieRatePerSqIn ?? 6);
-      const punchingRatePer1000 = Number(stickerRates.punchingRatePer1000 ?? DEFAULT_RATES.sticker.punchingRatePer1000 ?? 500);
-      const dieBlockW = fit.columns * width;
-      const dieBlockH = fit.rows * height;
-      const dieW = dieBlockW > 0 ? dieBlockW + 2 : 0;
-      const dieH = dieBlockH > 0 ? dieBlockH + 2 : 0;
-      const dieArea = dieW * dieH;
-      const dieCost = dieCutting ? dieArea * dieRatePerSqIn : 0;
-      const punchingCost = dieCutting ? (sheetsNeeded / 1000) * punchingRatePer1000 : 0;
-      const dieCuttingCost = dieCost + punchingCost;
-
-      const plainSubtotal = plainBaseSubtotal + plainHalfCutCost + dieCuttingCost;
-      const nonTearableSubtotal = nonTearableBaseSubtotal + nonTearableHalfCutCost + dieCuttingCost;
+      const plainSubtotal = plainBaseSubtotal + plainHalfCutCost;
+      const nonTearableSubtotal = nonTearableBaseSubtotal + nonTearableHalfCutCost;
       const subtotal = selectedType === 'nontearable' ? nonTearableSubtotal : plainSubtotal;
       const multiplier = this.getStickerMultiplier(subtotal);
       const total = subtotal * multiplier;
@@ -530,7 +510,30 @@ export class RateCalculatorService {
       // Always print 1000 sheets per clubbing run; stickers/sheet = ceil(qty/1000)
       const clubbingSets = 1000;
       const clubbingEligible = stickerQty >= 1000 && !!clubbingBlock && clubbingBlock.area >= 6;
-      const clubbingCost = clubbingEligible && clubbingBlock ? (clubbingBlock.area * clubbingSets * 0.035) + 150 : null;
+
+      // ── Die Cutting (shaped stickers) ────────────────────────────────────
+      // Only offered on the Clubbing (vendor) route, not in-house plain or
+      // non tearable sticker — custom die-cut shapes aren't produced through
+      // the in-house sheet printing path. A punching die is needed to cut a
+      // custom shape out of the clubbing block, and it must be 1" larger
+      // than the block on every side so there's room to punch cleanly, so:
+      // die W/H = block W/H + 2". Die is a one-time tool cost (area × ₹/sq
+      // in); punching is a running cost per 1000 sheets fed through it.
+      const dieCutting = dto.dieCutting === true;
+      const dieRatePerSqIn = Number(stickerRates.dieRatePerSqIn ?? DEFAULT_RATES.sticker.dieRatePerSqIn ?? 6);
+      const punchingRatePer1000 = Number(stickerRates.punchingRatePer1000 ?? DEFAULT_RATES.sticker.punchingRatePer1000 ?? 500);
+      const dieBlockW = clubbingBlock ? clubbingBlock.columns * width : 0;
+      const dieBlockH = clubbingBlock ? clubbingBlock.rows * height : 0;
+      const dieW = dieBlockW > 0 ? dieBlockW + 2 : 0;
+      const dieH = dieBlockH > 0 ? dieBlockH + 2 : 0;
+      const dieArea = dieW * dieH;
+      const dieCuttingApplies = dieCutting && clubbingEligible;
+      const dieCost = dieCuttingApplies ? dieArea * dieRatePerSqIn : 0;
+      const punchingCost = dieCuttingApplies ? clubbingSets / 1000 * punchingRatePer1000 : 0;
+      const dieCuttingCost = dieCost + punchingCost;
+
+      const clubbingBaseCost = clubbingEligible && clubbingBlock ? (clubbingBlock.area * clubbingSets * 0.035) + 150 : null;
+      const clubbingCost = clubbingBaseCost != null ? clubbingBaseCost + dieCuttingCost : null;
       const clubbingMultiplier = clubbingCost != null ? this.getStickerMultiplier(clubbingCost) : null;
       const clubbingTotal = clubbingCost != null && clubbingMultiplier != null ? clubbingCost * clubbingMultiplier : null;
       const breakdown: any[] = [
@@ -541,15 +544,17 @@ export class RateCalculatorService {
       if (halfCut) {
         breakdown.push({ label: `Half Cutting (${halfCutPct}% on ${selectedType === 'nontearable' ? 'non tearable' : 'plain'} sticker cost)`, amount: selectedType === 'nontearable' ? nonTearableHalfCutCost : plainHalfCutCost });
       }
-      if (dieCutting) {
-        breakdown.push({ label: `Die Cutting — die (${dieW.toFixed(1)}x${dieH.toFixed(1)} in = ${dieArea.toFixed(1)} sq in x Rs.${dieRatePerSqIn})`, amount: dieCost });
-        breakdown.push({ label: `Die Cutting — punching (${sheetsNeeded.toLocaleString()} sheets @ Rs.${punchingRatePer1000}/1000 sheets)`, amount: punchingCost });
-      }
-      if (clubbingCost != null) {
+      if (clubbingBaseCost != null) {
         const blockLabel = clubbingBlock && clubbingBlock.stickers > 1
           ? `${clubbingBlock.columns} x ${clubbingBlock.rows} = ${clubbingBlock.stickers} stickers/block, ${clubbingSets.toLocaleString()} blocks`
           : `${stickerQty.toLocaleString()} stickers`;
-        breakdown.push({ label: `Clubbing plain sticker (${blockLabel}, ${clubbingBlock?.area.toFixed(2)} sq in x Rs.0.035 + Rs.150)`, amount: clubbingCost });
+        breakdown.push({ label: `Clubbing plain sticker (${blockLabel}, ${clubbingBlock?.area.toFixed(2)} sq in x Rs.0.035 + Rs.150)`, amount: clubbingBaseCost });
+      }
+      if (dieCuttingApplies) {
+        breakdown.push({ label: `Die Cutting — die, clubbing only (${dieW.toFixed(1)}x${dieH.toFixed(1)} in = ${dieArea.toFixed(1)} sq in x Rs.${dieRatePerSqIn})`, amount: dieCost });
+        breakdown.push({ label: `Die Cutting — punching (${clubbingSets.toLocaleString()} sheets @ Rs.${punchingRatePer1000}/1000 sheets)`, amount: punchingCost });
+      } else if (dieCutting) {
+        breakdown.push({ label: `Die Cutting requested but not applied — needs Clubbing eligibility (min 1000 pcs, 6 sq in block)`, amount: 0 });
       }
       return {
         breakdown,
@@ -557,7 +562,7 @@ export class RateCalculatorService {
         total,
         perPiece: stickerQty > 0 ? total / stickerQty : 0,
         totalPieces: stickerQty,
-        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}${halfCut ? ' | half cutting' : ''}${dieCutting ? ' | die cutting' : ''}`,
+        description: `${stickerQty.toLocaleString()} stickers | ${width}x${height} inch | ${fit.perSheet}/sheet | ${sheetsNeeded.toLocaleString()} sheets | ${selectedType === 'nontearable' ? 'non tearable' : 'plain'}${halfCut ? ' | half cutting' : ''}${dieCuttingApplies ? ' | die cutting (clubbing)' : ''}`,
         multiplier,
         customer,
         sticker: {
@@ -575,6 +580,7 @@ export class RateCalculatorService {
           halfCut,
           halfCutPct,
           dieCutting,
+          dieCuttingApplies,
           dieRatePerSqIn,
           punchingRatePer1000,
           dieBlockW,
