@@ -191,8 +191,11 @@ export default function OrdersPage() {
   }
 
   async function deletePayment(payment: Payment, orderId: string) {
-    const label = `${new Date(payment.paymentDate).toLocaleDateString("en-IN")} - ${fmt(Number(payment.amount))}`;
-    if (!confirm(`Delete this payment?\n${label}`)) return;
+    const label = `${new Date(payment.paymentDate).toLocaleDateString("en-IN")} - ${fmt(Number(payment.amount))}${payment.referenceNumber ? ` (Ref: ${payment.referenceNumber})` : ""}`;
+    const warning = payment.verificationStatus === "VERIFIED"
+      ? `This payment has already been VERIFIED. Only delete it if you're certain it's a mistake (e.g. wrong reference, duplicate entry) — this cannot be undone.\n\n${label}`
+      : `Delete this payment?\n${label}`;
+    if (!confirm(warning)) return;
     setDeletingPaymentId(payment.id);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payments/${payment.id}`, {
@@ -226,6 +229,11 @@ export default function OrdersPage() {
     try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; }
   }, []);
   const canViewMargin = currentUser?.fullName === "Sanket Admin";
+  // Verified payments are normally locked from edit/delete once reconciled —
+  // but the super admin still needs a way to correct a genuine mistake (e.g.
+  // a bank reference pasted onto the wrong order), so allow delete-only,
+  // with an extra-explicit confirmation, once a payment is verified.
+  const canManageVerifiedPayments = currentUser?.fullName === "Sanket Admin";
 
   // File upload
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
@@ -1002,7 +1010,7 @@ export default function OrdersPage() {
                                           <td className="py-1 text-slate-400">{p.notes ?? "—"}</td>
                                           <td className="py-1">
                                             <div className="flex items-center gap-1">
-                                              {p.verificationStatus !== "VERIFIED" && (
+                                              {p.verificationStatus !== "VERIFIED" ? (
                                                 <>
                                                 <button onClick={() => startEditPayment(p, o.id)}
                                                   className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
@@ -1014,7 +1022,14 @@ export default function OrdersPage() {
                                                   Delete
                                                 </button>
                                                 </>
-                                              )}
+                                              ) : canManageVerifiedPayments ? (
+                                                <button onClick={() => deletePayment(p, o.id)} disabled={deletingPaymentId === p.id}
+                                                  title="Verified payment — only delete if this is a genuine mistake"
+                                                  className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+                                                  {deletingPaymentId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                                  Delete (verified)
+                                                </button>
+                                              ) : null}
                                             </div>
                                           </td>
                                         </tr>
