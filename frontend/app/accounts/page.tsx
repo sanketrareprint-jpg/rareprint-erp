@@ -572,7 +572,7 @@ export default function AccountsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/note`, {
         method: "PATCH",
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ note }),
       });
       if (!res.ok) {
@@ -592,7 +592,7 @@ export default function AccountsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/vendor-expense`, {
         method: "PATCH",
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ label }),
       });
       if (!res.ok) {
@@ -611,7 +611,7 @@ export default function AccountsPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/expense-month`, {
         method: "PATCH",
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ period: period || null }),
       });
       if (!res.ok) {
@@ -646,7 +646,7 @@ export default function AccountsPage() {
   }
 
   async function handleRecheckVerification(entry: PaymentVerificationEntry) {
-    if (!confirm(`Recheck this entry and move it to Payment History?`)) return;
+    if (!confirm(`Verify this ₹${fmt(entry.amount)} entry as Sanket and move it to Payment History? This does not change the Checked status.`)) return;
     setPvRecheckingId(entry.id);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${entry.id}/recheck`, {
@@ -3514,7 +3514,7 @@ await loadHistory();
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Expense Month</th>
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Payment Description</th>
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Checked</th>
-                        <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Rechecked</th>
+                        <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Verified</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3602,14 +3602,14 @@ await loadHistory();
                           <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap">
                             {entry.recheckedAt ? (
                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
-                                <ShieldCheck className="h-3.5 w-3.5" /> {entry.recheckedByName || "Rechecked"}
+                                <ShieldCheck className="h-3.5 w-3.5" /> Verified by {entry.recheckedByName || "Sanket"}
                               </span>
                             ) : isSuperAdmin && entry.checkedAt ? (
                               <button
                                 onClick={() => handleRecheckVerification(entry)}
                                 disabled={pvRecheckingId === entry.id}
                                 className="px-2.5 py-1 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
-                                {pvRecheckingId === entry.id ? "..." : "Recheck"}
+                                {pvRecheckingId === entry.id ? "..." : "Verify"}
                               </button>
                             ) : (
                               <span className="text-xs text-slate-300">—</span>
@@ -3674,7 +3674,7 @@ await loadHistory();
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Expense Month</th>
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Payment Description</th>
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Checked</th>
-                        <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Rechecked</th>
+                        <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Verified</th>
                       </tr>
                     </thead>
                     <tbody>

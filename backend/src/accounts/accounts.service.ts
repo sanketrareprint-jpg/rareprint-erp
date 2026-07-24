@@ -1937,15 +1937,15 @@ export class AccountsService {
 
   async recheckPaymentVerification(id: string, user: AccountsUser) {
     if (user.email !== SUPER_ADMIN_EMAIL) {
-      throw new ForbiddenException('Only Sanket can recheck and move this entry to Payment History');
+      throw new ForbiddenException('Only Sanket can verify and move this entry to Payment History');
     }
     const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
     if (!txn) throw new NotFoundException('Bank transaction not found');
     if (!(txn as any).checkedAt) {
-      throw new BadRequestException('This entry must be checked before it can be rechecked');
+      throw new BadRequestException('This entry must be checked before it can be verified');
     }
     if ((txn as any).recheckedAt) {
-      throw new BadRequestException('This entry has already been rechecked');
+      throw new BadRequestException('This entry has already been verified');
     }
     const updated = await this.prisma.bankTransaction.update({
       where: { id },
