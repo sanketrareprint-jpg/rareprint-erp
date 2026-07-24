@@ -3537,7 +3537,7 @@ await loadHistory();
                               <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
-                                  className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                  className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                                   placeholder="Add vendor/expense..."
                                   value={pvVendorExpenseDrafts[entry.id] ?? ""}
                                   onChange={e => setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
@@ -3556,7 +3556,7 @@ await loadHistory();
                               <div className="flex items-center gap-1.5">
                                 <input
                                   type="month"
-                                  className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                  className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                                   value={pvExpenseMonthDrafts[entry.id] ?? ""}
                                   onChange={e => saveExpenseMonth(entry.id, e.target.value)}
                                 />
@@ -3571,7 +3571,7 @@ await loadHistory();
                               <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
-                                  className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                  className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
                                   placeholder="Add note..."
                                   value={pvNoteDrafts[entry.id] ?? ""}
                                   onChange={e => setPvNoteDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
