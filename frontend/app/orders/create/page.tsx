@@ -1,5 +1,5 @@
 ﻿"use client";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
@@ -95,6 +95,7 @@ export default function CreateOrderPage() {
   const [citySuggestions, setCitySuggestions] = useState<PostOfficeResult[]>([]);
   const [citySearchOpen, setCitySearchOpen] = useState(false);
   const [citySearchLoading, setCitySearchLoading] = useState(false);
+  const cityAutofilledByPincodeRef = useRef(false);
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
   const [orderFields, setOrderFields] = useState<CustomField[]>([]);
   const [itemFields, setItemFields] = useState<CustomField[]>([]);
@@ -236,6 +237,7 @@ export default function CreateOrderPage() {
         const data = await res.json();
         const postOffice: PostOfficeResult | undefined = data?.[0]?.PostOffice?.[0];
         if (!postOffice || cancelled) return;
+        cityAutofilledByPincodeRef.current = true;
         setCustomer((c) => (c.pincode === pin ? { ...c, city: postOffice.District, state: postOffice.State } : c));
       } catch {
         // Ignore — pincode autofill is a convenience, not a requirement.
@@ -248,6 +250,18 @@ export default function CreateOrderPage() {
   // City → State autofill + India-wide city/town search, via the same
   // India Post API (searching by post-office/area name).
   useEffect(() => {
+    // Skip the suggestion search entirely when this city change came from
+    // the pincode autofill above — we already have a precise, correct
+    // District/State from the pincode lookup, so popping open a fuzzy
+    // name-search dropdown on top of it is just noise the user didn't ask
+    // for and has to manually dismiss.
+    if (cityAutofilledByPincodeRef.current) {
+      cityAutofilledByPincodeRef.current = false;
+      setCitySuggestions([]);
+      setCitySearchOpen(false);
+      return;
+    }
+
     const query = customer.city.trim();
     if (query.length < 3) {
       setCitySuggestions([]);
