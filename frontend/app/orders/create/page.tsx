@@ -699,7 +699,7 @@ export default function CreateOrderPage() {
                     placeholder="Search product..."
                     value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
-                    onFocus={() => { setProductSearch(s => ({ ...s, [idx]: "" })); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
+                    onFocus={e => { e.target.select(); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
                     onBlur={() => setTimeout(() => { setProductDropdownOpen(s => ({ ...s, [idx]: false })); setProductSearch(s => { const n = {...s}; delete n[idx]; return n; }); }, 200)}
                     style={{ ...S.input, width: "100%" }}
                   />
