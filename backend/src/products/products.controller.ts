@@ -17,6 +17,7 @@ export class ProductsController {
         sku: true,
         name: true,
         gsm: true,
+        paperType: true,
         sizeInches: true,
         printingType: true,
         sides: true,
