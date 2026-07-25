@@ -28,8 +28,18 @@ type PostOfficeResult = {
   Name: string;
   District: string;
   State: string;
-  Block?: string; // Taluka/tehsil, per India Post's API — often more specific than District.
 };
+
+// India Post's postoffice-search API has no "taluka" field at all — its
+// Name field (individual post office name) is the most granular real data
+// it returns, and it very often IS the taluka/town name (e.g. "Warora",
+// "Andheri (Mumbai)"). Strip a "(District)" suffix when it just repeats
+// the district, so localities display cleanly as "Warora" not
+// "Warora (Chandrapur)".
+function localityName(r: PostOfficeResult): string {
+  const suffix = ` (${r.District})`;
+  return r.Name.toLowerCase().endsWith(suffix.toLowerCase()) ? r.Name.slice(0, -suffix.length) : r.Name;
+}
 
 const LEAD_SOURCES = [
   { value: "", label: "Select source..." },
@@ -278,13 +288,27 @@ export default function CreateOrderPage() {
         if (!res.ok || cancelled) return;
         const data = await res.json();
         const results: PostOfficeResult[] = data?.[0]?.PostOffice ?? [];
-        // De-dupe by Taluka(Block)+District+State — keeping Block in the key
-        // (not just District+State) means different talukas within the same
-        // district each get their own row instead of collapsing into one,
-        // so both city-level and taluka-level matches all show up.
+        const q = query.toLowerCase();
+        // Rank so places whose name/district actually starts with what was
+        // typed come first — the API does a loose substring match against
+        // post office names nationwide, so searching "Chandrapur" also
+        // pulls in unrelated matches like "Ramachandrapur" in Odisha unless
+        // we sort the real matches to the top.
+        const ranked = [...results].sort((a, b) => {
+          const score = (r: PostOfficeResult) => {
+            const loc = localityName(r).toLowerCase();
+            if (loc === q || r.District.toLowerCase() === q) return 0;
+            if (loc.startsWith(q) || r.District.toLowerCase().startsWith(q)) return 1;
+            return 2;
+          };
+          return score(a) - score(b);
+        });
+        // De-dupe by locality name (taluka/town/area) + District + State —
+        // this keeps every distinct place, not just one row per district,
+        // so both city-level and taluka/town-level matches all show up.
         const seen = new Set<string>();
-        const deduped = results.filter((r) => {
-          const key = `${r.Block ?? ""}|${r.District}|${r.State}`;
+        const deduped = ranked.filter((r) => {
+          const key = `${localityName(r)}|${r.District}|${r.State}`.toLowerCase();
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
@@ -310,12 +334,7 @@ export default function CreateOrderPage() {
   }, [customer.city]);
 
   function selectCitySuggestion(result: PostOfficeResult) {
-    // Prefer the taluka (Block) as the City value when it's a distinct,
-    // more specific place than the district — that's usually the more
-    // accurate match for the customer's actual address. Falls back to the
-    // district name when there's no taluka info or it's the same string.
-    const isDistinctTaluka = result.Block && result.Block.trim() && result.Block.trim().toLowerCase() !== result.District.trim().toLowerCase();
-    setCustomer((c) => ({ ...c, city: isDistinctTaluka ? result.Block!.trim() : result.District, state: result.State }));
+    setCustomer((c) => ({ ...c, city: localityName(result), state: result.State }));
     setCitySuggestions([]);
     setCitySearchOpen(false);
   }
@@ -379,8 +398,11 @@ export default function CreateOrderPage() {
     if (customer.phone && customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
     if (customer.phone2 && customer.phone2.length !== 10) { alert("Phone 2 number must be exactly 10 digits"); return; }
     if (!leadSource) { alert("Lead source is required"); return; }
-    if (lineItems.some(i => !i.productId || i.quantity <= 0)) {
-      alert("Please fill all product lines"); return;
+    const badLineIdx = lineItems.findIndex(i => !i.productId || i.quantity <= 0);
+    if (badLineIdx !== -1) {
+      const reason = !lineItems[badLineIdx].productId ? "no product selected" : "quantity must be greater than 0";
+      alert(`Item ${badLineIdx + 1}: ${reason}. Click a product from the dropdown list (don't just type the name) before submitting.`);
+      return;
     }
     const missingOrderField = orderFields.find(f => f.required && !customOrderFields[f.id]?.trim());
     if (missingOrderField) { alert(`${missingOrderField.label} is required`); return; }
@@ -516,12 +538,13 @@ export default function CreateOrderPage() {
                 {citySearchOpen && (
                   <div style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, marginTop: "4px", maxHeight: "200px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "8px", background: "white", boxShadow: "0 12px 24px rgba(15,23,42,0.14)" }}>
                     {citySuggestions.map((r, i) => {
-                      const isDistinctTaluka = r.Block && r.Block.trim() && r.Block.trim().toLowerCase() !== r.District.trim().toLowerCase();
+                      const loc = localityName(r);
+                      const isDistinctLocality = loc.toLowerCase() !== r.District.toLowerCase();
                       return (
-                        <button key={`${r.Block ?? ""}-${r.District}-${r.State}-${i}`} type="button" onMouseDown={() => selectCitySuggestion(r)}
+                        <button key={`${loc}-${r.District}-${r.State}-${i}`} type="button" onMouseDown={() => selectCitySuggestion(r)}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer", fontSize: "12px" }}>
-                          <span style={{ fontWeight: 700, color: "#0f172a" }}>{isDistinctTaluka ? r.Block : r.District}</span>
-                          {isDistinctTaluka && <span style={{ color: "#94a3b8" }}> (Taluka), {r.District}</span>}
+                          <span style={{ fontWeight: 700, color: "#0f172a" }}>{loc}</span>
+                          {isDistinctLocality && <span style={{ color: "#94a3b8" }}>, {r.District}</span>}
                           <span style={{ color: "#64748b" }}>, {r.State}</span>
                         </button>
                       );
@@ -691,7 +714,7 @@ export default function CreateOrderPage() {
                           <div key={p.id}
                             onMouseDown={() => {
                               updateLine(idx, "productId", p.id);
-                              setProductSearch(s => ({ ...s, [idx]: "" }));
+                              setProductSearch(s => { const n = { ...s }; delete n[idx]; return n; });
                               setProductDropdownOpen(s => ({ ...s, [idx]: false }));
                             }}
                             style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9" }}
