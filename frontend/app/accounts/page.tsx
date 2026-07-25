@@ -134,6 +134,18 @@ type BankTxn = {
   chequeNo?: string;
 };
 
+type ExpenseTrackerBucket = { accrued: number; paid: number; balance: number };
+type ExpenseTrackerSalaryRow = { employeeId: string; fullName: string; designation: string; userId: string | null; accrued: number; paid: number; balance: number; taggable: boolean };
+type ExpenseTrackerCommissionRow = { id: string; name: string; accrued: number; paid: number };
+type ExpenseTrackerSanketTxn = { id: string; txnDate: string; description: string; amount: number };
+type ExpenseTracker = {
+  year: number; month: number;
+  vendorExpense: ExpenseTrackerBucket & { entries: unknown[] };
+  salary: ExpenseTrackerBucket & { byEmployee: ExpenseTrackerSalaryRow[]; sanket: { userId: string | null; amount: number; transactions: ExpenseTrackerSanketTxn[] } };
+  commission: ExpenseTrackerBucket & { byAgent: ExpenseTrackerCommissionRow[] };
+  total: ExpenseTrackerBucket;
+};
+
 type VendorEntry = {
   id: string;
   type: "JOBWORK" | "SHEET_STAGE";
@@ -234,7 +246,7 @@ type CodForm = {
   courierOrderId: string;
 };
 
-type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors" | "commission" | "payment_verification" | "payment_history";
+type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors" | "commission" | "payment_verification" | "payment_history" | "expense_tracker";
 
 // ── Payment Verification (bank statement debit sign-off) ───────────────────
 type CommissionInfo = { agentName: string; month: string; year: number; label: string };
@@ -832,6 +844,87 @@ export default function AccountsPage() {
   const [bankMatchCommission, setBankMatchCommission] = useState<{ agentId: string; agentName: string; year: number; month: number; amount: number } | null>(null);
   const [bankMatchCommissionResults, setBankMatchCommissionResults] = useState<BankTxn[]>([]);
   const [bankMatchCommissionLoading, setBankMatchCommissionLoading] = useState(false);
+  // ── Expense Tracker ──────────────────────────────────────────────────────
+  const [expenseTrackerMonth, setExpenseTrackerMonth] = useState<string>(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [expenseTracker, setExpenseTracker] = useState<ExpenseTracker | null>(null);
+  const [expenseTrackerLoading, setExpenseTrackerLoading] = useState(false);
+  const [bankMatchSalary, setBankMatchSalary] = useState<{ userId: string; userName: string; year: number; month: number; amount: number } | null>(null);
+  const [bankMatchSalaryResults, setBankMatchSalaryResults] = useState<BankTxn[]>([]);
+  const [bankMatchSalaryLoading, setBankMatchSalaryLoading] = useState(false);
+  const [markingSalaryPaid, setMarkingSalaryPaid] = useState(false);
+
+  const loadExpenseTracker = useCallback(async (monthStr: string) => {
+    if (!monthStr) return;
+    setExpenseTrackerLoading(true);
+    try {
+      const [y, m] = monthStr.split("-").map(Number);
+      const res = await fetch(`${API_BASE_URL}/accounts/expense-tracker?year=${y}&month=${m}`, { headers: getAuthHeaders() });
+      if (res.ok) setExpenseTracker(await res.json());
+    } finally {
+      setExpenseTrackerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (tab === "expense_tracker") void loadExpenseTracker(expenseTrackerMonth); }, [tab, expenseTrackerMonth, loadExpenseTracker]);
+
+  // Salary "Mark as Paid" — same bank-match pattern as Commission above, but
+  // when there's no fixed target amount (Sanket's own withdrawals, which have
+  // no set monthly figure) it searches by date range for that month instead
+  // of an exact amount.
+  async function openSalaryBankMatch(userId: string, userName: string, year: number, month: number, amount: number) {
+    setBankMatchSalary({ userId, userName, year, month, amount });
+    setBankMatchSalaryResults([]);
+    setBankMatchSalaryLoading(true);
+    try {
+      const params = new URLSearchParams({ crDr: "DR", limit: "50" });
+      if (amount > 0) {
+        params.set("amountMin", String(amount));
+        params.set("amountMax", String(amount));
+      } else {
+        params.set("fromDate", `${year}-${String(month).padStart(2, "0")}-01`);
+        params.set("toDate", new Date(year, month, 1).toISOString().slice(0, 10));
+      }
+      const res = await fetch(`${API_BASE_URL}/bank-statement/transactions?${params}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setBankMatchSalaryResults(data.data ?? []);
+      }
+    } finally {
+      setBankMatchSalaryLoading(false);
+    }
+  }
+
+  async function matchSalaryPaid(txn: BankTxn) {
+    if (!bankMatchSalary) return;
+    setMarkingSalaryPaid(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/expense-tracker/salary/${bankMatchSalary.userId}/mark-paid`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ year: bankMatchSalary.year, month: bankMatchSalary.month, transactionId: txn.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Could not mark as paid: ${err.message || res.statusText}`);
+        return;
+      }
+      setBankMatchSalary(null);
+      setBankMatchSalaryResults([]);
+      await loadExpenseTracker(expenseTrackerMonth);
+    } finally {
+      setMarkingSalaryPaid(false);
+    }
+  }
+
+  async function handleUnmarkSalaryPaid(transactionId: string) {
+    if (!confirm("Untag this bank transaction as a salary payment?")) return;
+    const res = await fetch(`${API_BASE_URL}/accounts/expense-tracker/salary/unmark-paid/${transactionId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) await loadExpenseTracker(expenseTrackerMonth);
+  }
+
   const [editingCommRow, setEditingCommRow] = useState<number | null>(null);
   const [editCommValue, setEditCommValue] = useState<string>("");
   const [savingCommRow, setSavingCommRow] = useState<number | null>(null);
@@ -1642,6 +1735,7 @@ await loadHistory();
                 { key: "commission", label: "Commission", count: 0 },
                 { key: "payment_verification", label: "Payment Verification", count: pvQueue.length },
                 { key: "payment_history", label: "Payment History", count: 0 },
+                { key: "expense_tracker", label: "Expense Tracker", count: 0 },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
                   className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
@@ -3726,6 +3820,155 @@ await loadHistory();
               )}
             </div>
           )}
+
+          {tab === "expense_tracker" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">
+                  Shows what expense <strong>belongs to</strong> this month — e.g. June salary paid in July still counts as June's expense — split into what's actually been paid vs still owed.
+                </p>
+                <input type="month" value={expenseTrackerMonth} onChange={e => setExpenseTrackerMonth(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700" />
+              </div>
+
+              {expenseTrackerLoading ? (
+                <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+              ) : !expenseTracker ? (
+                <div className="p-10 text-center text-slate-400">No data.</div>
+              ) : (
+                <>
+                  {/* Totals */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "Total Accrued Expense", value: expenseTracker.total.accrued, color: "text-slate-800" },
+                      { label: "Paid", value: expenseTracker.total.paid, color: "text-green-700" },
+                      { label: "Balance", value: expenseTracker.total.balance, color: "text-red-700" },
+                    ].map(c => (
+                      <div key={c.label} className="rounded-xl border border-slate-300 bg-white px-4 py-3">
+                        <p className="text-xs text-slate-500 font-medium">{c.label}</p>
+                        <p className={`text-xl font-bold mt-0.5 ${c.color}`}>{fmt(c.value)}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Vendor / Expense */}
+                  <div className="rounded-xl border border-slate-300 bg-white overflow-hidden">
+                    <div className="flex items-center justify-between bg-slate-100 px-4 py-2">
+                      <p className="text-sm font-bold text-slate-800">Vendor / Expense <span className="font-normal text-slate-500">(from Payment Verification)</span></p>
+                      <p className="text-xs text-slate-600">
+                        Accrued <strong>{fmt(expenseTracker.vendorExpense.accrued)}</strong> · Paid <strong className="text-green-700">{fmt(expenseTracker.vendorExpense.paid)}</strong> · Balance <strong className="text-red-700">{fmt(expenseTracker.vendorExpense.balance)}</strong>
+                      </p>
+                    </div>
+                    {expenseTracker.vendorExpense.entries.length === 0 && (
+                      <p className="px-4 py-3 text-xs text-slate-400">No vendor/expense entries for this month.</p>
+                    )}
+                  </div>
+
+                  {/* Salary */}
+                  <div className="rounded-xl border border-slate-300 bg-white overflow-hidden">
+                    <div className="flex items-center justify-between bg-slate-100 px-4 py-2">
+                      <p className="text-sm font-bold text-slate-800">Salary</p>
+                      <p className="text-xs text-slate-600">
+                        Accrued <strong>{fmt(expenseTracker.salary.accrued)}</strong> · Paid <strong className="text-green-700">{fmt(expenseTracker.salary.paid)}</strong> · Balance <strong className="text-red-700">{fmt(expenseTracker.salary.balance)}</strong>
+                      </p>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                          <th className="px-4 py-2 font-semibold">Employee</th>
+                          <th className="px-4 py-2 font-semibold text-right">Accrued</th>
+                          <th className="px-4 py-2 font-semibold text-right">Paid</th>
+                          <th className="px-4 py-2 font-semibold text-right">Balance</th>
+                          <th className="px-4 py-2 font-semibold"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenseTracker.salary.byEmployee.map(row => (
+                          <tr key={row.employeeId} className="border-b border-slate-100 last:border-0">
+                            <td className="px-4 py-2 text-slate-700">{row.fullName} <span className="text-xs text-slate-400">({row.designation})</span></td>
+                            <td className="px-4 py-2 text-right text-slate-700">{fmt(row.accrued)}</td>
+                            <td className="px-4 py-2 text-right text-green-700">{fmt(row.paid)}</td>
+                            <td className="px-4 py-2 text-right text-red-700">{fmt(row.balance)}</td>
+                            <td className="px-4 py-2 text-right">
+                              {!row.taggable ? (
+                                <span className="text-xs text-slate-400">No login account — can't be tagged</span>
+                              ) : row.balance <= 0 ? (
+                                <span className="text-xs font-semibold text-green-700">Fully paid</span>
+                              ) : (
+                                <button
+                                  onClick={() => row.userId && openSalaryBankMatch(row.userId, row.fullName, expenseTracker.year, expenseTracker.month, row.balance)}
+                                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                  Mark Paid
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {/* Sanket — pure bank-based, no fixed figure */}
+                        <tr className="bg-amber-50">
+                          <td className="px-4 py-2 font-semibold text-amber-900">Sanket (Owner) <span className="text-xs font-normal text-amber-700">— no fixed salary, bank-tagged only</span></td>
+                          <td className="px-4 py-2 text-right font-semibold text-amber-900" colSpan={3}>{fmt(expenseTracker.salary.sanket.amount)}</td>
+                          <td className="px-4 py-2 text-right">
+                            {expenseTracker.salary.sanket.userId && (
+                              <button
+                                onClick={() => openSalaryBankMatch(expenseTracker.salary.sanket.userId!, "Sanket", expenseTracker.year, expenseTracker.month, 0)}
+                                className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100">
+                                + Tag Withdrawal
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {expenseTracker.salary.sanket.transactions.map(t => (
+                          <tr key={t.id} className="bg-amber-50/50 text-xs text-amber-800">
+                            <td className="px-4 py-1.5 pl-8" colSpan={3}>{new Date(t.txnDate).toLocaleDateString("en-IN")} — {t.description}</td>
+                            <td className="px-4 py-1.5 text-right font-semibold">{fmt(t.amount)}</td>
+                            <td className="px-4 py-1.5 text-right">
+                              <button onClick={() => handleUnmarkSalaryPaid(t.id)} className="text-red-600 hover:underline">Untag</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Commission */}
+                  <div className="rounded-xl border border-slate-300 bg-white overflow-hidden">
+                    <div className="flex items-center justify-between bg-slate-100 px-4 py-2">
+                      <p className="text-sm font-bold text-slate-800">Commission</p>
+                      <p className="text-xs text-slate-600">
+                        Accrued <strong>{fmt(expenseTracker.commission.accrued)}</strong> · Paid <strong className="text-green-700">{fmt(expenseTracker.commission.paid)}</strong> · Balance <strong className="text-red-700">{fmt(expenseTracker.commission.balance)}</strong>
+                      </p>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                          <th className="px-4 py-2 font-semibold">Agent</th>
+                          <th className="px-4 py-2 font-semibold text-right">Accrued</th>
+                          <th className="px-4 py-2 font-semibold text-right">Paid / Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenseTracker.commission.byAgent.filter(a => a.accrued > 0).map(a => (
+                          <tr key={a.id} className="border-b border-slate-100 last:border-0">
+                            <td className="px-4 py-2 text-slate-700">{a.name}</td>
+                            <td className="px-4 py-2 text-right text-slate-700">{fmt(a.accrued)}</td>
+                            <td className="px-4 py-2 text-right">
+                              {a.paid > 0
+                                ? <span className="text-green-700 font-semibold">Paid {fmt(a.paid)}</span>
+                                : <span className="text-red-700 font-semibold">Balance {fmt(a.accrued)}</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">
+                      Paid/verified via the Commission tab's existing "Mark as Paid" flow.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </DashboardShell>
 
@@ -3985,6 +4228,78 @@ await loadHistory();
             </div>
             <div style={{ padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
               <button onClick={() => { setBankMatchCommission(null); setBankMatchCommissionResults([]); }}
+                style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "5px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expense Tracker Salary "Mark as Paid" / "Tag Withdrawal" — Bank Statement Match Popup */}
+      {bankMatchSalary && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: "1rem" }}>
+          <div style={{ background: "white", borderRadius: "12px", width: "100%", maxWidth: "620px", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <div style={{ padding: "0.875rem 1rem", borderBottom: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <h2 style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a", margin: 0 }}>Match Salary Payment with Bank Statement</h2>
+                  <p style={{ fontSize: "11px", color: "#64748b", margin: "3px 0 0" }}>
+                    {bankMatchSalary.userName} · {bankMatchSalary.year}-{String(bankMatchSalary.month).padStart(2, "0")}
+                    {bankMatchSalary.amount > 0 && <> · <strong style={{ color: "#ee1c25" }}>{fmt(bankMatchSalary.amount)}</strong></>}
+                  </p>
+                </div>
+                <button onClick={() => { setBankMatchSalary(null); setBankMatchSalaryResults([]); }}
+                  style={{ padding: "4px", borderRadius: "6px", border: "none", background: "none", cursor: "pointer", color: "#94a3b8" }}>x</button>
+              </div>
+            </div>
+            <div style={{ overflowY: "auto", flex: 1, padding: "0.75rem 1rem" }}>
+              {bankMatchSalaryLoading ? (
+                <div style={{ textAlign: "center", padding: "2rem", fontSize: "12px", color: "#64748b" }}>Searching bank statement...</div>
+              ) : bankMatchSalaryResults.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem" }}>
+                  <p style={{ fontSize: "12px", color: "#94a3b8", margin: 0 }}>
+                    {bankMatchSalary.amount > 0
+                      ? `No debit transactions found for exactly ${fmt(bankMatchSalary.amount)}. Import/refresh the bank statement first, or check the exact amount.`
+                      : "No debit transactions found for this month. Import/refresh the bank statement first."}
+                  </p>
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Date</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Description</th>
+                      <th style={{ textAlign: "right", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Amount</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Status</th>
+                      <th style={{ padding: "4px 8px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bankMatchSalaryResults.map(txn => (
+                      <tr key={txn.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "6px 8px", color: "#475569", whiteSpace: "nowrap" }}>{new Date(txn.txnDate).toLocaleDateString("en-IN")}</td>
+                        <td style={{ padding: "6px 8px", color: "#334155", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{txn.description}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: "#dc2626" }}>{fmt(txn.amount)}</td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "9999px", background: txn.reconcileStatus === "MATCHED_SALARY" ? "#dbeafe" : "#f1f5f9", color: txn.reconcileStatus === "MATCHED_SALARY" ? "#1d4ed8" : "#64748b", fontWeight: 600 }}>
+                            {txn.reconcileStatus}
+                          </span>
+                        </td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <button onClick={() => matchSalaryPaid(txn)} disabled={markingSalaryPaid}
+                            style={{ background: "#ee1c25", color: "white", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                            Match
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div style={{ padding: "0.625rem 1rem", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => { setBankMatchSalary(null); setBankMatchSalaryResults([]); }}
                 style={{ borderRadius: "6px", border: "1px solid #e2e8f0", padding: "5px 14px", fontSize: "12px", color: "#334155", background: "white", cursor: "pointer" }}>
                 Close
               </button>

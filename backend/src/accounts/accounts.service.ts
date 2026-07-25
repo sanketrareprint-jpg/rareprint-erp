@@ -20,6 +20,7 @@ import {
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CostTableService } from '../cost-table/cost-table.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
+import { HrService } from '../hr/hr.service';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -85,6 +86,7 @@ export class AccountsService {
     private whatsapp: WhatsAppService,
     private costTable: CostTableService,
     private loyalty: LoyaltyService,
+    private hr: HrService,
   ) {}
 
   private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
@@ -1953,5 +1955,182 @@ export class AccountsService {
       include: this.paymentVerificationInclude,
     });
     return this.mapPaymentVerificationEntry(updated);
+  }
+
+  // ── Expense Tracker (Accounts > Expense Tracker) ──────────────────────────
+  // Accrual view: what expense BELONGS to a given calendar month, split into
+  // Paid vs Balance, regardless of when it was actually paid — e.g. June
+  // salary that doesn't get paid out until July is still June's expense.
+  // Combines three sources that already exist elsewhere in the app:
+  //   • Vendor/Expense — the same Payment Verification entries as the
+  //     Accounts > Payment Verification tab, bucketed by expensePeriod (the
+  //     accountant's "which month does this belong to" override) falling
+  //     back to the transaction date when no override was set. "Paid" =
+  //     Sanket has verified it (recheckedAt set, i.e. moved to Payment
+  //     History); "Balance" = still sitting in the queue.
+  //   • Salary — HrService.salarySummary is the live accrued figure (there
+  //     is no other persisted "salary paid" record anywhere in the app).
+  //     "Paid" comes from BankTransaction rows tagged salaryForUserId /
+  //     salaryYear / salaryMonth via markSalaryPaid below — the only place
+  //     a salary payment is ever actually recorded.
+  //   • Commission — CostTableService.getAllAgentsCommissionSummary is the
+  //     accrued figure (agent.bonus for the selected month); "paid" is
+  //     whichever agents already have this month in their existing
+  //     paidMonths (the pre-existing Commission "Mark as Paid" flow).
+  //
+  // Sanket's own salary is a special case per his instruction: he has no
+  // fixed monthly figure at all, so there's no "accrued vs paid" split for
+  // him — his row is pure cash-basis, literally whatever bank withdrawals
+  // get tagged to him for that month, no more and no less.
+  //
+  // Known caveat: if a sales agent's salary+commission is paid out to them
+  // as a single combined bank transfer (already tagged MATCHED_COMMISSION
+  // in Payment Verification, labelled "Commission & Salary" there), their
+  // Salary row here will still show as unpaid/balance unless that same
+  // transaction (or another one) is also separately tagged via
+  // markSalaryPaid. This tracker does not attempt to infer that a
+  // commission payout also covered salary.
+  async getExpenseTracker(year: number, month: number) {
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 1);
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+    // Commission payouts are already their own bucket below (accrued from
+    // CostTableService, not from the transaction amount) — excluding
+    // MATCHED_COMMISSION here avoids double-counting the same expense once
+    // as "Vendor/Expense" and again as "Commission".
+    const vendorExpenseStatuses = this.paymentVerificationStatuses.filter((s) => s !== BankReconcileStatus.MATCHED_COMMISSION);
+
+    const [vendorTxns, salarySummary, commissionSummary, salaryTaggedTxns, employees] = await Promise.all([
+      this.prisma.bankTransaction.findMany({
+        where: {
+          crDr: 'DR',
+          reconcileStatus: { in: vendorExpenseStatuses },
+          OR: [
+            { expensePeriod: { gte: monthStart, lt: monthEnd } },
+            { expensePeriod: null, txnDate: { gte: monthStart, lt: monthEnd } },
+          ],
+        },
+        orderBy: [{ txnDate: 'desc' }],
+        include: this.paymentVerificationInclude,
+      }),
+      this.hr.salarySummary(year, month).catch(() => ({ totalSalary: 0, employees: [] as any[] })),
+      this.costTable.getAllAgentsCommissionSummary(year, month).catch(() => ({ agents: [] as any[] })),
+      (this.prisma.bankTransaction as any).findMany({
+        where: { salaryYear: year, salaryMonth: month, salaryForUserId: { not: null } },
+        include: { salaryForUser: { select: { id: true, fullName: true, email: true } } },
+        orderBy: { txnDate: 'asc' },
+      }),
+      this.prisma.employee.findMany({ select: { id: true, userId: true } }),
+    ]);
+    const sanketUser = await this.prisma.user.findUnique({ where: { email: SUPER_ADMIN_EMAIL }, select: { id: true } });
+
+    // ── Vendor / Expense ─────────────────────────────────────────────────
+    const vendorEntries = vendorTxns.map((t) => this.mapPaymentVerificationEntry(t));
+    const vendorAccrued = vendorEntries.reduce((s, e) => s + e.amount, 0);
+    const vendorPaid = vendorEntries.filter((e) => e.recheckedAt).reduce((s, e) => s + e.amount, 0);
+
+    // ── Salary — split Sanket's tagged withdrawals out from regular staff ──
+    const sanketTagged = (salaryTaggedTxns as any[]).filter((t) => t.salaryForUser?.email === SUPER_ADMIN_EMAIL);
+    const staffTagged = (salaryTaggedTxns as any[]).filter((t) => t.salaryForUser?.email !== SUPER_ADMIN_EMAIL);
+
+    const paidByUserId = new Map<string, number>();
+    for (const t of staffTagged) {
+      const uid = t.salaryForUserId as string;
+      paidByUserId.set(uid, (paidByUserId.get(uid) ?? 0) + Number(t.amount));
+    }
+    const employeeIdToUserId = new Map(employees.map((e) => [e.id, e.userId]));
+
+    const salaryByEmployee = (salarySummary as any).employees.map((row: any) => {
+      const userId = employeeIdToUserId.get(row.employeeId) ?? null;
+      const paid = userId ? Math.min(row.salary, paidByUserId.get(userId) ?? 0) : 0;
+      return {
+        employeeId: row.employeeId,
+        fullName: row.fullName,
+        designation: row.designation,
+        userId,
+        accrued: row.salary,
+        paid,
+        balance: Math.max(0, row.salary - paid),
+        taggable: !!userId,
+      };
+    });
+    const staffSalaryAccrued = salaryByEmployee.reduce((s: number, r: any) => s + r.accrued, 0);
+    const staffSalaryPaid = salaryByEmployee.reduce((s: number, r: any) => s + r.paid, 0);
+
+    const sanketAmount = sanketTagged.reduce((s, t) => s + Number(t.amount), 0);
+    const sanketTransactions = sanketTagged.map((t) => ({
+      id: t.id, txnDate: t.txnDate, description: t.description, amount: Number(t.amount),
+    }));
+
+    const salaryAccrued = staffSalaryAccrued + sanketAmount;
+    const salaryPaid = staffSalaryPaid + sanketAmount;
+
+    // ── Commission ───────────────────────────────────────────────────────
+    const commissionAgents = (commissionSummary as any).agents.map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      accrued: a.bonus,
+      paid: a.paidMonths.includes(monthKey) ? a.bonus : 0,
+    }));
+    const commissionAccrued = commissionAgents.reduce((s: number, a: any) => s + a.accrued, 0);
+    const commissionPaid = commissionAgents.reduce((s: number, a: any) => s + a.paid, 0);
+
+    const totalAccrued = vendorAccrued + salaryAccrued + commissionAccrued;
+    const totalPaid = vendorPaid + salaryPaid + commissionPaid;
+
+    return {
+      year, month,
+      vendorExpense: { accrued: vendorAccrued, paid: vendorPaid, balance: vendorAccrued - vendorPaid, entries: vendorEntries },
+      salary: {
+        accrued: salaryAccrued, paid: salaryPaid, balance: salaryAccrued - salaryPaid,
+        byEmployee: salaryByEmployee,
+        sanket: { userId: sanketUser?.id ?? null, amount: sanketAmount, transactions: sanketTransactions },
+      },
+      commission: { accrued: commissionAccrued, paid: commissionPaid, balance: commissionAccrued - commissionPaid, byAgent: commissionAgents },
+      total: { accrued: totalAccrued, paid: totalPaid, balance: totalAccrued - totalPaid },
+    };
+  }
+
+  /** Tag one bank transaction as the (or a) salary payment for `userId` for `year`/`month`. */
+  async markSalaryPaid(userId: string, year: number, month: number, transactionId: string, reconciledById: string) {
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id: transactionId } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+    if (!user) throw new NotFoundException('User not found');
+    await (this.prisma.bankTransaction as any).update({
+      where: { id: transactionId },
+      data: {
+        reconcileStatus: 'MATCHED_SALARY',
+        salaryForUserId: userId,
+        salaryYear: year,
+        salaryMonth: month,
+        matchedVendorId: null,
+        expenseCategoryId: null,
+        matchedCommissionVerificationId: null,
+        reviewNote: `Salary payout — ${user.fullName}, ${month}/${year}`,
+        reconciledById,
+        reconciledAt: new Date(),
+      },
+    });
+    return { success: true };
+  }
+
+  /** Untag a specific transaction previously marked as a salary payment. */
+  async unmarkSalaryPaid(transactionId: string) {
+    const txn = await (this.prisma.bankTransaction as any).findUnique({ where: { id: transactionId } });
+    if (!txn || !txn.salaryForUserId) return { success: true };
+    await (this.prisma.bankTransaction as any).update({
+      where: { id: transactionId },
+      data: {
+        reconcileStatus: 'UNMATCHED',
+        salaryForUserId: null,
+        salaryYear: null,
+        salaryMonth: null,
+        reviewNote: null,
+        reconciledById: null,
+        reconciledAt: null,
+      },
+    });
+    return { success: true };
   }
 }

@@ -44,6 +44,7 @@ model User {
   bankTxnReconciled         BankTransaction[]          @relation("BankTxnReconciledBy")
   bankTxnChecked            BankTransaction[]          @relation("BankTxnCheckedBy")
   bankTxnRechecked          BankTransaction[]          @relation("BankTxnRecheckedBy")
+  bankTxnSalaryFor          BankTransaction[]          @relation("BankTxnSalaryFor")
   commissionsVerified       CommissionVerification[]   @relation("CommVerifBy")
   commissionVerifications   CommissionVerification[]   @relation("CommVerifAgent")
   activitySessions          UserActivitySession[]       @relation("UserActivitySessions")
@@ -1922,6 +1923,20 @@ model BankTransaction {
   vendorExpenseOverride String?
   expensePeriod     DateTime?
 
+  // ── Expense Tracker: "tag this withdrawal as a salary payment" ───────────
+  // Lets Accounts > Expense Tracker mark a DR transaction as the salary
+  // payout for a specific user (regular staff, or Sanket himself) for a
+  // given calendar month/year. Salary has no other "paid" record anywhere
+  // (it's calculated live off Employee attendance) — this is the only place
+  // a salary payment is ever actually recorded as paid. For Sanket, who has
+  // no fixed monthly salary figure, his accrued "salary expense" for a
+  // month IS simply the sum of transactions tagged here for that month —
+  // see ExpenseTrackerService. New MATCHED_SALARY reconcile status, same
+  // convention as MATCHED_COMMISSION/MATCHED_VENDOR/MATCHED_EXPENSE.
+  salaryForUserId   String?
+  salaryYear        Int?
+  salaryMonth       Int?      // 1-12, matches HR salary engine's convention
+
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   session           BankImportSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -1932,12 +1947,14 @@ model BankTransaction {
   reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
   checkedBy         User?               @relation("BankTxnCheckedBy", fields: [checkedById], references: [id])
   recheckedBy       User?               @relation("BankTxnRecheckedBy", fields: [recheckedById], references: [id])
+  salaryForUser     User?               @relation("BankTxnSalaryFor", fields: [salaryForUserId], references: [id])
 
   @@unique([accountNumber, importKey])
   @@index([recheckedAt])
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])
+  @@index([salaryForUserId, salaryYear, salaryMonth])
 }
 
 // ─── Courier COD Remittance Import ─────────────────────────────────────────
@@ -2065,6 +2082,7 @@ enum BankReconcileStatus {
   MATCHED_VENDOR
   MATCHED_EXPENSE
   MATCHED_COMMISSION
+  MATCHED_SALARY
   MANUAL_REVIEW
   IGNORED
 }

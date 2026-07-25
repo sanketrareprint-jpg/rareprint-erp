@@ -5,9 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { CostTableModule } from '../cost-table/cost-table.module';
 import { LoyaltyModule } from '../loyalty/loyalty.module';
+import { HrModule } from '../hr/hr.module';
 
 @Module({
-  imports: [PrismaModule, WhatsAppModule, CostTableModule, LoyaltyModule],
+  imports: [PrismaModule, WhatsAppModule, CostTableModule, LoyaltyModule, HrModule],
   controllers: [AccountsController],
   providers: [AccountsService],
 })

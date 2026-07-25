@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Patch, Param, Post, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Param, Post, Query, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
@@ -296,5 +296,30 @@ export class AccountsController {
   @Patch('payment-verification/:id/recheck')
   recheckPaymentVerification(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.recheckPaymentVerification(id, req.user);
+  }
+
+  // ── Expense Tracker ────────────────────────────────────────────────────
+
+  /** GET /accounts/expense-tracker?year=2026&month=7 */
+  @Get('expense-tracker')
+  getExpenseTracker(@Query('year') year: string, @Query('month') month: string) {
+    const now = new Date();
+    const y = year ? Number(year) : now.getFullYear();
+    const m = month ? Number(month) : now.getMonth() + 1;
+    return this.accountsService.getExpenseTracker(y, m);
+  }
+
+  @Patch('expense-tracker/salary/:userId/mark-paid')
+  markSalaryPaid(
+    @Param('userId') userId: string,
+    @Body() body: { year: number; month: number; transactionId: string },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.markSalaryPaid(userId, Number(body.year), Number(body.month), body.transactionId, req.user.id);
+  }
+
+  @Delete('expense-tracker/salary/unmark-paid/:transactionId')
+  unmarkSalaryPaid(@Param('transactionId') transactionId: string) {
+    return this.accountsService.unmarkSalaryPaid(transactionId);
   }
 }
