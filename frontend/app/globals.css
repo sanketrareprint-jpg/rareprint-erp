@@ -65,6 +65,33 @@ textarea {
   justify-content: center;
 }
 
+/* The product row uses several fixed-pixel columns (Size/GSM/Paper/Sides/
+   Qty/Rate/Amount) alongside the flexible Product search box. On real-world
+   laptop windows with the sidebar open (~1000-1100px of actual content
+   width), those fixed columns eat almost all the space, squeezing the
+   Product box down to nearly nothing instead of wrapping — this stacks the
+   row into one field per line well before the main 768px mobile breakpoint
+   kicks in, so it never gets that squeezed. */
+@media (max-width: 1100px) {
+  .create-order-product-head {
+    display: none !important;
+  }
+
+  .create-order-product-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 8px !important;
+    padding: 10px !important;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+    margin-bottom: 8px !important;
+  }
+
+  .create-order-product-picker {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 768px) {
   :root {
     --background: #f8fafc;
