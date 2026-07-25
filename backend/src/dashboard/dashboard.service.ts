@@ -31,7 +31,7 @@ export class DashboardService {
     // to every ADMIN-role account.
     const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL;
 
-    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult] = await Promise.allSettled([
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult, cashflowResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
@@ -40,6 +40,7 @@ export class DashboardService {
       this.withTimeout(this.getProductionKpis(), 10000, this.getEmptyProductionKpis()),
       this.getSalesByMonth(6),
       isSuperAdmin ? this.getProfitKpis() : Promise.resolve(null),
+      isSuperAdmin ? this.getCashflow() : Promise.resolve(null),
     ]);
 
     return {
@@ -56,6 +57,8 @@ export class DashboardService {
       // profit cards when this key is present (defense in depth on top of
       // the frontend's own role check).
       profit: profitResult.status === 'fulfilled' ? profitResult.value : null,
+      // Same owner-only gating as profit — null for everyone else.
+      cashflow: cashflowResult.status === 'fulfilled' ? cashflowResult.value : null,
     };
   }
 
@@ -107,6 +110,28 @@ export class DashboardService {
       startOfNextMonth: fromIstStart(istYear, istMonth + 1, 1),
       startOfLastMonth: fromIstStart(istYear, istMonth - 1, 1),
     };
+  }
+
+  // ── Cashflow (owner-only) — net bank movement (all accounts combined:
+  // sum of credits minus sum of debits from Bank Statement) for this
+  // calendar month vs last month, plus the rupee delta between them ────────
+  async getCashflow() {
+    const b = this.istBoundaries();
+    const netFor = async (from: Date, to: Date) => {
+      const rows = await this.prisma.bankTransaction.groupBy({
+        by: ['crDr'],
+        where: { txnDate: { gte: from, lt: to } },
+        _sum: { amount: true },
+      });
+      const credits = Number(rows.find(r => r.crDr === 'CR')?._sum.amount ?? 0);
+      const debits = Number(rows.find(r => r.crDr === 'DR')?._sum.amount ?? 0);
+      return credits - debits;
+    };
+    const [thisMonth, lastMonth] = await Promise.all([
+      netFor(b.startOfMonth, b.startOfNextMonth),
+      netFor(b.startOfLastMonth, b.startOfMonth),
+    ]);
+    return { thisMonth, lastMonth, deltaVsLastMonth: thisMonth - lastMonth };
   }
 
   // ── Profit KPIs (admin-only) — each period returns both gross profit
