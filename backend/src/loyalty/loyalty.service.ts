@@ -581,6 +581,11 @@ export class LoyaltyService {
       LEFT JOIN "CustomerLoyaltyWallet" w
         ON w.phone = c.phone OR w.phone = ('91' || c.phone)
       LEFT JOIN latest_order lo ON lo."customerId" = c.id
+      -- Drop customers with no order history at all and no loyalty wallet —
+      -- these are ERP contacts that have never actually transacted, and
+      -- rendered as fully-blank rows (no agent/order#/value, 0 pts) on the
+      -- Loyalty page. Keep anyone with an order OR a wallet, even if points = 0.
+      WHERE lo."orderNumber" IS NOT NULL OR w.id IS NOT NULL
       ORDER BY COALESCE(w.points, 0) DESC, c."businessName" ASC
     `;
 

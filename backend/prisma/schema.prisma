@@ -60,6 +60,14 @@ model User {
   companyTermsCreated          CompanyTerms[]            @relation("CompanyTermsCreatedBy")
   complaintsRaised              Complaint[]               @relation("ComplaintRaisedBy")
   complaintsAssigned             Complaint[]               @relation("ComplaintAssignedTo")
+
+  // ── Call Compliance (monthly call-log + AiSensy tag cross-check) ──────────
+  aisensyTag           String?                 // this agent's tag name as used in AiSensy contact exports (e.g. "Vaishali")
+  callLogImportsOwned  CallLogImport[]         @relation("CallLogImportAgent")
+  callLogImportsMade   CallLogImport[]         @relation("CallLogImportedBy")
+  callLogRecords       CallLogRecord[]         @relation("CallLogRecordAgent")
+  contactImportsMade   ContactImport[]         @relation("ContactImportedBy")
+  importedContacts     ImportedContact[]       @relation("ImportedContactAgent")
 }
 
 model Customer {
@@ -1245,6 +1253,95 @@ model LeadFollowUp {
   note        String?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+}
+
+// ============================================================
+// CALL COMPLIANCE — monthly phone-statement call logs cross-checked
+// against AiSensy contact-tag exports, to see which agent tagged a
+// contact but never actually called them.
+// ============================================================
+
+// One row per uploaded Jio (or similar carrier) monthly statement PDF.
+// The statement's own phone number (ownerNumber) is auto-matched against
+// User.phone to figure out which agent it belongs to; if no user matches,
+// rawRows holds the parsed calls until an admin manually assigns an agent.
+model CallLogImport {
+  id           String    @id @default(cuid())
+  fileName     String
+  ownerNumber  String? // last-10-digit number found in the statement header
+  agentId      String?
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  rowsFound    Int       @default(0)
+  rowsImported Int       @default(0)
+  rawRows      Json? // parsed { phone, calledAt, durationSec }[] — kept until agent is assigned
+  importedById String
+  createdAt    DateTime  @default(now())
+
+  agent      User?           @relation("CallLogImportAgent", fields: [agentId], references: [id])
+  importedBy User            @relation("CallLogImportedBy", fields: [importedById], references: [id])
+  records    CallLogRecord[]
+
+  @@index([agentId])
+}
+
+// One row per outgoing call parsed from a statement's itemized voice usage.
+model CallLogRecord {
+  id          String   @id @default(cuid())
+  importId    String
+  agentId     String
+  phone       String // normalized last-10-digit destination number
+  calledAt    DateTime
+  durationSec Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  import CallLogImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  agent  User          @relation("CallLogRecordAgent", fields: [agentId], references: [id])
+
+  @@index([agentId, phone])
+  @@index([phone])
+  @@index([agentId, calledAt])
+}
+
+// One row per uploaded AiSensy "export contacts" CSV.
+model ContactImport {
+  id           String   @id @default(cuid())
+  fileName     String
+  rowsFound    Int      @default(0)
+  rowsImported Int      @default(0)
+  rowsUpdated  Int      @default(0)
+  importedById String
+  createdAt    DateTime @default(now())
+
+  importedBy User              @relation("ContactImportedBy", fields: [importedById], references: [id])
+  contacts   ImportedContact[]
+
+  @@index([importedById])
+}
+
+// The current state of an AiSensy contact — upserted by phone on every
+// import so re-uploading the same monthly export just refreshes tag/status.
+// agentId is resolved from tagRaw by matching User.aisensyTag (case-insensitive).
+model ImportedContact {
+  id           String    @id @default(cuid())
+  importId     String
+  name         String?
+  phone        String    @unique // normalized last-10-digit number
+  tagRaw       String? // raw tag text from the AiSensy export, e.g. "Vaishali"
+  agentId      String?
+  lastActiveAt DateTime?
+  createdOnAt  DateTime?
+  source       String?
+  status       String?
+  optedIn      Boolean?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  import ContactImport @relation(fields: [importId], references: [id])
+  agent  User?          @relation("ImportedContactAgent", fields: [agentId], references: [id])
+
+  @@index([agentId])
+  @@index([tagRaw])
 }
 
 // ============================================================

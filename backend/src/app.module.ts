@@ -40,6 +40,7 @@ import { HrModule } from './hr/hr.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
 import { ComplaintsModule } from './complaints/complaints.module';
+import { CallComplianceModule } from './call-compliance/call-compliance.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { ComplaintsModule } from './complaints/complaints.module';
     AttendanceModule,
     LoyaltyModule,
     ComplaintsModule,
+    CallComplianceModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

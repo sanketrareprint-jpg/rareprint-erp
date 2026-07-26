@@ -1,0 +1,3 @@
+git add backend/src/loyalty/loyalty.service.ts frontend/app/loyalty/page.tsx
+git commit -m "Loyalty: show all customers (not just wallet holders), add sales agent/order columns, search bar above list"
+git push origin main

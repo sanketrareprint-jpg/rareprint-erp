@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap } from "lucide-react";
+import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat } from "lucide-react";
 
 type DashboardStats = {
   revenue: {
@@ -34,6 +34,27 @@ type ProfitPeriod = { gross: number; net: number };
 type ProfitKpis = { today: ProfitPeriod; thisMonth: ProfitPeriod; lastMonth: ProfitPeriod };
 type SalesByMonthPoint = { month: string; total: number };
 type Cashflow = { thisMonth: number; lastMonth: number; deltaVsLastMonth: number };
+
+type ComplianceAgentRow = { agentId: string; agentName: string; tagsApplied: number; notContacted: number; contacted: number };
+type ComplianceDashboard = { agents: ComplianceAgentRow[]; totals: { tagsApplied: number; notContacted: number } };
+type NotContactedNumber = { name: string | null; phone: string; tagRaw: string | null; lastActiveAt: string | null; createdOnAt: string | null };
+type TopCalledNumber = { phone: string; count: number; totalDurationSec: number; lastCalledAt: string };
+type CallingPatternBucket = { bucket: string; count: number };
+type MyComplianceStats = {
+  agentName: string;
+  taggedCount: number;
+  contactedCount: number;
+  notContactedCount: number;
+  notContactedNumbers: NotContactedNumber[];
+  top5Called: TopCalledNumber[];
+  callingPattern: { distinctNumbersCalled: number; calledOnce: number; calledRepeat: number; repeatCallRate: number; distribution: CallingPatternBucket[] };
+};
+
+function fmtSecs(sec: number) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -70,6 +91,8 @@ export default function DashboardPage() {
   const [salesByMonth, setSalesByMonth] = useState<SalesByMonthPoint[]>([]);
   const [profit, setProfit] = useState<ProfitKpis | null>(null);
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
+  const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
+  const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [currentUser] = useState(() => getStoredUser());
@@ -91,6 +114,17 @@ export default function DashboardPage() {
       setSalesByMonth(data.salesByMonth ?? []);
       setProfit(data.profit ?? null);
       setCashflow(data.cashflow ?? null);
+
+      // Call-compliance widgets are best-effort — don't fail the whole
+      // dashboard if there's no data imported yet.
+      try {
+        const complianceRes = await fetch(`${API_BASE_URL}/call-compliance/dashboard`, { headers: h });
+        if (complianceRes.ok) setCompliance(await complianceRes.json());
+      } catch { /* ignore */ }
+      try {
+        const myStatsRes = await fetch(`${API_BASE_URL}/call-compliance/my-stats`, { headers: h });
+        if (myStatsRes.ok) setMyStats(await myStatsRes.json());
+      } catch { /* ignore */ }
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, [router]);
@@ -462,6 +496,138 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* ── Call Compliance: org-wide summary (namewise, visible to everyone) ── */}
+        {compliance && compliance.agents.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1 mb-1">
+                <PhoneOff className="h-3 w-3 text-red-500" />
+                <p className="text-xs font-semibold text-slate-700">Not Contacted — by Agent</p>
+                <span className="text-xs text-slate-400 ml-auto">{compliance.totals.notContacted} total</span>
+              </div>
+              <div className="space-y-1">
+                {[...compliance.agents].sort((a, b) => b.notContacted - a.notContacted).map((row) => (
+                  <div key={row.agentId} className="flex items-center justify-between gap-2 px-1.5 py-0.5">
+                    <span className="text-xs text-slate-700 truncate">{row.agentName}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-slate-400">{row.contacted}/{row.tagsApplied} contacted</span>
+                      <span className={`text-xs font-bold ${row.notContacted > 0 ? "text-red-600" : "text-emerald-600"}`}>{row.notContacted}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1 mb-1">
+                <Tag className="h-3 w-3 text-purple-500" />
+                <p className="text-xs font-semibold text-slate-700">AiSensy Tags Applied — by Agent</p>
+                <span className="text-xs text-slate-400 ml-auto">{compliance.totals.tagsApplied} total</span>
+              </div>
+              <div className="space-y-1">
+                {[...compliance.agents].sort((a, b) => b.tagsApplied - a.tagsApplied).map((row) => {
+                  const maxTags = Math.max(...compliance.agents.map((r) => r.tagsApplied), 1);
+                  const pct = Math.round((row.tagsApplied / maxTags) * 100);
+                  return (
+                    <div key={row.agentId} className="min-w-0">
+                      <div className="flex justify-between mb-0.5 gap-1">
+                        <span className="text-xs font-medium text-slate-700 truncate">{row.agentName}</span>
+                        <span className="text-slate-500 font-semibold flex-shrink-0" style={{ fontSize: "10px" }}>{row.tagsApplied}</span>
+                      </div>
+                      <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-purple-500 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Call Compliance: my personal stats ── */}
+        {myStats && myStats.taggedCount > 0 && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1 mb-1">
+                <PhoneOff className="h-3 w-3 text-red-500" />
+                <p className="text-xs font-semibold text-slate-700">My Not-Contacted Numbers</p>
+                <span className="text-xs text-slate-400 ml-auto">{myStats.notContactedCount} of {myStats.taggedCount} tagged</span>
+              </div>
+              {myStats.notContactedNumbers.length === 0 ? (
+                <p className="text-xs text-emerald-600 text-center py-4 font-medium">All tagged contacts called 🎉</p>
+              ) : (
+                <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                  {myStats.notContactedNumbers.slice(0, 20).map((n) => (
+                    <div key={n.phone} className="flex items-center justify-between gap-2 px-1 py-0.5 border-b border-slate-50 last:border-0">
+                      <span className="text-xs text-slate-700 truncate">{n.name || "—"}</span>
+                      <span className="text-xs font-mono text-slate-500 flex-shrink-0">{n.phone}</span>
+                    </div>
+                  ))}
+                  {myStats.notContactedNumbers.length > 20 && (
+                    <p className="text-xs text-slate-400 text-center pt-1">+{myStats.notContactedNumbers.length - 20} more</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1 mb-1">
+                <PhoneCall className="h-3 w-3 text-blue-500" />
+                <p className="text-xs font-semibold text-slate-700">My Top 5 Called Numbers</p>
+              </div>
+              {myStats.top5Called.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No calls imported yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {myStats.top5Called.map((n, i) => (
+                    <div key={n.phone} className="flex items-center justify-between gap-2 px-1 py-0.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-4 text-slate-400 flex-shrink-0" style={{ fontSize: "10px" }}>{i + 1}.</span>
+                        <span className="text-xs font-mono text-slate-700 truncate">{n.phone}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-xs text-slate-400">{fmtSecs(n.totalDurationSec)}</span>
+                        <span className="text-xs font-bold text-blue-600">{n.count}×</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1 mb-1">
+                <Repeat className="h-3 w-3 text-orange-500" />
+                <p className="text-xs font-semibold text-slate-700">My Calling Pattern</p>
+                <span className="text-xs text-slate-400 ml-auto">{myStats.callingPattern.repeatCallRate}% repeat</span>
+              </div>
+              {myStats.callingPattern.distinctNumbersCalled === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No calls imported yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {myStats.callingPattern.distribution.map((b) => {
+                    const maxCount = Math.max(...myStats.callingPattern.distribution.map((x) => x.count), 1);
+                    const pct = Math.round((b.count / maxCount) * 100);
+                    return (
+                      <div key={b.bucket} className="min-w-0">
+                        <div className="flex justify-between mb-0.5 gap-1">
+                          <span className="text-xs text-slate-600">{b.bucket}</span>
+                          <span className="text-slate-500 font-semibold" style={{ fontSize: "10px" }}>{b.count}</span>
+                        </div>
+                        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-orange-500 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-slate-400 pt-1">{myStats.callingPattern.calledOnce} numbers called once · {myStats.callingPattern.calledRepeat} called repeatedly</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
       </div>
     </DashboardShell>

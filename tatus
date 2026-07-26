@@ -1,0 +1,41 @@
+warning: in the working copy of 'backend/src/hr/hr.service.ts', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/backend/src/hr/hr.service.ts b/backend/src/hr/hr.service.ts[m
+[1mindex 204ffc8..cd4a355 100644[m
+[1m--- a/backend/src/hr/hr.service.ts[m
+[1m+++ b/backend/src/hr/hr.service.ts[m
+[36m@@ -534,6 +534,19 @@[m [mexport class HrService {[m
+     }[m
+ [m
+     const token = randomBytes(24).toString('hex');[m
+[32m+[m[32m    const link = `${frontendOrigin.replace(/\/$/, '')}/hr-agreement/${token}`;[m
+[32m+[m[32m    const body =[m
+[32m+[m[32m      `Hi ${employee.fullName},\n\n` +[m
+[32m+[m[32m      `Please review and accept the RarePrint HR agreement (${terms.title}) using the secure link below:\n\n` +[m
+[32m+[m[32m      `${link}\n\n` +[m
+[32m+[m[32m      `This link is unique to you — no login or OTP needed, just review the terms and confirm by typing your name.\n\n` +[m
+[32m+[m[32m      `Regards,\nRarePrint`;[m
+[32m+[m
+[32m+[m[32m    // Send first, persist second — if Gmail fails (expired token, quota,[m
+[32m+[m[32m    // etc.) we must not mark this as "sent" in the DB, or the UI will show[m
+[32m+[m[32m    // "awaiting acceptance" for a link that was never actually delivered.[m
+[32m+[m[32m    await this.gmail.sendMail(employee.email, `RarePrint HR Agreement — ${terms.title}`, body);[m
+[32m+[m
+     await this.prisma.employee.update({[m
+       where: { id: employeeId },[m
+       data: {[m
+[36m@@ -546,15 +559,6 @@[m [mexport class HrService {[m
+       },[m
+     });[m
+ [m
+[31m-    const link = `${frontendOrigin.replace(/\/$/, '')}/hr-agreement/${token}`;[m
+[31m-    const body =[m
+[31m-      `Hi ${employee.fullName},\n\n` +[m
+[31m-      `Please review and accept the RarePrint HR agreement (${terms.title}) using the secure link below:\n\n` +[m
+[31m-      `${link}\n\n` +[m
+[31m-      `This link is unique to you — no login or OTP needed, just review the terms and confirm by typing your name.\n\n` +[m
+[31m-      `Regards,\nRarePrint`;[m
+[31m-[m
+[31m-    await this.gmail.sendMail(employee.email, `RarePrint HR Agreement — ${terms.title}`, body);[m
+     return { sent: true, link };[m
+   }[m
+ [m
