@@ -112,26 +112,90 @@ export class DashboardService {
     };
   }
 
-  // ── Cashflow (owner-only) — net bank movement (all accounts combined:
-  // sum of credits minus sum of debits from Bank Statement) for this
-  // calendar month vs last month, plus the rupee delta between them ────────
+  // ── Cashflow (owner-only) — cash IN vs cash OUT for this calendar month
+  // vs last month, plus the rupee delta between the two months' net.
+  //
+  // Two sources are combined:
+  //  1. Bank Statement (BankTransaction CR/DR, all accounts combined) —
+  //     covers anything that actually moved through a bank account: NEFT/
+  //     IMPS/UPI-to-bank, cheque clearing, card settlement, etc.
+  //  2. Cash-mode receipts/payouts that never touch a bank account — customer
+  //     Payments and VendorPayments recorded with method === 'CASH'. These
+  //     are real money in/out of the till but would otherwise be invisible
+  //     here since they never appear in an imported bank statement.
+  // Payments/VendorPayments made via BANK_TRANSFER/UPI/CARD/CHEQUE are
+  // intentionally excluded from (2) — that money already shows up in (1)
+  // once the bank statement is imported, so counting it again would
+  // double-count it.
   async getCashflow() {
     const b = this.istBoundaries();
-    const netFor = async (from: Date, to: Date) => {
+
+    const bankFor = async (from: Date, to: Date) => {
       const rows = await this.prisma.bankTransaction.groupBy({
         by: ['crDr'],
         where: { txnDate: { gte: from, lt: to } },
         _sum: { amount: true },
       });
-      const credits = Number(rows.find(r => r.crDr === 'CR')?._sum.amount ?? 0);
-      const debits = Number(rows.find(r => r.crDr === 'DR')?._sum.amount ?? 0);
-      return credits - debits;
+      return {
+        credits: Number(rows.find(r => r.crDr === 'CR')?._sum.amount ?? 0),
+        debits: Number(rows.find(r => r.crDr === 'DR')?._sum.amount ?? 0),
+      };
     };
+
+    // Customer receipts collected in cash (never deposited/matched to a bank
+    // transaction). Excludes REJECTED so a bounced/voided cash entry doesn't
+    // count as real cash in hand.
+    const cashReceiptsFor = async (from: Date, to: Date) => {
+      const result = await this.prisma.payment.aggregate({
+        where: {
+          paymentDate: { gte: from, lt: to },
+          method: 'CASH',
+          verificationStatus: { not: 'REJECTED' },
+        },
+        _sum: { amount: true },
+      });
+      return Number(result._sum.amount ?? 0);
+    };
+
+    // Vendor/expense payouts made in cash.
+    const cashPaidOutFor = async (from: Date, to: Date) => {
+      const result = await this.prisma.vendorPayment.aggregate({
+        where: { paymentDate: { gte: from, lt: to }, method: 'CASH' },
+        _sum: { amount: true },
+      });
+      return Number(result._sum.amount ?? 0);
+    };
+
+    const periodFor = async (from: Date, to: Date) => {
+      const [bank, cashModeIn, cashModeOut] = await Promise.all([
+        bankFor(from, to),
+        cashReceiptsFor(from, to),
+        cashPaidOutFor(from, to),
+      ]);
+      const cashIn = bank.credits + cashModeIn;
+      const cashOut = bank.debits + cashModeOut;
+      return {
+        cashIn: Number(cashIn.toFixed(2)),
+        cashOut: Number(cashOut.toFixed(2)),
+        net: Number((cashIn - cashOut).toFixed(2)),
+        // Breakdown, in case the UI wants to show bank vs. till separately.
+        bankCashIn: Number(bank.credits.toFixed(2)),
+        bankCashOut: Number(bank.debits.toFixed(2)),
+        cashModeIn: Number(cashModeIn.toFixed(2)),
+        cashModeOut: Number(cashModeOut.toFixed(2)),
+      };
+    };
+
     const [thisMonth, lastMonth] = await Promise.all([
-      netFor(b.startOfMonth, b.startOfNextMonth),
-      netFor(b.startOfLastMonth, b.startOfMonth),
+      periodFor(b.startOfMonth, b.startOfNextMonth),
+      periodFor(b.startOfLastMonth, b.startOfMonth),
     ]);
-    return { thisMonth, lastMonth, deltaVsLastMonth: thisMonth - lastMonth };
+
+    return {
+      thisMonth,
+      lastMonth,
+      deltaVsLastMonth: Number((thisMonth.net - lastMonth.net).toFixed(2)),
+    };
   }
 
   // ── Profit KPIs (admin-only) — each period returns both gross profit

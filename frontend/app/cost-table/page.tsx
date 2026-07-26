@@ -80,11 +80,24 @@ type ImportJob = {
   }>;
 };
 
+type ProfitabilityRow = {
+  orderId: string;
+  orderNo: string;
+  orderDate: string;
+  salesAgentName: string | null;
+  saleTotal: number;
+  costTotal: number | null;
+  grossProfit: number | null;
+  commissionTotal: number | null;
+  netGrossProfit: number | null;
+  hasMissingCost: boolean;
+};
 type Profitability = {
   month: string;
   totals: { saleTotal: number; costTotal: number; grossProfit: number; commissionTotal: number; netGrossProfit: number };
   missingCostOrderCount: number;
   agents: Array<{ id: string; name: string; category: string | null; saleTotal: number; grossProfit: number; commissionTotal: number; netGrossProfit: number; orderCount: number }>;
+  rows: ProfitabilityRow[];
 };
 type NoCostProduct = { id: string; sku: string; name: string; description?: string | null; category?: { name: string }; gsm: number; sizeInches: string; sides: string };
 type SalesAgent = { id: string; fullName: string; email: string; salesAgentCategory: "A" | "B" | "C" | "D" | null };
@@ -1079,6 +1092,52 @@ export default function CostTablePage() {
                     </div>
                   ))}
                 </div>
+
+                {(() => {
+                  // Orders whose computed cost blows way past the sale price
+                  // are almost always a bad cost-slab entry (e.g. a total/
+                  // batch price typed in as a per-unit price), not a real
+                  // loss. Surfacing them here is how you find the order/
+                  // product responsible for a month's profit total looking
+                  // wrong, since a single bad slab can swing the whole month.
+                  const suspects = (profitability?.rows ?? [])
+                    .filter(r => !r.hasMissingCost && r.costTotal != null && r.saleTotal > 0 && r.costTotal > r.saleTotal * 3)
+                    .sort((a, b) => (a.grossProfit ?? 0) - (b.grossProfit ?? 0))
+                    .slice(0, 10);
+                  if (suspects.length === 0) return null;
+                  return (
+                    <div className="rounded-lg border border-red-200 bg-red-50 shadow-sm">
+                      <div className="flex items-center justify-between border-b border-red-100 px-4 py-3">
+                        <h2 className="flex items-center gap-2 text-sm font-bold text-red-800">
+                          <AlertTriangle size={15} /> Likely bad cost data — cost is 3x+ the sale price
+                        </h2>
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">{suspects.length}</span>
+                      </div>
+                      <p className="px-4 pt-2 text-xs text-red-700">
+                        These orders are dragging this month's profit total way down. Almost always caused by a cost slab entered as a total/batch price instead of a per-unit price — open the order, check each product's cost slab below, and fix the unit price.
+                      </p>
+                      <div className="max-h-80 overflow-auto divide-y divide-red-100 mt-2">
+                        {suspects.map(row => (
+                          <div key={row.orderId} className="flex items-center justify-between gap-3 px-4 py-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-bold text-blue-700">{row.orderNo}</span>
+                                <span className="text-xs text-gray-400">{row.salesAgentName ?? "No agent"}</span>
+                              </div>
+                              <p className="text-xs text-gray-500">
+                                Sale {money(row.saleTotal)} · Cost {money(row.costTotal)} · Gross {money(row.grossProfit)}
+                              </p>
+                            </div>
+                            <button onClick={() => { setActiveTab("orders"); }}
+                              className="rounded-lg border border-red-300 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 flex-shrink-0">
+                              Review
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   <div className="rounded-lg border border-gray-200 bg-white shadow-sm">

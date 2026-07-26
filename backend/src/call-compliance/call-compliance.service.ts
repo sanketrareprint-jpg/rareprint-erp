@@ -217,12 +217,20 @@ export class CallComplianceService {
       ),
     ];
 
+    // Diagnostic: how many rows actually had a parseable "Created On" date.
+    // The Ad ROI tab groups contacts by this field — if it's 0 here despite
+    // rowsFound being large, the CSV's date column/format doesn't match what
+    // aisensy-contacts-parser.ts expects, and every month will show 0
+    // contacts created even though the import itself "succeeded".
+    const rowsWithCreatedOnAt = parsedRows.filter((r) => r.createdOnAt != null).length;
+
     return {
       importId: importRow.id,
       rowsFound: parsedRows.length,
       created: toCreate.length,
       updated: updateJobs.length,
       unmatchedTags,
+      rowsWithCreatedOnAt,
     };
   }
 

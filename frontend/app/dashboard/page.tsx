@@ -33,7 +33,8 @@ type ProductionKpis = { metrics: ProductionKpiMetric[]; categoryCycleTimes: Prod
 type ProfitPeriod = { gross: number; net: number };
 type ProfitKpis = { today: ProfitPeriod; thisMonth: ProfitPeriod; lastMonth: ProfitPeriod };
 type SalesByMonthPoint = { month: string; total: number };
-type Cashflow = { thisMonth: number; lastMonth: number; deltaVsLastMonth: number };
+type CashflowPeriod = { cashIn: number; cashOut: number; net: number; bankCashIn: number; bankCashOut: number; cashModeIn: number; cashModeOut: number };
+type Cashflow = { thisMonth: CashflowPeriod; lastMonth: CashflowPeriod; deltaVsLastMonth: number };
 
 type ComplianceAgentRow = { agentId: string; agentName: string; tagsApplied: number; notContacted: number; contacted: number };
 type ComplianceDashboard = { agents: ComplianceAgentRow[]; totals: { tagsApplied: number; notContacted: number } };
@@ -57,6 +58,7 @@ function fmtSecs(sec: number) {
 }
 
 function fmt(n: number) {
+  if (n < 0) return `-${fmt(-n)}`;
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
   if (n >= 1000)   return `₹${(n / 1000).toFixed(1)}K`;
   return `₹${Math.round(n)}`;
@@ -232,28 +234,34 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Cashflow — owner only. Net bank movement (credits - debits,
-             all bank accounts combined) for this month vs last month. ── */}
+        {/* ── Cashflow — owner only. Cash IN vs cash OUT across bank accounts
+             (BankTransaction CR/DR) plus cash-mode receipts/payouts that
+             never touch a bank statement (Payment/VendorPayment method
+             CASH), for this month vs last month. ── */}
         {isOwner && cashflow && (
-          <div className={`rounded-lg border px-3 py-1.5 shadow-sm ${cashflow.thisMonth >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
-            <p className={`text-xs font-semibold mb-1 ${cashflow.thisMonth >= 0 ? "text-emerald-800" : "text-red-800"}`}>
-              Cashflow <span className="opacity-60 font-normal">(owner only, all bank accounts)</span>
+          <div className={`rounded-lg border px-3 py-1.5 shadow-sm ${cashflow.thisMonth.net >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+            <p className={`text-xs font-semibold mb-1 ${cashflow.thisMonth.net >= 0 ? "text-emerald-800" : "text-red-800"}`}>
+              Cashflow <span className="opacity-60 font-normal">(owner only, bank + cash)</span>
             </p>
             <div className="grid grid-cols-3 gap-2">
-              <div className="bg-white rounded-md border border-slate-100 px-3 py-1.5">
-                <p className="text-xs text-slate-500 font-medium truncate">This Month</p>
-                <p className={`text-lg font-bold leading-tight mt-0.5 ${cashflow.thisMonth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {cashflow.thisMonth >= 0 ? "+" : "-"}{fmt(Math.abs(cashflow.thisMonth))}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">{cashflow.thisMonth >= 0 ? "Positive" : "Negative"}</p>
-              </div>
-              <div className="bg-white rounded-md border border-slate-100 px-3 py-1.5">
-                <p className="text-xs text-slate-500 font-medium truncate">Last Month</p>
-                <p className={`text-lg font-bold leading-tight mt-0.5 ${cashflow.lastMonth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {cashflow.lastMonth >= 0 ? "+" : "-"}{fmt(Math.abs(cashflow.lastMonth))}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">{cashflow.lastMonth >= 0 ? "Positive" : "Negative"}</p>
-              </div>
+              {[
+                { label: "This Month", data: cashflow.thisMonth },
+                { label: "Last Month", data: cashflow.lastMonth },
+              ].map(({ label, data }) => (
+                <div key={label} className="bg-white rounded-md border border-slate-100 px-3 py-1.5">
+                  <p className="text-xs text-slate-500 font-medium truncate">{label}</p>
+                  <p className={`text-lg font-bold leading-tight mt-0.5 ${data.net >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {data.net >= 0 ? "+" : "-"}{fmt(Math.abs(data.net))}
+                  </p>
+                  <div className="flex items-center gap-2 text-xs mt-0.5">
+                    <span className="text-emerald-600 font-medium">↓ In {fmt(data.cashIn)}</span>
+                    <span className="text-red-500 font-medium">↑ Out {fmt(data.cashOut)}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Cash-mode: {fmt(data.cashModeIn)} in / {fmt(data.cashModeOut)} out
+                  </p>
+                </div>
+              ))}
               <div className="bg-white rounded-md border border-slate-100 px-3 py-1.5">
                 <p className="text-xs text-slate-500 font-medium truncate">Vs Last Month</p>
                 <p className={`text-lg font-bold leading-tight mt-0.5 ${cashflow.deltaVsLastMonth >= 0 ? "text-emerald-600" : "text-red-600"}`}>

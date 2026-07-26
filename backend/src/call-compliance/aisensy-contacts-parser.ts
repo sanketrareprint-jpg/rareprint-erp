@@ -29,20 +29,60 @@ function cellStr(v: unknown): string {
   return String(v).trim();
 }
 
+// Looks up a column by trying several header spellings, case/whitespace/BOM
+// insensitive — AiSensy's export headers have drifted between "Created On",
+// "CreatedOn" and "Created At" across account/export-type variants, and a
+// silent miss here used to leave createdOnAt null for every row (which then
+// made every month in the Ad ROI tab show 0 contacts created, even though
+// the phone/name columns parsed fine).
+function getField(row: Record<string, unknown>, candidates: string[]): unknown {
+  const normalizedKeys = new Map<string, string>();
+  for (const key of Object.keys(row)) {
+    normalizedKeys.set(key.replace(/^﻿/, '').trim().toLowerCase().replace(/\s+/g, ' '), key);
+  }
+  for (const candidate of candidates) {
+    const norm = candidate.trim().toLowerCase().replace(/\s+/g, ' ');
+    const actualKey = normalizedKeys.get(norm);
+    if (actualKey !== undefined) return row[actualKey];
+  }
+  return undefined;
+}
+
 const MONTHS: Record<string, number> = {
   JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
   JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
 };
 
-/** Parses AiSensy's "01 Jul 2026 00:09" export date format. */
+/**
+ * Parses AiSensy export dates. Handles the documented "01 Jul 2026 00:09"
+ * format plus common variants (seconds, AM/PM, full month names), and falls
+ * back to native Date parsing (ISO strings, "MM/DD/YYYY", etc.) for exports
+ * that use a different locale format entirely. Returns null only if nothing
+ * plausible can be extracted, rather than silently returning a bad date.
+ */
 function parseAisensyDate(raw: unknown): Date | null {
   const s = cellStr(raw);
   if (!s) return null;
-  const m = s.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const mon = MONTHS[m[2].toUpperCase()];
-  if (mon === undefined) return null;
-  return new Date(Number(m[3]), mon, Number(m[1]), Number(m[4]), Number(m[5]));
+
+  const m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (m) {
+    const mon = MONTHS[m[2].slice(0, 3).toUpperCase()];
+    if (mon !== undefined) {
+      let hour = Number(m[4]);
+      const ampm = m[7]?.toUpperCase();
+      if (ampm === 'PM' && hour < 12) hour += 12;
+      if (ampm === 'AM' && hour === 12) hour = 0;
+      const date = new Date(Number(m[3]), mon, Number(m[1]), hour, Number(m[5]), Number(m[6] ?? 0));
+      if (!isNaN(date.getTime())) return date;
+    }
+  }
+
+  // Fallback for formats not covered above (ISO timestamps, "MM/DD/YYYY", etc.)
+  const fallback = new Date(s);
+  if (!isNaN(fallback.getTime()) && fallback.getFullYear() >= 2015 && fallback.getFullYear() <= 2100) {
+    return fallback;
+  }
+  return null;
 }
 
 /** Normalizes any phone-number-ish string (e.g. "+917001596262") to its last 10 digits. */
@@ -65,22 +105,22 @@ export function parseAisensyContactsCsv(buffer: Buffer): ParsedContactRow[] {
 
   const result: ParsedContactRow[] = [];
   for (const row of rows) {
-    const phone = normalizeContactPhone(row['UserNumber']);
+    const phone = normalizeContactPhone(getField(row, ['UserNumber', 'User Number', 'Phone', 'Mobile', 'WA ID']));
     if (phone.length !== 10) continue; // skip rows without a usable number
 
-    const tagRaw = cellStr(row['Tags']) || null;
+    const tagRaw = cellStr(getField(row, ['Tags', 'Tag'])) || null;
     const tags = tagRaw ? splitTags(tagRaw) : [];
-    const optedInRaw = cellStr(row['Opted In']).toLowerCase();
+    const optedInRaw = cellStr(getField(row, ['Opted In', 'OptedIn'])).toLowerCase();
 
     result.push({
-      name: cellStr(row['Name']) || null,
+      name: cellStr(getField(row, ['Name'])) || null,
       phone,
       tagRaw,
       primaryTag: tags[0] ?? null,
-      lastActiveAt: parseAisensyDate(row['Last Active']),
-      createdOnAt: parseAisensyDate(row['Created On']),
-      source: cellStr(row['Source']) || null,
-      status: cellStr(row['Status']) || null,
+      lastActiveAt: parseAisensyDate(getField(row, ['Last Active', 'LastActive'])),
+      createdOnAt: parseAisensyDate(getField(row, ['Created On', 'CreatedOn', 'Created At', 'CreatedAt', 'Date Created', 'Created'])),
+      source: cellStr(getField(row, ['Source'])) || null,
+      status: cellStr(getField(row, ['Status'])) || null,
       optedIn: optedInRaw ? optedInRaw === 'yes' : null,
     });
   }

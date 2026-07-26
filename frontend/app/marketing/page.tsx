@@ -516,9 +516,14 @@ function MarketingPageContent() {
       const res = await fetch(`${API_BASE_URL}/marketing/roi/contacts/import`, { method: "POST", headers: uploadHeaders, body: formData });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.message || `Upload failed with status ${res.status}`);
+      const rowsFound = Number(data?.rowsFound ?? 0);
+      const withDate = Number(data?.rowsWithCreatedOnAt ?? 0);
+      const dateWarning = rowsFound > 0 && withDate === 0
+        ? " Warning: none of these rows had a readable 'Created On' date — the ROI table below will show 0 contacts created until that's fixed. Please share this CSV's header row so it can be fixed."
+        : "";
       setRoiMessage({
-        type: "success",
-        message: `Imported ${Number(data?.created ?? 0).toLocaleString("en-IN")} new, updated ${Number(data?.updated ?? 0).toLocaleString("en-IN")} AiSensy contacts.`,
+        type: dateWarning ? "error" : "success",
+        message: `Imported ${Number(data?.created ?? 0).toLocaleString("en-IN")} new, updated ${Number(data?.updated ?? 0).toLocaleString("en-IN")} AiSensy contacts (${withDate.toLocaleString("en-IN")}/${rowsFound.toLocaleString("en-IN")} had a usable Created On date).${dateWarning}`,
       });
       await loadRoi();
     } catch (error) {
