@@ -50,14 +50,19 @@ export class CallComplianceService {
         periodStart: parsed.periodStart,
         periodEnd: parsed.periodEnd,
         rowsFound: parsed.rows.length,
-        rowsImported: agent ? parsed.rows.length : 0,
+        rowsImported: 0,
         rawRows: agent ? Prisma.JsonNull : (parsed.rows as unknown as Prisma.InputJsonValue),
         importedById,
       },
     });
 
+    let inserted = 0;
+    let duplicates = 0;
     if (agent) {
-      await this.materializeCallLogRecords(importRow.id, agent.id, parsed.rows);
+      const result = await this.materializeCallLogRecords(importRow.id, agent.id, parsed.rows);
+      inserted = result.inserted;
+      duplicates = result.duplicates;
+      await this.prisma.callLogImport.update({ where: { id: importRow.id }, data: { rowsImported: inserted } });
     }
 
     return {
@@ -67,6 +72,13 @@ export class CallComplianceService {
       periodStart: parsed.periodStart,
       periodEnd: parsed.periodEnd,
       rowsFound: parsed.rows.length,
+      // rowsImported/duplicatesSkipped only reflect anything once an agent is
+      // known — if this statement overlaps a previously-imported period for
+      // the same agent, the overlapping calls are skipped as duplicates
+      // (same agent + same number + same exact call timestamp), not
+      // double-counted.
+      rowsImported: inserted,
+      duplicatesSkipped: duplicates,
       agent,
       needsAgentAssignment: !agent,
     };
@@ -92,13 +104,14 @@ export class CallComplianceService {
     const rawRows = (importRow.rawRows as unknown as ParsedCallRow[] | null) ?? [];
     const rows: ParsedCallRow[] = rawRows.map((r) => ({ ...r, calledAt: new Date(r.calledAt) }));
 
+    const result = await this.materializeCallLogRecords(importId, agent.id, rows);
+
     await this.prisma.callLogImport.update({
       where: { id: importId },
-      data: { agentId: agent.id, rowsImported: rows.length, rawRows: Prisma.JsonNull },
+      data: { agentId: agent.id, rowsImported: result.inserted, rawRows: Prisma.JsonNull },
     });
-    await this.materializeCallLogRecords(importId, agent.id, rows);
 
-    return { success: true, agent };
+    return { success: true, agent, rowsImported: result.inserted, duplicatesSkipped: result.duplicates };
   }
 
   async deleteCallLogImport(importId: string) {
@@ -106,12 +119,23 @@ export class CallComplianceService {
     return { success: true };
   }
 
-  private async materializeCallLogRecords(importId: string, agentId: string, rows: ParsedCallRow[]) {
+  private async materializeCallLogRecords(
+    importId: string,
+    agentId: string,
+    rows: ParsedCallRow[],
+  ): Promise<{ inserted: number; duplicates: number }> {
+    // Clear out this import's own previously-materialized rows first (so
+    // re-assigning an import is idempotent), then insert fresh. `skipDuplicates`
+    // relies on the (agentId, phone, calledAt) unique index to silently drop
+    // any row that's already present from a *different* import — this is what
+    // prevents an overlapping-period re-upload from double-counting calls.
     await this.prisma.callLogRecord.deleteMany({ where: { importId } });
-    if (!rows.length) return;
-    await this.prisma.callLogRecord.createMany({
+    if (!rows.length) return { inserted: 0, duplicates: 0 };
+    const result = await this.prisma.callLogRecord.createMany({
       data: rows.map((r) => ({ importId, agentId, phone: r.phone, calledAt: r.calledAt, durationSec: r.durationSec })),
+      skipDuplicates: true,
     });
+    return { inserted: result.count, duplicates: rows.length - result.count };
   }
 
   private async findAgentByPhone(phoneLast10: string): Promise<{ id: string; fullName: string } | null> {
@@ -249,30 +273,43 @@ export class CallComplianceService {
   // COMPLIANCE STATS (per agent + org-wide dashboard)
   // ─────────────────────────────────────────────────────────────────────
 
-  async getAgentComplianceStats(agentId: string) {
+  async getAgentComplianceStats(agentId: string, month?: string) {
     const agent = await this.prisma.user.findUnique({
       where: { id: agentId },
       select: { id: true, fullName: true, aisensyTag: true },
     });
     if (!agent) throw new NotFoundException('Agent not found');
 
-    const [taggedContacts, callRecords] = await Promise.all([
+    const monthFilter = month ? this.monthRange(month) : null;
+
+    const [taggedContacts, allCallRecords] = await Promise.all([
       this.prisma.importedContact.findMany({
-        where: { agentId },
+        // Which tagged contacts we're reporting on is scoped to the month
+        // (by when AiSensy says the contact was created) if one is given.
+        where: { agentId, ...(monthFilter ? { createdOnAt: { gte: monthFilter.start, lt: monthFilter.end } } : {}) },
         select: { name: true, phone: true, tagRaw: true, lastActiveAt: true, createdOnAt: true },
       }),
+      // Always fetch the agent's FULL call history — whether a contact has
+      // been called shouldn't depend on which month you're viewing; a lead
+      // tagged in July but called in August is still contacted.
       this.prisma.callLogRecord.findMany({
         where: { agentId },
         select: { phone: true, calledAt: true, durationSec: true },
       }),
     ]);
 
-    const calledPhones = new Set(callRecords.map((c) => c.phone));
+    const calledPhones = new Set(allCallRecords.map((c) => c.phone));
     const notContacted = taggedContacts.filter((c) => !calledPhones.has(c.phone));
+
+    // The "calls made" stats below (top 5, calling pattern) DO respect the
+    // month filter — that's the actual "call activity this month" view.
+    const scopedCallRecords = monthFilter
+      ? allCallRecords.filter((c) => c.calledAt >= monthFilter.start && c.calledAt < monthFilter.end)
+      : allCallRecords;
 
     type Agg = { count: number; totalDurationSec: number; lastCalledAt: Date };
     const byPhone = new Map<string, Agg>();
-    for (const c of callRecords) {
+    for (const c of scopedCallRecords) {
       const cur = byPhone.get(c.phone) ?? { count: 0, totalDurationSec: 0, lastCalledAt: c.calledAt };
       cur.count += 1;
       cur.totalDurationSec += c.durationSec;
@@ -304,6 +341,7 @@ export class CallComplianceService {
       agentId: agent.id,
       agentName: agent.fullName,
       aisensyTag: agent.aisensyTag,
+      month: month ?? null,
       taggedCount: taggedContacts.length,
       contactedCount: taggedContacts.length - notContacted.length,
       notContactedCount: notContacted.length,
@@ -321,7 +359,9 @@ export class CallComplianceService {
     };
   }
 
-  async getComplianceDashboard() {
+  async getComplianceDashboard(month?: string) {
+    const monthFilter = month ? this.monthRange(month) : null;
+
     const agents = await this.prisma.user.findMany({
       where: { isActive: true, role: { in: AGENT_ROLES } },
       select: { id: true, fullName: true, aisensyTag: true },
@@ -329,9 +369,13 @@ export class CallComplianceService {
 
     const [allContacts, allCalls] = await Promise.all([
       this.prisma.importedContact.findMany({
-        where: { agentId: { not: null } },
+        // "tags applied this month" = contacts AiSensy says were created
+        // that month. Falls back to all-time when no month is given.
+        where: { agentId: { not: null }, ...(monthFilter ? { createdOnAt: { gte: monthFilter.start, lt: monthFilter.end } } : {}) },
         select: { agentId: true, phone: true },
       }),
+      // Contacted-check always uses the full call history, not month-scoped —
+      // see getAgentComplianceStats for why.
       this.prisma.callLogRecord.findMany({ select: { agentId: true, phone: true } }),
     ]);
 
@@ -365,11 +409,97 @@ export class CallComplianceService {
       .sort((a, b) => b.notContacted - a.notContacted);
 
     return {
+      month: month ?? null,
       agents: rows,
       totals: {
         tagsApplied: rows.reduce((sum, r) => sum + r.tagsApplied, 0),
         notContacted: rows.reduce((sum, r) => sum + r.notContacted, 0),
       },
     };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // NOT-CONTACTED LEADS (CRM view)
+  // ─────────────────────────────────────────────────────────────────────
+
+  /** Admins see every agent's not-contacted numbers; agents see only their own. */
+  async getNotContactedLeads(requester: { id: string; role: string }, month?: string) {
+    const isAdmin = requester.role === 'ADMIN';
+    const monthFilter = month ? this.monthRange(month) : null;
+    const contactWhere = {
+      ...(isAdmin ? { agentId: { not: null } } : { agentId: requester.id }),
+      ...(monthFilter ? { createdOnAt: { gte: monthFilter.start, lt: monthFilter.end } } : {}),
+    };
+
+    const [contacts, calls] = await Promise.all([
+      this.prisma.importedContact.findMany({
+        where: contactWhere,
+        select: {
+          id: true, name: true, phone: true, tagRaw: true,
+          lastActiveAt: true, createdOnAt: true, agentId: true,
+          agent: { select: { fullName: true } },
+        },
+      }),
+      // Contacted-check always uses the full call history — see
+      // getAgentComplianceStats for why month doesn't scope this side.
+      this.prisma.callLogRecord.findMany({
+        where: isAdmin ? {} : { agentId: requester.id },
+        select: { agentId: true, phone: true },
+      }),
+    ]);
+
+    const calledSetByAgent = new Map<string, Set<string>>();
+    for (const c of calls) {
+      if (!calledSetByAgent.has(c.agentId)) calledSetByAgent.set(c.agentId, new Set());
+      calledSetByAgent.get(c.agentId)!.add(c.phone);
+    }
+
+    return contacts
+      .filter((c) => c.agentId && !calledSetByAgent.get(c.agentId)?.has(c.phone))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        tagRaw: c.tagRaw,
+        lastActiveAt: c.lastActiveAt,
+        createdOnAt: c.createdOnAt,
+        agentId: c.agentId,
+        agentName: c.agent?.fullName ?? null,
+      }))
+      .sort((a, b) => (b.lastActiveAt?.getTime() ?? 0) - (a.lastActiveAt?.getTime() ?? 0));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // MONTH HELPERS
+  // ─────────────────────────────────────────────────────────────────────
+  // "month" everywhere in this service is a "YYYY-MM" string (same convention
+  // as marketing-roi.service.ts's monthKey, since both features read the
+  // same ImportedContact.createdOnAt column for their month bucketing).
+
+  /** Every month that has either a tagged contact or a logged call, most recent first. */
+  async listAvailableMonths(): Promise<{ month: string; label: string }[]> {
+    const [contacts, calls] = await Promise.all([
+      this.prisma.importedContact.findMany({ where: { createdOnAt: { not: null } }, select: { createdOnAt: true } }),
+      this.prisma.callLogRecord.findMany({ select: { calledAt: true } }),
+    ]);
+    const months = new Set<string>();
+    for (const c of contacts) if (c.createdOnAt) months.add(this.toMonthKey(c.createdOnAt));
+    for (const c of calls) months.add(this.toMonthKey(c.calledAt));
+    return [...months].sort((a, b) => (a < b ? 1 : -1)).map((m) => ({ month: m, label: this.monthLabel(m) }));
+  }
+
+  private toMonthKey(d: Date): string {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  private monthLabel(monthKey: string): string {
+    const [year, month] = monthKey.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  private monthRange(monthKey: string): { start: Date; end: Date } {
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) throw new BadRequestException('month must be "YYYY-MM"');
+    const [year, month] = monthKey.split('-').map(Number);
+    return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 1)) };
   }
 }

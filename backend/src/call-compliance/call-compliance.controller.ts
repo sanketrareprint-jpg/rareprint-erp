@@ -1,6 +1,6 @@
 // backend/src/call-compliance/call-compliance.controller.ts
 import {
-  Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put,
+  Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Query,
   Req, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -102,22 +102,36 @@ export class CallComplianceController {
   }
 
   // ── Compliance stats ─────────────────────────────────────────────────
+  // All of these take an optional ?month=YYYY-MM to scope the report to one
+  // month's tagged contacts / call activity — omit it for the all-time view.
+
+  @Get('months')
+  listAvailableMonths() {
+    return this.service.listAvailableMonths();
+  }
+
   @Get('dashboard')
-  getDashboard() {
+  getDashboard(@Query('month') month?: string) {
     // Visible to everyone (namewise not-contacted + tags-applied summary).
-    return this.service.getComplianceDashboard();
+    return this.service.getComplianceDashboard(month || undefined);
   }
 
   @Get('my-stats')
-  getMyStats(@Req() req: Request & { user: JwtUser }) {
-    return this.service.getAgentComplianceStats(req.user.id);
+  getMyStats(@Req() req: Request & { user: JwtUser }, @Query('month') month?: string) {
+    return this.service.getAgentComplianceStats(req.user.id, month || undefined);
+  }
+
+  @Get('not-contacted')
+  getNotContactedLeads(@Req() req: Request & { user: JwtUser }, @Query('month') month?: string) {
+    // Admins see every agent's not-contacted leads; agents see only their own.
+    return this.service.getNotContactedLeads(req.user, month || undefined);
   }
 
   @Get('agents/:id/stats')
-  getAgentStats(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+  getAgentStats(@Param('id') id: string, @Req() req: Request & { user: JwtUser }, @Query('month') month?: string) {
     if (req.user.role !== 'ADMIN' && req.user.id !== id) {
       throw new ForbiddenException('You can only view your own compliance stats');
     }
-    return this.service.getAgentComplianceStats(id);
+    return this.service.getAgentComplianceStats(id, month || undefined);
   }
 }

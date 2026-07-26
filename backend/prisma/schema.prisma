@@ -1298,6 +1298,12 @@ model CallLogRecord {
   import CallLogImport @relation(fields: [importId], references: [id], onDelete: Cascade)
   agent  User          @relation("CallLogRecordAgent", fields: [agentId], references: [id])
 
+  // Guards against double-counting when an agent's overlapping-period
+  // statement gets uploaded more than once (e.g. a 1st-15th statement and a
+  // later 1st-20th statement both contain the same calls from the 1st-15th).
+  // Same agent + same destination number + same exact call timestamp = same
+  // call, regardless of which import it came from.
+  @@unique([agentId, phone, calledAt])
   @@index([agentId, phone])
   @@index([phone])
   @@index([agentId, calledAt])

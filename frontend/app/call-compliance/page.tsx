@@ -91,9 +91,11 @@ export default function CallCompliancePage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Import failed");
       if (data.needsAgentAssignment) {
-        setNotice(`Imported ${data.rowsFound} calls from "${data.fileName}" — number ${data.ownerNumber ?? "unknown"} didn't match any agent's phone. Assign it manually below.`);
+        setNotice(`Found ${data.rowsFound} calls in "${data.fileName}" — number ${data.ownerNumber ?? "unknown"} didn't match any agent's phone. Assign it manually below.`);
       } else {
-        setNotice(`Imported ${data.rowsFound} calls from "${data.fileName}" — matched to ${data.agent?.fullName}.`);
+        let msg = `Imported ${data.rowsImported} new calls from "${data.fileName}" — matched to ${data.agent?.fullName}.`;
+        if (data.duplicatesSkipped > 0) msg += ` ${data.duplicatesSkipped} calls were already imported previously (overlapping period) and were skipped.`;
+        setNotice(msg);
       }
       await load();
     } catch (e: any) { setError(e.message || "Import failed"); }
@@ -126,6 +128,10 @@ export default function CallCompliancePage() {
         method: "PUT", headers: getAuthHeaders(), body: JSON.stringify({ agentId }),
       });
       if (!res.ok) throw new Error("Assign failed");
+      const data = await res.json().catch(() => ({}));
+      let msg = `Assigned to ${data.agent?.fullName} — ${data.rowsImported} calls imported.`;
+      if (data.duplicatesSkipped > 0) msg += ` ${data.duplicatesSkipped} were already present (duplicates) and were skipped.`;
+      setNotice(msg);
       await load();
     } catch { setError("Could not assign agent to this import"); }
   }

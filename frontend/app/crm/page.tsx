@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import {
   makeCall as nativeMakeCall,
@@ -528,6 +529,9 @@ function CrmPageContent() {
             <p className="text-xs sm:text-sm text-slate-500">Manage your sales pipeline</p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
+            <Link href="/crm/not-contacted" className="inline-flex items-center gap-1 border border-red-200 text-red-700 text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg hover:bg-red-50 font-medium">
+              📵 <span className="hidden sm:inline">Not Contacted</span>
+            </Link>
             <button onClick={() => setShowImportModal(true)} className="inline-flex items-center gap-1 border border-slate-300 text-slate-700 text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium">
               📥 <span className="hidden sm:inline">Import</span>
             </button>

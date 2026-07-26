@@ -93,6 +93,8 @@ export default function DashboardPage() {
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
+  const [complianceMonth, setComplianceMonth] = useState<string>(""); // "" = all time
+  const [availableMonths, setAvailableMonths] = useState<{ month: string; label: string }[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [currentUser] = useState(() => getStoredUser());
@@ -116,18 +118,33 @@ export default function DashboardPage() {
       setCashflow(data.cashflow ?? null);
 
       // Call-compliance widgets are best-effort — don't fail the whole
-      // dashboard if there's no data imported yet.
+      // dashboard if there's no data imported yet. Fetched by the dedicated
+      // effect below (keyed off complianceMonth) so switching the month
+      // dropdown doesn't have to reload the entire dashboard.
       try {
-        const complianceRes = await fetch(`${API_BASE_URL}/call-compliance/dashboard`, { headers: h });
-        if (complianceRes.ok) setCompliance(await complianceRes.json());
-      } catch { /* ignore */ }
-      try {
-        const myStatsRes = await fetch(`${API_BASE_URL}/call-compliance/my-stats`, { headers: h });
-        if (myStatsRes.ok) setMyStats(await myStatsRes.json());
+        const monthsRes = await fetch(`${API_BASE_URL}/call-compliance/months`, { headers: h });
+        if (monthsRes.ok) setAvailableMonths(await monthsRes.json());
       } catch { /* ignore */ }
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, [router]);
+
+  const loadCompliance = useCallback(async (month: string) => {
+    try {
+      const h = getAuthHeaders();
+      const qs = month ? `?month=${month}` : "";
+      const complianceRes = await fetch(`${API_BASE_URL}/call-compliance/dashboard${qs}`, { headers: h });
+      if (complianceRes.ok) setCompliance(await complianceRes.json());
+    } catch { /* ignore */ }
+    try {
+      const h = getAuthHeaders();
+      const qs = month ? `?month=${month}` : "";
+      const myStatsRes = await fetch(`${API_BASE_URL}/call-compliance/my-stats${qs}`, { headers: h });
+      if (myStatsRes.ok) setMyStats(await myStatsRes.json());
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { void loadCompliance(complianceMonth); }, [complianceMonth, loadCompliance]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -496,6 +513,21 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* ── Call Compliance: month selector ── */}
+        {(compliance || myStats) && availableMonths.length > 0 && (
+          <div className="flex items-center justify-end gap-1.5 -mb-1">
+            <span className="text-xs text-slate-400">Call compliance for:</span>
+            <select
+              value={complianceMonth}
+              onChange={(e) => setComplianceMonth(e.target.value)}
+              className="border border-slate-200 rounded-md px-2 py-1 text-xs bg-white"
+            >
+              <option value="">All time</option>
+              {availableMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* ── Call Compliance: org-wide summary (namewise, visible to everyone) ── */}
         {compliance && compliance.agents.length > 0 && (
