@@ -41,6 +41,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { CallComplianceModule } from './call-compliance/call-compliance.module';
+import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { CallComplianceModule } from './call-compliance/call-compliance.module';
     LoyaltyModule,
     ComplaintsModule,
     CallComplianceModule,
+    MarketingRoiModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

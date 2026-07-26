@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Send,
   Settings,
+  TrendingUp,
   Users,
 } from "lucide-react";
 
@@ -70,6 +71,25 @@ type MarketingSettings = {
   sendEndHour: number;
   batchSize: number;
   batchIntervalSec: number;
+};
+
+type RoiMonth = {
+  monthKey: string;
+  label: string;
+  metaAdSpend: number;
+  aisensySpend: number;
+  totalSpend: number;
+  notes: string | null;
+  contactsCreated: number;
+  convertedCustomers: number;
+  conversionRatioPct: number;
+  totalSale: number;
+  totalProfit: number;
+  ordersMatched: number;
+  ordersMissingCost: number;
+  roiVsSaleX: number | null;
+  roiVsProfitX: number | null;
+  costPerConversion: number | null;
 };
 
 const emptyTemplate = {
@@ -133,7 +153,15 @@ function MarketingPageContent() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [diagnostics, setDiagnostics] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"campaigns" | "contacts" | "templates" | "analytics" | "settings">("campaigns");
+  const [activeTab, setActiveTab] = useState<"campaigns" | "contacts" | "templates" | "analytics" | "roi" | "settings">("campaigns");
+  const [roiMonths, setRoiMonths] = useState<RoiMonth[]>([]);
+  const [roiLoading, setRoiLoading] = useState(false);
+  const [roiLoaded, setRoiLoaded] = useState(false);
+  const [roiMessage, setRoiMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [roiUploading, setRoiUploading] = useState(false);
+  const [roiSpendDrafts, setRoiSpendDrafts] = useState<Record<string, { metaAdSpend: string; aisensySpend: string }>>({});
+  const [savingRoiMonth, setSavingRoiMonth] = useState<string | null>(null);
+  const roiCsvFileRef = useRef<HTMLInputElement | null>(null);
   const [broadcastSettings, setBroadcastSettings] = useState<MarketingSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState<MarketingSettings>({ dailyLimit: 10000, dailyRunHour: 10, sendStartHour: 10, sendEndHour: 18, batchSize: 200, batchIntervalSec: 120 });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -449,6 +477,82 @@ function MarketingPageContent() {
     }
   };
 
+  const loadRoi = useCallback(async () => {
+    setRoiLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/marketing/roi/months?count=12`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data: RoiMonth[] = await res.json();
+        setRoiMonths(data);
+        setRoiSpendDrafts(
+          Object.fromEntries(
+            data.map((m) => [m.monthKey, { metaAdSpend: m.metaAdSpend ? String(m.metaAdSpend) : "", aisensySpend: m.aisensySpend ? String(m.aisensySpend) : "" }]),
+          ),
+        );
+      }
+    } finally {
+      setRoiLoading(false);
+      setRoiLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "roi" && !roiLoaded) loadRoi();
+  }, [activeTab, roiLoaded, loadRoi]);
+
+  const uploadRoiContacts = async (file?: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setRoiMessage({ type: "error", message: "Please choose a .csv file (the AiSensy 'Export Contacts' download)." });
+      return;
+    }
+    setRoiUploading(true);
+    setRoiMessage(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      // Don't pass Content-Type here — browser must set it to multipart/form-data with boundary
+      const { "Content-Type": _ct, ...uploadHeaders } = getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/marketing/roi/contacts/import`, { method: "POST", headers: uploadHeaders, body: formData });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.message || `Upload failed with status ${res.status}`);
+      setRoiMessage({
+        type: "success",
+        message: `Imported ${Number(data?.created ?? 0).toLocaleString("en-IN")} new, updated ${Number(data?.updated ?? 0).toLocaleString("en-IN")} AiSensy contacts.`,
+      });
+      await loadRoi();
+    } catch (error) {
+      setRoiMessage({ type: "error", message: error instanceof Error ? error.message : "Upload failed. Please try again." });
+    } finally {
+      setRoiUploading(false);
+      if (roiCsvFileRef.current) roiCsvFileRef.current.value = "";
+    }
+  };
+
+  const saveRoiSpend = async (monthKey: string) => {
+    const draft = roiSpendDrafts[monthKey] ?? { metaAdSpend: "", aisensySpend: "" };
+    setSavingRoiMonth(monthKey);
+    setRoiMessage(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/marketing/roi/months/${monthKey}/spend`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          metaAdSpend: Number(draft.metaAdSpend || 0),
+          aisensySpend: Number(draft.aisensySpend || 0),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.message || `Save failed with status ${res.status}`);
+      setRoiMonths((months) => months.map((m) => (m.monthKey === monthKey ? data : m)));
+      setRoiMessage({ type: "success", message: `Saved spend for ${data.label}.` });
+    } catch (error) {
+      setRoiMessage({ type: "error", message: error instanceof Error ? error.message : "Save failed. Please try again." });
+    } finally {
+      setSavingRoiMonth(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="border-b border-slate-200 bg-white px-6 py-4">
@@ -523,6 +627,7 @@ function MarketingPageContent() {
             ["contacts", "Contacts"],
             ["templates", "Templates"],
             ["analytics", "Analytics"],
+            ["roi", "Ad ROI"],
             ["settings", "Settings"],
           ].map(([key, label]) => (
             <button
@@ -734,6 +839,125 @@ function MarketingPageContent() {
                 </div>
               ))}
             </section>
+          </div>
+        ) : activeTab === "roi" ? (
+          <div className="mt-5 space-y-4">
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="flex items-center gap-2 font-bold"><TrendingUp size={16} className="text-blue-600" /> Ad Spend ROI</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Contacts created each month come from the AiSensy "Export Contacts" CSV — upload it here (or from Call Compliance, same file). Enter that month&apos;s Meta Ads and AiSensy spend below to see conversions, sale, and profit.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={roiCsvFileRef}
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => uploadRoiContacts(e.target.files?.[0])}
+                  />
+                  <button
+                    type="button"
+                    disabled={roiUploading}
+                    onClick={() => roiCsvFileRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <FileUp size={16} />
+                    {roiUploading ? "Uploading..." : "Upload AiSensy Contacts CSV"}
+                  </button>
+                </div>
+              </div>
+              {roiMessage && (
+                <div className={`mt-3 rounded-lg border px-4 py-3 text-sm font-semibold ${roiMessage.type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                  {roiMessage.message}
+                </div>
+              )}
+            </section>
+
+            <section className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+              {roiLoading ? (
+                <div className="p-8 text-center text-slate-500">Loading ROI data...</div>
+              ) : (
+                <table className="w-full min-w-[1100px] text-sm">
+                  <thead className="bg-slate-50 text-left text-xs font-bold uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Month</th>
+                      <th className="px-3 py-2">Meta Ad Spend</th>
+                      <th className="px-3 py-2">AiSensy Spend</th>
+                      <th className="px-3 py-2">Total Spend</th>
+                      <th className="px-3 py-2">Contacts Created</th>
+                      <th className="px-3 py-2">Converted</th>
+                      <th className="px-3 py-2">Conversion %</th>
+                      <th className="px-3 py-2">Total Sale</th>
+                      <th className="px-3 py-2">Total Profit</th>
+                      <th className="px-3 py-2">Spend vs Sale</th>
+                      <th className="px-3 py-2">Spend vs Profit</th>
+                      <th className="px-3 py-2">Cost / Conversion</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {roiMonths.map((m) => {
+                      const draft = roiSpendDrafts[m.monthKey] ?? { metaAdSpend: "", aisensySpend: "" };
+                      const dirty = Number(draft.metaAdSpend || 0) !== m.metaAdSpend || Number(draft.aisensySpend || 0) !== m.aisensySpend;
+                      return (
+                        <tr key={m.monthKey} className="align-middle">
+                          <td className="px-3 py-2 font-semibold text-slate-900">{m.label}</td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min={0}
+                              className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              value={draft.metaAdSpend}
+                              onChange={(e) => setRoiSpendDrafts((prev) => ({ ...prev, [m.monthKey]: { ...draft, metaAdSpend: e.target.value } }))}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min={0}
+                              className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              value={draft.aisensySpend}
+                              onChange={(e) => setRoiSpendDrafts((prev) => ({ ...prev, [m.monthKey]: { ...draft, aisensySpend: e.target.value } }))}
+                            />
+                          </td>
+                          <td className="px-3 py-2 font-semibold">₹{m.totalSpend.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2">{m.contactsCreated.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2">{m.convertedCustomers.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2">
+                            <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">
+                              {m.convertedCustomers}/{m.contactsCreated || 0} · {m.conversionRatioPct}%
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">₹{m.totalSale.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2">₹{m.totalProfit.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2 font-semibold text-green-700">{m.roiVsSaleX != null ? `${m.roiVsSaleX}x` : "—"}</td>
+                          <td className="px-3 py-2 font-semibold text-green-700">{m.roiVsProfitX != null ? `${m.roiVsProfitX}x` : "—"}</td>
+                          <td className="px-3 py-2">{m.costPerConversion != null ? `₹${m.costPerConversion.toLocaleString("en-IN")}` : "—"}</td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              disabled={!dirty || savingRoiMonth === m.monthKey}
+                              onClick={() => saveRoiSpend(m.monthKey)}
+                              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {savingRoiMonth === m.monthKey ? "Saving..." : "Save"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </section>
+            {roiMonths.some((m) => m.ordersMissingCost > 0) && (
+              <p className="text-xs text-slate-400">
+                Some matched orders are excluded from Total Profit because their products have no cost slab set up (Total Sale still includes them).
+              </p>
+            )}
           </div>
         ) : activeTab === "settings" ? (
           <div className="mt-5 max-w-xl">

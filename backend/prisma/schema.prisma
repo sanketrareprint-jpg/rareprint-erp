@@ -1344,6 +1344,23 @@ model ImportedContact {
   @@index([tagRaw])
 }
 
+// Marketing ROI: one row per calendar month ("2026-07"), holding the ad
+// spend the user enters by hand each month. Everything else the ROI tab
+// shows (contacts created, converted customers, total sale, total profit)
+// is computed on the fly from ImportedContact (createdOnAt, shared with the
+// call-compliance AiSensy CSV import above) cross-referenced against
+// Customer/Order — no separate contacts table needed here.
+model MarketingRoiSpend {
+  id           String   @id @default(cuid())
+  monthKey     String   @unique // "YYYY-MM"
+  metaAdSpend  Decimal  @default(0) @db.Decimal(12, 2)
+  aisensySpend Decimal  @default(0) @db.Decimal(12, 2)
+  notes        String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 // ============================================================
 // SALES LEARNING MODULE — Add these models to schema.prisma
 // ============================================================
