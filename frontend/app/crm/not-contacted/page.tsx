@@ -31,11 +31,15 @@ export default function NotContactedLeadsPage() {
   const [error, setError] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  const [month, setMonth] = useState<string>(""); // "" = all time
+  const [availableMonths, setAvailableMonths] = useState<{ month: string; label: string }[]>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (m: string) => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/call-compliance/not-contacted`, { headers: getAuthHeaders() });
+      const h = getAuthHeaders();
+      const qs = m ? `?month=${m}` : "";
+      const res = await fetch(`${API_BASE_URL}/call-compliance/not-contacted${qs}`, { headers: h });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load not-contacted leads"); return; }
       setLeads(await res.json());
@@ -43,7 +47,16 @@ export default function NotContactedLeadsPage() {
     finally { setLoading(false); }
   }, [router]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(month); }, [month, load]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/call-compliance/months`, { headers: getAuthHeaders() });
+        if (res.ok) setAvailableMonths(await res.json());
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const agents = useMemo(() => {
     const map = new Map<string, string>();
@@ -104,6 +117,17 @@ export default function NotContactedLeadsPage() {
             >
               <option value="ALL">All agents</option>
               {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          )}
+          {availableMonths.length > 0 && (
+            <select
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="border border-slate-200 rounded-md px-2 py-1.5 text-xs"
+              title="Tagged in this month (createdOnAt), checked against the agent's full call history"
+            >
+              <option value="">All time</option>
+              {availableMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
             </select>
           )}
         </div>
