@@ -174,6 +174,7 @@ type VendorEntry = {
 };
 
 type VendorMaster = { id: string; name: string; gstNumber?: string };
+type ExpenseCategoryMaster = { id: string; name: string };
 type AccountingSummary = {
   sales: { invoiceCount: number; total: number; paid: number; receivable: number; outputGst: number };
   purchases: { billCount: number; total: number; paid: number; payable: number; inputGst: number };
@@ -484,6 +485,7 @@ export default function AccountsPage() {
   const [pvPage, setPvPage] = useState(1);
   const [pvHistoryPage, setPvHistoryPage] = useState(1);
   const PV_PAGE_SIZE = 50;
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategoryMaster[]>([]);
 
   // Billing and GST accounting
   const [accountingLoading, setAccountingLoading] = useState(false);
@@ -502,6 +504,15 @@ export default function AccountsPage() {
     noteType: "CREDIT_NOTE", partyType: "CUSTOMER", invoiceId: "", purchaseBillId: "", reason: "", taxableAmount: "", gstRatePct: "18", gstTreatment: "INTRA_STATE",
   });
   const [savingAccounting, setSavingAccounting] = useState<string | null>(null);
+
+  // Picker options for Payment Verification's Vendor / Expense column — registered
+  // vendors + configured expense categories, merged and sorted, for a datalist.
+  const vendorExpenseOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const v of vendors) if (v.name) names.add(v.name);
+    for (const c of expenseCategories) if (c.name) names.add(c.name);
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [vendors, expenseCategories]);
 
   const handleLoadError = useCallback((section: string, error: unknown) => {
     console.error(`Failed to load ${section}`, error);
@@ -551,7 +562,16 @@ export default function AccountsPage() {
     setPvQueueLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification`, { headers: getAuthHeaders() });
+      const headers = getAuthHeaders();
+      const needVendors = vendors.length === 0;
+      const needCategories = expenseCategories.length === 0;
+      const [res, vendorRes, categoryRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/payment-verification`, { headers }),
+        needVendors ? fetch(`${API_BASE_URL}/vendors`, { headers }) : Promise.resolve(null),
+        needCategories ? fetch(`${API_BASE_URL}/bank-statement/expense-categories`, { headers }) : Promise.resolve(null),
+      ]);
+      if (vendorRes?.ok) setVendors(await vendorRes.json());
+      if (categoryRes?.ok) setExpenseCategories(await categoryRes.json());
       if (res.ok) {
         const data: PaymentVerificationEntry[] = await res.json();
         setPvQueue(data);
@@ -574,7 +594,7 @@ export default function AccountsPage() {
     } catch (error) {
       handleLoadError("Payment verification", error);
     } finally { setPvQueueLoading(false); }
-  }, [handleLoadError]);
+  }, [handleLoadError, vendors.length, expenseCategories.length]);
 
   const loadPaymentVerificationHistory = useCallback(async () => {
     setPvHistoryLoading(true);
@@ -3589,6 +3609,9 @@ await loadHistory();
           {/* ── PAYMENT VERIFICATION TAB ── */}
           {tab === "payment_verification" && (
             <div className="space-y-2">
+              <datalist id="vendor-expense-options">
+                {vendorExpenseOptions.map(name => <option key={name} value={name} />)}
+              </datalist>
               <div className="overflow-x-auto rounded-xl border border-slate-300">
                 {pvQueueLoading ? (
                   <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
@@ -3638,8 +3661,9 @@ await loadHistory();
                               <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
+                                  list="vendor-expense-options"
                                   className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                  placeholder="Add vendor/expense..."
+                                  placeholder="Pick or type vendor/expense..."
                                   value={pvVendorExpenseDrafts[entry.id] ?? ""}
                                   onChange={e => setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
                                   onBlur={() => {

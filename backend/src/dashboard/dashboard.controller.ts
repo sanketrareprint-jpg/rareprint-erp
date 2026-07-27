@@ -34,6 +34,10 @@ export class DashboardController {
   @Get('lead-source-analytics')
   getLeadSourceAnalytics() { return this.dashboardService.getLeadSourceAnalytics(); }
 
+  // Visible to everyone — see DashboardService.getComplaintsOverview.
+  @Get('complaints-overview')
+  getComplaintsOverview() { return this.dashboardService.getComplaintsOverview(); }
+
   // Owner-only "things only the super-admin can do" queue — also bundled
   // into /dashboard/summary, exposed separately so it can be polled/refreshed
   // on its own without reloading the whole dashboard.

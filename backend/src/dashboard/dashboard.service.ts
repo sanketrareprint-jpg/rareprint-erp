@@ -17,6 +17,14 @@ type SuperAdminTaskItem = {
   createdAt: string;
 };
 
+type ComplaintsOverview = {
+  openCount: number;
+  overdueCount: number;
+  escalatedCount: number;
+  byPriority: { LOW: number; MEDIUM: number; HIGH: number; URGENT: number };
+  recent: SuperAdminTaskItem[];
+};
+
 type ProductionKpiMetric = {
   key: string;
   label: string;
@@ -40,7 +48,7 @@ export class DashboardService {
     // to every ADMIN-role account.
     const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL;
 
-    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult, cashflowResult, superAdminTasksResult] = await Promise.allSettled([
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult, cashflowResult, superAdminTasksResult, complaintsOverviewResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
@@ -51,6 +59,11 @@ export class DashboardService {
       isSuperAdmin ? this.getProfitKpis() : Promise.resolve(null),
       isSuperAdmin ? this.getCashflow() : Promise.resolve(null),
       isSuperAdmin ? this.getSuperAdminTasks() : Promise.resolve(null),
+      // Unlike the rest of the Super Admin Tasks bundle, the complaints
+      // overview is visible to every role that lands on /dashboard — not
+      // just the owner — so production/dispatch/sales can all see what's
+      // outstanding at a glance.
+      this.getComplaintsOverview(),
     ]);
 
     return {
@@ -71,6 +84,55 @@ export class DashboardService {
       cashflow: cashflowResult.status === 'fulfilled' ? cashflowResult.value : null,
       // Same owner-only gating — "things only the super-admin/owner can do".
       superAdminTasks: superAdminTasksResult.status === 'fulfilled' ? superAdminTasksResult.value : null,
+      // Visible to everyone — see getComplaintsOverview below.
+      complaintsOverview: complaintsOverviewResult.status === 'fulfilled'
+        ? complaintsOverviewResult.value
+        : { openCount: 0, overdueCount: 0, escalatedCount: 0, byPriority: { LOW: 0, MEDIUM: 0, HIGH: 0, URGENT: 0 }, recent: [] },
+    };
+  }
+
+  // ── Complaints Overview — unlike the complaints group inside
+  // getSuperAdminTasks (owner-only, full 50-item list), this is a lighter
+  // summary meant for every role on the dashboard: open/overdue/escalated
+  // counts, a priority breakdown, and the top 5 most urgent tickets. ───────
+  async getComplaintsOverview(): Promise<ComplaintsOverview> {
+    const now = new Date();
+    const openWhere = { status: { notIn: ['RESOLVED', 'CLOSED'] } };
+    const [openCount, overdueCount, escalatedCount, byPriorityRaw, recent] = await Promise.all([
+      (this.prisma as any).complaint.count({ where: openWhere }),
+      (this.prisma as any).complaint.count({ where: { ...openWhere, slaResolutionDueAt: { lt: now } } }),
+      (this.prisma as any).complaint.count({ where: { ...openWhere, escalatedToAdmin: true } }),
+      (this.prisma as any).complaint.groupBy({ by: ['priority'], where: openWhere, _count: true }),
+      (this.prisma as any).complaint.findMany({
+        where: openWhere,
+        orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+        take: 5,
+        include: { customer: { select: { businessName: true } } },
+      }),
+    ]);
+
+    const byPriority = { LOW: 0, MEDIUM: 0, HIGH: 0, URGENT: 0 };
+    for (const row of byPriorityRaw as any[]) {
+      if (row.priority in byPriority) byPriority[row.priority as keyof typeof byPriority] = Number(row._count);
+    }
+
+    return {
+      openCount,
+      overdueCount,
+      escalatedCount,
+      byPriority,
+      recent: recent.map((c: any) => {
+        const overdue = c.slaResolutionDueAt && new Date(c.slaResolutionDueAt) < now;
+        const flags = [c.priority, overdue ? 'OVERDUE' : null].filter(Boolean);
+        return {
+          id: c.id,
+          title: `${c.ticketNumber} — ${c.customer?.businessName ?? 'Unknown customer'}`,
+          subtitle: `${flags.join(' · ')} — ${c.subject}`,
+          amount: null,
+          link: `/complaints/${c.id}`,
+          createdAt: c.createdAt.toISOString(),
+        };
+      }),
     };
   }
 

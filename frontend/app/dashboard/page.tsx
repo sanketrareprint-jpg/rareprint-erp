@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat, ShieldCheck } from "lucide-react";
+import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat, ShieldCheck, MessageSquare } from "lucide-react";
 
 type DashboardStats = {
   revenue: {
@@ -43,6 +43,16 @@ type Cashflow = { thisMonth: CashflowPeriod; lastMonth: CashflowPeriod; deltaVsL
 type SuperAdminTaskItem = { id: string; title: string; subtitle: string; amount: number | null; link: string; createdAt: string };
 type SuperAdminTaskGroup = { key: string; label: string; description: string; status: "active" | "coming_soon"; count: number; items: SuperAdminTaskItem[] };
 type SuperAdminTasks = { generatedAt: string; totalPending: number; groups: SuperAdminTaskGroup[] };
+
+// Complaints Overview — visible to everyone (unlike the fuller complaints
+// list nested inside superAdminTasks.groups, which is owner-only).
+type ComplaintsOverview = {
+  openCount: number;
+  overdueCount: number;
+  escalatedCount: number;
+  byPriority: { LOW: number; MEDIUM: number; HIGH: number; URGENT: number };
+  recent: SuperAdminTaskItem[];
+};
 
 type ComplianceAgentRow = { agentId: string; agentName: string; tagsApplied: number; notContacted: number; contacted: number };
 type ComplianceDashboard = { agents: ComplianceAgentRow[]; totals: { tagsApplied: number; notContacted: number } };
@@ -112,6 +122,7 @@ export default function DashboardPage() {
   const [profit, setProfit] = useState<ProfitKpis | null>(null);
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
   const [superAdminTasks, setSuperAdminTasks] = useState<SuperAdminTasks | null>(null);
+  const [complaintsOverview, setComplaintsOverview] = useState<ComplaintsOverview | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
   const [teamStats, setTeamStats] = useState<TeamCallStats | null>(null);
@@ -147,6 +158,7 @@ export default function DashboardPage() {
       setProfit(data.profit ?? null);
       setCashflow(data.cashflow ?? null);
       setSuperAdminTasks(data.superAdminTasks ?? null);
+      setComplaintsOverview(data.complaintsOverview ?? null);
 
       // Call-compliance widgets are best-effort — don't fail the whole
       // dashboard if there's no data imported yet. Fetched by the dedicated
@@ -445,8 +457,8 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* ── Row 2: Pipeline + Lead Sources ── */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* ── Row 2: Pipeline + Lead Sources + Complaints (all visible to everyone) ── */}
+        <div className="grid grid-cols-3 gap-2">
 
           {/* Pipeline */}
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
@@ -499,6 +511,51 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
+            )}
+          </div>
+
+          {/* Complaints — visible to everyone, not just the owner. See the
+              fuller admin-only list inside "Super Admin Tasks" below. */}
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1 mb-1">
+              <MessageSquare className="h-3 w-3 text-red-500" />
+              <p className="text-xs font-semibold text-slate-700">Complaints</p>
+              <span className="text-xs text-slate-400 ml-auto">{complaintsOverview?.openCount ?? 0} open</span>
+            </div>
+            {!complaintsOverview || complaintsOverview.openCount === 0 ? (
+              <p className="text-xs text-emerald-600 text-center py-3">No open complaints ✓</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                  <div className="rounded-md bg-red-50 px-1.5 py-1 text-center">
+                    <p className="text-xs font-bold text-red-600 leading-tight">{complaintsOverview.overdueCount}</p>
+                    <p className="text-slate-400" style={{ fontSize: "9px" }}>Overdue</p>
+                  </div>
+                  <div className="rounded-md bg-orange-50 px-1.5 py-1 text-center">
+                    <p className="text-xs font-bold text-orange-600 leading-tight">{complaintsOverview.escalatedCount}</p>
+                    <p className="text-slate-400" style={{ fontSize: "9px" }}>Escalated</p>
+                  </div>
+                  <div className="rounded-md bg-rose-50 px-1.5 py-1 text-center">
+                    <p className="text-xs font-bold text-rose-600 leading-tight">{complaintsOverview.byPriority.URGENT + complaintsOverview.byPriority.HIGH}</p>
+                    <p className="text-slate-400" style={{ fontSize: "9px" }}>High/Urgent</p>
+                  </div>
+                </div>
+                <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                  {complaintsOverview.recent.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => router.push(item.link)}
+                      className="w-full flex items-center justify-between gap-2 px-1.5 py-0.5 rounded hover:bg-slate-50 text-left"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-800 truncate">{item.title}</p>
+                        <p className="text-slate-400 truncate" style={{ fontSize: "10px" }}>{item.subtitle}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
