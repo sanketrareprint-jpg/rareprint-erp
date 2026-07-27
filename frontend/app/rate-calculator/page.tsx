@@ -1691,11 +1691,11 @@ export default function RateCalculatorPage() {
                         </Select>
                       </Field>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
                       <Field label="Plate Design">
                         <Select value={rNonWovenPlateMode} onChange={e => setRNonWovenPlateMode(e.target.value as "1" | "2")}>
-                          <option value="1">Both sides same design (1 Plate)</option>
-                          <option value="2">Both sides different design (2 Plates)</option>
+                          <option value="1">1 Plate — same design both sides</option>
+                          <option value="2">2 Plates — different design each side</option>
                         </Select>
                       </Field>
                       <Field label={`Per Plate Rate (₹) — default ₹${nonWovenRates?.perPlateRate ?? 500}`}>
