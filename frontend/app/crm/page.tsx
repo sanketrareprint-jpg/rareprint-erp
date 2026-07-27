@@ -466,6 +466,20 @@ function CrmPageContent() {
     return true;
   }), [notContactedList, notContactedAgentFilter, notContactedStatusFilter, notContactedTagFilter, notContactedOverdueOnly, notContactedSearch]);
 
+  // Rendering thousands of rows (one <select> + 3 buttons each) in one go
+  // freezes the tab — page this client-side, same list, just fewer DOM nodes
+  // at once. Resets to page 1 whenever the underlying filtered set changes
+  // (new filters applied, or the list itself reloads).
+  const NOT_CONTACTED_PAGE_SIZE = 100;
+  const [notContactedPage, setNotContactedPage] = useState(1);
+  useEffect(() => { setNotContactedPage(1); }, [filteredNotContacted]);
+  const notContactedPageCount = Math.max(1, Math.ceil(filteredNotContacted.length / NOT_CONTACTED_PAGE_SIZE));
+  const notContactedPageSafe = Math.min(notContactedPage, notContactedPageCount);
+  const notContactedPageRows = filteredNotContacted.slice(
+    (notContactedPageSafe - 1) * NOT_CONTACTED_PAGE_SIZE,
+    notContactedPageSafe * NOT_CONTACTED_PAGE_SIZE,
+  );
+
   // Commits all draft filter picks at once — search + agent + status + tag +
   // overdue combine (AND) client-side against whatever's already loaded;
   // month is the one that needs a fresh server fetch (it changes which
@@ -1038,7 +1052,7 @@ function CrmPageContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredNotContacted.map((c) => {
+                  {notContactedPageRows.map((c) => {
                     const overdue = c.nextFollowUp && new Date(c.nextFollowUp.scheduledAt) < new Date();
                     return (
                       <tr key={c.id} className="hover:bg-slate-50">
@@ -1084,6 +1098,23 @@ function CrmPageContent() {
                 </tbody>
               </table>
             </div>
+            {filteredNotContacted.length > NOT_CONTACTED_PAGE_SIZE && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+                <button
+                  onClick={() => setNotContactedPage((p) => Math.max(1, p - 1))}
+                  disabled={notContactedPageSafe <= 1}
+                  className="text-xs border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >‹ Prev</button>
+                <span className="text-xs text-slate-500">
+                  Page {notContactedPageSafe} of {notContactedPageCount} · {(notContactedPageSafe - 1) * NOT_CONTACTED_PAGE_SIZE + 1}–{Math.min(notContactedPageSafe * NOT_CONTACTED_PAGE_SIZE, filteredNotContacted.length)} of {filteredNotContacted.length}
+                </span>
+                <button
+                  onClick={() => setNotContactedPage((p) => Math.min(notContactedPageCount, p + 1))}
+                  disabled={notContactedPageSafe >= notContactedPageCount}
+                  className="text-xs border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >Next ›</button>
+              </div>
+            )}
           </div>
         )}
       </div>
