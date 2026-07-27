@@ -40,12 +40,8 @@ type QuoteInputParams = {
   dieCutting?: boolean;
   nonWovenSize?: string;
   nonWovenPrintMode?: string;
-  nonWovenCostMode?: string;
   nonWovenPlateMode?: string;
   nonWovenPerPlateRate?: number;
-  nonWovenWeightGm?: number;
-  nonWovenRatePerKg?: number;
-  nonWovenPrintingCostPerBag?: number;
   dotMatrixSize?: string;
   dotMatrixGsm?: number;
   carbonCopy?: boolean;
@@ -310,16 +306,9 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
     } else if (inputParams.product === "diagnosticbag") {
       details.push(`Bag Type: ${inputParams.bagSize === "big" ? "Big CT Scan Bag (16x21 inch)" : "Small X-ray Bag (10.5x16 inch)"}`);
     } else if (inputParams.product === "nonwovenbag") {
-      if (inputParams.nonWovenCostMode === "weight") {
-        details.push(`Costing: Custom (weight-based)`);
-        details.push(`Weight per Bag: ${inputParams.nonWovenWeightGm || 0} gm`);
-        details.push(`Rate per KG: ₹${inputParams.nonWovenRatePerKg || 0}`);
-        details.push(`Printing Cost per Bag: ₹${inputParams.nonWovenPrintingCostPerBag || 0}`);
-      } else {
-        details.push(`Bag Size: ${formatRawDimension(inputParams.nonWovenSize)}`);
-        details.push(`Printing: ${inputParams.nonWovenPrintMode === "multicolor" ? "Multicolor" : "Single Color"}`);
-      }
-      details.push(`Plate Design: ${inputParams.nonWovenPlateMode === "2" ? "2 Plates (different front & back)" : "1 Plate (same front & back)"}`);
+      details.push(`Bag Size: ${formatRawDimension(inputParams.nonWovenSize)}`);
+      details.push(`Printing: ${inputParams.nonWovenPrintMode === "multicolor" ? "Multicolor" : "Single Color"}`);
+      details.push(`Plate Design: ${inputParams.nonWovenPlateMode === "2" ? "Both sides different design (2 Plates)" : "Both sides same design (1 Plate)"}`);
     } else if (inputParams.product === "dotmatrixbill") {
       details.push(`Size: ${formatRawDimension(inputParams.dotMatrixSize)}`);
       details.push(`GSM: ${inputParams.dotMatrixGsm || ""}`);
@@ -996,14 +985,10 @@ export default function RateCalculatorPage() {
   const [rStickerType, setRStickerType] = useState<"plain" | "nontearable">("plain");
   const [rStickerHalfCut, setRStickerHalfCut] = useState(false);
   const [rStickerDieCutting, setRStickerDieCutting] = useState(false);
-  const [rNonWovenCostMode, setRNonWovenCostMode] = useState<"size" | "weight">("size");
   const [rNonWovenSize, setRNonWovenSize] = useState("12x15");
   const [rNonWovenPrintMode, setRNonWovenPrintMode] = useState<"single" | "multicolor">("single");
   const [rNonWovenPlateMode, setRNonWovenPlateMode] = useState<"1" | "2">("1");
   const [rNonWovenPerPlateRate, setRNonWovenPerPlateRate] = useState<number | "">("");
-  const [rNonWovenWeightGm, setRNonWovenWeightGm] = useState<number | "">("");
-  const [rNonWovenRatePerKg, setRNonWovenRatePerKg] = useState<number | "">("");
-  const [rNonWovenPrintingCostPerBag, setRNonWovenPrintingCostPerBag] = useState<number | "">("");
   const [rDotMatrixSize, setRDotMatrixSize] = useState("4x6");
   const [rDotMatrixGsm, setRDotMatrixGsm] = useState(70);
   const [rCarbonCopy, setRCarbonCopy] = useState(false);
@@ -1268,14 +1253,10 @@ export default function RateCalculatorPage() {
       stickerW: rStickerW, stickerH: rStickerH, stickerType: rStickerType,
       halfCut: rProduct === "sticker" ? rStickerHalfCut : undefined,
       dieCutting: rProduct === "sticker" ? rStickerDieCutting : undefined,
-      nonWovenCostMode: rProduct === "nonwovenbag" ? rNonWovenCostMode : undefined,
       nonWovenSize: rNonWovenSize,
       nonWovenPrintMode: rNonWovenPrintMode,
       nonWovenPlateMode: rNonWovenPlateMode,
       nonWovenPerPlateRate: rNonWovenPerPlateRate !== "" ? rNonWovenPerPlateRate : undefined,
-      nonWovenWeightGm: rNonWovenWeightGm !== "" ? rNonWovenWeightGm : undefined,
-      nonWovenRatePerKg: rNonWovenRatePerKg !== "" ? rNonWovenRatePerKg : undefined,
-      nonWovenPrintingCostPerBag: rNonWovenPrintingCostPerBag !== "" ? rNonWovenPrintingCostPerBag : undefined,
       dotMatrixSize: rDotMatrixSize,
       dotMatrixGsm: rDotMatrixGsm,
       carbonCopy: rCarbonCopy,
@@ -1384,19 +1365,12 @@ export default function RateCalculatorPage() {
   const nonWovenBaseRate = Number(nonWovenRates?.sizeRates?.[rNonWovenSize] ?? 0);
   const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 2) : 0;
   const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 1.67);
-  const nonWovenPreviewPerBag = (nonWovenBaseRate + nonWovenExtraRate) * nonWovenMult;
-  const nonWovenWeightGmVal = rNonWovenWeightGm === "" ? 0 : Number(rNonWovenWeightGm);
-  const nonWovenRatePerKgVal = rNonWovenRatePerKg === "" ? Number(nonWovenRates?.ratePerKg ?? 120) : Number(rNonWovenRatePerKg);
-  const nonWovenPrintingCostPerBagVal = rNonWovenPrintingCostPerBag === "" ? Number(nonWovenRates?.printingCostPerBag ?? 2) : Number(rNonWovenPrintingCostPerBag);
   const nonWovenPerPlateRateVal = rNonWovenPerPlateRate === "" ? Number(nonWovenRates?.perPlateRate ?? 500) : Number(rNonWovenPerPlateRate);
   const nonWovenPlates = rNonWovenPlateMode === "2" ? 2 : 1;
-  const nonWovenFabricKg = (nonWovenWeightGmVal * rQty) / 1000;
-  const nonWovenFabricCost = nonWovenFabricKg * nonWovenRatePerKgVal;
-  const nonWovenPrintingCost = nonWovenPrintingCostPerBagVal * rQty;
   const nonWovenPlateCost = nonWovenPlates * nonWovenPerPlateRateVal;
-  const nonWovenWeightSubtotal = nonWovenFabricCost + nonWovenPrintingCost + nonWovenPlateCost;
-  const nonWovenWeightTotal = nonWovenWeightSubtotal * nonWovenMult;
-  const nonWovenWeightPerBag = rQty > 0 ? nonWovenWeightTotal / rQty : 0;
+  const nonWovenSizeSubtotal = (nonWovenBaseRate + nonWovenExtraRate) * rQty + nonWovenPlateCost;
+  const nonWovenSizeTotal = nonWovenSizeSubtotal * nonWovenMult;
+  const nonWovenPreviewPerBag = rQty > 0 ? nonWovenSizeTotal / rQty : 0;
   const dotMatrixRates = rates?.dotMatrixBill;
   const dotMatrixBaseRate = Number(dotMatrixRates?.sizeRates?.[rDotMatrixSize]?.[rDotMatrixGsm] ?? 0);
   const dotMatrixCarbonRate = rCarbonCopy ? Number(dotMatrixRates?.carbonCopyExtraPerBook ?? 8) : 0;
@@ -1699,80 +1673,42 @@ export default function RateCalculatorPage() {
                   </>
                 ) : rProduct === "nonwovenbag" ? (
                   <>
-                    <div className="flex gap-2 mb-2">
-                      <button type="button" onClick={() => setRNonWovenCostMode("size")}
-                        className={`px-3 py-1.5 rounded text-xs font-semibold border ${rNonWovenCostMode === "size" ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-600 border-slate-200"}`}>
-                        Size-based (Cost Table)
-                      </button>
-                      <button type="button" onClick={() => setRNonWovenCostMode("weight")}
-                        className={`px-3 py-1.5 rounded text-xs font-semibold border ${rNonWovenCostMode === "weight" ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-600 border-slate-200"}`}>
-                        🧺 Custom (weight-based)
-                      </button>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Bag Size">
+                        <Select value={rNonWovenSize} onChange={e => setRNonWovenSize(e.target.value)}>
+                          {Object.keys(nonWovenRates?.sizeRates ?? { "9x12": 8, "10x14": 10, "12x15": 12, "12x18": 14, "16x21": 18 }).map(size => (
+                            <option key={size} value={size}>{size}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Printing">
+                        <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
+                          <option value="single">Single Color</option>
+                          <option value="multicolor">Multicolor (+₹{nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)</option>
+                        </Select>
+                      </Field>
                     </div>
-                    {rNonWovenCostMode === "size" ? (
-                      <>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          <Field label="Quantity">
-                            <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
-                          </Field>
-                          <Field label="Bag Size">
-                            <Select value={rNonWovenSize} onChange={e => setRNonWovenSize(e.target.value)}>
-                              {Object.keys(nonWovenRates?.sizeRates ?? { "9x12": 8, "10x14": 10, "12x15": 12, "12x18": 14, "16x21": 18 }).map(size => (
-                                <option key={size} value={size}>{size}</option>
-                              ))}
-                            </Select>
-                          </Field>
-                          <Field label="Printing">
-                            <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
-                              <option value="single">Single Color</option>
-                              <option value="multicolor">Multicolor (+₹{nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)</option>
-                            </Select>
-                          </Field>
-                        </div>
-                        <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                          <strong>{rQty.toLocaleString()} bags</strong> · base <strong>{fmt(nonWovenBaseRate)}</strong>/bag
-                          {nonWovenExtraRate > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraRate)}</strong>/bag</> : ""}
-                          {" "}× multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          <Field label="Quantity">
-                            <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
-                          </Field>
-                          <Field label="Weight per Bag (gm)">
-                            <Input type="number" step="0.1" value={rNonWovenWeightGm}
-                              onChange={e => setRNonWovenWeightGm(e.target.value === "" ? "" : +e.target.value)} placeholder="e.g. 45" />
-                          </Field>
-                          <Field label={`Rate per KG (₹) — default ₹${nonWovenRates?.ratePerKg ?? 120}`}>
-                            <Input type="number" step="0.01" value={rNonWovenRatePerKg}
-                              onChange={e => setRNonWovenRatePerKg(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenRates?.ratePerKg ?? 120)} />
-                          </Field>
-                          <Field label={`Printing Cost per Bag (₹) — default ₹${nonWovenRates?.printingCostPerBag ?? 2}`}>
-                            <Input type="number" step="0.01" value={rNonWovenPrintingCostPerBag}
-                              onChange={e => setRNonWovenPrintingCostPerBag(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenRates?.printingCostPerBag ?? 2)} />
-                          </Field>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
-                          <Field label="Plate Design">
-                            <Select value={rNonWovenPlateMode} onChange={e => setRNonWovenPlateMode(e.target.value as "1" | "2")}>
-                              <option value="1">1 Plate — Same design front &amp; back</option>
-                              <option value="2">2 Plates — Different design front &amp; back</option>
-                            </Select>
-                          </Field>
-                          <Field label={`Per Plate Rate (₹) — default ₹${nonWovenRates?.perPlateRate ?? 500}`}>
-                            <Input type="number" value={rNonWovenPerPlateRate}
-                              onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenRates?.perPlateRate ?? 500)} />
-                          </Field>
-                        </div>
-                        <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                          {nonWovenWeightGmVal}gm × <strong>{rQty.toLocaleString()}</strong> bags ÷ 1000 × ₹{nonWovenRatePerKgVal}/kg = <strong>{fmt(nonWovenFabricCost)}</strong>
-                          {" "}+ printing <strong>{fmt(nonWovenPrintingCost)}</strong> + <strong>{nonWovenPlates} plate{nonWovenPlates > 1 ? "s" : ""}</strong> × ₹{nonWovenPerPlateRateVal} = <strong>{fmt(nonWovenPlateCost)}</strong>
-                          {" "}→ cost <strong>{fmt(nonWovenWeightSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenWeightPerBag)}</strong>/bag
-                        </div>
-                      </>
-                    )}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                      <Field label="Plate Design">
+                        <Select value={rNonWovenPlateMode} onChange={e => setRNonWovenPlateMode(e.target.value as "1" | "2")}>
+                          <option value="1">Both sides same design (1 Plate)</option>
+                          <option value="2">Both sides different design (2 Plates)</option>
+                        </Select>
+                      </Field>
+                      <Field label={`Per Plate Rate (₹) — default ₹${nonWovenRates?.perPlateRate ?? 500}`}>
+                        <Input type="number" value={rNonWovenPerPlateRate}
+                          onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenRates?.perPlateRate ?? 500)} />
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      <strong>{rQty.toLocaleString()} bags</strong> · base <strong>{fmt(nonWovenBaseRate)}</strong>/bag
+                      {nonWovenExtraRate > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraRate)}</strong>/bag</> : ""}
+                      {" "}+ <strong>{nonWovenPlates} plate{nonWovenPlates > 1 ? "s" : ""}</strong> × ₹{nonWovenPerPlateRateVal} = <strong>{fmt(nonWovenPlateCost)}</strong>
+                      {" "}→ cost <strong>{fmt(nonWovenSizeSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
+                    </div>
                   </>
                 ) : rProduct === "dotmatrixbill" ? (
                   <>
@@ -2137,12 +2073,6 @@ export default function RateCalculatorPage() {
                     <Field label="Multicolor Extra (₹/bag)">
                       <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
                     </Field>
-                    <Field label="Fabric Rate (₹/kg)">
-                      <Input type="number" step="0.01" value={rates.nonWovenBag?.ratePerKg ?? 120} onChange={e => updateRate("nonWovenBag.ratePerKg", +e.target.value)} />
-                    </Field>
-                    <Field label="Printing Cost (₹/bag)">
-                      <Input type="number" step="0.01" value={rates.nonWovenBag?.printingCostPerBag ?? 2} onChange={e => updateRate("nonWovenBag.printingCostPerBag", +e.target.value)} />
-                    </Field>
                     <Field label="Per Plate Rate (₹)">
                       <Input type="number" step="1" value={rates.nonWovenBag?.perPlateRate ?? 500} onChange={e => updateRate("nonWovenBag.perPlateRate", +e.target.value)} />
                     </Field>
@@ -2155,15 +2085,6 @@ export default function RateCalculatorPage() {
                     addKeyPlaceholder="size (e.g. 12x15)"
                     addValPlaceholder="₹/bag"
                     formatLabel={k => k + " Bag"}
-                  />
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5 mt-3">Bag Weight by Size (gm/bag)</p>
-                  <DynamicRateSection
-                    data={rates.nonWovenBag?.weightGm ?? {}}
-                    onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), weightGm: d } }))}
-                    step={0.1}
-                    addKeyPlaceholder="size (e.g. 12x15)"
-                    addValPlaceholder="gm/bag"
-                    formatLabel={k => k + " — weight"}
                   />
                 </Card>
                 <Card title="X-ray / CT Scan Bags">
