@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
-import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import {
   makeCall as nativeMakeCall,
@@ -29,6 +28,17 @@ interface Lead {
   createdAt: string; updatedAt: string;
 }
 interface Stats { total: number; byStatus: Record<string, number>; hotLeads: number; todayFollowUps: number; }
+// A contact flagged "not contacted" (AiSensy tag with no matching call-log
+// record). Managed like a normal lead: status + follow-up. If leadId is set,
+// it's linked to a real Lead row and status/follow-up actions go through the
+// usual /crm/leads endpoints instead of the call-compliance ones.
+interface NotContactedContact {
+  id: string; name: string | null; phone: string; tagRaw: string | null;
+  lastActiveAt: string | null; createdOnAt: string | null;
+  agentId: string; agentName: string | null;
+  status: LeadStatus; leadId: string | null;
+  nextFollowUp?: { id: string; scheduledAt: string; note?: string } | null;
+}
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const STATUS_LABELS: Record<LeadStatus, string> = {
@@ -162,7 +172,7 @@ function CrmPageContent() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"kanban" | "list" | "dialer" | "followups">("list");
+  const [view, setView] = useState<"kanban" | "list" | "dialer" | "followups" | "notcontacted">("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [myLeadsOnly, setMyLeadsOnly] = useState(false);
@@ -184,6 +194,13 @@ function CrmPageContent() {
   const [deletingLead, setDeletingLead] = useState<string | null>(null);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // ── Not-contacted tab (AiSensy tag with no matching call-log record) ───────
+  const [notContactedList, setNotContactedList] = useState<NotContactedContact[]>([]);
+  const [notContactedLoading, setNotContactedLoading] = useState(false);
+  const [notContactedError, setNotContactedError] = useState<string | null>(null);
+  const [showContactCallModal, setShowContactCallModal] = useState<NotContactedContact | null>(null);
+  const [contactCallNote, setContactCallNote] = useState("");
 
   // ── Smart call state ──────────────────────────────────────────────────────
   const [callInProgress, setCallInProgress] = useState<Lead | null>(null);
@@ -374,8 +391,55 @@ function CrmPageContent() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Old /crm/not-contacted bookmarks/links redirect here with #notcontacted.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#notcontacted") setView("notcontacted");
+  }, []);
+
+  const loadNotContacted = useCallback(async () => {
+    setNotContactedLoading(true); setNotContactedError(null);
+    try {
+      const res = await fetch(`${API}/call-compliance/not-contacted`, { headers: getAuth() });
+      if (!res.ok) { setNotContactedError("Could not load not-contacted leads"); return; }
+      setNotContactedList(await res.json());
+    } catch { setNotContactedError("Network error"); }
+    finally { setNotContactedLoading(false); }
+  }, []);
+
+  useEffect(() => { if (view === "notcontacted") loadNotContacted(); }, [view, loadNotContacted]);
+
+  // Not-contacted status change: routed to the linked Lead if one exists,
+  // otherwise tracked on the contact itself.
+  const updateContactStatus = async (contact: NotContactedContact, status: LeadStatus) => {
+    const url = contact.leadId ? `${API}/crm/leads/${contact.leadId}/status` : `${API}/call-compliance/contacts/${contact.id}/status`;
+    await fetch(url, {
+      method: contact.leadId ? "PATCH" : "PUT",
+      headers: { ...getAuth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    setNotContactedList(prev => prev.map(c => c.id === contact.id ? { ...c, status } : c));
+  };
+
+  const submitContactCall = async (outcome: string) => {
+    if (!showContactCallModal) return;
+    const contact = showContactCallModal;
+    const url = contact.leadId ? `${API}/crm/leads/${contact.leadId}/call` : `${API}/call-compliance/contacts/${contact.id}/call`;
+    await fetch(url, {
+      method: "POST", headers: { ...getAuth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome, note: contactCallNote }),
+    });
+    setShowContactCallModal(null);
+    setContactCallNote("");
+    loadNotContacted();
+  };
+
   const openLead = async (lead: Lead) => {
     const res = await fetch(`${API}/crm/leads/${lead.id}`, { headers: getAuth() });
+    if (res.ok) setSelectedLead(await res.json());
+  };
+
+  const openLeadById = async (id: string) => {
+    const res = await fetch(`${API}/crm/leads/${id}`, { headers: getAuth() });
     if (res.ok) setSelectedLead(await res.json());
   };
 
@@ -529,9 +593,6 @@ function CrmPageContent() {
             <p className="text-xs sm:text-sm text-slate-500">Manage your sales pipeline</p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <Link href="/crm/not-contacted" className="inline-flex items-center gap-1 border border-red-200 text-red-700 text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg hover:bg-red-50 font-medium">
-              📵 <span className="hidden sm:inline">Not Contacted</span>
-            </Link>
             <button onClick={() => setShowImportModal(true)} className="inline-flex items-center gap-1 border border-slate-300 text-slate-700 text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium">
               📥 <span className="hidden sm:inline">Import</span>
             </button>
@@ -578,10 +639,10 @@ function CrmPageContent() {
 
         {/* TABS */}
         <div className="flex gap-1 mt-3 overflow-x-auto pb-1 -mx-1 px-1">
-          {(["list", "kanban", "followups"] as const).map((v) => (
+          {(["list", "kanban", "followups", "notcontacted"] as const).map((v) => (
             <button key={v} onClick={() => setView(v)}
-              className={`text-xs sm:text-sm px-3 py-1.5 rounded-lg font-medium whitespace-nowrap flex-shrink-0 ${view === v ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
-              {v === "followups" ? `📅 Follow-ups (${todayFollowUps.length})` : v === "list" ? "📋 List" : "🗂 Kanban"}
+              className={`text-xs sm:text-sm px-3 py-1.5 rounded-lg font-medium whitespace-nowrap flex-shrink-0 ${view === v ? "bg-blue-600 text-white" : v === "notcontacted" ? "text-red-600 hover:bg-red-50" : "text-slate-600 hover:bg-slate-100"}`}>
+              {v === "followups" ? `📅 Follow-ups (${todayFollowUps.length})` : v === "list" ? "📋 List" : v === "kanban" ? "🗂 Kanban" : `📵 Not Contacted${notContactedList.length ? ` (${notContactedList.length})` : ""}`}
             </button>
           ))}
         </div>
@@ -782,7 +843,7 @@ function CrmPageContent() {
             </div>
           </div>
 
-        ) : (
+        ) : view === "followups" ? (
           /* ── FOLLOW-UPS ── */
           <div className="max-w-2xl mx-auto space-y-3">
             <p className="text-sm font-semibold text-slate-600 mb-2">Today's follow-ups ({todayFollowUps.length})</p>
@@ -812,6 +873,74 @@ function CrmPageContent() {
                 </div>
               );
             })}
+          </div>
+
+        ) : (
+          /* ── NOT CONTACTED ── */
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            {notContactedError && (
+              <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-xs text-red-700">{notContactedError}</div>
+            )}
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-600">AiSensy-tagged contacts with no logged call — {notContactedList.length}</p>
+              {notContactedLoading && <span className="text-xs text-slate-400">Refreshing…</span>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    {["Name", "Phone", "Agent", "Tag", "Last Active", "Status", "Next Follow-up", "Actions"].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {notContactedList.map((c) => {
+                    const overdue = c.nextFollowUp && new Date(c.nextFollowUp.scheduledAt) < new Date();
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-slate-800">{c.name?.trim() || `📞 ${c.phone}`}</p>
+                          {c.leadId && (
+                            <button onClick={() => openLeadById(c.leadId as string)} className="text-xs text-blue-500 hover:underline">Linked lead — view</button>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">{c.phone}</td>
+                        <td className="px-4 py-3"><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{c.agentName ?? "—"}</span></td>
+                        <td className="px-4 py-3 text-xs text-slate-500">{c.tagRaw || "—"}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString("en-IN") : "—"}</td>
+                        <td className="px-4 py-3">
+                          <select value={c.status} onChange={(e) => updateContactStatus(c, e.target.value as LeadStatus)}
+                            className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${STATUS_COLORS[c.status]}`}>
+                            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {c.nextFollowUp ? (
+                            <span className={`text-xs ${overdue ? "text-red-600 font-semibold" : "text-slate-500"}`}>
+                              {overdue ? "⚠ " : ""}{new Date(c.nextFollowUp.scheduledAt).toLocaleDateString("en-IN")}
+                            </span>
+                          ) : <span className="text-slate-300 text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
+                            onClick={() => { nativeMakeCall(c.phone).catch(() => { window.location.href = `tel:${c.phone}`; }); }}
+                            className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold mr-1"
+                          >📞</button>
+                          <button onClick={() => setShowContactCallModal(c)} className="text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50 mr-1">Log</button>
+                          <a href={`https://wa.me/91${c.phone}`} target="_blank" rel="noreferrer" className="text-xs bg-emerald-500 text-white px-2 py-1 rounded-lg hover:bg-emerald-600 font-semibold">WA</a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {notContactedList.length === 0 && !notContactedLoading && (
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                      {notContactedError ? "" : "Nothing to show — either no data has been imported yet, or everyone's been called 🎉"}
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
@@ -1056,6 +1185,25 @@ function CrmPageContent() {
               <p className="text-xs text-center text-orange-600 font-medium mb-2">Next lead will auto-dial after logging</p>
             )}
             <button onClick={() => setShowCallModal(null)} className="w-full text-sm text-slate-400 hover:text-slate-600 py-2">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* LOG CALL MODAL — not-contacted tab */}
+      {showContactCallModal && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-2xl p-6">
+            <h2 className="text-lg font-bold text-slate-900 mb-0.5">Log call</h2>
+            <p className="text-slate-800 font-semibold">{showContactCallModal.name?.trim() || showContactCallModal.phone}</p>
+            <p className="text-slate-500 text-sm mb-4">{showContactCallModal.phone}</p>
+            <textarea value={contactCallNote} onChange={(e) => setContactCallNote(e.target.value)} placeholder="Call notes (optional)..." rows={3} className="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 mb-4 focus:outline-none resize-none" />
+            <p className="text-xs font-semibold text-slate-600 mb-2">Call outcome</p>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {[["ANSWERED", "Answered", "bg-green-600"], ["BUSY", "Busy", "bg-amber-500"], ["NO_ANSWER", "No answer", "bg-red-500"]].map(([o, label, color]) => (
+                <button key={o} onClick={() => submitContactCall(o)} className={`${color} text-white text-xs font-semibold py-3 rounded-xl hover:opacity-90`}>{label}</button>
+              ))}
+            </div>
+            <button onClick={() => { setShowContactCallModal(null); setContactCallNote(""); }} className="w-full text-sm text-slate-400 hover:text-slate-600 py-2">Cancel</button>
           </div>
         </div>
       )}

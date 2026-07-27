@@ -15,7 +15,7 @@
 //  3. A contact is "not contacted" if it's tagged to an agent but that
 //     agent's CallLogRecord rows never show that phone number.
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma, UserRole, LeadStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseJioStatementPdf, normalizePhone, ParsedCallRow } from './jio-statement-parser';
 import { parseAisensyContactsCsv } from './aisensy-contacts-parser';
@@ -511,7 +511,17 @@ export class CallComplianceService {
   // NOT-CONTACTED LEADS (CRM view)
   // ─────────────────────────────────────────────────────────────────────
 
-  /** Admins see every agent's not-contacted numbers; agents see only their own. */
+  /**
+   * Admins see every agent's not-contacted numbers; agents see only their own.
+   *
+   * This list is recomputed live from the same cross-check every time it's
+   * requested (ImportedContact vs CallLogRecord) — so re-uploading a call-log
+   * PDF that now shows a real call for a number drops it off this list, and
+   * conversely a contact that goes quiet again (e.g. an import correction)
+   * reappears. That truth is independent of whatever pipeline status an agent
+   * has set on the contact — status/follow-ups below are for working the
+   * lead, not for dismissing it from this view.
+   */
   async getNotContactedLeads(requester: { id: string; role: string }, month?: string) {
     const isAdmin = requester.role === 'ADMIN';
     const monthFilter = month ? this.monthRange(month) : null;
@@ -526,6 +536,7 @@ export class CallComplianceService {
         select: {
           id: true, name: true, phone: true, tagRaw: true,
           lastActiveAt: true, createdOnAt: true, agentId: true,
+          pipelineStatus: true, leadId: true,
           agent: { select: { fullName: true } },
         },
       }),
@@ -543,19 +554,119 @@ export class CallComplianceService {
       calledSetByAgent.get(c.agentId)!.add(c.phone);
     }
 
-    return contacts
-      .filter((c) => c.agentId && !calledSetByAgent.get(c.agentId)?.has(c.phone))
-      .map((c) => ({
-        id: c.id,
-        name: c.name,
-        phone: c.phone,
-        tagRaw: c.tagRaw,
-        lastActiveAt: c.lastActiveAt,
-        createdOnAt: c.createdOnAt,
-        agentId: c.agentId,
-        agentName: c.agent?.fullName ?? null,
-      }))
+    const notContacted = contacts.filter((c) => c.agentId && !calledSetByAgent.get(c.agentId)?.has(c.phone));
+
+    // Treat as a normal lead: if a Lead already exists for this phone (added
+    // manually, via CSV import, etc.), link the contact to it instead of
+    // tracking status/follow-ups separately — status changes below then go
+    // through the same Lead every other CRM view uses.
+    const unlinked = notContacted.filter((c) => !c.leadId);
+    if (unlinked.length) {
+      const matchedLeads = await this.prisma.lead.findMany({
+        where: { phone: { in: [...new Set(unlinked.map((c) => c.phone))] } },
+        select: { id: true, phone: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      const leadIdByPhone = new Map<string, string>();
+      for (const l of matchedLeads) if (!leadIdByPhone.has(l.phone)) leadIdByPhone.set(l.phone, l.id);
+      const toLink = unlinked.filter((c) => leadIdByPhone.has(c.phone));
+      if (toLink.length) {
+        await Promise.all(
+          toLink.map((c) =>
+            this.prisma.importedContact.update({ where: { id: c.id }, data: { leadId: leadIdByPhone.get(c.phone) } }),
+          ),
+        );
+        for (const c of toLink) c.leadId = leadIdByPhone.get(c.phone) as string;
+      }
+    }
+
+    const linkedLeadIds = [...new Set(notContacted.filter((c) => c.leadId).map((c) => c.leadId as string))];
+    const unlinkedContactIds = notContacted.filter((c) => !c.leadId).map((c) => c.id);
+
+    // Queried unconditionally (even with an empty id list, which Prisma
+    // just resolves to []) so both branches keep one stable array type.
+    const [linkedLeads, ownFollowUps] = await Promise.all([
+      this.prisma.lead.findMany({
+        where: { id: { in: linkedLeadIds } },
+        select: {
+          id: true, status: true,
+          followUps: { where: { status: 'PENDING' }, orderBy: { scheduledAt: 'asc' }, take: 1 },
+        },
+      }),
+      this.prisma.importedContactFollowUp.findMany({
+        where: { contactId: { in: unlinkedContactIds }, status: 'PENDING' },
+        orderBy: { scheduledAt: 'asc' },
+      }),
+    ]);
+
+    const leadById = new Map(linkedLeads.map((l) => [l.id, l]));
+    const firstFollowUpByContactId = new Map<string, (typeof ownFollowUps)[number]>();
+    for (const fu of ownFollowUps) if (!firstFollowUpByContactId.has(fu.contactId)) firstFollowUpByContactId.set(fu.contactId, fu);
+
+    return notContacted
+      .map((c) => {
+        const linkedLead = c.leadId ? leadById.get(c.leadId) : undefined;
+        const status = linkedLead ? linkedLead.status : c.pipelineStatus;
+        const nextFollowUp = linkedLead ? (linkedLead.followUps[0] ?? null) : (firstFollowUpByContactId.get(c.id) ?? null);
+        return {
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          tagRaw: c.tagRaw,
+          lastActiveAt: c.lastActiveAt,
+          createdOnAt: c.createdOnAt,
+          agentId: c.agentId,
+          agentName: c.agent?.fullName ?? null,
+          status,
+          leadId: c.leadId ?? null,
+          nextFollowUp: nextFollowUp ? { id: nextFollowUp.id, scheduledAt: nextFollowUp.scheduledAt, note: nextFollowUp.note } : null,
+        };
+      })
       .sort((a, b) => (b.lastActiveAt?.getTime() ?? 0) - (a.lastActiveAt?.getTime() ?? 0));
+  }
+
+  // ── Working a not-contacted contact like a normal lead (status + follow-up) ──
+  // Only used when the contact has no leadId — once linked, status/follow-ups
+  // go through CrmController's /crm/leads/:id/status and /crm/leads/:id/call
+  // instead (the frontend picks the right endpoint based on leadId).
+
+  async updateContactStatus(contactId: string, status: LeadStatus) {
+    const contact = await this.prisma.importedContact.findUnique({ where: { id: contactId } });
+    if (!contact) throw new NotFoundException('Contact not found');
+    if (contact.leadId) throw new BadRequestException('This contact is linked to a Lead — update its status via /crm/leads instead');
+
+    const updated = await this.prisma.importedContact.update({ where: { id: contactId }, data: { pipelineStatus: status } });
+
+    // Mirrors CrmService.updateStatus: LOST gets an auto-scheduled recycle check.
+    if (status === 'LOST') {
+      await this.prisma.importedContactFollowUp.create({
+        data: {
+          contactId,
+          scheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          note: 'Recycle — check if requirement still exists',
+        },
+      });
+    }
+
+    return updated;
+  }
+
+  async logContactCall(contactId: string, outcome: string, note: string) {
+    const contact = await this.prisma.importedContact.findUnique({ where: { id: contactId } });
+    if (!contact) throw new NotFoundException('Contact not found');
+    if (contact.leadId) throw new BadRequestException('This contact is linked to a Lead — log calls via /crm/leads instead');
+
+    // Mirrors CrmService.logCall's next-follow-up scheduling.
+    const daysLater = outcome === 'ANSWERED' ? 3 : 1;
+    await this.prisma.importedContactFollowUp.create({
+      data: {
+        contactId,
+        scheduledAt: new Date(Date.now() + daysLater * 24 * 60 * 60 * 1000),
+        note: note || `After ${outcome.toLowerCase()} call`,
+      },
+    });
+
+    return { success: true };
   }
 
   // ─────────────────────────────────────────────────────────────────────

@@ -1225,6 +1225,10 @@ model Lead {
   convertedOrderId String?
   activities       LeadActivity[]
   followUps        LeadFollowUp[]
+  // Reverse side of ImportedContact.lead — set when an AiSensy-tagged
+  // "not contacted" contact's phone matches a Lead that already exists
+  // (manually added, CSV-imported, etc). See call-compliance.service.ts.
+  importedContacts ImportedContact[] @relation("ImportedContactLead")
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -1338,16 +1342,44 @@ model ImportedContact {
   lastActiveAt DateTime?
   createdOnAt  DateTime?
   source       String?
-  status       String?
+  status       String? // raw AiSensy contact status (e.g. "active") — NOT the CRM pipeline status below
   optedIn      Boolean?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  // ── CRM pipeline tracking for the "Not Contacted" tab ──────────────────
+  // A not-contacted contact is worked like any other lead: it gets a status
+  // and follow-ups. If its phone already matches a real Lead (manually
+  // added, CSV-imported, etc.), that Lead is used instead (leadId is set,
+  // pipelineStatus/followUps below are then ignored in favor of the Lead's
+  // own status/followUps) so we never track the same phone in two places.
+  pipelineStatus LeadStatus              @default(NEW)
+  leadId         String?
+  lead           Lead?                   @relation("ImportedContactLead", fields: [leadId], references: [id], onDelete: SetNull)
+  followUps      ImportedContactFollowUp[]
 
   import ContactImport @relation(fields: [importId], references: [id])
   agent  User?          @relation("ImportedContactAgent", fields: [agentId], references: [id])
 
   @@index([agentId])
   @@index([tagRaw])
+  @@index([leadId])
+}
+
+// Mirrors LeadFollowUp, but for a not-contacted AiSensy contact that has no
+// matching Lead row yet. Once/if a real Lead exists for that phone, follow-ups
+// live on the Lead instead (see ImportedContact.leadId above).
+model ImportedContactFollowUp {
+  id          String          @id @default(cuid())
+  contactId   String
+  contact     ImportedContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  status      FollowUpStatus  @default(PENDING)
+  note        String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([contactId])
 }
 
 // Marketing ROI: one row per calendar month ("2026-07"), holding the ad

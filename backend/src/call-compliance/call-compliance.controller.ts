@@ -134,6 +134,20 @@ export class CallComplianceController {
     return this.service.getNotContactedLeads(req.user, month || undefined);
   }
 
+  // ── Working a not-contacted contact like a normal lead ───────────────
+  // Only valid for contacts with no leadId — once a contact is linked to a
+  // real Lead, the frontend calls /crm/leads/:id/status and
+  // /crm/leads/:id/call instead so everything lives in one place.
+  @Put('contacts/:id/status')
+  updateContactStatus(@Param('id') id: string, @Body('status') status: string) {
+    return this.service.updateContactStatus(id, status as any);
+  }
+
+  @Post('contacts/:id/call')
+  logContactCall(@Param('id') id: string, @Body() body: { outcome: string; note?: string }) {
+    return this.service.logContactCall(id, body.outcome, body.note || '');
+  }
+
   @Get('agents/:id/stats')
   getAgentStats(@Param('id') id: string, @Req() req: Request & { user: JwtUser }, @Query('month') month?: string) {
     if (req.user.role !== 'ADMIN' && req.user.id !== id) {
