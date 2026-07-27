@@ -123,8 +123,8 @@ export class CallComplianceController {
 
   @Get('team-stats')
   getTeamStats(@Query('month') month?: string) {
-    // Visible to everyone — org-wide top-5 called numbers + calling pattern,
-    // pooled across all agents (not scoped to whoever is logged in).
+    // Visible to everyone — each active agent's own top-5 called numbers +
+    // calling pattern, side by side (not pooled into one combined figure).
     return this.service.getTeamCallStats(month || undefined);
   }
 

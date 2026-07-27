@@ -50,11 +50,16 @@ type MyComplianceStats = {
   top5Called: TopCalledNumber[];
   callingPattern: { distinctNumbersCalled: number; calledOnce: number; calledRepeat: number; repeatCallRate: number; distribution: CallingPatternBucket[] };
 };
-type TeamCallStats = {
+type TeamAgentCallStats = {
+  agentId: string;
+  agentName: string;
   distinctNumbersCalled: number;
   top5Called: TopCalledNumber[];
   callingPattern: { distinctNumbersCalled: number; calledOnce: number; calledRepeat: number; repeatCallRate: number; distribution: CallingPatternBucket[] };
 };
+type TeamCallStats = { month: string | null; agents: TeamAgentCallStats[] };
+
+const CALLING_PATTERN_COLORS = ["#94a3b8", "#38bdf8", "#f59e0b", "#ef4444"]; // 1 call, 2-3, 4-6, 7+
 
 function fmtSecs(sec: number) {
   const m = Math.floor(sec / 60);
@@ -106,6 +111,14 @@ export default function DashboardPage() {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [currentUser] = useState(() => getStoredUser());
+  const [expandedCallAgents, setExpandedCallAgents] = useState<Set<string>>(new Set());
+  const toggleCallAgent = (agentId: string) => {
+    setExpandedCallAgents((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId); else next.add(agentId);
+      return next;
+    });
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -598,61 +611,86 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Call Compliance: team-wide calling activity (everyone, pooled) ── */}
-        {teamStats && teamStats.distinctNumbersCalled > 0 && (
+        {/* ── Call Compliance: individual calling activity, per agent ── */}
+        {teamStats && teamStats.agents.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
               <div className="flex items-center gap-1 mb-1">
                 <PhoneCall className="h-3 w-3 text-blue-500" />
-                <p className="text-xs font-semibold text-slate-700">Everyone's Top 5 Called Numbers</p>
+                <p className="text-xs font-semibold text-slate-700">Top 5 Called Numbers — by Agent</p>
               </div>
-              {teamStats.top5Called.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-4">No calls imported yet</p>
-              ) : (
-                <div className="space-y-1">
-                  {teamStats.top5Called.map((n, i) => (
-                    <div key={n.phone} className="flex items-center justify-between gap-2 px-1 py-0.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="w-4 text-slate-400 flex-shrink-0" style={{ fontSize: "10px" }}>{i + 1}.</span>
-                        <span className="text-xs font-mono text-slate-700 truncate">{n.phone}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <span className="text-xs text-slate-400">{fmtSecs(n.totalDurationSec)}</span>
-                        <span className="text-xs font-bold text-blue-600">{n.count}×</span>
-                      </div>
+              <div className="space-y-0.5 max-h-72 overflow-y-auto">
+                {teamStats.agents.map((a) => {
+                  const expanded = expandedCallAgents.has(a.agentId);
+                  return (
+                    <div key={a.agentId} className="border-b border-slate-50 last:border-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleCallAgent(a.agentId)}
+                        className="w-full flex items-center justify-between gap-2 px-1 py-1 text-left"
+                      >
+                        <span className="text-xs font-medium text-slate-700 truncate">{a.agentName}</span>
+                        <span className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-xs text-slate-400">{a.distinctNumbersCalled} numbers</span>
+                          <span className="text-slate-400 text-[10px]">{expanded ? "▲" : "▼"}</span>
+                        </span>
+                      </button>
+                      {expanded && (
+                        <div className="pl-2 pb-1.5 space-y-1">
+                          {a.top5Called.map((n, i) => (
+                            <div key={n.phone} className="flex items-center justify-between gap-2 px-1 py-0.5">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="w-4 text-slate-400 flex-shrink-0" style={{ fontSize: "10px" }}>{i + 1}.</span>
+                                <span className="text-xs font-mono text-slate-700 truncate">{n.phone}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <span className="text-xs text-slate-400">{fmtSecs(n.totalDurationSec)}</span>
+                                <span className="text-xs font-bold text-blue-600">{n.count}×</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                })}
+              </div>
             </div>
 
             <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
               <div className="flex items-center gap-1 mb-1">
                 <Repeat className="h-3 w-3 text-orange-500" />
-                <p className="text-xs font-semibold text-slate-700">Everyone's Calling Pattern</p>
-                <span className="text-xs text-slate-400 ml-auto">{teamStats.callingPattern.repeatCallRate}% repeat</span>
+                <p className="text-xs font-semibold text-slate-700">Calling Pattern — by Agent</p>
               </div>
-              {teamStats.callingPattern.distinctNumbersCalled === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-4">No calls imported yet</p>
-              ) : (
-                <div className="space-y-1">
-                  {teamStats.callingPattern.distribution.map((b) => {
-                    const pct = b.pct ?? 0;
-                    return (
-                      <div key={b.bucket} className="min-w-0">
-                        <div className="flex justify-between mb-0.5 gap-1">
-                          <span className="text-xs text-slate-600">{b.bucket}</span>
-                          <span className="text-slate-500 font-semibold" style={{ fontSize: "10px" }}>{pct}% ({b.count})</span>
-                        </div>
-                        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-orange-500 rounded-full" style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <p className="text-xs text-slate-400 pt-1">{teamStats.callingPattern.calledOnce} numbers called once · {teamStats.callingPattern.calledRepeat} called repeatedly</p>
-                </div>
-              )}
+              <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                {["1 call", "2-3 calls", "4-6 calls", "7+ calls"].map((label, i) => (
+                  <div key={label} className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CALLING_PATTERN_COLORS[i] }} />
+                    <span className="text-slate-400" style={{ fontSize: "10px" }}>{label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                {teamStats.agents.map((a) => (
+                  <div key={a.agentId} className="min-w-0">
+                    <div className="flex justify-between mb-0.5 gap-1">
+                      <span className="text-xs font-medium text-slate-700 truncate">{a.agentName}</span>
+                      <span className="text-slate-400 flex-shrink-0" style={{ fontSize: "10px" }}>{a.callingPattern.repeatCallRate}% repeat</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full overflow-hidden flex bg-slate-100">
+                      {a.callingPattern.distribution.map((b, i) => (
+                        (b.pct ?? 0) > 0 && (
+                          <div
+                            key={b.bucket}
+                            title={`${b.bucket}: ${b.pct ?? 0}% (${b.count})`}
+                            style={{ width: `${b.pct ?? 0}%`, backgroundColor: CALLING_PATTERN_COLORS[i] }}
+                          />
+                        )
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
