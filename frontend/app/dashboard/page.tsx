@@ -40,13 +40,18 @@ type ComplianceAgentRow = { agentId: string; agentName: string; tagsApplied: num
 type ComplianceDashboard = { agents: ComplianceAgentRow[]; totals: { tagsApplied: number; notContacted: number } };
 type NotContactedNumber = { name: string | null; phone: string; tagRaw: string | null; lastActiveAt: string | null; createdOnAt: string | null };
 type TopCalledNumber = { phone: string; count: number; totalDurationSec: number; lastCalledAt: string };
-type CallingPatternBucket = { bucket: string; count: number };
+type CallingPatternBucket = { bucket: string; count: number; pct?: number };
 type MyComplianceStats = {
   agentName: string;
   taggedCount: number;
   contactedCount: number;
   notContactedCount: number;
   notContactedNumbers: NotContactedNumber[];
+  top5Called: TopCalledNumber[];
+  callingPattern: { distinctNumbersCalled: number; calledOnce: number; calledRepeat: number; repeatCallRate: number; distribution: CallingPatternBucket[] };
+};
+type TeamCallStats = {
+  distinctNumbersCalled: number;
   top5Called: TopCalledNumber[];
   callingPattern: { distinctNumbersCalled: number; calledOnce: number; calledRepeat: number; repeatCallRate: number; distribution: CallingPatternBucket[] };
 };
@@ -95,6 +100,7 @@ export default function DashboardPage() {
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
+  const [teamStats, setTeamStats] = useState<TeamCallStats | null>(null);
   const [complianceMonth, setComplianceMonth] = useState<string>(""); // "" = all time
   const [availableMonths, setAvailableMonths] = useState<{ month: string; label: string }[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -143,6 +149,12 @@ export default function DashboardPage() {
       const qs = month ? `?month=${month}` : "";
       const myStatsRes = await fetch(`${API_BASE_URL}/call-compliance/my-stats${qs}`, { headers: h });
       if (myStatsRes.ok) setMyStats(await myStatsRes.json());
+    } catch { /* ignore */ }
+    try {
+      const h = getAuthHeaders();
+      const qs = month ? `?month=${month}` : "";
+      const teamStatsRes = await fetch(`${API_BASE_URL}/call-compliance/team-stats${qs}`, { headers: h });
+      if (teamStatsRes.ok) setTeamStats(await teamStatsRes.json());
     } catch { /* ignore */ }
   }, []);
 
@@ -523,7 +535,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── Call Compliance: month selector ── */}
-        {(compliance || myStats) && availableMonths.length > 0 && (
+        {(compliance || myStats || teamStats) && availableMonths.length > 0 && (
           <div className="flex items-center justify-end gap-1.5 -mb-1">
             <span className="text-xs text-slate-400">Call compliance for:</span>
             <select
@@ -586,42 +598,19 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Call Compliance: my personal stats ── */}
-        {myStats && myStats.taggedCount > 0 && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
-              <div className="flex items-center gap-1 mb-1">
-                <PhoneOff className="h-3 w-3 text-red-500" />
-                <p className="text-xs font-semibold text-slate-700">My Not-Contacted Numbers</p>
-                <span className="text-xs text-slate-400 ml-auto">{myStats.notContactedCount} of {myStats.taggedCount} tagged</span>
-              </div>
-              {myStats.notContactedNumbers.length === 0 ? (
-                <p className="text-xs text-emerald-600 text-center py-4 font-medium">All tagged contacts called 🎉</p>
-              ) : (
-                <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                  {myStats.notContactedNumbers.slice(0, 20).map((n) => (
-                    <div key={n.phone} className="flex items-center justify-between gap-2 px-1 py-0.5 border-b border-slate-50 last:border-0">
-                      <span className="text-xs text-slate-700 truncate">{n.name || "—"}</span>
-                      <span className="text-xs font-mono text-slate-500 flex-shrink-0">{n.phone}</span>
-                    </div>
-                  ))}
-                  {myStats.notContactedNumbers.length > 20 && (
-                    <p className="text-xs text-slate-400 text-center pt-1">+{myStats.notContactedNumbers.length - 20} more</p>
-                  )}
-                </div>
-              )}
-            </div>
-
+        {/* ── Call Compliance: team-wide calling activity (everyone, pooled) ── */}
+        {teamStats && teamStats.distinctNumbersCalled > 0 && (
+          <div className="grid grid-cols-2 gap-2">
             <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
               <div className="flex items-center gap-1 mb-1">
                 <PhoneCall className="h-3 w-3 text-blue-500" />
-                <p className="text-xs font-semibold text-slate-700">My Top 5 Called Numbers</p>
+                <p className="text-xs font-semibold text-slate-700">Everyone's Top 5 Called Numbers</p>
               </div>
-              {myStats.top5Called.length === 0 ? (
+              {teamStats.top5Called.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-4">No calls imported yet</p>
               ) : (
                 <div className="space-y-1">
-                  {myStats.top5Called.map((n, i) => (
+                  {teamStats.top5Called.map((n, i) => (
                     <div key={n.phone} className="flex items-center justify-between gap-2 px-1 py-0.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="w-4 text-slate-400 flex-shrink-0" style={{ fontSize: "10px" }}>{i + 1}.</span>
@@ -640,21 +629,20 @@ export default function DashboardPage() {
             <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
               <div className="flex items-center gap-1 mb-1">
                 <Repeat className="h-3 w-3 text-orange-500" />
-                <p className="text-xs font-semibold text-slate-700">My Calling Pattern</p>
-                <span className="text-xs text-slate-400 ml-auto">{myStats.callingPattern.repeatCallRate}% repeat</span>
+                <p className="text-xs font-semibold text-slate-700">Everyone's Calling Pattern</p>
+                <span className="text-xs text-slate-400 ml-auto">{teamStats.callingPattern.repeatCallRate}% repeat</span>
               </div>
-              {myStats.callingPattern.distinctNumbersCalled === 0 ? (
+              {teamStats.callingPattern.distinctNumbersCalled === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-4">No calls imported yet</p>
               ) : (
                 <div className="space-y-1">
-                  {myStats.callingPattern.distribution.map((b) => {
-                    const maxCount = Math.max(...myStats.callingPattern.distribution.map((x) => x.count), 1);
-                    const pct = Math.round((b.count / maxCount) * 100);
+                  {teamStats.callingPattern.distribution.map((b) => {
+                    const pct = b.pct ?? 0;
                     return (
                       <div key={b.bucket} className="min-w-0">
                         <div className="flex justify-between mb-0.5 gap-1">
                           <span className="text-xs text-slate-600">{b.bucket}</span>
-                          <span className="text-slate-500 font-semibold" style={{ fontSize: "10px" }}>{b.count}</span>
+                          <span className="text-slate-500 font-semibold" style={{ fontSize: "10px" }}>{pct}% ({b.count})</span>
                         </div>
                         <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
                           <div className="h-full bg-orange-500 rounded-full" style={{ width: `${pct}%` }} />
@@ -662,7 +650,7 @@ export default function DashboardPage() {
                       </div>
                     );
                   })}
-                  <p className="text-xs text-slate-400 pt-1">{myStats.callingPattern.calledOnce} numbers called once · {myStats.callingPattern.calledRepeat} called repeatedly</p>
+                  <p className="text-xs text-slate-400 pt-1">{teamStats.callingPattern.calledOnce} numbers called once · {teamStats.callingPattern.calledRepeat} called repeatedly</p>
                 </div>
               )}
             </div>

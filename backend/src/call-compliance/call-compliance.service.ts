@@ -426,6 +426,70 @@ export class CallComplianceService {
     };
   }
 
+  /**
+   * Org-wide version of getAgentComplianceStats' "top 5 called" / "calling
+   * pattern" — same per-phone aggregation, but pooled across every agent's
+   * CallLogRecord rows instead of scoping to one agentId. Used by the
+   * dashboard's "Everyone's Top 5 Called Numbers" / "Everyone's Calling
+   * Pattern" cards so the team sees combined call activity, not just
+   * whoever happens to be logged in.
+   */
+  async getTeamCallStats(month?: string) {
+    const monthFilter = month ? this.monthRange(month) : null;
+
+    const calls = await this.prisma.callLogRecord.findMany({
+      where: monthFilter ? { calledAt: { gte: monthFilter.start, lt: monthFilter.end } } : {},
+      select: { phone: true, calledAt: true, durationSec: true },
+    });
+
+    type Agg = { count: number; totalDurationSec: number; lastCalledAt: Date };
+    const byPhone = new Map<string, Agg>();
+    for (const c of calls) {
+      const cur = byPhone.get(c.phone) ?? { count: 0, totalDurationSec: 0, lastCalledAt: c.calledAt };
+      cur.count += 1;
+      cur.totalDurationSec += c.durationSec;
+      if (c.calledAt > cur.lastCalledAt) cur.lastCalledAt = c.calledAt;
+      byPhone.set(c.phone, cur);
+    }
+
+    const top5Called = [...byPhone.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5)
+      .map(([phone, v]) => ({ phone, count: v.count, totalDurationSec: v.totalDurationSec, lastCalledAt: v.lastCalledAt }));
+
+    let calledOnce = 0;
+    let calledRepeat = 0;
+    const bucketCounts: Record<string, number> = { '1 call': 0, '2-3 calls': 0, '4-6 calls': 0, '7+ calls': 0 };
+    for (const [, v] of byPhone) {
+      if (v.count === 1) { calledOnce++; bucketCounts['1 call']++; }
+      else {
+        calledRepeat++;
+        if (v.count <= 3) bucketCounts['2-3 calls']++;
+        else if (v.count <= 6) bucketCounts['4-6 calls']++;
+        else bucketCounts['7+ calls']++;
+      }
+    }
+    const distinctNumbersCalled = byPhone.size;
+    const repeatCallRate = distinctNumbersCalled ? Math.round((calledRepeat / distinctNumbersCalled) * 100) : 0;
+
+    return {
+      month: month ?? null,
+      distinctNumbersCalled,
+      top5Called,
+      callingPattern: {
+        distinctNumbersCalled,
+        calledOnce,
+        calledRepeat,
+        repeatCallRate, // % of called numbers that got more than one call
+        distribution: Object.entries(bucketCounts).map(([bucket, count]) => ({
+          bucket,
+          count,
+          pct: distinctNumbersCalled ? Math.round((count / distinctNumbersCalled) * 100) : 0,
+        })),
+      },
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────
   // NOT-CONTACTED LEADS (CRM view)
   // ─────────────────────────────────────────────────────────────────────

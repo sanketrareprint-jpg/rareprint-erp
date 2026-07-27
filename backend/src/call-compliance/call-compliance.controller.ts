@@ -121,6 +121,13 @@ export class CallComplianceController {
     return this.service.getAgentComplianceStats(req.user.id, month || undefined);
   }
 
+  @Get('team-stats')
+  getTeamStats(@Query('month') month?: string) {
+    // Visible to everyone — org-wide top-5 called numbers + calling pattern,
+    // pooled across all agents (not scoped to whoever is logged in).
+    return this.service.getTeamCallStats(month || undefined);
+  }
+
   @Get('not-contacted')
   getNotContactedLeads(@Req() req: Request & { user: JwtUser }, @Query('month') month?: string) {
     // Admins see every agent's not-contacted leads; agents see only their own.
