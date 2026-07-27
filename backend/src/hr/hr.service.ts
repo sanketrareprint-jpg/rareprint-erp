@@ -24,7 +24,7 @@
 // i.e. salary is prorated down when hours fall short of what was required,
 // and capped at the full base salary (overtime doesn't multiply pay here —
 // that mirrors the old sheet, which had a separate manual overtime add-on).
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Employee, EmployeeKraType, LeaveType, Prisma } from '@prisma/client';
@@ -35,6 +35,11 @@ import { GmailDraftService } from '../production/gmail-draft.service';
 // role === 'ADMIN' checks scattered through the app — any admin can add/edit
 // an Employee, only this specific login can approve it.
 export const SUPERADMIN_EMAIL = 'sanket.rareprint@gmail.com';
+
+// Where the "employee accepted their HR agreement" confirmation email goes.
+// Separate from SUPERADMIN_EMAIL (approval gating) — this is just an FYI
+// notification, sent to the shared HR inbox rather than Sanket personally.
+const HR_NOTIFY_EMAIL = 'hr.rareprint@gmail.com';
 
 // Editing any of these on an already-approved employee means Sanket needs to
 // re-approve before salary can be generated again — they all feed the salary
@@ -93,6 +98,8 @@ export function workingDaysInMonth(year: number, month: number, offDow = WEEKLY_
 
 @Injectable()
 export class HrService {
+  private readonly logger = new Logger(HrService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly gmail: GmailDraftService,
@@ -578,9 +585,13 @@ export class HrService {
     };
   }
 
-  async acceptAgreement(token: string, dto: { signatureName: string; ip?: string }) {
+  async acceptAgreement(token: string, dto: { signatureName: string; ip?: string; idProofDocUrl: string }) {
     if (!dto.signatureName?.trim()) throw new BadRequestException('Please type your full name to accept.');
-    const employee = await this.prisma.employee.findUnique({ where: { agreementToken: token } });
+    if (!dto.idProofDocUrl) throw new BadRequestException('Please attach a scan or photo of your ID proof.');
+    const employee = await this.prisma.employee.findUnique({
+      where: { agreementToken: token },
+      include: { agreementTerms: true },
+    });
     if (!employee) throw new NotFoundException('Invalid or expired agreement link');
     if (employee.agreementAcceptedAt) {
       return { alreadyAccepted: true, acceptedAt: employee.agreementAcceptedAt };
@@ -591,8 +602,23 @@ export class HrService {
         agreementAcceptedAt: new Date(),
         agreementAcceptedIp: dto.ip ?? null,
         agreementSignatureName: dto.signatureName.trim(),
+        idProofDocUrl: dto.idProofDocUrl,
       },
     });
+
+    // Best-effort notification — the acceptance itself is already committed
+    // above, so a Gmail hiccup here must not fail the employee's request.
+    const notifyBody =
+      `${employee.fullName} (${employee.employeeCode}) just accepted the RarePrint HR agreement` +
+      `${employee.agreementTerms?.title ? ` (${employee.agreementTerms.title})` : ''}.\n\n` +
+      `Signed as: ${updated.agreementSignatureName}\n` +
+      `Accepted at: ${updated.agreementAcceptedAt?.toLocaleString('en-IN')}\n` +
+      `IP address: ${updated.agreementAcceptedIp ?? 'unknown'}\n\n` +
+      `An ID proof scan was uploaded and attached to their HR record — check the Employee Master in the ERP (HR section) to view it.`;
+    this.gmail
+      .sendMail(HR_NOTIFY_EMAIL, `HR Agreement Accepted — ${employee.fullName}`, notifyBody)
+      .catch((err) => this.logger.warn(`Failed to send agreement-acceptance notification: ${err?.message ?? err}`));
+
     return { alreadyAccepted: false, acceptedAt: updated.agreementAcceptedAt };
   }
 }

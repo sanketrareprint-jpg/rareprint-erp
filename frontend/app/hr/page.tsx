@@ -26,7 +26,7 @@ type EmployeeDetail = EmployeeListItem & {
   annualPaidLeaveQuota: string | number | null; dateOfBirth: string | null; gender: string | null;
   address: string | null; alternateMobile: string | null; emergencyContactName: string | null;
   emergencyContactPhone: string | null; idProofType: string | null; idProofNumber: string | null;
-  bankAccountNumber: string | null; bankIfsc: string | null; notes: string | null;
+  bankAccountNumber: string | null; bankIfsc: string | null; idProofDocUrl: string | null; notes: string | null;
   email: string | null; photoUrl: string | null; overtimeAllowed: boolean;
   masterDataApproved: boolean; approvedAt: string | null;
   agreementSentAt: string | null; agreementAcceptedAt: string | null; agreementSignatureName: string | null;
@@ -491,7 +491,12 @@ export default function HrPage() {
                   <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide flex items-center gap-2"><FileSignature size={16} /> Digital HR Agreement</h2>
                   <div className="text-xs text-slate-600">
                     {detail.agreementAcceptedAt ? (
-                      <span className="text-green-700 font-semibold flex items-center gap-1"><CheckCircle2 size={14} /> Accepted {fmtDateTime(detail.agreementAcceptedAt)} — signed "{detail.agreementSignatureName}"</span>
+                      <div className="space-y-1">
+                        <span className="text-green-700 font-semibold flex items-center gap-1"><CheckCircle2 size={14} /> Accepted {fmtDateTime(detail.agreementAcceptedAt)} — signed "{detail.agreementSignatureName}"</span>
+                        {detail.idProofDocUrl && (
+                          <a href={detail.idProofDocUrl} target="_blank" rel="noopener noreferrer" className="text-brand-700 underline text-xs font-semibold inline-block">View uploaded ID proof</a>
+                        )}
+                      </div>
                     ) : detail.agreementSentAt ? (
                       <span className="text-amber-700 font-semibold flex items-center gap-1"><AlertTriangle size={14} /> Sent {fmtDateTime(detail.agreementSentAt)} — awaiting acceptance</span>
                     ) : (
