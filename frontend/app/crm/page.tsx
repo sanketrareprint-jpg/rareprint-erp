@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import {
   makeCall as nativeMakeCall,
@@ -204,6 +204,10 @@ function CrmPageContent() {
   const [notContactedSearch, setNotContactedSearch] = useState("");
   const [notContactedMonth, setNotContactedMonth] = useState(""); // "" = all time
   const [notContactedMonths, setNotContactedMonths] = useState<{ month: string; label: string }[]>([]);
+  const [notContactedAgentFilter, setNotContactedAgentFilter] = useState("ALL");
+  const [notContactedStatusFilter, setNotContactedStatusFilter] = useState("ALL");
+  const [notContactedTagFilter, setNotContactedTagFilter] = useState("ALL");
+  const [notContactedOverdueOnly, setNotContactedOverdueOnly] = useState(false);
 
   // ── Smart call state ──────────────────────────────────────────────────────
   const [callInProgress, setCallInProgress] = useState<Lead | null>(null);
@@ -422,11 +426,28 @@ function CrmPageContent() {
     })();
   }, [view, notContactedMonths.length]);
 
-  const filteredNotContacted = notContactedList.filter((c) => {
-    if (!notContactedSearch) return true;
-    const q = notContactedSearch.toLowerCase();
-    return c.name?.toLowerCase().includes(q) || c.phone.includes(q) || c.tagRaw?.toLowerCase().includes(q) || c.agentName?.toLowerCase().includes(q);
-  });
+  // Dropdown options derived from whatever's currently loaded (respects the month filter already applied server-side).
+  const notContactedAgentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of notContactedList) if (c.agentId && c.agentName) map.set(c.agentId, c.agentName);
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [notContactedList]);
+
+  const notContactedTagOptions = useMemo(() => {
+    return [...new Set(notContactedList.map((c) => c.tagRaw).filter((t): t is string => !!t))].sort((a, b) => a.localeCompare(b));
+  }, [notContactedList]);
+
+  const filteredNotContacted = useMemo(() => notContactedList.filter((c) => {
+    if (notContactedAgentFilter !== "ALL" && c.agentId !== notContactedAgentFilter) return false;
+    if (notContactedStatusFilter !== "ALL" && c.status !== notContactedStatusFilter) return false;
+    if (notContactedTagFilter !== "ALL" && c.tagRaw !== notContactedTagFilter) return false;
+    if (notContactedOverdueOnly && !(c.nextFollowUp && new Date(c.nextFollowUp.scheduledAt) < new Date())) return false;
+    if (notContactedSearch) {
+      const q = notContactedSearch.toLowerCase();
+      if (!(c.name?.toLowerCase().includes(q) || c.phone.includes(q) || c.tagRaw?.toLowerCase().includes(q) || c.agentName?.toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }), [notContactedList, notContactedAgentFilter, notContactedStatusFilter, notContactedTagFilter, notContactedOverdueOnly, notContactedSearch]);
 
   // Not-contacted status change: routed to the linked Lead if one exists,
   // otherwise tracked on the contact itself.
@@ -901,28 +922,69 @@ function CrmPageContent() {
             {notContactedError && (
               <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-xs text-red-700">{notContactedError}</div>
             )}
-            <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-slate-600 flex-1 min-w-[220px]">
-                AiSensy-tagged contacts with no logged call — {filteredNotContacted.length}{notContactedSearch ? ` of ${notContactedList.length}` : ""}
-              </p>
-              {notContactedLoading && <span className="text-xs text-slate-400">Refreshing…</span>}
-              <div className="relative">
+            <div className="px-4 py-3 border-b border-slate-100 space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-slate-600 flex-1">
+                  AiSensy-tagged contacts with no logged call — {filteredNotContacted.length}
+                  {filteredNotContacted.length !== notContactedList.length ? ` of ${notContactedList.length}` : ""}
+                </p>
+                {notContactedLoading && <span className="text-xs text-slate-400">Refreshing…</span>}
+                {(notContactedSearch || notContactedAgentFilter !== "ALL" || notContactedStatusFilter !== "ALL" || notContactedTagFilter !== "ALL" || notContactedOverdueOnly) && (
+                  <button
+                    onClick={() => { setNotContactedSearch(""); setNotContactedAgentFilter("ALL"); setNotContactedStatusFilter("ALL"); setNotContactedTagFilter("ALL"); setNotContactedOverdueOnly(false); }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >Clear filters</button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   value={notContactedSearch}
                   onChange={(e) => setNotContactedSearch(e.target.value)}
                   placeholder="Search name, phone, tag, agent…"
                   className="border border-slate-200 rounded-lg text-xs px-3 py-1.5 w-56 focus:outline-none focus:border-blue-400"
                 />
+                {notContactedAgentOptions.length > 1 && (
+                  <select
+                    value={notContactedAgentFilter}
+                    onChange={(e) => setNotContactedAgentFilter(e.target.value)}
+                    className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+                  >
+                    <option value="ALL">All agents</option>
+                    {notContactedAgentOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                )}
+                <select
+                  value={notContactedStatusFilter}
+                  onChange={(e) => setNotContactedStatusFilter(e.target.value)}
+                  className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+                >
+                  <option value="ALL">All statuses</option>
+                  {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                </select>
+                {notContactedTagOptions.length > 1 && (
+                  <select
+                    value={notContactedTagFilter}
+                    onChange={(e) => setNotContactedTagFilter(e.target.value)}
+                    className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+                  >
+                    <option value="ALL">All tags</option>
+                    {notContactedTagOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                )}
+                <select
+                  value={notContactedMonth}
+                  onChange={(e) => setNotContactedMonth(e.target.value)}
+                  className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+                  title="Filter by month the contact was tagged (createdOnAt) — call history checked is always full history"
+                >
+                  <option value="">All time</option>
+                  {notContactedMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
+                </select>
+                <button
+                  onClick={() => setNotContactedOverdueOnly((v) => !v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-medium border whitespace-nowrap ${notContactedOverdueOnly ? "bg-red-600 text-white border-red-600" : "border-slate-200 text-slate-600"}`}
+                >⚠ Overdue follow-up</button>
               </div>
-              <select
-                value={notContactedMonth}
-                onChange={(e) => setNotContactedMonth(e.target.value)}
-                className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
-                title="Filter by month the contact was tagged (createdOnAt) — call history checked is always full history"
-              >
-                <option value="">All time</option>
-                {notContactedMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
-              </select>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
