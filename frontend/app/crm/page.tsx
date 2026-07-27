@@ -201,6 +201,9 @@ function CrmPageContent() {
   const [notContactedError, setNotContactedError] = useState<string | null>(null);
   const [showContactCallModal, setShowContactCallModal] = useState<NotContactedContact | null>(null);
   const [contactCallNote, setContactCallNote] = useState("");
+  const [notContactedSearch, setNotContactedSearch] = useState("");
+  const [notContactedMonth, setNotContactedMonth] = useState(""); // "" = all time
+  const [notContactedMonths, setNotContactedMonths] = useState<{ month: string; label: string }[]>([]);
 
   // ── Smart call state ──────────────────────────────────────────────────────
   const [callInProgress, setCallInProgress] = useState<Lead | null>(null);
@@ -396,17 +399,34 @@ function CrmPageContent() {
     if (typeof window !== "undefined" && window.location.hash === "#notcontacted") setView("notcontacted");
   }, []);
 
-  const loadNotContacted = useCallback(async () => {
+  const loadNotContacted = useCallback(async (month: string) => {
     setNotContactedLoading(true); setNotContactedError(null);
     try {
-      const res = await fetch(`${API}/call-compliance/not-contacted`, { headers: getAuth() });
+      const qs = month ? `?month=${month}` : "";
+      const res = await fetch(`${API}/call-compliance/not-contacted${qs}`, { headers: getAuth() });
       if (!res.ok) { setNotContactedError("Could not load not-contacted leads"); return; }
       setNotContactedList(await res.json());
     } catch { setNotContactedError("Network error"); }
     finally { setNotContactedLoading(false); }
   }, []);
 
-  useEffect(() => { if (view === "notcontacted") loadNotContacted(); }, [view, loadNotContacted]);
+  useEffect(() => { if (view === "notcontacted") loadNotContacted(notContactedMonth); }, [view, notContactedMonth, loadNotContacted]);
+
+  useEffect(() => {
+    if (view !== "notcontacted" || notContactedMonths.length) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/call-compliance/months`, { headers: getAuth() });
+        if (res.ok) setNotContactedMonths(await res.json());
+      } catch { /* ignore */ }
+    })();
+  }, [view, notContactedMonths.length]);
+
+  const filteredNotContacted = notContactedList.filter((c) => {
+    if (!notContactedSearch) return true;
+    const q = notContactedSearch.toLowerCase();
+    return c.name?.toLowerCase().includes(q) || c.phone.includes(q) || c.tagRaw?.toLowerCase().includes(q) || c.agentName?.toLowerCase().includes(q);
+  });
 
   // Not-contacted status change: routed to the linked Lead if one exists,
   // otherwise tracked on the contact itself.
@@ -430,7 +450,7 @@ function CrmPageContent() {
     });
     setShowContactCallModal(null);
     setContactCallNote("");
-    loadNotContacted();
+    loadNotContacted(notContactedMonth);
   };
 
   const openLead = async (lead: Lead) => {
@@ -881,9 +901,28 @@ function CrmPageContent() {
             {notContactedError && (
               <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-xs text-red-700">{notContactedError}</div>
             )}
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-600">AiSensy-tagged contacts with no logged call — {notContactedList.length}</p>
+            <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-slate-600 flex-1 min-w-[220px]">
+                AiSensy-tagged contacts with no logged call — {filteredNotContacted.length}{notContactedSearch ? ` of ${notContactedList.length}` : ""}
+              </p>
               {notContactedLoading && <span className="text-xs text-slate-400">Refreshing…</span>}
+              <div className="relative">
+                <input
+                  value={notContactedSearch}
+                  onChange={(e) => setNotContactedSearch(e.target.value)}
+                  placeholder="Search name, phone, tag, agent…"
+                  className="border border-slate-200 rounded-lg text-xs px-3 py-1.5 w-56 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+              <select
+                value={notContactedMonth}
+                onChange={(e) => setNotContactedMonth(e.target.value)}
+                className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+                title="Filter by month the contact was tagged (createdOnAt) — call history checked is always full history"
+              >
+                <option value="">All time</option>
+                {notContactedMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
+              </select>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -895,7 +934,7 @@ function CrmPageContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {notContactedList.map((c) => {
+                  {filteredNotContacted.map((c) => {
                     const overdue = c.nextFollowUp && new Date(c.nextFollowUp.scheduledAt) < new Date();
                     return (
                       <tr key={c.id} className="hover:bg-slate-50">
@@ -933,9 +972,9 @@ function CrmPageContent() {
                       </tr>
                     );
                   })}
-                  {notContactedList.length === 0 && !notContactedLoading && (
+                  {filteredNotContacted.length === 0 && !notContactedLoading && (
                     <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">
-                      {notContactedError ? "" : "Nothing to show — either no data has been imported yet, or everyone's been called 🎉"}
+                      {notContactedError ? "" : notContactedList.length === 0 ? "Nothing to show — either no data has been imported yet, or everyone's been called 🎉" : "No matches for this filter"}
                     </td></tr>
                   )}
                 </tbody>
