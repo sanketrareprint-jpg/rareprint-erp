@@ -2,11 +2,20 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CostTableService } from '../cost-table/cost-table.service';
-import { OrderStatus, OrderProductionStage, ProductionCategory } from '@prisma/client';
+import { OrderStatus, OrderProductionStage, ProductionCategory, BankReconcileStatus } from '@prisma/client';
 
 // Profit is sensitive — only Sanket (super-admin) sees it on the dashboard.
 // Matches the SUPER_ADMIN_EMAIL convention already used in accounts.service.ts.
 const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
+
+type SuperAdminTaskItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  amount: number | null;
+  link: string;
+  createdAt: string;
+};
 
 type ProductionKpiMetric = {
   key: string;
@@ -31,7 +40,7 @@ export class DashboardService {
     // to every ADMIN-role account.
     const isSuperAdmin = userEmail === SUPER_ADMIN_EMAIL;
 
-    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult, cashflowResult] = await Promise.allSettled([
+    const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult, cashflowResult, superAdminTasksResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
       this.getCategoryStageQuantities(),
@@ -41,6 +50,7 @@ export class DashboardService {
       this.getSalesByMonth(6),
       isSuperAdmin ? this.getProfitKpis() : Promise.resolve(null),
       isSuperAdmin ? this.getCashflow() : Promise.resolve(null),
+      isSuperAdmin ? this.getSuperAdminTasks() : Promise.resolve(null),
     ]);
 
     return {
@@ -59,6 +69,240 @@ export class DashboardService {
       profit: profitResult.status === 'fulfilled' ? profitResult.value : null,
       // Same owner-only gating as profit — null for everyone else.
       cashflow: cashflowResult.status === 'fulfilled' ? cashflowResult.value : null,
+      // Same owner-only gating — "things only the super-admin/owner can do".
+      superAdminTasks: superAdminTasksResult.status === 'fulfilled' ? superAdminTasksResult.value : null,
+    };
+  }
+
+  // ── Super Admin Tasks — a growing list of "only Sanket/owner can act on
+  // this" items surfaced on the dashboard: order approvals blocked below the
+  // 40%-advance / missing-cost-data rules (see AccountsService.approveOrder),
+  // payment entries waiting on his final recheck, unverified commission
+  // sheets, and open complaints. Each group is independent and the frontend
+  // renders whatever comes back generically — add a new group to the array
+  // below (and write one private helper for it) as new super-admin-gated
+  // workflows ship. Nothing else needs to change. ───────────────────────────
+  async getSuperAdminTasks() {
+    const [orderApprovals, paymentVerification, commissionVerification, complaints] = await Promise.all([
+      this.getOrdersNeedingSuperAdminApproval(),
+      this.getPaymentEntriesAwaitingVerification(),
+      this.getCommissionSheetsAwaitingVerification(),
+      this.getComplaintsNeedingAttention(),
+    ]);
+
+    const groups = [
+      {
+        key: 'order_approvals',
+        label: 'Order Approvals — Below 40% Advance / Cost Missing',
+        description: "Orders a regular Accounts user can't approve — only the super-admin can approve these (or an override reason).",
+        status: 'active' as const,
+        count: orderApprovals.length,
+        items: orderApprovals,
+      },
+      {
+        key: 'payment_verification',
+        label: 'Payment Entries Awaiting Final Verification',
+        description: "Checked by Accounts, waiting on the super-admin's recheck before moving to Payment History.",
+        status: 'active' as const,
+        count: paymentVerification.count,
+        items: paymentVerification.items,
+      },
+      {
+        key: 'commission_verification',
+        label: 'Commission Sheets Awaiting Verification',
+        description: `Sales agents with orders in ${commissionVerification.monthLabel} whose commission sheet hasn't been verified yet.`,
+        status: 'active' as const,
+        count: commissionVerification.items.length,
+        items: commissionVerification.items,
+      },
+      {
+        key: 'bonus_points_approval',
+        label: 'Bonus Points Approval',
+        description: 'Planned: an approval step before staff reward-coin payouts post. Not built yet — placeholder so it shows up here once it ships.',
+        status: 'coming_soon' as const,
+        count: 0,
+        items: [] as SuperAdminTaskItem[],
+      },
+      {
+        key: 'complaints',
+        label: 'Complaints Needing Attention',
+        description: 'Open complaints — unresolved, overdue, or escalated to admin.',
+        status: 'active' as const,
+        count: complaints.count,
+        items: complaints.items,
+      },
+      // ── Add new super-admin-only task groups here as the ERP grows. Shape:
+      // { key, label, description, status: 'active' | 'coming_soon', count, items: SuperAdminTaskItem[] }
+    ];
+
+    return {
+      generatedAt: new Date().toISOString(),
+      totalPending: groups.filter((g) => g.status === 'active').reduce((sum, g) => sum + g.count, 0),
+      groups,
+    };
+  }
+
+  // Same conditions AccountsService.approveOrder blocks a non-super-admin on:
+  // advance below 40% of grand total, or a billable item with no cost slab.
+  private async getOrdersNeedingSuperAdminApproval(): Promise<SuperAdminTaskItem[]> {
+    const orders = await this.prisma.order.findMany({
+      where: { status: OrderStatus.PENDING_APPROVAL },
+      include: {
+        customer: { select: { businessName: true } },
+        items: true,
+        payments: true,
+      },
+      orderBy: { orderDate: 'asc' },
+    });
+    if (orders.length === 0) return [];
+
+    const productIds = Array.from(
+      new Set(orders.flatMap((o) => o.items.filter((i) => !(i as any).offerCodeId).map((i) => i.productId))),
+    );
+    const costSlabs = productIds.length
+      ? await this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } })
+      : [];
+    const productsWithCost = new Set(costSlabs.map((s) => s.productId));
+
+    const results: SuperAdminTaskItem[] = [];
+    for (const order of orders) {
+      const billableItems = order.items.filter((i) => !(i as any).offerCodeId);
+      const missingCostItems = billableItems.filter((i) => !productsWithCost.has(i.productId));
+
+      const totalVerifiedPaid = order.payments
+        .filter((p) => p.verificationStatus === 'VERIFIED')
+        .reduce((sum, p) => sum + Number(p.amount), 0);
+      const grandTotal = Number(order.grandTotal);
+      const advancePct = grandTotal > 0 ? (totalVerifiedPaid / grandTotal) * 100 : 100;
+
+      const reasons: string[] = [];
+      if (advancePct < 40) reasons.push(`Only ${advancePct.toFixed(1)}% advance received`);
+      if (missingCostItems.length > 0) reasons.push(`Cost data missing for ${missingCostItems.length} item(s)`);
+      if (reasons.length === 0) continue;
+
+      results.push({
+        id: order.id,
+        title: `${order.orderNumber} — ${order.customer.businessName}`,
+        subtitle: reasons.join(' · '),
+        amount: grandTotal,
+        link: '/accounts?tab=pending',
+        createdAt: order.orderDate.toISOString(),
+      });
+    }
+    return results;
+  }
+
+  // Mirrors AccountsService.getPaymentVerificationQueue, narrowed to entries
+  // an accountant has already "Checked" — those are the ones actually
+  // sitting waiting on Sanket's recheck (see AccountsService.recheckPaymentVerification).
+  private async getPaymentEntriesAwaitingVerification(): Promise<{ count: number; items: SuperAdminTaskItem[] }> {
+    const statuses: BankReconcileStatus[] = [
+      BankReconcileStatus.MATCHED_PAYMENT,
+      BankReconcileStatus.MATCHED_VENDOR,
+      BankReconcileStatus.MATCHED_EXPENSE,
+      BankReconcileStatus.MATCHED_COMMISSION,
+      BankReconcileStatus.MANUAL_REVIEW,
+    ];
+    const where = {
+      crDr: 'DR' as const,
+      reconcileStatus: { in: statuses },
+      checkedAt: { not: null },
+      recheckedAt: null,
+    };
+    const [count, txns] = await Promise.all([
+      this.prisma.bankTransaction.count({ where: where as any }),
+      this.prisma.bankTransaction.findMany({
+        where: where as any,
+        include: { checkedBy: { select: { fullName: true } } },
+        orderBy: [{ txnDate: 'desc' }],
+        take: 50,
+      }),
+    ]);
+    return {
+      count,
+      items: (txns as any[]).map((t) => ({
+        id: t.id,
+        title: `₹${Number(t.amount).toLocaleString('en-IN')} — ${(t.description ?? 'Bank entry').slice(0, 60)}`,
+        subtitle: `Checked by ${t.checkedBy?.fullName ?? '—'} on ${new Date(t.checkedAt).toLocaleDateString('en-IN')}`,
+        amount: Number(t.amount),
+        link: '/accounts?tab=payment_verification',
+        createdAt: (t.checkedAt ?? t.txnDate).toISOString(),
+      })),
+    };
+  }
+
+  // Previous fully-closed calendar month only — the month sales agents'
+  // sheets are actually expected to be verified for. See CostTableService.verifyCommission.
+  private async getCommissionSheetsAwaitingVerification(): Promise<{ monthLabel: string; items: SuperAdminTaskItem[] }> {
+    const b = this.istBoundaries();
+    const from = b.startOfLastMonth;
+    const to = b.startOfMonth;
+    const year = b.istMonth === 0 ? b.istYear - 1 : b.istYear;
+    const month = b.istMonth === 0 ? 12 : b.istMonth; // 1-indexed, matches CommissionVerification.month
+    const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        orderDate: { gte: from, lt: to },
+        status: { not: OrderStatus.CANCELLED },
+        salesAgentId: { not: null },
+        isSample: false,
+      },
+      select: { salesAgentId: true, salesAgent: { select: { id: true, fullName: true } } },
+    });
+    const agentMap = new Map<string, string>();
+    for (const o of orders) {
+      if (o.salesAgentId && o.salesAgent) agentMap.set(o.salesAgentId, o.salesAgent.fullName);
+    }
+    if (agentMap.size === 0) return { monthLabel, items: [] };
+
+    const verifications = await (this.prisma as any).commissionVerification.findMany({
+      where: { agentId: { in: Array.from(agentMap.keys()) }, year, month },
+      select: { agentId: true },
+    });
+    const verifiedSet = new Set(verifications.map((v: any) => v.agentId));
+
+    const items: SuperAdminTaskItem[] = Array.from(agentMap.entries())
+      .filter(([agentId]) => !verifiedSet.has(agentId))
+      .map(([agentId, name]) => ({
+        id: `${agentId}_${year}-${month}`,
+        title: `${name} — ${monthLabel}`,
+        subtitle: 'Commission sheet not yet verified',
+        amount: null,
+        link: '/accounts?tab=commission',
+        createdAt: to.toISOString(),
+      }));
+    return { monthLabel, items };
+  }
+
+  // Open complaints (not RESOLVED/CLOSED) — highest priority first. See
+  // ComplaintsService for the full workflow; this is just a dashboard surface.
+  private async getComplaintsNeedingAttention(): Promise<{ count: number; items: SuperAdminTaskItem[] }> {
+    const now = new Date();
+    const where = { status: { notIn: ['RESOLVED', 'CLOSED'] } };
+    const [count, complaints] = await Promise.all([
+      (this.prisma as any).complaint.count({ where }),
+      (this.prisma as any).complaint.findMany({
+        where,
+        orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+        take: 50,
+        include: { customer: { select: { businessName: true } } },
+      }),
+    ]);
+    return {
+      count,
+      items: complaints.map((c: any) => {
+        const overdue = c.slaResolutionDueAt && new Date(c.slaResolutionDueAt) < now;
+        const flags = [c.priority, c.status, overdue ? 'OVERDUE' : null, c.escalatedToAdmin ? 'ESCALATED' : null].filter(Boolean);
+        return {
+          id: c.id,
+          title: `${c.ticketNumber} — ${c.customer?.businessName ?? 'Unknown customer'}`,
+          subtitle: `${flags.join(' · ')} — ${c.subject}`,
+          amount: null,
+          link: `/complaints/${c.id}`,
+          createdAt: c.createdAt.toISOString(),
+        };
+      }),
     };
   }
 

@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat } from "lucide-react";
+import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat, ShieldCheck } from "lucide-react";
 
 type DashboardStats = {
   revenue: {
@@ -35,6 +35,14 @@ type ProfitKpis = { today: ProfitPeriod; thisMonth: ProfitPeriod; lastMonth: Pro
 type SalesByMonthPoint = { month: string; total: number };
 type CashflowPeriod = { cashIn: number; cashOut: number; net: number; bankCashIn: number; bankCashOut: number; cashModeIn: number; cashModeOut: number };
 type Cashflow = { thisMonth: CashflowPeriod; lastMonth: CashflowPeriod; deltaVsLastMonth: number };
+
+// Super Admin Tasks — an extensible list of "only Sanket/owner can act on
+// this" items (see backend DashboardService.getSuperAdminTasks). New task
+// types just show up here automatically; nothing on the frontend needs to
+// change when a new group is added on the backend.
+type SuperAdminTaskItem = { id: string; title: string; subtitle: string; amount: number | null; link: string; createdAt: string };
+type SuperAdminTaskGroup = { key: string; label: string; description: string; status: "active" | "coming_soon"; count: number; items: SuperAdminTaskItem[] };
+type SuperAdminTasks = { generatedAt: string; totalPending: number; groups: SuperAdminTaskGroup[] };
 
 type ComplianceAgentRow = { agentId: string; agentName: string; tagsApplied: number; notContacted: number; contacted: number };
 type ComplianceDashboard = { agents: ComplianceAgentRow[]; totals: { tagsApplied: number; notContacted: number } };
@@ -103,6 +111,7 @@ export default function DashboardPage() {
   const [salesByMonth, setSalesByMonth] = useState<SalesByMonthPoint[]>([]);
   const [profit, setProfit] = useState<ProfitKpis | null>(null);
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
+  const [superAdminTasks, setSuperAdminTasks] = useState<SuperAdminTasks | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
   const [teamStats, setTeamStats] = useState<TeamCallStats | null>(null);
@@ -137,6 +146,7 @@ export default function DashboardPage() {
       setSalesByMonth(data.salesByMonth ?? []);
       setProfit(data.profit ?? null);
       setCashflow(data.cashflow ?? null);
+      setSuperAdminTasks(data.superAdminTasks ?? null);
 
       // Call-compliance widgets are best-effort — don't fail the whole
       // dashboard if there's no data imported yet. Fetched by the dedicated
@@ -294,6 +304,67 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-xs text-slate-400 mt-0.5">{cashflow.deltaVsLastMonth >= 0 ? "Better than last month" : "Worse than last month"}</p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Super Admin Tasks — owner only. Extensible: each group in
+             superAdminTasks.groups renders generically, so new task types
+             added on the backend (see DashboardService.getSuperAdminTasks)
+             show up here with no frontend changes. Complaints needing
+             attention are one of these groups, per request. ── */}
+        {isOwner && superAdminTasks && (
+          <div className="bg-white rounded-lg border border-rose-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-1">
+              <ShieldCheck className="h-3 w-3 text-rose-600" />
+              <p className="text-xs font-semibold text-slate-700">Super Admin Tasks <span className="opacity-60 font-normal">(owner only)</span></p>
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ml-auto ${superAdminTasks.totalPending > 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                {superAdminTasks.totalPending} pending
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {superAdminTasks.groups.map((group) => (
+                <div key={group.key} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <p className="text-xs font-semibold text-slate-700 truncate">{group.label}</p>
+                    {group.status === "coming_soon" ? (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-500 flex-shrink-0 whitespace-nowrap">Coming soon</span>
+                    ) : (
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${group.count > 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                        {group.count}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-slate-400 mb-1" style={{ fontSize: "10px" }}>{group.description}</p>
+                  {group.status === "coming_soon" ? (
+                    <p className="text-xs text-slate-300 italic py-1">Not built yet</p>
+                  ) : group.items.length === 0 ? (
+                    <p className="text-xs text-emerald-600 py-1">All clear ✓</p>
+                  ) : (
+                    <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                      {group.items.slice(0, 8).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => router.push(item.link)}
+                          className="w-full flex items-center justify-between gap-2 px-1.5 py-1 rounded hover:bg-white text-left"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-slate-800 truncate">{item.title}</p>
+                            <p className="text-slate-400 truncate" style={{ fontSize: "10px" }}>{item.subtitle}</p>
+                          </div>
+                          {item.amount != null && (
+                            <span className="text-xs font-bold text-slate-600 flex-shrink-0">{fmt(item.amount)}</span>
+                          )}
+                        </button>
+                      ))}
+                      {group.count > group.items.length && (
+                        <p className="text-slate-400 text-center pt-0.5" style={{ fontSize: "10px" }}>+{group.count - group.items.length} more</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

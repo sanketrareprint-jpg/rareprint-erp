@@ -33,4 +33,15 @@ export class DashboardController {
 
   @Get('lead-source-analytics')
   getLeadSourceAnalytics() { return this.dashboardService.getLeadSourceAnalytics(); }
+
+  // Owner-only "things only the super-admin can do" queue — also bundled
+  // into /dashboard/summary, exposed separately so it can be polled/refreshed
+  // on its own without reloading the whole dashboard.
+  @Get('super-admin-tasks')
+  getSuperAdminTasks(@Req() req: Request & { user: JwtUser }) {
+    if (req.user?.email !== 'sanket.rareprint@gmail.com') {
+      return { generatedAt: new Date().toISOString(), totalPending: 0, groups: [] };
+    }
+    return this.dashboardService.getSuperAdminTasks();
+  }
 }

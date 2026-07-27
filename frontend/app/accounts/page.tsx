@@ -372,10 +372,19 @@ const orderStatusClass: Record<string, string> = {
 const paymentMethods = ["CASH", "BANK_TRANSFER", "UPI", "CHEQUE", "CARD"];
 const GST_BANK_ACCOUNT = "0513102000013378";
 
+const VALID_TABS: Tab[] = ["pending", "accounting", "outstanding", "dispatch", "receipts", "receipt_history", "vendors", "commission", "payment_verification", "payment_history", "expense_tracker"];
+
 export default function AccountsPage() {
   const router = useRouter();
+  // Deep-links from elsewhere (e.g. the dashboard's Super Admin Tasks
+  // section) pass ?tab=payment_verification — a fresh navigation onto this
+  // page mounts it, so reading window.location.search once here is enough
+  // (avoids next/navigation's useSearchParams, which needs a Suspense
+  // boundary this large single-component page doesn't have).
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "pending";
+    const fromUrl = new URLSearchParams(window.location.search).get("tab") as Tab | null;
+    if (fromUrl && VALID_TABS.includes(fromUrl)) return fromUrl;
     return (localStorage.getItem("accounts_active_tab") as Tab) ?? "pending";
   });
   useEffect(() => { localStorage.setItem("accounts_active_tab", tab); }, [tab]);
