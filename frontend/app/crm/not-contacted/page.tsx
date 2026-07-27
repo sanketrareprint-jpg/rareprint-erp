@@ -5,7 +5,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, AlertCircle, PhoneOff, ArrowLeft, Search } from "lucide-react";
+import { Loader2, AlertCircle, PhoneOff, ArrowLeft, Search, Download } from "lucide-react";
 
 type NotContactedLead = {
   id: string;
@@ -73,6 +73,22 @@ export default function NotContactedLeadsPage() {
     return true;
   });
 
+  function exportCsv() {
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const rows = [
+      ["Name", "Phone"],
+      ...filtered.map((l) => [l.name || "", l.phone]),
+    ];
+    const csv = rows.map((r) => r.map(escape).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `not-contacted-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading) return (
     <DashboardShell><div className="flex items-center justify-center py-40"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div></DashboardShell>
   );
@@ -90,7 +106,17 @@ export default function NotContactedLeadsPage() {
               {currentUser?.role === "ADMIN" ? "AiSensy-tagged contacts across all agents that were never called" : "Your AiSensy-tagged contacts that you haven't called yet"}
             </p>
           </div>
-          <span className="ml-auto text-xs text-slate-500">{filtered.length} of {leads.length}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-slate-500">{filtered.length} of {leads.length}</span>
+            <button
+              onClick={exportCsv}
+              disabled={filtered.length === 0}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              title="Export Name + Phone as CSV"
+            >
+              <Download className="h-3.5 w-3.5" /> Export CSV
+            </button>
+          </div>
         </div>
 
         {error && (
