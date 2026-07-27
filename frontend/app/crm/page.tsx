@@ -1046,7 +1046,7 @@ function CrmPageContent() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    {["Name", "Phone", "Agent", "Tag", "Last Active", "Status", "Next Follow-up", "Actions"].map((h) => (
+                    {["Name", "Phone", "Agent", "Tag", "Tagged On", "Last Active", "Status", "Next Follow-up", "Actions"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -1065,6 +1065,7 @@ function CrmPageContent() {
                         <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">{c.phone}</td>
                         <td className="px-4 py-3"><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{c.agentName ?? "—"}</span></td>
                         <td className="px-4 py-3 text-xs text-slate-500">{c.tagRaw || "—"}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{c.createdOnAt ? new Date(c.createdOnAt).toLocaleDateString("en-IN") : "—"}</td>
                         <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString("en-IN") : "—"}</td>
                         <td className="px-4 py-3">
                           <select value={c.status} onChange={(e) => updateContactStatus(c, e.target.value as LeadStatus)}
@@ -1091,7 +1092,7 @@ function CrmPageContent() {
                     );
                   })}
                   {filteredNotContacted.length === 0 && !notContactedLoading && (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                    <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">
                       {notContactedError ? "" : notContactedList.length === 0 ? "Nothing to show — either no data has been imported yet, or everyone's been called 🎉" : "No matches for this filter"}
                     </td></tr>
                   )}
