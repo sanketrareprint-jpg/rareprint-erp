@@ -87,18 +87,18 @@ const DEFAULT_RATES: any = {
   nonWovenBag: {
     multiplier: 1.67,
     multicolorExtraPerBag: 2,
-    sizeRates: {
-      '9x12': 8,
-      '10x14': 10,
-      '12x15': 12,
-      '12x18': 14,
-      '16x21': 18,
+    // How many bags of this size make up 1kg of fabric — drives the fabric
+    // cost calc: (qty ÷ bagsPerKg) × ratePerKg. Larger bags weigh more, so
+    // fewer of them fit in a kg.
+    bagsPerKg: {
+      '9x12': 60,
+      '10x14': 50,
+      '12x15': 40,
+      '12x18': 35,
+      '16x21': 25,
     },
-    // Defaults for the "Custom (weight-based)" costing mode — same formula
-    // as the standalone NW Bag Cost tool: (weight/bag × qty ÷ 1000 × rate/kg)
-    // + (printing/bag × qty) + (plates × per-plate rate).
     ratePerKg: 120,
-    printingCostPerBag: 2,
+    printingCostPerBag: 1,
     perPlateRate: 500,
   },
   dotMatrixBill: {
@@ -272,29 +272,6 @@ export class RateCalculatorService {
       return { success: true };
     } catch {
       return { success: false };
-    }
-  }
-
-  // ── Cost Table lookup for Non Woven Bags ────────────────────────────────
-  private async getNonWovenCostPerBag(
-    size: string,
-    qty: number,
-  ): Promise<{ perBag: number; tier: number; sku: string } | null> {
-    const sku = 'DCUT' + size.replace('x', '');
-    try {
-      const product = await (this.prisma as any).product.findFirst({
-        where: { sku: { equals: sku, mode: 'insensitive' }, isActive: true },
-        include: { costSlabs: { orderBy: { minQuantity: 'asc' } } },
-      });
-      if (!product || !product.costSlabs?.length) return null;
-      const slab = product.costSlabs
-        .filter((s: any) => s.minQuantity <= qty && (s.maxQuantity == null || s.maxQuantity >= qty))
-        .sort((a: any, b: any) => b.minQuantity - a.minQuantity)[0];
-      if (!slab) return null;
-      const perBag = Number(slab.unitPrice) / slab.minQuantity;
-      return { perBag, tier: slab.minQuantity, sku };
-    } catch {
-      return null;
     }
   }
 
@@ -695,36 +672,35 @@ export class RateCalculatorService {
 
       const size = String(dto.nonWovenSize ?? '12x15');
       const printMode = dto.nonWovenPrintMode === 'multicolor' ? 'multicolor' : 'single';
-      // Plate Design: "1" = both sides share the same design (no extra
-      // plate-making charge beyond what's already baked into the Cost
-      // Table rate); "2" = different design front & back, which needs a
-      // second plate made — a flat one-time charge, not per-bag.
+      // Plate Design: "1" = both sides share the same design; "2" =
+      // different design front & back, which needs a second plate made —
+      // a flat one-time charge, not per-bag.
       const plates = dto.nonWovenPlateMode === '2' ? 2 : 1;
       const perPlateRate = Number(dto.nonWovenPerPlateRate ?? nw.perPlateRate ?? DEFAULT_RATES.nonWovenBag.perPlateRate);
       const plateCost = plates * perPlateRate;
 
-      // Try Cost Table first (DCUT<size> SKU → ProductCostSlab)
-      const costTableResult = await this.getNonWovenCostPerBag(size, bagQty);
-      let baseRate: number;
-      let costSource: string;
-      if (costTableResult) {
-        baseRate = costTableResult.perBag;
-        costSource = `Cost Table (${costTableResult.sku}, tier ${costTableResult.tier.toLocaleString()})`;
-      } else {
-        baseRate = Number(nw.sizeRates?.[size] ?? DEFAULT_RATES.nonWovenBag.sizeRates[size] ?? 10);
-        costSource = 'Rates config';
-      }
+      // Weight-based fabric costing: how many bags of this size make up 1kg
+      // (bagsPerKg, set per size in the Rates tab) tells us the total fabric
+      // weight needed for the requested quantity, which is then priced at a
+      // single ₹/kg rate — plus a flat printing charge per bag and the plate
+      // cost above, all before the usual multiplier.
+      const bagsPerKg = Number(nw.bagsPerKg?.[size] ?? DEFAULT_RATES.nonWovenBag.bagsPerKg[size] ?? DEFAULT_RATES.nonWovenBag.bagsPerKg['12x15']);
+      const ratePerKg = Number(dto.nonWovenRatePerKg ?? nw.ratePerKg ?? DEFAULT_RATES.nonWovenBag.ratePerKg);
+      const printingCostPerBag = Number(dto.nonWovenPrintingCostPerBag ?? nw.printingCostPerBag ?? DEFAULT_RATES.nonWovenBag.printingCostPerBag);
+      const totalKg = bagsPerKg > 0 ? bagQty / bagsPerKg : 0;
+      const fabricCost = totalKg * ratePerKg;
+      const printingCost = printingCostPerBag * bagQty;
 
       const extraRate = printMode === 'multicolor' ? Number(nw.multicolorExtraPerBag ?? DEFAULT_RATES.nonWovenBag.multicolorExtraPerBag) : 0;
-      const baseCost = baseRate * bagQty;
       const extraCost = extraRate * bagQty;
-      const subtotal = baseCost + extraCost + plateCost;
+      const subtotal = fabricCost + printingCost + extraCost + plateCost;
       const multiplier = dtoMult ?? nw.multiplier ?? DEFAULT_RATES.nonWovenBag.multiplier;
       const total = subtotal * multiplier;
       const breakdown: any[] = [
-        { label: `Non woven bag ${size} (${bagQty.toLocaleString()} bags x Rs.${baseRate.toFixed(2)}) [${costSource}]`, amount: baseCost },
+        { label: `Fabric (${bagQty.toLocaleString()} bags ÷ ${bagsPerKg}/kg = ${totalKg.toFixed(2)} kg x Rs.${ratePerKg}/kg)`, amount: fabricCost },
+        { label: `Printing (Rs.${printingCostPerBag}/bag x ${bagQty.toLocaleString()} bags)`, amount: printingCost },
       ];
-      if (extraRate > 0) breakdown.push({ label: `Multicolor extra (${bagQty.toLocaleString()} bags x Rs.${extraRate})`, amount: extraCost });
+      if (extraCost > 0) breakdown.push({ label: `Multicolor extra (${bagQty.toLocaleString()} bags x Rs.${extraRate})`, amount: extraCost });
       breakdown.push({ label: `Plate${plates > 1 ? 's' : ''} (${plates} x Rs.${perPlateRate}) — ${plates > 1 ? 'both sides different design' : 'both sides same design'}`, amount: plateCost });
       return {
         breakdown,
@@ -732,7 +708,7 @@ export class RateCalculatorService {
         total,
         perPiece: bagQty > 0 ? total / bagQty : 0,
         totalPieces: bagQty,
-        description: `${bagQty.toLocaleString()} non woven bags | ${size} | ${printMode === 'multicolor' ? 'multicolor' : 'single color'} | ${plates} plate${plates > 1 ? 's' : ''}`,
+        description: `${bagQty.toLocaleString()} non woven bags | ${size} | ${totalKg.toFixed(2)}kg @ Rs.${ratePerKg}/kg | ${plates} plate${plates > 1 ? 's' : ''}`,
         multiplier,
         customer,
       };

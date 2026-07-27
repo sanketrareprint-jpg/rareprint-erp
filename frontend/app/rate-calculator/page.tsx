@@ -1362,13 +1362,19 @@ export default function RateCalculatorPage() {
   const bagMult = rMult !== "" ? rMult : (bagRates?.multiplier ?? 1.67);
   const bagPreviewPerPiece = bagBaseRate * (1 + bagGstPct / 100) * bagMult;
   const nonWovenRates = rates?.nonWovenBag;
-  const nonWovenBaseRate = Number(nonWovenRates?.sizeRates?.[rNonWovenSize] ?? 0);
+  const nonWovenBagsPerKg = Number(nonWovenRates?.bagsPerKg?.[rNonWovenSize] ?? 40);
+  const nonWovenRatePerKg = Number(nonWovenRates?.ratePerKg ?? 120);
+  const nonWovenPrintingCostPerBag = Number(nonWovenRates?.printingCostPerBag ?? 1);
   const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 2) : 0;
   const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 1.67);
   const nonWovenPerPlateRateVal = rNonWovenPerPlateRate === "" ? Number(nonWovenRates?.perPlateRate ?? 500) : Number(rNonWovenPerPlateRate);
   const nonWovenPlates = rNonWovenPlateMode === "2" ? 2 : 1;
   const nonWovenPlateCost = nonWovenPlates * nonWovenPerPlateRateVal;
-  const nonWovenSizeSubtotal = (nonWovenBaseRate + nonWovenExtraRate) * rQty + nonWovenPlateCost;
+  const nonWovenTotalKg = nonWovenBagsPerKg > 0 ? rQty / nonWovenBagsPerKg : 0;
+  const nonWovenFabricCost = nonWovenTotalKg * nonWovenRatePerKg;
+  const nonWovenPrintingCost = nonWovenPrintingCostPerBag * rQty;
+  const nonWovenExtraCost = nonWovenExtraRate * rQty;
+  const nonWovenSizeSubtotal = nonWovenFabricCost + nonWovenPrintingCost + nonWovenExtraCost + nonWovenPlateCost;
   const nonWovenSizeTotal = nonWovenSizeSubtotal * nonWovenMult;
   const nonWovenPreviewPerBag = rQty > 0 ? nonWovenSizeTotal / rQty : 0;
   const dotMatrixRates = rates?.dotMatrixBill;
@@ -1679,7 +1685,7 @@ export default function RateCalculatorPage() {
                       </Field>
                       <Field label="Bag Size">
                         <Select value={rNonWovenSize} onChange={e => setRNonWovenSize(e.target.value)}>
-                          {Object.keys(nonWovenRates?.sizeRates ?? { "9x12": 8, "10x14": 10, "12x15": 12, "12x18": 14, "16x21": 18 }).map(size => (
+                          {Object.keys(nonWovenRates?.bagsPerKg ?? { "9x12": 60, "10x14": 50, "12x15": 40, "12x18": 35, "16x21": 25 }).map(size => (
                             <option key={size} value={size}>{size}</option>
                           ))}
                         </Select>
@@ -1704,8 +1710,9 @@ export default function RateCalculatorPage() {
                       </Field>
                     </div>
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} bags</strong> · base <strong>{fmt(nonWovenBaseRate)}</strong>/bag
-                      {nonWovenExtraRate > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraRate)}</strong>/bag</> : ""}
+                      <strong>{rQty.toLocaleString()} bags</strong> ÷ <strong>{nonWovenBagsPerKg}</strong>/kg = <strong>{nonWovenTotalKg.toFixed(2)} kg</strong> × ₹{nonWovenRatePerKg}/kg = <strong>{fmt(nonWovenFabricCost)}</strong>
+                      {" "}+ printing <strong>{fmt(nonWovenPrintingCost)}</strong>
+                      {nonWovenExtraCost > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraCost)}</strong></> : ""}
                       {" "}+ <strong>{nonWovenPlates} plate{nonWovenPlates > 1 ? "s" : ""}</strong> × ₹{nonWovenPerPlateRateVal} = <strong>{fmt(nonWovenPlateCost)}</strong>
                       {" "}→ cost <strong>{fmt(nonWovenSizeSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
                     </div>
@@ -2066,9 +2073,16 @@ export default function RateCalculatorPage() {
                   </div>
                 </Card>
                 <Card title="Non Woven Bag">
+                  <p className="text-[10px] text-slate-400 mb-2">Fabric cost is weight-based: qty ÷ Bags per KG (by size) × Fabric Rate, plus a flat printing charge per bag and plate cost.</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                     <Field label="Selling Multiplier (×)">
                       <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
+                    </Field>
+                    <Field label="Fabric Rate (₹/kg)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.ratePerKg ?? 120} onChange={e => updateRate("nonWovenBag.ratePerKg", +e.target.value)} />
+                    </Field>
+                    <Field label="Printing Charge (₹/bag)">
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.printingCostPerBag ?? 1} onChange={e => updateRate("nonWovenBag.printingCostPerBag", +e.target.value)} />
                     </Field>
                     <Field label="Multicolor Extra (₹/bag)">
                       <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
@@ -2077,13 +2091,13 @@ export default function RateCalculatorPage() {
                       <Input type="number" step="1" value={rates.nonWovenBag?.perPlateRate ?? 500} onChange={e => updateRate("nonWovenBag.perPlateRate", +e.target.value)} />
                     </Field>
                   </div>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Selling Rate per Bag (₹/bag by size)</p>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Bags per KG (qty of bags = 1kg, by size)</p>
                   <DynamicRateSection
-                    data={rates.nonWovenBag?.sizeRates ?? {}}
-                    onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), sizeRates: d } }))}
-                    step={0.01}
+                    data={rates.nonWovenBag?.bagsPerKg ?? {}}
+                    onUpdate={d => setRates((prev: any) => ({ ...prev, nonWovenBag: { ...(prev.nonWovenBag ?? {}), bagsPerKg: d } }))}
+                    step={1}
                     addKeyPlaceholder="size (e.g. 12x15)"
-                    addValPlaceholder="₹/bag"
+                    addValPlaceholder="bags/kg"
                     formatLabel={k => k + " Bag"}
                   />
                 </Card>
