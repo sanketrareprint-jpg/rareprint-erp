@@ -1026,7 +1026,7 @@ function CrmPageContent() {
                   value={notContactedMonthDraft}
                   onChange={(e) => setNotContactedMonthDraft(e.target.value)}
                   className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
-                  title="Filter by month the contact was tagged (createdOnAt) — call history checked is always full history"
+                  title="Filter by the month the contact was assigned (Date Assigned column) — call history checked is always full history"
                 >
                   <option value="">All time</option>
                   {notContactedMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
@@ -1046,7 +1046,7 @@ function CrmPageContent() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    {["Name", "Phone", "Agent", "Tag", "Tagged On", "Last Active", "Status", "Next Follow-up", "Actions"].map((h) => (
+                    {["Name", "Phone", "Agent", "Tag", "Date Assigned", "Last Active", "Status", "Next Follow-up", "Actions"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
