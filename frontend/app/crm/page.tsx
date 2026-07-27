@@ -201,13 +201,30 @@ function CrmPageContent() {
   const [notContactedError, setNotContactedError] = useState<string | null>(null);
   const [showContactCallModal, setShowContactCallModal] = useState<NotContactedContact | null>(null);
   const [contactCallNote, setContactCallNote] = useState("");
+  // "Applied" filters — what filteredNotContacted actually uses, and what
+  // triggers the server refetch (month). "Draft" filters — what the controls
+  // are bound to while the user is still picking values. Nothing takes
+  // effect until "Apply filters" is clicked (or Enter in the search box),
+  // so setting several filters at once doesn't refetch/recompute on every
+  // click and all of them combine together (AND) in one go.
+  const [notContactedMonths, setNotContactedMonths] = useState<{ month: string; label: string }[]>([]);
   const [notContactedSearch, setNotContactedSearch] = useState("");
   const [notContactedMonth, setNotContactedMonth] = useState(""); // "" = all time
-  const [notContactedMonths, setNotContactedMonths] = useState<{ month: string; label: string }[]>([]);
   const [notContactedAgentFilter, setNotContactedAgentFilter] = useState("ALL");
   const [notContactedStatusFilter, setNotContactedStatusFilter] = useState("ALL");
   const [notContactedTagFilter, setNotContactedTagFilter] = useState("ALL");
   const [notContactedOverdueOnly, setNotContactedOverdueOnly] = useState(false);
+
+  const [notContactedSearchDraft, setNotContactedSearchDraft] = useState("");
+  const [notContactedMonthDraft, setNotContactedMonthDraft] = useState("");
+  const [notContactedAgentDraft, setNotContactedAgentDraft] = useState("ALL");
+  const [notContactedStatusDraft, setNotContactedStatusDraft] = useState("ALL");
+  const [notContactedTagDraft, setNotContactedTagDraft] = useState("ALL");
+  const [notContactedOverdueDraft, setNotContactedOverdueDraft] = useState(false);
+  const notContactedFiltersDirty =
+    notContactedSearchDraft !== notContactedSearch || notContactedMonthDraft !== notContactedMonth ||
+    notContactedAgentDraft !== notContactedAgentFilter || notContactedStatusDraft !== notContactedStatusFilter ||
+    notContactedTagDraft !== notContactedTagFilter || notContactedOverdueDraft !== notContactedOverdueOnly;
 
   // ── Smart call state ──────────────────────────────────────────────────────
   const [callInProgress, setCallInProgress] = useState<Lead | null>(null);
@@ -448,6 +465,27 @@ function CrmPageContent() {
     }
     return true;
   }), [notContactedList, notContactedAgentFilter, notContactedStatusFilter, notContactedTagFilter, notContactedOverdueOnly, notContactedSearch]);
+
+  // Commits all draft filter picks at once — search + agent + status + tag +
+  // overdue combine (AND) client-side against whatever's already loaded;
+  // month is the one that needs a fresh server fetch (it changes which
+  // contacts even come back), which the useEffect above handles as soon as
+  // notContactedMonth changes here.
+  const applyNotContactedFilters = () => {
+    setNotContactedSearch(notContactedSearchDraft);
+    setNotContactedMonth(notContactedMonthDraft);
+    setNotContactedAgentFilter(notContactedAgentDraft);
+    setNotContactedStatusFilter(notContactedStatusDraft);
+    setNotContactedTagFilter(notContactedTagDraft);
+    setNotContactedOverdueOnly(notContactedOverdueDraft);
+  };
+
+  const clearNotContactedFilters = () => {
+    setNotContactedSearchDraft(""); setNotContactedMonthDraft(""); setNotContactedAgentDraft("ALL");
+    setNotContactedStatusDraft("ALL"); setNotContactedTagDraft("ALL"); setNotContactedOverdueDraft(false);
+    setNotContactedSearch(""); setNotContactedMonth(""); setNotContactedAgentFilter("ALL");
+    setNotContactedStatusFilter("ALL"); setNotContactedTagFilter("ALL"); setNotContactedOverdueOnly(false);
+  };
 
   // Not-contacted status change: routed to the linked Lead if one exists,
   // otherwise tracked on the contact itself.
@@ -929,24 +967,23 @@ function CrmPageContent() {
                   {filteredNotContacted.length !== notContactedList.length ? ` of ${notContactedList.length}` : ""}
                 </p>
                 {notContactedLoading && <span className="text-xs text-slate-400">Refreshing…</span>}
-                {(notContactedSearch || notContactedAgentFilter !== "ALL" || notContactedStatusFilter !== "ALL" || notContactedTagFilter !== "ALL" || notContactedOverdueOnly) && (
-                  <button
-                    onClick={() => { setNotContactedSearch(""); setNotContactedAgentFilter("ALL"); setNotContactedStatusFilter("ALL"); setNotContactedTagFilter("ALL"); setNotContactedOverdueOnly(false); }}
-                    className="text-xs text-blue-600 hover:underline"
-                  >Clear filters</button>
+                {(notContactedSearch || notContactedMonth || notContactedAgentFilter !== "ALL" || notContactedStatusFilter !== "ALL" || notContactedTagFilter !== "ALL" || notContactedOverdueOnly) && (
+                  <button onClick={clearNotContactedFilters} className="text-xs text-blue-600 hover:underline">Clear filters</button>
                 )}
               </div>
+              {/* All picks below are drafts — nothing filters/refetches until "Apply filters" (or Enter in search) commits them together. */}
               <div className="flex flex-wrap items-center gap-2">
                 <input
-                  value={notContactedSearch}
-                  onChange={(e) => setNotContactedSearch(e.target.value)}
+                  value={notContactedSearchDraft}
+                  onChange={(e) => setNotContactedSearchDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && applyNotContactedFilters()}
                   placeholder="Search name, phone, tag, agent…"
                   className="border border-slate-200 rounded-lg text-xs px-3 py-1.5 w-56 focus:outline-none focus:border-blue-400"
                 />
                 {notContactedAgentOptions.length > 1 && (
                   <select
-                    value={notContactedAgentFilter}
-                    onChange={(e) => setNotContactedAgentFilter(e.target.value)}
+                    value={notContactedAgentDraft}
+                    onChange={(e) => setNotContactedAgentDraft(e.target.value)}
                     className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
                   >
                     <option value="ALL">All agents</option>
@@ -954,8 +991,8 @@ function CrmPageContent() {
                   </select>
                 )}
                 <select
-                  value={notContactedStatusFilter}
-                  onChange={(e) => setNotContactedStatusFilter(e.target.value)}
+                  value={notContactedStatusDraft}
+                  onChange={(e) => setNotContactedStatusDraft(e.target.value)}
                   className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
                 >
                   <option value="ALL">All statuses</option>
@@ -963,8 +1000,8 @@ function CrmPageContent() {
                 </select>
                 {notContactedTagOptions.length > 1 && (
                   <select
-                    value={notContactedTagFilter}
-                    onChange={(e) => setNotContactedTagFilter(e.target.value)}
+                    value={notContactedTagDraft}
+                    onChange={(e) => setNotContactedTagDraft(e.target.value)}
                     className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
                   >
                     <option value="ALL">All tags</option>
@@ -972,8 +1009,8 @@ function CrmPageContent() {
                   </select>
                 )}
                 <select
-                  value={notContactedMonth}
-                  onChange={(e) => setNotContactedMonth(e.target.value)}
+                  value={notContactedMonthDraft}
+                  onChange={(e) => setNotContactedMonthDraft(e.target.value)}
                   className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
                   title="Filter by month the contact was tagged (createdOnAt) — call history checked is always full history"
                 >
@@ -981,9 +1018,14 @@ function CrmPageContent() {
                   {notContactedMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
                 </select>
                 <button
-                  onClick={() => setNotContactedOverdueOnly((v) => !v)}
-                  className={`text-xs px-3 py-1.5 rounded-lg font-medium border whitespace-nowrap ${notContactedOverdueOnly ? "bg-red-600 text-white border-red-600" : "border-slate-200 text-slate-600"}`}
+                  onClick={() => setNotContactedOverdueDraft((v) => !v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-medium border whitespace-nowrap ${notContactedOverdueDraft ? "bg-red-600 text-white border-red-600" : "border-slate-200 text-slate-600"}`}
                 >⚠ Overdue follow-up</button>
+                <button
+                  onClick={applyNotContactedFilters}
+                  disabled={!notContactedFiltersDirty}
+                  className="text-xs px-4 py-1.5 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                >Apply filters</button>
               </div>
             </div>
             <div className="overflow-x-auto">
