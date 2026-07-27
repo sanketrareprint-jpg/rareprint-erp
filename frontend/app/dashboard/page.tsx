@@ -41,7 +41,7 @@ type Cashflow = { thisMonth: CashflowPeriod; lastMonth: CashflowPeriod; deltaVsL
 // types just show up here automatically; nothing on the frontend needs to
 // change when a new group is added on the backend.
 type SuperAdminTaskItem = { id: string; title: string; subtitle: string; amount: number | null; link: string; createdAt: string };
-type SuperAdminTaskGroup = { key: string; label: string; description: string; status: "active" | "coming_soon"; count: number; items: SuperAdminTaskItem[] };
+type SuperAdminTaskGroup = { key: string; label: string; description: string; status: "active" | "coming_soon"; count: number; link: string | null; items: SuperAdminTaskItem[] };
 type SuperAdminTasks = { generatedAt: string; totalPending: number; groups: SuperAdminTaskGroup[] };
 
 // Complaints Overview — visible to everyone (unlike the fuller complaints
@@ -334,49 +334,26 @@ export default function DashboardPage() {
                 {superAdminTasks.totalPending} pending
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {superAdminTasks.groups.map((group) => (
-                <div key={group.key} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5 min-w-0">
-                  <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <p className="text-xs font-semibold text-slate-700 truncate">{group.label}</p>
+            <div className="grid grid-cols-5 gap-2">
+              {superAdminTasks.groups.map((group) => {
+                const clickable = group.status === "active" && !!group.link;
+                return (
+                  <div
+                    key={group.key}
+                    onClick={clickable ? () => router.push(group.link!) : undefined}
+                    className={`rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 min-w-0 ${clickable ? "cursor-pointer hover:bg-slate-100" : ""}`}
+                  >
+                    <p className="text-slate-500 font-medium leading-tight mb-1" style={{ fontSize: "10px" }}>{group.label}</p>
                     {group.status === "coming_soon" ? (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-500 flex-shrink-0 whitespace-nowrap">Coming soon</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-500 inline-block">Coming soon</span>
                     ) : (
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${group.count > 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                      <p className={`text-xl font-bold leading-tight ${group.count > 0 ? "text-red-600" : "text-emerald-600"}`}>
                         {group.count}
-                      </span>
+                      </p>
                     )}
                   </div>
-                  <p className="text-slate-400 mb-1" style={{ fontSize: "10px" }}>{group.description}</p>
-                  {group.status === "coming_soon" ? (
-                    <p className="text-xs text-slate-300 italic py-1">Not built yet</p>
-                  ) : group.items.length === 0 ? (
-                    <p className="text-xs text-emerald-600 py-1">All clear ✓</p>
-                  ) : (
-                    <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                      {group.items.slice(0, 8).map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => router.push(item.link)}
-                          className="w-full flex items-center justify-between gap-2 px-1.5 py-1 rounded hover:bg-white text-left"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-800 truncate">{item.title}</p>
-                            <p className="text-slate-400 truncate" style={{ fontSize: "10px" }}>{item.subtitle}</p>
-                          </div>
-                          {item.amount != null && (
-                            <span className="text-xs font-bold text-slate-600 flex-shrink-0">{fmt(item.amount)}</span>
-                          )}
-                        </button>
-                      ))}
-                      {group.count > group.items.length && (
-                        <p className="text-slate-400 text-center pt-0.5" style={{ fontSize: "10px" }}>+{group.count - group.items.length} more</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

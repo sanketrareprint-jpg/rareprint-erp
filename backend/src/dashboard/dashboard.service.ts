@@ -159,6 +159,7 @@ export class DashboardService {
         description: "Orders a regular Accounts user can't approve — only the super-admin can approve these (or an override reason).",
         status: 'active' as const,
         count: orderApprovals.length,
+        link: '/accounts?tab=pending',
         items: orderApprovals,
       },
       {
@@ -167,6 +168,7 @@ export class DashboardService {
         description: "Checked by Accounts, waiting on the super-admin's recheck before moving to Payment History.",
         status: 'active' as const,
         count: paymentVerification.count,
+        link: '/accounts?tab=payment_verification',
         items: paymentVerification.items,
       },
       {
@@ -175,6 +177,7 @@ export class DashboardService {
         description: `Sales agents with orders in ${commissionVerification.monthLabel} whose commission sheet hasn't been verified yet.`,
         status: 'active' as const,
         count: commissionVerification.items.length,
+        link: '/accounts?tab=commission',
         items: commissionVerification.items,
       },
       {
@@ -183,6 +186,7 @@ export class DashboardService {
         description: 'Planned: an approval step before staff reward-coin payouts post. Not built yet — placeholder so it shows up here once it ships.',
         status: 'coming_soon' as const,
         count: 0,
+        link: null,
         items: [] as SuperAdminTaskItem[],
       },
       {
@@ -191,10 +195,11 @@ export class DashboardService {
         description: 'Open complaints — unresolved, overdue, or escalated to admin.',
         status: 'active' as const,
         count: complaints.count,
+        link: '/complaints',
         items: complaints.items,
       },
       // ── Add new super-admin-only task groups here as the ERP grows. Shape:
-      // { key, label, description, status: 'active' | 'coming_soon', count, items: SuperAdminTaskItem[] }
+      // { key, label, description, status: 'active' | 'coming_soon', count, link: string | null, items: SuperAdminTaskItem[] }
     ];
 
     return {
