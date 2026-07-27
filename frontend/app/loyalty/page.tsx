@@ -6,8 +6,9 @@ import { getAuthHeaders } from "@/lib/auth";
 import {
   Gift, Search, Loader2, AlertCircle, CheckCircle, XCircle,
   ArrowUpCircle, ArrowDownCircle, RotateCcw, Settings2, Save, FlaskConical, Trash2,
-  Send,
+  Send, Award,
 } from "lucide-react";
+import BonusPointsTab from "./BonusPointsTab";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ const TYPE_META: Record<LoyaltyTxnType, { label: string; color: string; icon: Re
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function LoyaltyPage() {
+  const [activeTab, setActiveTab] = useState<"customer" | "bonus">("customer");
   const [phoneInput, setPhoneInput] = useState("");
   const [wallet, setWallet] = useState<LoyaltyWallet | null>(null);
   const [loading, setLoading] = useState(false);
@@ -301,6 +303,30 @@ export default function LoyaltyPage() {
           </div>
         </div>
 
+        {/* ── Tab switcher ── */}
+        <div className="flex gap-2 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab("customer")}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
+              activeTab === "customer" ? "border-pink-600 text-pink-700" : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <Gift className="w-4 h-4" /> Customer Loyalty
+          </button>
+          <button
+            onClick={() => setActiveTab("bonus")}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
+              activeTab === "bonus" ? "border-amber-600 text-amber-700" : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            <Award className="w-4 h-4" /> Bonus Points
+          </button>
+        </div>
+
+        {activeTab === "bonus" && <BonusPointsTab />}
+
+        {activeTab === "customer" && (
+        <>
         {/* ── Bulk send result ── */}
         {bulkError && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
@@ -710,6 +736,8 @@ export default function LoyaltyPage() {
 
         {searched && !loading && !wallet && !error && (
           <p className="text-sm text-gray-400 text-center py-8">No wallet found for this number yet.</p>
+        )}
+        </>
         )}
       </div>
     </DashboardShell>

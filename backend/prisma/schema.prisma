@@ -1668,10 +1668,70 @@ model RewardTransaction {
   reason         String
   notificationId String?
   orderId        String?
+  claimId        String?      // set when this credit came from an approved BonusClaim (see below)
   createdAt      DateTime     @default(now())
   wallet         RewardWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId])
+}
+
+// ── Bonus Points (activity-based staff rewards) ──────────────────────────────
+// Admin defines a catalog of activities worth N points each (e.g. "Get a 5-star
+// Google review" = 20 pts). MANUAL activities require the staff member to
+// submit a BonusClaim with a required evidence attachment; any ADMIN-role user
+// then approves or rejects it from the queue. On approval, points are credited
+// via a RewardTransaction against the same RewardWallet used elsewhere in this
+// file (userId is a soft reference, same convention as RewardWallet.userId
+// above — no FK to User to avoid touching that model's large relation list).
+// AUTOMATIC activities skip the claim/approval flow entirely — an admin credits
+// them directly (still logged as a BonusClaim with status APPROVED for the
+// audit trail, just with no attachment and reviewedById set immediately).
+enum BonusClaimType {
+  MANUAL
+  AUTOMATIC
+}
+
+enum BonusClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model BonusActivity {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  points      Int
+  claimType   BonusClaimType @default(MANUAL)
+  isActive    Boolean        @default(true)
+  createdById String?        // soft reference to User.id
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  claims      BonusClaim[]
+
+  @@index([isActive])
+}
+
+model BonusClaim {
+  id             String            @id @default(cuid())
+  activityId     String
+  userId         String            // soft reference to User.id — the claimant
+  points         Int               // snapshot of BonusActivity.points at claim/credit time
+  details        String            // claimant's write-up of what they did
+  attachmentUrl  String?           // base64 data URI, same "DB is source of truth" convention as ComplaintAttachment
+  attachmentName String?
+  attachmentType String?
+  status         BonusClaimStatus  @default(PENDING)
+  reviewedById   String?           // soft reference to User.id — the approving/rejecting admin
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  activity       BonusActivity     @relation(fields: [activityId], references: [id])
+
+  @@index([userId, status])
+  @@index([status])
+  @@index([activityId])
 }
 
 // ── Customer Loyalty Points ──────────────────────────────────────────────────
