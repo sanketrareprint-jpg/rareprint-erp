@@ -124,6 +124,8 @@ export default function DispatchPage() {
   const [historySearch, setHistorySearch] = useState("");
   const [returningId, setReturningId] = useState<string | null>(null);
   const [markingDeliveredId, setMarkingDeliveredId] = useState<string | null>(null);
+  const [disapproveModal, setDisapproveModal] = useState<{ orderId: string; orderNo: string } | null>(null);
+  const [disapproveReason, setDisapproveReason] = useState("");
 
   const markDelivered = async (shipmentId: string) => {
     if (!confirm("Mark this shipment as delivered? This sends the customer a WhatsApp message asking for a Google rating, review, and testimonial.")) return;
@@ -142,17 +144,23 @@ export default function DispatchPage() {
     }
   };
 
-  const returnToQueue = async (orderId: string) => {
-    if (!confirm("Return this order to the dispatch queue?")) return;
+  const disapproveDispatch = async (orderId: string, reason: string) => {
     setReturningId(orderId);
     try {
       const res = await fetch(`${API_BASE_URL}/dispatch/return-to-queue/${orderId}`, {
-        method: "POST", headers: getAuthHeaders(),
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.message || "Failed");
+      }
       await loadHistory();
       await load();
-      alert("Order returned to queue.");
+      alert("Dispatch disapproved — order returned to the Ready for Dispatch queue. The sales agent has been notified.");
+      setDisapproveModal(null);
+      setDisapproveReason("");
     } catch (e) {
       alert("Failed: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -561,10 +569,11 @@ export default function DispatchPage() {
                             }`}>{h.status}</span>
                             {h.status === "PACKED" && (
                               <button
-                                onClick={() => void returnToQueue(h.orderId)}
+                                onClick={() => { setDisapproveModal({ orderId: h.orderId, orderNo: h.orderNo }); setDisapproveReason(""); }}
                                 disabled={returningId === h.orderId}
+                                title="Disapprove this dispatch and return the parcel to Ready for Dispatch"
                                 className="mt-1 block w-full rounded border border-orange-300 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
-                              >↩ Queue</button>
+                              >✕ Disapprove</button>
                             )}
                             {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
                               <button
@@ -962,6 +971,45 @@ export default function DispatchPage() {
                 className="flex-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-1">
                 {markingId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckSquare className="h-3.5 w-3.5" />}
                 Confirm Dispatch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Disapprove Dispatch Modal ── */}
+      {disapproveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-bold text-slate-900 mb-1">Disapprove Dispatch</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              Order <strong>{disapproveModal.orderNo}</strong> will return to the <strong>Ready for Dispatch</strong> queue and the sales agent will get a notification with your reason.
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Reason for disapproval</label>
+              <textarea
+                value={disapproveReason}
+                onChange={e => setDisapproveReason(e.target.value)}
+                placeholder="Explain why this dispatch is being disapproved…"
+                rows={3}
+                className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400 resize-none"
+              />
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setDisapproveModal(null)}
+                className="flex-1 rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >Cancel</button>
+              <button
+                onClick={() => {
+                  if (!disapproveReason.trim()) { alert("Please enter a reason for disapproving this dispatch."); return; }
+                  void disapproveDispatch(disapproveModal.orderId, disapproveReason.trim());
+                }}
+                disabled={returningId === disapproveModal.orderId}
+                className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-1"
+              >
+                {returningId === disapproveModal.orderId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                Confirm Disapprove
               </button>
             </div>
           </div>

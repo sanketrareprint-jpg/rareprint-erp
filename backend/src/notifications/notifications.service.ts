@@ -1039,6 +1039,27 @@ export class NotificationsService {
     return notif;
   }
 
+  // ── Dispatch disapproved → returned to Ready for Dispatch queue ──────────
+
+  async notifyDispatchDisapproved(data: {
+    agentId: string;
+    agentName: string;
+    orderId: string;
+    orderNo: string;
+    reason: string;
+  }) {
+    return this.create({
+      type: 'DISPATCH_DISAPPROVED',
+      priority: 'HIGH',
+      title: `Dispatch Disapproved — ${data.orderNo}`,
+      message: `Order ${data.orderNo} was disapproved for dispatch and has been returned to the Ready for Dispatch queue.\n\nReason: ${data.reason}`,
+      toUserId: data.agentId,
+      toUserName: data.agentName,
+      orderId: data.orderId,
+      orderNo: data.orderNo,
+    });
+  }
+
   async notifySalesAgentDesign(itemId: string) {
     const vaishali = await this.findUser('VAISHALI DHAKATE');
     if (!vaishali) return { error: 'Sales agent not found' };

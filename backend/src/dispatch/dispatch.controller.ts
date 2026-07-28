@@ -161,9 +161,10 @@ export class DispatchController {
   @Post('return-to-queue/:orderId')
   returnToQueue(
     @Param('orderId') orderId: string,
+    @Body() body: { reason?: string },
     @Req() req: Request & { user: JwtUser },
   ) {
-    return this.dispatchService.returnToQueue(orderId, req.user.id);
+    return this.dispatchService.returnToQueue(orderId, req.user.id, body?.reason ?? '');
   }
 
   @Post('shipments/:shipmentId/mark-delivered')

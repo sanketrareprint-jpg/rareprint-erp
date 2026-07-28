@@ -7,9 +7,10 @@ import { DispatchController } from './dispatch.controller';
 import { DispatchService } from './dispatch.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [ShiprocketModule, BigshipModule, CarrierConfigModule, PrismaModule, WhatsAppModule],
+  imports: [ShiprocketModule, BigshipModule, CarrierConfigModule, PrismaModule, WhatsAppModule, NotificationsModule],
   controllers: [DispatchController],
   providers: [DispatchService],
 })
