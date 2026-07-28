@@ -522,24 +522,32 @@ function normalizePackageBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0
     : [{ noOfBoxes: 1, length: 20, breadth: 15, height: 10, weight: Math.max(0.1, fallbackWeightKg) }];
 }
 
-function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
+/**
+ * Bigship's domestic_b2c segment has no concept of multiple physical parcels per
+ * order at all — confirmed by two separate live errors ("Exactly one box is required
+ * for B2C orders" / "Number of boxes must be 1 for B2C orders") and explicitly stated
+ * in Bigship's own Rate Calculator API docs ("for B2C shipments, the boxes array must
+ * contain only one box"). Our multi-box UI lets users enter several box rows with
+ * different dimensions/weights, so every row has to be consolidated into ONE declared
+ * parcel here: combined weight (sum of all rows, not divided) and the largest
+ * dimension seen per side (so the declared size never understates the real parcel).
+ * Shared by both toBigshipBoxes() (create-order) and fetchCourierRates() (rate
+ * calculator) since both B2C endpoints have this same one-box constraint.
+ */
+function collapseBoxesForB2C(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5): { length: number; breadth: number; height: number; weight: number } {
   const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
+  return {
+    length:  Math.max(...normalized.map((box) => box.length)),
+    breadth: Math.max(...normalized.map((box) => box.breadth)),
+    height:  Math.max(...normalized.map((box) => box.height)),
+    weight: Math.max(0.1, Math.round(
+      normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0) * 100
+    ) / 100),
+  };
+}
 
-  // Bigship's domestic_b2c create-order API doesn't just require a single `boxes[]`
-  // entry — it requires that entry's `noOfBoxes` to literally equal 1 ("Number of boxes
-  // must be 1 for B2C orders", field boxes.0.noOfBoxes). B2C has no concept of multiple
-  // physical parcels per order at all; our multi-box UI lets users enter several box
-  // rows, but for Bigship every row has to be consolidated into ONE declared parcel —
-  // combined weight (sum of all rows, not divided) and the largest dimension seen per
-  // side (so the declared size never understates the real parcel). totalNumOfBoxes at
-  // the top level must match (1), matching Bigship's own B2C sample payload.
-  const maxLength  = Math.max(...normalized.map((box) => box.length));
-  const maxBreadth = Math.max(...normalized.map((box) => box.breadth));
-  const maxHeight  = Math.max(...normalized.map((box) => box.height));
-  const totalWeight = Math.max(0.1, Math.round(
-    normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0) * 100
-  ) / 100);
-
+function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
+  const box = collapseBoxesForB2C(boxes, fallbackWeightKg);
   return {
     totalNumOfBoxes: 1,
     boxes: [{
@@ -547,10 +555,10 @@ function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
       dimension_unit: 'cm',
       noOfBoxes: 1,
       dimensions: [{
-        length: maxLength,
-        breadth: maxBreadth,
-        height: maxHeight,
-        weight: totalWeight,
+        length: box.length,
+        breadth: box.breadth,
+        height: box.height,
+        weight: box.weight,
       }],
     }],
   };
@@ -701,11 +709,24 @@ export class BigshipService {
   // ── Courier rates ───────────────────────────────────────────────────────────
 
   /**
-   * New 2-step rate fetch (Bigship Direct):
-   *   1. POST /api/outbound/create-order  → CustomGlobalOrderId  (draft)
-   *   2. POST /api/outbound/courier-wise-shipment-cost → rates
+   * POST /api/outbound/user-rate-calculator — added to Bigship's API in their June
+   * 2026 update. Computes shipping rates directly from pincodes + box info with NO
+   * draft order involved at all. This replaces the older approach (still used at
+   * actual dispatch time in tryCreateAdhocOrder) of creating a real throwaway
+   * create-order draft purely to read its courier-wise-shipment-cost — which needed
+   * a full shipping address, a unique invoice number per rate-check, and a city/state
+   * guessing cascade (cityStateAttemptsFromPincode) to get past address validation.
+   * None of that is needed here: no order, no address, no invoice number, just
+   * pincodes and box dimensions.
    *
-   * The draft order is NOT manifested, so no charges are incurred.
+   * courier_partner_id returned here is Bigship's rate-calculator ID for the courier
+   * and may not be the same ID space as the courierId returned later by
+   * courier-wise-shipment-cost for an actual order — so the rateId encodes ONLY the
+   * courier id (format `bs-<courierId>`, already supported by parseBigshipRateId)
+   * rather than pairing it with an order id. tryCreateAdhocOrder always creates its
+   * own fresh order at dispatch time regardless (this rate-check step's job is only
+   * to show the user pricing/courier options), so no order id needs to survive from
+   * here to booking time.
    */
   async fetchCourierRates(params: {
     pickupPostcode: string;
@@ -726,126 +747,61 @@ export class BigshipService {
   }): Promise<BigshipRateRow[]> {
     if (!this.isConfigured()) return [];
 
-    const warehouseId = params.pickupWarehouseId
-      ?? (process.env.BIGSHIP_PICKUP_WAREHOUSE_ID
-          ? parseInt(process.env.BIGSHIP_PICKUP_WAREHOUSE_ID, 10)
-          : null);
-
-    if (!warehouseId) {
-      this.logger.warn('Bigship fetchCourierRates — no pickup warehouse ID. Set BIGSHIP_PICKUP_WAREHOUSE_ID or select a warehouse in Settings.');
-      return [];
-    }
-
     const token  = await this.getAuthToken();
     const weight = Math.max(0.1, Number(params.weightKg) || 0.1);
-
-    // Ensure we have a valid delivery pincode — fall back to pickup pincode or a default
     const deliveryPostcode = params.deliveryPostcode?.trim() ||
                              params.pickupPostcode?.trim()   ||
                              '110001'; // last-resort default (Delhi)
     const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
     const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
-    // Use the ERP order number as the invoice so rate-check drafts are identifiable in Bigship.
-    // Append a short date suffix (YYMMDD) only to avoid BigShip duplicate-invoice rejection
-    // when rates are fetched multiple times on the same order on different days.
-    // Rate-check drafts are never deleted from BigShip, so each call needs a unique invoice.
-    // RP prefix identifies RarePrint; last 6 ms digits ensure uniqueness across retries.
-    const invoiceBase = `RP${String(params.orderNumber ?? 'RATE').replace(/[^a-zA-Z0-9\-/]/g, '').slice(0, 12)}` || 'RPRATE';
-    const uniqueSuffix = String(Date.now()).slice(-6);
-    const invoiceNo = `${invoiceBase}-R-${uniqueSuffix}`.slice(0, 25);
-    const packagePayload = toBigshipBoxes(params.packageBoxes, weight);
-    const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode, params.shippingCity, params.shippingState);
+    const box = collapseBoxesForB2C(params.packageBoxes, weight);
 
-    this.logger.log(`Bigship fetchCourierRates — warehouseId=${warehouseId} pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
-
-    let orderId: string | null = null;
-    let lastCreateError = '';
-    for (const attempt of cityStateAttempts) {
-      try {
-      // Step 1 — create draft order (domestic B2C)
-        const { data: createData } = await this.api().post(
-          '/api/outbound/create-order',
-          {
-            segment_type:               'domestic_b2c',
-            MasterOrderPickUpLocation:  warehouseId,
-            MasterOrderReturnLocation:  warehouseId,
-            MasterOrderDate:            bigshipDateNow(),
-            MasterOrderPaymentMode:     params.isCod ? 2 : 1,
-            OrderInvoiceNo:             invoiceNo,
-            MasterOrderInvoiceAmount:   declaredValue,
-            MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
-            MasterOrderShippingName:    limitBigshipName(params.shippingName, 'Rate Check', 25),
-            MasterOrderShippingEmail:   params.shippingEmail ?? '',
-            MasterOrderShippingMobileNo: sanitizeMobile(params.shippingMobile),
-            MasterOrderShippingAddress: limitBigshipAddress(params.shippingAddress, 'Rate Check Address', 75),
-            MasterOrderShippingZipCode: deliveryPostcode,
-            MasterOrderShippingCity:    attempt.city,
-            MasterOrderShippingState:   attempt.state,
-            MasterOrderShippingCountry: 'India',
-            totalNumOfBoxes: packagePayload.totalNumOfBoxes,
-            boxes: packagePayload.boxes.map((box) => ({
-              ...box,
-              products: [{
-                productName:        'Product',
-                qty:                '1',
-                amount:             String(declaredValue),
-                totalAmount:        declaredValue,
-                collectableAmount:  Math.min(codAmount, declaredValue),
-                categoryId:         '1',
-              }],
-            })),
-          },
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        // BigShip sometimes returns HTTP 200 with { status: false } for validation errors.
-        if (createData?.status === false) {
-          lastCreateError = createData?.message ?? 'city validation failed';
-          this.logger.warn(`Bigship fetchCourierRates — status:false for ${attempt.city}/${attempt.state}: ${lastCreateError}`);
-          continue;
-        }
-        orderId = createData?.data?.CustomGlobalOrderId as string | null ?? null;
-        break;
-      } catch (e: unknown) {
-        lastCreateError = bigshipErrorMessage(e);
-        this.logger.warn(`Bigship fetchCourierRates — create draft failed for ${attempt.city}/${attempt.state}: ${lastCreateError}`);
-      }
-    }
-
-    if (!orderId && lastCreateError) {
-      throw new Error(`Bigship rate check failed: ${lastCreateError}`);
-    }
-
-    if (!orderId) {
-      this.logger.warn('Bigship fetchCourierRates — draft order returned no CustomGlobalOrderId');
-      return [];
-    }
-    this.logger.log(`Bigship fetchCourierRates — draft orderId=${orderId}, fetching rates...`);
+    this.logger.log(`Bigship fetchCourierRates — pickup=${params.pickupPostcode} delivery=${deliveryPostcode} weight=${weight}kg`);
 
     try {
-      // Step 2 — fetch rates for the draft order
-      const { data: rateData } = await this.api().post(
-        '/api/outbound/courier-wise-shipment-cost',
-        { MasterCustomOrderId: orderId },
+      const { data } = await this.api().post(
+        '/api/outbound/user-rate-calculator',
+        {
+          segment_type:   'domestic_b2c',
+          sourcePincode:  params.pickupPostcode,
+          destPincode:    deliveryPostcode,
+          invoiceValue:   declaredValue,
+          paymentModeId:  params.isCod ? 2 : 1, // 1: Prepaid, 2: COD, 3: ToPay
+          ...(params.isCod ? { codAmount: Math.min(codAmount, declaredValue) } : {}),
+          riskTypeId:     1, // Third-Party Insurance — matches the risk type used at place-order time
+          boxes: [{
+            no_of_box:        '1', // B2C: rate calculator docs require exactly one box entry
+            box_length:       String(box.length),
+            box_width:        String(box.breadth),
+            box_height:       String(box.height),
+            box_dead_weight:  String(box.weight),
+          }],
+        },
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
-      const list = rateData?.data?.calculatedRates;
+      if (data?.status === false) {
+        throw new Error(data?.message ?? 'Bigship rate calculator failed');
+      }
+
+      const list = data?.data;
       if (!Array.isArray(list)) return [];
 
       return list
         .map((c: Record<string, unknown>) => ({
-          rateId:        `bs:${encodeURIComponent(orderId)}:${c.courierId}`,
+          rateId:        `bs-${c.courier_partner_id}`,
           carrierName:   String(c.courierName ?? c.planName ?? 'Courier'),
-          amount:        Math.round(Number(c.total_freight ?? c.total ?? 0) * 100) / 100,
+          amount:        Math.round(Number(c.totalCharge ?? c.courierCharge ?? 0) * 100) / 100,
           currency:      'INR',
           estimatedDays: Number(c.tat ?? 3),
-          courierId:     Number(c.courierId),
-          bigshipOrderId: orderId,
+          courierId:     Number(c.courier_partner_id),
+          bigshipOrderId: '',
         }))
         .filter((r) => r.courierId > 0 && r.amount >= 0);
     } catch (e) {
-      this.logger.warn(`Bigship fetchCourierRates — rates fetch failed: ${e}`);
-      throw new Error(`Bigship rates fetch failed: ${e instanceof Error ? e.message : String(e)}`);
+      const message = bigshipErrorMessage(e);
+      this.logger.warn(`Bigship fetchCourierRates — user-rate-calculator failed: ${message}`);
+      throw new Error(`Bigship rates fetch failed: ${message}`);
     }
   }
 
@@ -1230,11 +1186,16 @@ export class BigshipService {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
     try {
       const token = await this.getAuthToken();
-      // Docs describe this as GET with a JSON body — like getWarehouseList, send the
-      // identifier as a query param instead since GET request bodies are unreliable
-      // across proxies/clients.
-      const { data } = await this.api().get('/api/outbound/order-shipment-details', {
-        params: { MasterCustomOrderId: masterCustomOrderId },
+      // Docs list this as Method: GET but with a JSON request body containing
+      // MasterCustomOrderId (their API reads req.body even on GET, same pattern as
+      // several other Bigship endpoints). Sending it as a query param instead
+      // returned "Order not found" for every order — confirmed live on 2026-07-28 —
+      // so send it the way the doc's sample request actually shows: as the body,
+      // with method still GET.
+      const { data } = await this.api().request({
+        method: 'get',
+        url: '/api/outbound/order-shipment-details',
+        data: { MasterCustomOrderId: masterCustomOrderId },
         headers: { Authorization: `Bearer ${token}` },
       });
       if (data?.status === false) {
