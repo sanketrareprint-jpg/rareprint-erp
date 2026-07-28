@@ -485,6 +485,8 @@ export default function AccountsPage() {
   const [pvPage, setPvPage] = useState(1);
   const [pvHistoryPage, setPvHistoryPage] = useState(1);
   const PV_PAGE_SIZE = 50;
+  const [pvSelectedIds, setPvSelectedIds] = useState<Set<string>>(new Set());
+  const [pvBulkProcessing, setPvBulkProcessing] = useState(false);
   const [expenseCategories, setExpenseCategories] = useState<ExpenseCategoryMaster[]>([]);
 
   // Billing and GST accounting
@@ -703,6 +705,66 @@ export default function AccountsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : "Could not recheck");
     } finally { setPvRecheckingId(null); }
+  }
+
+  function togglePvSelect(id: string) {
+    setPvSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // A blank Vendor/Expense can't be selected for bulk actions — same rule
+  // whether it's still unchecked or already checked, since an entry should
+  // always be categorized before it's signed off in bulk.
+  function pvIsSelectable(entry: PaymentVerificationEntry) {
+    return !!entry.vendorOrExpenseName;
+  }
+
+  async function handleBulkCheck() {
+    const ids = pvQueue.filter(e => pvSelectedIds.has(e.id) && !e.checkedAt && pvIsSelectable(e)).map(e => e.id);
+    if (ids.length === 0) return;
+    setPvBulkProcessing(true);
+    try {
+      const results = await Promise.all(ids.map(async id => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/check`, { method: "PATCH", headers: getAuthHeaders() });
+          if (!res.ok) return null;
+          return (await res.json()) as PaymentVerificationEntry;
+        } catch { return null; }
+      }));
+      setPvQueue(prev => prev.map(e => {
+        const idx = ids.indexOf(e.id);
+        return idx !== -1 && results[idx] ? results[idx]! : e;
+      }));
+      const failed = results.filter(r => !r).length;
+      if (failed > 0) alert(`${failed} of ${ids.length} entries could not be checked.`);
+      setPvSelectedIds(new Set());
+    } finally { setPvBulkProcessing(false); }
+  }
+
+  async function handleBulkVerify() {
+    const ids = pvQueue.filter(e => pvSelectedIds.has(e.id) && e.checkedAt && !e.recheckedAt && pvIsSelectable(e)).map(e => e.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Verify ${ids.length} entries as Sanket and move them to Payment History? This does not change the Checked status.`)) return;
+    setPvBulkProcessing(true);
+    try {
+      const results = await Promise.all(ids.map(async id => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/recheck`, { method: "PATCH", headers: getAuthHeaders() });
+          if (!res.ok) return null;
+          return (await res.json()) as PaymentVerificationEntry;
+        } catch { return null; }
+      }));
+      const verified = results.filter((r): r is PaymentVerificationEntry => !!r);
+      const verifiedIds = new Set(verified.map(r => r.id));
+      setPvQueue(prev => prev.filter(e => !verifiedIds.has(e.id)));
+      setPvHistory(prev => [...prev, ...verified]);
+      const failed = ids.length - verified.length;
+      if (failed > 0) alert(`${failed} of ${ids.length} entries could not be verified.`);
+      setPvSelectedIds(new Set());
+    } finally { setPvBulkProcessing(false); }
   }
 
   const loadReceipts = useCallback(async () => {
@@ -3612,6 +3674,26 @@ await loadHistory();
               <datalist id="vendor-expense-options">
                 {vendorExpenseOptions.map(name => <option key={name} value={name} />)}
               </datalist>
+              {pvSelectedIds.size > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs">
+                  <span className="font-semibold text-blue-800">{pvSelectedIds.size} selected</span>
+                  {canCheckPayments && (
+                    <button onClick={handleBulkCheck} disabled={pvBulkProcessing}
+                      className="px-2.5 py-1 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
+                      {pvBulkProcessing ? "..." : "Bulk Check"}
+                    </button>
+                  )}
+                  {isSuperAdmin && (
+                    <button onClick={handleBulkVerify} disabled={pvBulkProcessing}
+                      className="px-2.5 py-1 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
+                      {pvBulkProcessing ? "..." : "Bulk Verify"}
+                    </button>
+                  )}
+                  <button onClick={() => setPvSelectedIds(new Set())} className="ml-auto text-slate-500 hover:text-slate-700 font-medium">
+                    Clear selection
+                  </button>
+                </div>
+              )}
               <div className="overflow-x-auto rounded-xl border border-slate-300">
                 {pvQueueLoading ? (
                   <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
@@ -3620,6 +3702,7 @@ await loadHistory();
                 ) : (
                   <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
                     <colgroup>
+                      <col className="w-[36px]" />
                       <col className="w-[85px]" />
                       <col />
                       <col className="w-[95px]" />
@@ -3631,6 +3714,28 @@ await loadHistory();
                     </colgroup>
                     <thead>
                       <tr className="bg-slate-100">
+                        <th className="border border-slate-300 px-2 py-2 text-left">
+                          {(() => {
+                            const pageEntries = pvQueue.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE);
+                            const selectable = pageEntries.filter(pvIsSelectable);
+                            const allSelected = selectable.length > 0 && selectable.every(e => pvSelectedIds.has(e.id));
+                            return (
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                disabled={selectable.length === 0}
+                                onChange={() => {
+                                  setPvSelectedIds(prev => {
+                                    const next = new Set(prev);
+                                    if (allSelected) selectable.forEach(e => next.delete(e.id));
+                                    else selectable.forEach(e => next.add(e.id));
+                                    return next;
+                                  });
+                                }}
+                              />
+                            );
+                          })()}
+                        </th>
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Date</th>
                         <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-800">Description</th>
                         <th className="border border-slate-300 px-3 py-2 text-right font-bold text-slate-800">Amount</th>
@@ -3644,6 +3749,15 @@ await loadHistory();
                     <tbody>
                       {pvQueue.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE).map(entry => (
                         <tr key={entry.id} className="hover:bg-slate-50">
+                          <td className="border border-slate-300 px-2 py-2 align-top">
+                            <input
+                              type="checkbox"
+                              checked={pvSelectedIds.has(entry.id)}
+                              disabled={!pvIsSelectable(entry)}
+                              title={!pvIsSelectable(entry) ? "Add a Vendor/Expense before selecting this entry" : undefined}
+                              onChange={() => togglePvSelect(entry.id)}
+                            />
+                          </td>
                           <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap text-slate-600">
                             {new Date(entry.txnDate).toLocaleDateString("en-IN")}
                           </td>
@@ -3716,7 +3830,8 @@ await loadHistory();
                             ) : canCheckPayments ? (
                               <button
                                 onClick={() => handleCheckVerification(entry)}
-                                disabled={pvCheckingId === entry.id}
+                                disabled={pvCheckingId === entry.id || !pvIsSelectable(entry)}
+                                title={!pvIsSelectable(entry) ? "Add a Vendor/Expense first" : undefined}
                                 className="px-2.5 py-1 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
                                 {pvCheckingId === entry.id ? "..." : "Checked"}
                               </button>
