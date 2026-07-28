@@ -11,7 +11,6 @@ import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/
 import { BigshipService, type BigshipPackageBox } from '../bigship/bigship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { NotificationsService } from '../notifications/notifications.service';
 
 type LocalRateQuote = {
   rateId: string;
@@ -190,7 +189,6 @@ export class DispatchService {
     private readonly bigship: BigshipService,
     private readonly carrierConfig: CarrierConfigService,
     private readonly whatsapp: WhatsAppService,
-    private readonly notifications: NotificationsService,
   ) {}
 
   /** Debug: returns the raw Bigship warehouse API response for the first segment type */
@@ -1205,21 +1203,12 @@ export class DispatchService {
     return { success: true, shipmentNumber, carrierName, awbNumber: trackingRef };
   }
 
-  /** Disapprove a dispatch and return it to the dispatch queue.
-   *  Deletes the latest shipment record, resets order + items to READY_FOR_DISPATCH,
-   *  records the disapproval reason on the StatusLog, and notifies the order's sales
-   *  agent (popup via their in-app NotificationBell) with the reason. */
-  async returnToQueue(orderId: string, userId: string, reason: string): Promise<{ success: boolean }> {
-    if (!reason?.trim()) {
-      throw new BadRequestException('A reason is required to disapprove this dispatch');
-    }
+  /** Return a dispatched order back to the dispatch queue.
+   *  Deletes the latest shipment record and resets order + items to READY_FOR_DISPATCH. */
+  async returnToQueue(orderId: string, userId: string): Promise<{ success: boolean }> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        items: true,
-        shipments: { orderBy: { createdAt: 'desc' }, take: 1 },
-        salesAgent: { select: { id: true, fullName: true } },
-      },
+      include: { items: true, shipments: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
     if (!order) throw new NotFoundException(`Order ${orderId} not found`);
 
@@ -1241,24 +1230,10 @@ export class DispatchService {
           fromStatus: order.status,
           toStatus: OrderStatus.READY_FOR_DISPATCH,
           changedById: userId,
-          reason: `Dispatch disapproved: ${reason.trim()}`,
+          reason: 'Returned to dispatch queue by user',
         },
       });
     });
-
-    if (order.salesAgent?.id) {
-      try {
-        await this.notifications.notifyDispatchDisapproved({
-          agentId: order.salesAgent.id,
-          agentName: order.salesAgent.fullName,
-          orderId: order.id,
-          orderNo: order.orderNumber,
-          reason: reason.trim(),
-        });
-      } catch (e) {
-        this.logger.warn(`Failed to notify sales agent of dispatch disapproval for order ${order.orderNumber}: ${e instanceof Error ? e.message : e}`);
-      }
-    }
 
     return { success: true };
   }
