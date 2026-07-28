@@ -207,8 +207,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // Fetch coin wallet for this user
   useEffect(() => {
     if (!user) return;
-    const isPrajakta = String(user.fullName ?? user.email ?? "").toUpperCase().includes("PRAJAKTA");
-    if (!isPrajakta) return; // Only fetch for Prajakta for now
     fetch(`${API}/rewards/wallet`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.coins !== undefined) setCoins(data.coins); })
