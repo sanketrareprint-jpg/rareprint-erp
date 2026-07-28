@@ -179,6 +179,11 @@ export class DispatchController {
     return this.dispatchService.syncShipmentFromBigship(shipmentId);
   }
 
+  @Post('shipments/sync-bigship-all')
+  syncAllBigship() {
+    return this.dispatchService.syncAllFromBigship();
+  }
+
   @Post('shipments/:shipmentId/awb')
   setManualAwb(@Param('shipmentId') shipmentId: string, @Body('awbNumber') awbNumber: string) {
     return this.dispatchService.setManualAwb(shipmentId, awbNumber ?? '');

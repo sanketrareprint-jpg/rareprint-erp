@@ -128,6 +128,24 @@ export default function DispatchPage() {
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const [settingAwbId, setSettingAwbId] = useState<string | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
+
+  const syncAllBigship = async () => {
+    setSyncingAll(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/shipments/sync-bigship-all`, {
+        method: "POST", headers: getAuthHeaders(),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.message || "Failed");
+      await loadHistory();
+      alert(`Synced ${b.synced}/${b.total} Bigship shipment${b.total === 1 ? "" : "s"}${b.failed ? ` — ${b.failed} could not be synced (check they're actually shipped in Bigship)` : ""}.`);
+    } catch (e) {
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSyncingAll(false);
+    }
+  };
 
   const setManualAwb = async (shipmentId: string, currentAwb: string | null) => {
     const awb = window.prompt("Enter the real AWB / tracking number from the courier:", currentAwb ?? "");
@@ -538,6 +556,14 @@ export default function DispatchPage() {
                 </div>
                 <button onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
                   <Loader2 className={`h-3 w-3 ${historyLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <button
+                  onClick={() => void syncAllBigship()}
+                  disabled={syncingAll}
+                  title="Sync AWB/status from Bigship for every PACKED/IN_TRANSIT shipment that has a Bigship order"
+                  className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Loader2 className={`h-3 w-3 ${syncingAll ? "animate-spin" : ""}`} /> {syncingAll ? "Syncing…" : "🔄 Sync All Bigship"}
                 </button>
                 <span className="text-xs text-slate-400">{filteredHistory.length} shipment{filteredHistory.length !== 1 ? "s" : ""}</span>
               </div>

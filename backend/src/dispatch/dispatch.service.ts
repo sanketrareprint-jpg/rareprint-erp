@@ -1192,6 +1192,54 @@ export class DispatchService {
     return { success: true, awbNumber: details.awbNumber ?? null, status: details.status ?? null };
   }
 
+  /** Sync every open Bigship-linked shipment in one go, instead of clicking
+   *  "Sync Bigship" one row at a time. Only touches shipments that have a
+   *  bigshipOrderId and are still PACKED/IN_TRANSIT (nothing to gain from
+   *  re-syncing something already DELIVERED/CANCELLED/RETURNED). Runs the Bigship
+   *  calls a few at a time (not all at once) to avoid hammering their API. */
+  async syncAllFromBigship(): Promise<{
+    total: number;
+    synced: number;
+    failed: number;
+    results: Array<{ shipmentId: string; shipmentNumber: string; success: boolean; message?: string }>;
+  }> {
+    const candidates = await this.prisma.shipment.findMany({
+      where: { status: { in: [ShipmentStatus.PACKED, ShipmentStatus.IN_TRANSIT] } },
+      select: { id: true, shipmentNumber: true, bigshipOrderId: true } as any,
+    });
+    const shipments = (candidates as unknown as Array<{ id: string; shipmentNumber: string; bigshipOrderId: string | null }>)
+      .filter((s) => !!s.bigshipOrderId);
+
+    const results: Array<{ shipmentId: string; shipmentNumber: string; success: boolean; message?: string }> = [];
+    const CONCURRENCY = 3;
+    for (let i = 0; i < shipments.length; i += CONCURRENCY) {
+      const batch = shipments.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(async (s) => {
+          try {
+            const r = await this.syncShipmentFromBigship(s.id);
+            return { shipmentId: s.id, shipmentNumber: s.shipmentNumber, success: r.success, message: r.message };
+          } catch (e) {
+            return {
+              shipmentId: s.id,
+              shipmentNumber: s.shipmentNumber,
+              success: false,
+              message: e instanceof Error ? e.message : String(e),
+            };
+          }
+        }),
+      );
+      results.push(...batchResults);
+    }
+
+    return {
+      total: shipments.length,
+      synced: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
+      results,
+    };
+  }
+
   /** Manually set/correct the AWB on an existing shipment — for cases like Bigship
    *  where the order was created but never actually shipped (still sitting in
    *  Bigship's "Unshipped" queue), so the ERP has no real AWB to sync yet. Lets a
