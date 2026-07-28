@@ -524,24 +524,39 @@ function normalizePackageBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0
 
 function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
   const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
-
-  // Send each box type as a separate entry. totalNumOfBoxes = sum of all noOfBoxes.
-  // weight in dimensions is per-box weight (not total).
   const totalNumOfBoxes = normalized.reduce((sum, box) => sum + box.noOfBoxes, 0);
+
+  // Bigship's domestic_b2c create-order API hard-rejects more than one entry in the
+  // `boxes` array ("Exactly one box is required for B2C orders"). Our multi-box UI lets
+  // users enter several box rows with different dimensions/weights, but B2C can only
+  // describe ONE box shape per order — so every row must be collapsed into a single
+  // entry here. This also fixes the paired "Master order invoice amount must be equal
+  // to the sum of all product totalAmount values" error: that check sums the
+  // `products[].totalAmount` across every box entry, and each entry previously carried
+  // the FULL order value, so 2+ boxes meant the sum overshot MasterOrderInvoiceAmount.
+  // With exactly one box entry there is exactly one products line, so the sum always
+  // matches. `noOfBoxes` carries the true physical box count; the single declared size
+  // uses the largest dimension seen (never understates the parcel) and a per-box weight
+  // that keeps noOfBoxes × weight equal to the real total weight.
+  const maxLength  = Math.max(...normalized.map((box) => box.length));
+  const maxBreadth = Math.max(...normalized.map((box) => box.breadth));
+  const maxHeight  = Math.max(...normalized.map((box) => box.height));
+  const totalWeight = normalized.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
+  const perBoxWeight = Math.max(0.1, Math.round((totalWeight / totalNumOfBoxes) * 100) / 100);
 
   return {
     totalNumOfBoxes,
-    boxes: normalized.map((box) => ({
+    boxes: [{
       weight_unit: 'kg',
       dimension_unit: 'cm',
-      noOfBoxes: box.noOfBoxes,
+      noOfBoxes: totalNumOfBoxes,
       dimensions: [{
-        length: box.length,
-        breadth: box.breadth,
-        height: box.height,
-        weight: Math.max(0.1, Math.round(box.weight * 100) / 100),
+        length: maxLength,
+        breadth: maxBreadth,
+        height: maxHeight,
+        weight: perBoxWeight,
       }],
-    })),
+    }],
   };
 }
 
