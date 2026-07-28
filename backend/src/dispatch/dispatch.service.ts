@@ -95,6 +95,21 @@ function parseDispatchType(notes?: string | null): 'COURIER' | 'TRANSPORT' | 'BY
   return 'COURIER';
 }
 
+/** Maps Bigship's free-text status/tag strings (e.g. "In-Transit", "Rider Assigned",
+ *  "RTO", "Delivered") onto our own ShipmentStatus enum. Bigship doesn't document a
+ *  fixed enum of status strings across segments, so this matches on keywords rather
+ *  than an exact list. Returns null (no change) for anything unrecognized rather than
+ *  guessing wrong and overwriting a status we can't confidently map. */
+function mapBigshipStatusToShipmentStatus(rawStatus?: string): ShipmentStatus | null {
+  if (!rawStatus) return null;
+  const s = rawStatus.toLowerCase();
+  if (/cancel/.test(s)) return ShipmentStatus.CANCELLED;
+  if (/rto|return/.test(s)) return ShipmentStatus.RETURNED;
+  if (/deliver/.test(s)) return ShipmentStatus.DELIVERED;
+  if (/transit|pickup|rider|shipped|manifest|dispatch|out for/.test(s)) return ShipmentStatus.IN_TRANSIT;
+  return null;
+}
+
 function parseBigshipRateId(rateId: string): { masterCustomOrderId: string; courierId: number } | null {
   if (rateId.startsWith('bs:')) {
     const [, encodedOrderId, courierIdText] = rateId.split(':');
@@ -694,6 +709,7 @@ export class DispatchService {
     let trackingRef    = '';
     let shiprocketNote = '';
     let awbNumber: string | null = null;
+    let bigshipOrderId: string | null = null;
 
     const addr = splitAddressForShiprocket(order.customer);
     const paymentInfo = this.dispatchPaymentInfo(order);
@@ -770,6 +786,7 @@ export class DispatchService {
 
       trackingRef    = bs.awbNumber ?? '';
       awbNumber      = bs.awbNumber ?? null;
+      bigshipOrderId = bs.bigshipOrderId ?? null;
       shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ' (manual manifest pending)'}.`;
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
       // ── Shiprocket booking ───────────────────────────────────────────────
@@ -810,6 +827,10 @@ export class DispatchService {
             awbNumber,
             dispatchType: 'COURIER',
             transportChargesType: orderIsCod ? 'COD' : 'PREPAID',
+            // bigshipOrderId isn't in the generated Prisma types until `prisma generate`
+            // picks up the new schema column at deploy time (see feedback memory on this
+            // repo's sandbox not regenerating the client locally) — cast to bypass that.
+            ...(bigshipOrderId ? ({ bigshipOrderId } as any) : {}),
             notes: [
               `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
               `Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`.trim(),
@@ -1129,8 +1150,46 @@ export class DispatchService {
         shippingAddress: s.order.customer.shippingAddress ?? s.order.customer.billingAddress ?? null,
         salesAgentName: s.order.salesAgent?.fullName ?? null,
         notes: s.notes,
+        bigshipOrderId: (s as any).bigshipOrderId ?? null,
+        bigshipStatus: (s as any).bigshipStatus ?? null,
+        bigshipSyncedAt: (s as any).bigshipSyncedAt ? new Date((s as any).bigshipSyncedAt).toISOString() : null,
       };
     });
+  }
+
+  /** Pull the real AWB + tracking status from Bigship for a shipment that was booked
+   *  through Bigship, and persist it. Lets the ERP refresh on demand instead of only
+   *  ever showing whatever was captured at booking time. */
+  async syncShipmentFromBigship(shipmentId: string): Promise<{
+    success: boolean;
+    awbNumber?: string | null;
+    status?: string | null;
+    message?: string;
+  }> {
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) throw new NotFoundException(`Shipment ${shipmentId} not found`);
+    const bigshipOrderId = (shipment as any).bigshipOrderId as string | null;
+    if (!bigshipOrderId) {
+      throw new BadRequestException('This shipment has no linked Bigship order to sync from');
+    }
+
+    const details = await this.bigship.getOrderShipmentDetails(bigshipOrderId);
+    if (details.message && !details.awbNumber && !details.status) {
+      return { success: false, message: details.message };
+    }
+
+    const mappedStatus = mapBigshipStatusToShipmentStatus(details.status);
+    await this.prisma.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        ...(details.awbNumber ? { awbNumber: details.awbNumber, trackingNumber: details.awbNumber } : {}),
+        ...(mappedStatus ? { status: mappedStatus } : {}),
+        ...(mappedStatus === ShipmentStatus.DELIVERED ? { deliveredAt: new Date() } : {}),
+        ...({ bigshipStatus: details.status ?? null, bigshipSyncedAt: new Date() } as any),
+      },
+    });
+
+    return { success: true, awbNumber: details.awbNumber ?? null, status: details.status ?? null };
   }
 
   async markManuallyDispatched(

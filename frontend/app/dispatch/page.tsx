@@ -17,6 +17,7 @@ type ShipmentHistory = {
   dispatchDate: string; orderId: string; orderNo: string;
   customerName: string; customerPhone: string | null;
   shippingAddress: string | null; salesAgentName: string | null; notes: string | null;
+  bigshipOrderId: string | null; bigshipStatus: string | null; bigshipSyncedAt: string | null;
 };
 
 type DispatchOrder = {
@@ -124,6 +125,28 @@ export default function DispatchPage() {
   const [historySearch, setHistorySearch] = useState("");
   const [returningId, setReturningId] = useState<string | null>(null);
   const [markingDeliveredId, setMarkingDeliveredId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  const syncBigship = async (shipmentId: string) => {
+    setSyncingId(shipmentId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/shipments/${shipmentId}/sync-bigship`, {
+        method: "POST", headers: getAuthHeaders(),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.message || "Failed");
+      await loadHistory();
+      if (b.success) {
+        alert(`Synced from Bigship — AWB: ${b.awbNumber || "not yet assigned"}, Status: ${b.status || "unknown"}`);
+      } else {
+        alert("Could not sync: " + (b.message || "unknown error"));
+      }
+    } catch (e) {
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSyncingId(null);
+    }
+  };
 
   const markDelivered = async (shipmentId: string) => {
     if (!confirm("Mark this shipment as delivered? This sends the customer a WhatsApp message asking for a Google rating, review, and testimonial.")) return;
@@ -573,6 +596,14 @@ export default function DispatchPage() {
                                 title="Mark delivered and send the customer a WhatsApp review/testimonial request"
                                 className="mt-1 block w-full rounded border border-green-300 bg-green-50 px-1 py-0.5 text-[10px] font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50"
                               >{markingDeliveredId === h.id ? "…" : "✅ Delivered"}</button>
+                            )}
+                            {h.bigshipOrderId && (h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                              <button
+                                onClick={() => void syncBigship(h.id)}
+                                disabled={syncingId === h.id}
+                                title={h.bigshipSyncedAt ? `Last synced ${new Date(h.bigshipSyncedAt).toLocaleString("en-IN")}${h.bigshipStatus ? ` — ${h.bigshipStatus}` : ""}` : "Pull the real AWB and status from Bigship"}
+                                className="mt-1 block w-full rounded border border-blue-300 bg-blue-50 px-1 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                              >{syncingId === h.id ? "…" : "🔄 Sync Bigship"}</button>
                             )}
                           </td>
                         </tr>

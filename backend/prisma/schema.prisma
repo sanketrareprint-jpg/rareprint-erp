@@ -933,6 +933,9 @@ model Shipment {
   deliveryBoyName      String?
   collectedByName      String?
   collectedByPhone     String?
+  bigshipOrderId       String?
+  bigshipStatus        String?
+  bigshipSyncedAt      DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
   godown               Godown?        @relation(fields: [godownId], references: [id])

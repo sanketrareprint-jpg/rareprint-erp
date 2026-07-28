@@ -1212,6 +1212,45 @@ export class BigshipService {
     this.logger.log(`Bigship getWarehouseList: found ${results.length} warehouse(s) across all segment types`);
     return results;
   }
+
+  // ── Order status / AWB sync ─────────────────────────────────────────────────
+
+  /**
+   * GET /api/outbound/order-shipment-details
+   * Pulls the current AWB + tracking status for an already-created Bigship order.
+   * Used by the ERP's on-demand "Sync" action so a shipment's real status/AWB can
+   * be refreshed after booking, instead of only ever showing what was captured at
+   * dispatch time (which may be stale if the order was manifested or updated later).
+   */
+  async getOrderShipmentDetails(masterCustomOrderId: string): Promise<{
+    awbNumber?: string;
+    status?: string;
+    message?: string;
+  }> {
+    if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
+    try {
+      const token = await this.getAuthToken();
+      // Docs describe this as GET with a JSON body — like getWarehouseList, send the
+      // identifier as a query param instead since GET request bodies are unreliable
+      // across proxies/clients.
+      const { data } = await this.api().get('/api/outbound/order-shipment-details', {
+        params: { MasterCustomOrderId: masterCustomOrderId },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (data?.status === false) {
+        return { message: data?.message ?? 'Bigship order-shipment-details lookup failed' };
+      }
+      const details = data?.data?.getOrderDetails ?? data?.data ?? {};
+      const awb = String(details?.AwbNumber ?? details?.awb_assigned ?? details?.tracking_number ?? '');
+      const status = String(details?.status ?? details?.order_status ?? details?.tag ?? '');
+      return { awbNumber: awb || undefined, status: status || undefined };
+    } catch (e: unknown) {
+      const message = bigshipErrorMessage(e);
+      this.logger.warn(`Bigship getOrderShipmentDetails failed for ${masterCustomOrderId}: ${message}`);
+      return { message };
+    }
+  }
+
   // ── Token management ────────────────────────────────────────────────────────
 
   /** Call this after updating credentials so the cached token is re-fetched */

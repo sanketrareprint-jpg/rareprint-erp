@@ -173,4 +173,9 @@ export class DispatchController {
   ) {
     return this.dispatchService.markDelivered(shipmentId, req.user.id);
   }
+
+  @Post('shipments/:shipmentId/sync-bigship')
+  syncBigship(@Param('shipmentId') shipmentId: string) {
+    return this.dispatchService.syncShipmentFromBigship(shipmentId);
+  }
 }
