@@ -293,6 +293,11 @@ export class AccountsController {
     return this.accountsService.checkPaymentVerification(id, req.user);
   }
 
+  @Patch('payment-verification/:id/uncheck')
+  uncheckPaymentVerification(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.uncheckPaymentVerification(id, req.user);
+  }
+
   @Patch('payment-verification/:id/recheck')
   recheckPaymentVerification(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
     return this.accountsService.recheckPaymentVerification(id, req.user);

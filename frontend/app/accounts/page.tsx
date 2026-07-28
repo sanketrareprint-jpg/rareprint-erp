@@ -687,6 +687,29 @@ export default function AccountsPage() {
     } finally { setPvCheckingId(null); }
   }
 
+  async function handleUndoCheck(entry: PaymentVerificationEntry) {
+    if (!confirm("Undo Checked for this entry? Vendor/Expense, Expense Month and Note will become editable again.")) return;
+    setPvCheckingId(entry.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${entry.id}/uncheck`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Could not undo Checked");
+      }
+      const updated: PaymentVerificationEntry = await res.json();
+      setPvQueue(prev => prev.map(e => (e.id === entry.id ? updated : e)));
+      // Reset local drafts so the now-editable inputs show the real saved values, not stale drafts.
+      setPvVendorExpenseDrafts(prev => { const n = { ...prev }; delete n[entry.id]; return n; });
+      setPvExpenseMonthDrafts(prev => { const n = { ...prev }; delete n[entry.id]; return n; });
+      setPvNoteDrafts(prev => { const n = { ...prev }; delete n[entry.id]; return n; });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not undo Checked");
+    } finally { setPvCheckingId(null); }
+  }
+
   async function handleRecheckVerification(entry: PaymentVerificationEntry) {
     setPvRecheckingId(entry.id);
     try {
@@ -3824,9 +3847,20 @@ await loadHistory();
                           </td>
                           <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap">
                             {entry.checkedAt ? (
-                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                <Check className="h-3.5 w-3.5" /> {entry.checkedByName || "Checked"}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                                  <Check className="h-3.5 w-3.5" /> {entry.checkedByName || "Checked"}
+                                </span>
+                                {canCheckPayments && (
+                                  <button
+                                    onClick={() => handleUndoCheck(entry)}
+                                    disabled={pvCheckingId === entry.id}
+                                    title="Undo Checked — reopens the row for editing"
+                                    className="text-xs font-medium text-slate-400 hover:text-red-600 underline disabled:opacity-50">
+                                    Undo
+                                  </button>
+                                )}
+                              </div>
                             ) : canCheckPayments ? (
                               <button
                                 onClick={() => handleCheckVerification(entry)}

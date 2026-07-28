@@ -1937,6 +1937,25 @@ export class AccountsService {
     return this.mapPaymentVerificationEntry(updated);
   }
 
+  /** Undo a "Checked" mark — reopens the entry's Vendor/Expense, Expense Month and Note fields for editing. */
+  async uncheckPaymentVerification(id: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    if ((txn as any).recheckedAt) {
+      throw new BadRequestException('This entry has already been verified and moved to Payment History — it can no longer be unchecked');
+    }
+    if (!(txn as any).checkedAt) {
+      throw new BadRequestException('This entry has not been checked yet');
+    }
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id },
+      data: { checkedById: null, checkedAt: null } as any,
+      include: this.paymentVerificationInclude,
+    });
+    return this.mapPaymentVerificationEntry(updated);
+  }
+
   async recheckPaymentVerification(id: string, user: AccountsUser) {
     if (user.email !== SUPER_ADMIN_EMAIL) {
       throw new ForbiddenException('Only Sanket can verify and move this entry to Payment History');
