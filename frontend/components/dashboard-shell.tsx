@@ -359,6 +359,23 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
+        {/* Bonus points / reward coins — right below the logo */}
+        {coins !== null && (
+          <Link href="/loyalty" title={`${coins} reward coins — go to Bonus Points`} style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
+            margin: collapsed ? "0 auto 14px" : "0 8px 14px",
+            padding: collapsed ? "4px 0" : "4px 8px",
+            borderRadius: "8px",
+            background: "#fef3c7",
+            color: "#92400e",
+            fontSize: "12px", fontWeight: 700,
+            textDecoration: "none",
+            width: collapsed ? "30px" : "calc(100% - 16px)",
+          }}>
+            🪙 {!collapsed && <span>{coins} pts</span>}
+          </Link>
+        )}
+
         {/* Nav — single column list */}
         <nav style={{
           flex: 1, display: "flex", flexDirection: "column",
