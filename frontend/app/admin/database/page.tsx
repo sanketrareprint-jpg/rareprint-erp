@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Database, Search, Trash2, Edit2, Check, X, Play, ChevronLeft, ChevronRight, Upload, Download } from "lucide-react";
+import { Loader2, Database, Search, Trash2, Edit2, Check, X, Play, ChevronLeft, ChevronRight, Upload, Download, Plus, Tag } from "lucide-react";
 
 const TABLE_LABELS: Record<string, string> = {
   user: "Users", customer: "Customers", product: "Products",
@@ -42,6 +42,11 @@ type ProductCategoryOption = {
   name?: string | null;
   slug?: string | null;
 };
+// Payment description keywords, managed inline on the Users table — see
+// bank-statement.service.ts §8.5. A DR bank transaction whose description
+// contains one of a user's keywords auto-tags as that person's salary
+// payment on import (same mechanism as vendor/expense keywords).
+type UserKeyword = { id: string; keyword: string; userId: string };
 type DbRow = Record<string, unknown>;
 type FieldValue = string | number | boolean | null | undefined;
 type SqlResult = {
@@ -74,6 +79,10 @@ export default function AdminDbPage() {
   const [addData, setAddData] = useState<Record<string, FieldValue>>({});
   const [addLoading, setAddLoading] = useState(false);
   const [productCategories, setProductCategories] = useState<ProductCategoryOption[]>([]);
+  // Payment description keywords — only loaded/shown when viewing the Users table.
+  const [userKeywords, setUserKeywords] = useState<UserKeyword[]>([]);
+  const [newKeywordDraft, setNewKeywordDraft] = useState<Record<string, string>>({});
+  const [keywordSaving, setKeywordSaving] = useState<string | null>(null);
   // Bulk import state
   const [showImportModal, setShowImportModal] = useState(false);
   const [importCsvText, setImportCsvText] = useState("");
@@ -133,6 +142,43 @@ export default function AdminDbPage() {
   useEffect(() => {
     if (activeTable === "product") loadProductCategories();
   }, [activeTable, loadProductCategories]);
+
+  const loadUserKeywords = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bank-statement/user-keywords`, { headers: getAuthHeaders() });
+      const d = await res.json();
+      setUserKeywords(Array.isArray(d) ? d.map((k: any) => ({ id: k.id, keyword: k.keyword, userId: k.user?.id ?? k.userId })) : []);
+    } catch { setUserKeywords([]); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTable === "user") loadUserKeywords();
+  }, [activeTable, loadUserKeywords]);
+
+  const addUserKeyword = async (userId: string) => {
+    const keyword = (newKeywordDraft[userId] || "").trim();
+    if (!keyword) return;
+    setKeywordSaving(userId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/bank-statement/user-keywords`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword, userId }),
+      });
+      if (res.ok) {
+        setNewKeywordDraft(p => ({ ...p, [userId]: "" }));
+        loadUserKeywords();
+      } else {
+        const e = await res.json().catch(() => ({}));
+        alert("Could not add keyword: " + (e.message || "Unknown error"));
+      }
+    } finally { setKeywordSaving(null); }
+  };
+
+  const deleteUserKeyword = async (id: string) => {
+    await fetch(`${API_BASE_URL}/bank-statement/user-keywords/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+    loadUserKeywords();
+  };
 
   const saveEdit = async (id: string) => {
     if (!activeTable) return;
@@ -503,6 +549,12 @@ export default function AdminDbPage() {
                         {columns.map(col => (
                           <th key={col} className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">{col}</th>
                         ))}
+                        {activeTable === "user" && (
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">
+                            Payment Keywords
+                            <span className="block font-normal text-slate-400" style={{ fontSize: "10px" }}>auto-tags matching bank txns to this person</span>
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -546,6 +598,40 @@ export default function AdminDbPage() {
                               )}
                             </td>
                           ))}
+                          {activeTable === "user" && (
+                            <td className="px-3 py-1.5 min-w-64">
+                              <div className="flex flex-wrap gap-1 mb-1">
+                                {userKeywords.filter(k => k.userId === rowId).map(k => (
+                                  <span key={k.id} className="inline-flex items-center gap-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-full px-2 py-0.5 text-xs">
+                                    <Tag className="h-2.5 w-2.5" />
+                                    {k.keyword}
+                                    <button onClick={() => deleteUserKeyword(k.id)} className="text-teal-400 hover:text-red-500">
+                                      <X className="h-2.5 w-2.5" />
+                                    </button>
+                                  </span>
+                                ))}
+                                {userKeywords.filter(k => k.userId === rowId).length === 0 && (
+                                  <span className="text-xs text-slate-300">No keywords yet</span>
+                                )}
+                              </div>
+                              <div className="flex gap-1">
+                                <input
+                                  value={newKeywordDraft[rowId] || ""}
+                                  onChange={e => setNewKeywordDraft(p => ({ ...p, [rowId]: e.target.value }))}
+                                  onKeyDown={e => { if (e.key === "Enter") addUserKeyword(rowId); }}
+                                  placeholder="e.g. bank narration text"
+                                  className="border border-slate-200 rounded px-1.5 py-0.5 text-xs outline-none focus:border-teal-400 w-40"
+                                />
+                                <button
+                                  onClick={() => addUserKeyword(rowId)}
+                                  disabled={keywordSaving === rowId || !(newKeywordDraft[rowId] || "").trim()}
+                                  className="p-1 rounded bg-teal-50 text-teal-600 hover:bg-teal-100 disabled:opacity-40"
+                                >
+                                  {keywordSaving === rowId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       )})}
                     </tbody>
