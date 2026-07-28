@@ -1018,9 +1018,16 @@ export class BigshipService {
     invoiceBuffer?: Buffer;
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
-    const token = await this.getAuthToken();
 
     try {
+      // getAuthToken() is inside this try block on purpose — a login/token-refresh
+      // failure here must never throw uncaught, since a stale draft order was already
+      // created in Bigship (with a specific invoice number) right before this call.
+      // An uncaught exception would fail the whole /dispatch/book request before the
+      // ERP shipment record is saved, and a retry would burn through the RP/0RP/00RP
+      // invoice-candidate fallback until create-order itself starts failing too —
+      // i.e. no order reaches Bigship at all.
+      const token = await this.getAuthToken();
       // Per Bigship API docs, domestic B2C place-order MUST use multipart/form-data, NOT JSON.
       // Sending JSON always fails for domestic segments, so skip the basic JSON attempt entirely
       // and go directly to multipart with the invoice PDF.

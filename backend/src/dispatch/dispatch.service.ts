@@ -11,6 +11,7 @@ import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/
 import { BigshipService, type BigshipPackageBox } from '../bigship/bigship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type LocalRateQuote = {
   rateId: string;
@@ -189,6 +190,7 @@ export class DispatchService {
     private readonly bigship: BigshipService,
     private readonly carrierConfig: CarrierConfigService,
     private readonly whatsapp: WhatsAppService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Debug: returns the raw Bigship warehouse API response for the first segment type */
@@ -742,19 +744,29 @@ export class DispatchService {
       // not carry over the box list from the API-created draft). Auto-invoice is
       // generated inside placeExistingOrder when no invoice file has been uploaded.
       if (!bs.awbNumber) {
-        const placed = await this.bigship.placeExistingOrder({
-          masterCustomOrderId: bs.bigshipOrderId,
-          courierId,
-          invoiceData: {
-            orderNumber: order.orderNumber,
-            customerName: order.customer.businessName,
-            amount: Number(order.grandTotal),
-          },
-        });
-        if (placed.awbNumber) {
-          bs = { ...bs, awbNumber: placed.awbNumber };
-        } else if (placed.message) {
-          this.logger.warn(`Bigship manifest (place-order) failed for order ${bs.bigshipOrderId}: ${placed.message}`);
+        // Defensive try/catch: the draft order already exists in Bigship at this point
+        // (created moments ago with a specific invoice number). If manifesting throws for
+        // any unexpected reason, we must NOT let it fail the whole booking request — that
+        // would burn through the RP/0RP/00RP invoice-candidate fallback on retry and could
+        // eventually stop new orders from reaching Bigship at all. Fall back to the
+        // pre-existing "manual manifest pending" behavior instead.
+        try {
+          const placed = await this.bigship.placeExistingOrder({
+            masterCustomOrderId: bs.bigshipOrderId,
+            courierId,
+            invoiceData: {
+              orderNumber: order.orderNumber,
+              customerName: order.customer.businessName,
+              amount: Number(order.grandTotal),
+            },
+          });
+          if (placed.awbNumber) {
+            bs = { ...bs, awbNumber: placed.awbNumber };
+          } else if (placed.message) {
+            this.logger.warn(`Bigship manifest (place-order) failed for order ${bs.bigshipOrderId}: ${placed.message}`);
+          }
+        } catch (e) {
+          this.logger.warn(`Bigship manifest (place-order) threw unexpectedly for order ${bs.bigshipOrderId}: ${e instanceof Error ? e.message : e}`);
         }
       }
 
@@ -1193,12 +1205,21 @@ export class DispatchService {
     return { success: true, shipmentNumber, carrierName, awbNumber: trackingRef };
   }
 
-  /** Return a dispatched order back to the dispatch queue.
-   *  Deletes the latest shipment record and resets order + items to READY_FOR_DISPATCH. */
-  async returnToQueue(orderId: string, userId: string): Promise<{ success: boolean }> {
+  /** Disapprove a dispatch and return it to the dispatch queue.
+   *  Deletes the latest shipment record, resets order + items to READY_FOR_DISPATCH,
+   *  records the disapproval reason on the StatusLog, and notifies the order's sales
+   *  agent (popup via their in-app NotificationBell) with the reason. */
+  async returnToQueue(orderId: string, userId: string, reason: string): Promise<{ success: boolean }> {
+    if (!reason?.trim()) {
+      throw new BadRequestException('A reason is required to disapprove this dispatch');
+    }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true, shipments: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      include: {
+        items: true,
+        shipments: { orderBy: { createdAt: 'desc' }, take: 1 },
+        salesAgent: { select: { id: true, fullName: true } },
+      },
     });
     if (!order) throw new NotFoundException(`Order ${orderId} not found`);
 
@@ -1220,10 +1241,24 @@ export class DispatchService {
           fromStatus: order.status,
           toStatus: OrderStatus.READY_FOR_DISPATCH,
           changedById: userId,
-          reason: 'Returned to dispatch queue by user',
+          reason: `Dispatch disapproved: ${reason.trim()}`,
         },
       });
     });
+
+    if (order.salesAgent?.id) {
+      try {
+        await this.notifications.notifyDispatchDisapproved({
+          agentId: order.salesAgent.id,
+          agentName: order.salesAgent.fullName,
+          orderId: order.id,
+          orderNo: order.orderNumber,
+          reason: reason.trim(),
+        });
+      } catch (e) {
+        this.logger.warn(`Failed to notify sales agent of dispatch disapproval for order ${order.orderNumber}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
 
     return { success: true };
   }
