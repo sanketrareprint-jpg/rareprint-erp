@@ -1192,6 +1192,29 @@ export class DispatchService {
     return { success: true, awbNumber: details.awbNumber ?? null, status: details.status ?? null };
   }
 
+  /** Manually set/correct the AWB on an existing shipment — for cases like Bigship
+   *  where the order was created but never actually shipped (still sitting in
+   *  Bigship's "Unshipped" queue), so the ERP has no real AWB to sync yet. Lets a
+   *  human ship it from Bigship's own dashboard and paste the resulting AWB back in. */
+  async setManualAwb(shipmentId: string, awbNumber: string): Promise<{ success: boolean }> {
+    const trimmed = awbNumber.trim();
+    if (!trimmed) throw new BadRequestException('AWB number is required');
+
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) throw new NotFoundException(`Shipment ${shipmentId} not found`);
+
+    await this.prisma.shipment.update({
+      where: { id: shipmentId },
+      data: {
+        awbNumber: trimmed,
+        trackingNumber: trimmed,
+        ...(shipment.status === ShipmentStatus.PACKED ? { status: ShipmentStatus.IN_TRANSIT } : {}),
+      },
+    });
+
+    return { success: true };
+  }
+
   async markManuallyDispatched(
     orderId: string,
     userId: string,

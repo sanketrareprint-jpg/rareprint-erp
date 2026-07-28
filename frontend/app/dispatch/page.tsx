@@ -127,6 +127,29 @@ export default function DispatchPage() {
   const [markingDeliveredId, setMarkingDeliveredId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
+  const [settingAwbId, setSettingAwbId] = useState<string | null>(null);
+
+  const setManualAwb = async (shipmentId: string, currentAwb: string | null) => {
+    const awb = window.prompt("Enter the real AWB / tracking number from the courier:", currentAwb ?? "");
+    if (awb === null) return;
+    const trimmed = awb.trim();
+    if (!trimmed) return;
+    setSettingAwbId(shipmentId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/shipments/${shipmentId}/awb`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ awbNumber: trimmed }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.message || "Failed");
+      await loadHistory();
+    } catch (e) {
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSettingAwbId(null);
+    }
+  };
+
   const syncBigship = async (shipmentId: string) => {
     setSyncingId(shipmentId);
     try {
@@ -604,6 +627,14 @@ export default function DispatchPage() {
                                 title={h.bigshipSyncedAt ? `Last synced ${new Date(h.bigshipSyncedAt).toLocaleString("en-IN")}${h.bigshipStatus ? ` — ${h.bigshipStatus}` : ""}` : "Pull the real AWB and status from Bigship"}
                                 className="mt-1 block w-full rounded border border-blue-300 bg-blue-50 px-1 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                               >{syncingId === h.id ? "…" : "🔄 Sync Bigship"}</button>
+                            )}
+                            {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                              <button
+                                onClick={() => void setManualAwb(h.id, h.trackingNumber)}
+                                disabled={settingAwbId === h.id}
+                                title="Manually enter the real AWB number (e.g. after shipping it directly from Bigship's dashboard)"
+                                className="mt-1 block w-full rounded border border-gray-300 bg-gray-50 px-1 py-0.5 text-[10px] font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                              >{settingAwbId === h.id ? "…" : "✏️ Add AWB"}</button>
                             )}
                           </td>
                         </tr>
