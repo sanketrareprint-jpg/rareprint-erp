@@ -33,3 +33,4 @@ run('npx', ['prisma', 'migrate', 'deploy']);
 // record can never again silently break the commission-override feature.
 run('node', ['scripts/ensure-commission-override-table.js'], { allowFailure: true });
 run('node', ['scripts/ensure-customer-phone2-column.js'], { allowFailure: true });
+run('node', ['scripts/ensure-shipment-bigship-columns.js'], { allowFailure: true });
