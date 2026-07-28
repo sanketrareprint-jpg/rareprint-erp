@@ -631,6 +631,9 @@ export default function DispatchPage() {
                               h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
                               "bg-slate-100 text-slate-600"
                             }`}>{h.status}</span>
+                            {h.bigshipStatus && (
+                              <div className="mt-0.5 text-[9px] text-slate-500" title="Live status as reported by Bigship">{h.bigshipStatus}</div>
+                            )}
                             {h.status === "PACKED" && (
                               <button
                                 onClick={() => void returnToQueue(h.orderId)}
