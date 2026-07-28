@@ -841,10 +841,11 @@ export class BigshipService {
   // ── Order creation ──────────────────────────────────────────────────────────
 
   /**
-   * 3-step order booking (Bigship Direct):
+   * Order booking, steps 1-2 of 3 (Bigship Direct):
    *   1. POST /api/outbound/create-order              → CustomGlobalOrderId
    *   2. POST /api/outbound/courier-wise-shipment-cost → confirm courier available
-   *   3. POST /api/outbound/place-order               → AWB
+   * Step 3 (POST /api/outbound/place-order → AWB) is NOT done here — call
+   * placeExistingOrder() with the returned bigshipOrderId to manifest and get the AWB.
    */
   async tryCreateAdhocOrder(input: {
     orderNumber: string;
@@ -997,8 +998,10 @@ export class BigshipService {
         this.logger.warn(`Bigship tryCreateAdhocOrder — rate confirmation step failed (continuing): ${errMsg.slice(0, 200)}`);
       }
 
-      // ── Step 3: Order is ready in Bigship — user will upload invoice & place from Bigship UI ──
-      this.logger.log(`Bigship tryCreateAdhocOrder — order ${customOrderId} ready. Courier ${input.courierId} confirmed. User will place via Bigship UI.`);
+      // ── Order + courier confirmed. Manifesting (place-order) is done by the caller
+      // via placeExistingOrder() right after this returns, so the AWB comes back and
+      // gets saved in the ERP instead of requiring a manual step in the Bigship UI. ──
+      this.logger.log(`Bigship tryCreateAdhocOrder — order ${customOrderId} ready. Courier ${input.courierId} confirmed.`);
       return { bigshipOrderId: customOrderId };
     } catch (e: unknown) {
       const err = e as { response?: { data?: unknown }; message?: string };

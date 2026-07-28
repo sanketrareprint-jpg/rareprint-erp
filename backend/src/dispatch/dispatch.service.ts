@@ -734,6 +734,30 @@ export class DispatchService {
         throw new BadRequestException(`Bigship booking failed: ${message}`);
       }
 
+      // ── Manifest immediately (place-order) so the AWB comes back and gets stored
+      // here in the ERP. Without this, tryCreateAdhocOrder only leaves an unmanifested
+      // draft in Bigship — the user then has to open the Bigship dashboard, pick the
+      // courier again and click "Ship Now" by hand, which is also what was silently
+      // discarding the multi-box package details (Bigship's manual Ship Now flow does
+      // not carry over the box list from the API-created draft). Auto-invoice is
+      // generated inside placeExistingOrder when no invoice file has been uploaded.
+      if (!bs.awbNumber) {
+        const placed = await this.bigship.placeExistingOrder({
+          masterCustomOrderId: bs.bigshipOrderId,
+          courierId,
+          invoiceData: {
+            orderNumber: order.orderNumber,
+            customerName: order.customer.businessName,
+            amount: Number(order.grandTotal),
+          },
+        });
+        if (placed.awbNumber) {
+          bs = { ...bs, awbNumber: placed.awbNumber };
+        } else if (placed.message) {
+          this.logger.warn(`Bigship manifest (place-order) failed for order ${bs.bigshipOrderId}: ${placed.message}`);
+        }
+      }
+
       trackingRef    = bs.awbNumber ?? '';
       awbNumber      = bs.awbNumber ?? null;
       shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ' (manual manifest pending)'}.`;
