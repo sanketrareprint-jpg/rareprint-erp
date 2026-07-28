@@ -276,6 +276,9 @@ export class BankStatementService {
     const expenseKeywords = await this.prisma.expenseKeyword.findMany({
       select: { keyword: true, categoryId: true },
     });
+    const userKeywords = await (this.prisma as any).userPaymentKeyword.findMany({
+      select: { keyword: true, userId: true },
+    });
 
     let importedCount = 0;
     const toCreate: Prisma.BankTransactionCreateManyInput[] = [];
@@ -297,9 +300,23 @@ export class BankStatementService {
         }
       }
 
-      // 2. Try expense category match
-      let expenseCategoryId: string | undefined;
+      // 2. Try employee/salary keyword match (e.g. name variants as they
+      // appear in bank narration) — takes priority over the generic expense
+      // category fallback below, same as vendor matches do.
+      let salaryForUserId: string | undefined;
       if (row.crDr === 'DR' && !matchedVendorId) {
+        for (const uk of userKeywords) {
+          if (desc.includes(uk.keyword.toUpperCase())) {
+            salaryForUserId = uk.userId;
+            reconcileStatus = 'MATCHED_SALARY';
+            break;
+          }
+        }
+      }
+
+      // 3. Try expense category match
+      let expenseCategoryId: string | undefined;
+      if (row.crDr === 'DR' && !matchedVendorId && !salaryForUserId) {
         for (const ek of expenseKeywords) {
           if (desc.includes(ek.keyword.toUpperCase())) {
             expenseCategoryId = ek.categoryId;
@@ -331,7 +348,17 @@ export class BankStatementService {
         matchedPaymentId: null,
         matchedVendorId: matchedVendorId ?? null,
         expenseCategoryId: expenseCategoryId ?? null,
-      });
+        // Auto-tagged salary match — the accountant can still fix the
+        // year/month via the existing Expense Tracker unmark/mark-paid flow
+        // if the transaction date doesn't match the month it's actually for.
+        ...(salaryForUserId
+          ? {
+              salaryForUserId,
+              salaryYear: row.txnDate.getFullYear(),
+              salaryMonth: row.txnDate.getMonth() + 1,
+            }
+          : {}),
+      } as any);
 
       importedCount++;
     }
@@ -644,6 +671,82 @@ export class BankStatementService {
     return this.prisma.expenseKeyword.delete({ where: { id } });
   }
 
+  // ── 8.5 Employee (User) Keywords CRUD ──────────────────────────────────────
+  // Same shape as Vendor Keywords, but the target is a User — a DR
+  // transaction matching one of these auto-tags as that user's salary
+  // payment (MATCHED_SALARY). See migration 20260728120000_add_user_payment_keywords.
+
+  async listUsers() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, fullName: true, role: true },
+      orderBy: { fullName: 'asc' },
+    });
+  }
+
+  async listUserPaymentKeywords() {
+    return (this.prisma as any).userPaymentKeyword.findMany({
+      include: { user: { select: { id: true, fullName: true } } },
+      orderBy: { keyword: 'asc' },
+    });
+  }
+
+  async upsertUserPaymentKeyword(keyword: string, userId: string) {
+    const normalizedKeyword = normalizeText(keyword);
+    if (!normalizedKeyword)
+      throw new BadRequestException('Keyword is required');
+
+    const rule = await (this.prisma as any).userPaymentKeyword.upsert({
+      where: { keyword: normalizedKeyword },
+      create: { keyword: normalizedKeyword, userId },
+      update: { userId },
+    });
+
+    await this.applyUserKeywordToExistingTransactions(
+      normalizedKeyword,
+      userId,
+    );
+
+    return rule;
+  }
+
+  async deleteUserPaymentKeyword(id: string) {
+    return (this.prisma as any).userPaymentKeyword.delete({ where: { id } });
+  }
+
+  private async applyUserKeywordToExistingTransactions(
+    keyword: string,
+    userId: string,
+  ) {
+    const txns = await this.prisma.bankTransaction.findMany({
+      where: {
+        crDr: 'DR',
+        reconcileStatus: { in: ['UNMATCHED', 'MANUAL_REVIEW'] },
+      },
+      select: { id: true, description: true, txnDate: true },
+    });
+
+    const matching = txns.filter((txn) => normalizeText(txn.description).includes(keyword));
+    if (matching.length === 0) return;
+
+    // Each row keeps its own txnDate, so salaryYear/salaryMonth can't be a
+    // single updateMany — loop instead (this list is normally tiny).
+    for (const txn of matching) {
+      await (this.prisma.bankTransaction as any).update({
+        where: { id: txn.id },
+        data: {
+          reconcileStatus: 'MATCHED_SALARY',
+          matchedPaymentId: null,
+          matchedVendorId: null,
+          expenseCategoryId: null,
+          salaryForUserId: userId,
+          salaryYear: txn.txnDate.getFullYear(),
+          salaryMonth: txn.txnDate.getMonth() + 1,
+        },
+      });
+    }
+  }
+
   private async applyVendorKeywordToExistingTransactions(
     keyword: string,
     vendorId: string,
@@ -713,12 +816,14 @@ export class BankStatementService {
     const txns = await this.prisma.bankTransaction.findMany({ where });
     const vendorKeywords = await this.prisma.vendorKeyword.findMany();
     const expenseKeywords = await this.prisma.expenseKeyword.findMany();
+    const userKeywords = await (this.prisma as any).userPaymentKeyword.findMany();
     let updated = 0;
     for (const txn of txns) {
       const desc = txn.description.toUpperCase();
       let reconcileStatus: BankReconcileStatus = 'MANUAL_REVIEW';
       let matchedVendorId: string | null = null;
       let expenseCategoryId: string | null = null;
+      let salaryForUserId: string | null = null;
 
       if (txn.crDr === 'DR') {
         for (const vk of vendorKeywords) {
@@ -729,6 +834,15 @@ export class BankStatementService {
           }
         }
         if (!matchedVendorId) {
+          for (const uk of userKeywords) {
+            if (desc.includes(uk.keyword.toUpperCase())) {
+              salaryForUserId = uk.userId;
+              reconcileStatus = 'MATCHED_SALARY';
+              break;
+            }
+          }
+        }
+        if (!matchedVendorId && !salaryForUserId) {
           for (const ek of expenseKeywords) {
             if (desc.includes(ek.keyword.toUpperCase())) {
               expenseCategoryId = ek.categoryId;
@@ -743,13 +857,17 @@ export class BankStatementService {
         reconcileStatus !== 'MANUAL_REVIEW' ||
         txn.reconcileStatus !== reconcileStatus
       ) {
-        await this.prisma.bankTransaction.update({
+        await (this.prisma.bankTransaction as any).update({
           where: { id: txn.id },
           data: {
             reconcileStatus,
             matchedPaymentId: null,
             matchedVendorId,
             expenseCategoryId,
+            salaryForUserId,
+            ...(salaryForUserId
+              ? { salaryYear: txn.txnDate.getFullYear(), salaryMonth: txn.txnDate.getMonth() + 1 }
+              : {}),
           },
         });
         updated++;

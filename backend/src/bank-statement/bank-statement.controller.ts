@@ -153,4 +153,32 @@ export class BankStatementController {
   deleteExpenseKeyword(@Param('id') id: string) {
     return this.svc.deleteExpenseKeyword(id);
   }
+
+  // ── Employee (User) Keywords ───────────────────────────────────────────────
+  // Same idea as Vendor Keywords, but auto-tags a DR transaction as a user's
+  // salary payment instead. See bank-statement.service.ts §8.5.
+
+  /** GET /bank-statement/users — active users, for the keyword-target dropdown */
+  @Get('users')
+  listUsers() {
+    return this.svc.listUsers();
+  }
+
+  /** GET /bank-statement/user-keywords */
+  @Get('user-keywords')
+  listUserPaymentKeywords() {
+    return this.svc.listUserPaymentKeywords();
+  }
+
+  /** POST /bank-statement/user-keywords */
+  @Post('user-keywords')
+  upsertUserPaymentKeyword(@Body() body: { keyword: string; userId: string }) {
+    return this.svc.upsertUserPaymentKeyword(body.keyword, body.userId);
+  }
+
+  /** DELETE /bank-statement/user-keywords/:id */
+  @Delete('user-keywords/:id')
+  deleteUserPaymentKeyword(@Param('id') id: string) {
+    return this.svc.deleteUserPaymentKeyword(id);
+  }
 }

@@ -8,7 +8,7 @@ import {
   Upload, RefreshCw, Loader2, CheckCircle, AlertCircle, Clock,
   XCircle, ChevronDown, ChevronUp, Plus, Trash2, Search,
   TrendingUp, TrendingDown, Landmark, LayoutList, Tag, Settings2,
-  FileText, Eye, RotateCcw,
+  FileText, Eye, RotateCcw, Users,
 } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@ type BankReconcileStatus =
   | "MATCHED_VENDOR"
   | "MATCHED_EXPENSE"
   | "MATCHED_COMMISSION"
+  | "MATCHED_SALARY"
   | "MANUAL_REVIEW"
   | "IGNORED";
 
@@ -68,6 +69,8 @@ interface BankAccountOption {
 interface Vendor { id: string; name: string; }
 interface VendorKeyword { id: string; keyword: string; vendor: { id: string; name: string }; }
 interface ExpenseCategory { id: string; name: string; description?: string; keywords: { id: string; keyword: string }[]; }
+interface StaffUser { id: string; fullName: string; role: string; }
+interface UserPaymentKeyword { id: string; keyword: string; user: { id: string; fullName: string }; }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -76,12 +79,13 @@ const STATUS_META: Record<BankReconcileStatus, { label: string; color: string; i
   MATCHED_VENDOR:  { label: "Vendor Matched",   color: "bg-blue-100 text-blue-800",    icon: CheckCircle },
   MATCHED_EXPENSE: { label: "Expense Matched",  color: "bg-purple-100 text-purple-800", icon: CheckCircle },
   MATCHED_COMMISSION: { label: "Commission Matched", color: "bg-blue-100 text-blue-800", icon: CheckCircle },
+  MATCHED_SALARY:  { label: "Salary Matched",   color: "bg-teal-100 text-teal-800",     icon: CheckCircle },
   MANUAL_REVIEW:   { label: "Needs Review",     color: "bg-yellow-100 text-yellow-800", icon: AlertCircle },
   UNMATCHED:       { label: "Unmatched",        color: "bg-gray-100 text-gray-600",    icon: Clock },
   IGNORED:         { label: "Ignored",          color: "bg-red-50 text-red-400",        icon: XCircle },
 };
 
-type Tab = "ledger" | "review" | "vendor-mapping" | "expense-mapping" | "sessions";
+type Tab = "ledger" | "review" | "vendor-mapping" | "expense-mapping" | "user-mapping" | "sessions";
 
 const GST_BANK_ACCOUNT = "0513102000013378";
 
@@ -160,6 +164,14 @@ export default function BankStatementPage() {
   const [newExpCatId, setNewExpCatId] = useState("");
   const [expLoading, setExpLoading] = useState(false);
 
+  // ── Employee (user) mapping — auto-tags a DR transaction as that
+  // person's salary payment, same mechanism as vendor keywords. ──
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+  const [userKeywords, setUserKeywords] = useState<UserPaymentKeyword[]>([]);
+  const [newUkKeyword, setNewUkKeyword] = useState("");
+  const [newUkUserId, setNewUkUserId] = useState("");
+  const [ukLoading, setUkLoading] = useState(false);
+
   // ── Sessions ──
   const [sessions, setSessions] = useState<any[]>([]);
 
@@ -222,6 +234,15 @@ export default function BankStatementPage() {
     if (data) setExpenseCategories(data);
   }, [apiFetch]);
 
+  const loadUserKeywords = useCallback(async () => {
+    const [uks, us] = await Promise.all([
+      apiFetch("/bank-statement/user-keywords").catch(() => []),
+      apiFetch("/bank-statement/users").catch(() => []),
+    ]);
+    if (uks) setUserKeywords(uks);
+    if (us) setStaffUsers(us);
+  }, [apiFetch]);
+
   const loadReviewQueue = useCallback(async (page = 1) => {
     setLoadingReviewQueue(true);
     try {
@@ -247,6 +268,7 @@ export default function BankStatementPage() {
   useEffect(() => { if (activeTab === "review") loadReviewQueue(1); }, [activeTab, selectedAccount, reviewFilterCrDr, loadReviewQueue]);
   useEffect(() => { loadVendorKeywords(); }, [loadVendorKeywords]);
   useEffect(() => { loadExpenseCategories(); }, [loadExpenseCategories]);
+  useEffect(() => { loadUserKeywords(); }, [loadUserKeywords]);
   useEffect(() => { if (activeTab === "sessions") loadSessions(); }, [activeTab, loadSessions]);
 
   // ─── Import ───────────────────────────────────────────────────────────────
@@ -350,6 +372,27 @@ export default function BankStatementPage() {
   const deleteVendorKeyword = async (id: string) => {
     await apiFetch(`/bank-statement/vendor-keywords/${id}`, { method: "DELETE" });
     loadVendorKeywords();
+  };
+
+  // ─── Employee (user) keyword actions ──────────────────────────────────────
+
+  const addUserKeyword = async () => {
+    if (!newUkKeyword.trim() || !newUkUserId) return;
+    setUkLoading(true);
+    try {
+      await apiFetch("/bank-statement/user-keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: newUkKeyword.trim(), userId: newUkUserId }),
+      });
+      setNewUkKeyword(""); setNewUkUserId("");
+      loadUserKeywords();
+    } finally { setUkLoading(false); }
+  };
+
+  const deleteUserKeyword = async (id: string) => {
+    await apiFetch(`/bank-statement/user-keywords/${id}`, { method: "DELETE" });
+    loadUserKeywords();
   };
 
   // ─── Expense category actions ─────────────────────────────────────────────
@@ -498,7 +541,7 @@ export default function BankStatementPage() {
 
         {/* ── Tabs ── */}
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit flex-wrap">
-          {(["ledger","review","vendor-mapping","expense-mapping","sessions"] as Tab[]).map((tab) => (
+          {(["ledger","review","vendor-mapping","expense-mapping","user-mapping","sessions"] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -510,6 +553,7 @@ export default function BankStatementPage() {
               {tab === "review" && <span className="flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 text-yellow-500" />Review Queue {reviewCount > 0 && <span className="bg-yellow-500 text-white text-xs rounded-full px-1.5">{reviewCount}</span>}</span>}
               {tab === "vendor-mapping" && <span className="flex items-center gap-1.5"><Tag className="w-3.5 h-3.5" />Vendor Map</span>}
               {tab === "expense-mapping" && <span className="flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" />Expense Map</span>}
+              {tab === "user-mapping" && <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />Employee Map</span>}
               {tab === "sessions" && <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />Import History</span>}
             </button>
           ))}
@@ -787,6 +831,65 @@ export default function BankStatementPage() {
                       <span className="text-sm text-gray-800 font-medium">{vk.vendor.name}</span>
                     </div>
                     <button onClick={() => deleteVendorKeyword(vk.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════ EMPLOYEE (USER) MAPPING TAB ════════════════ */}
+        {activeTab === "user-mapping" && (
+          <div className="space-y-4">
+            <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 text-sm text-teal-800">
+              Add keywords for how an employee's name appears in bank narration (e.g. their name, a nickname, an account reference). When a debit transaction contains a keyword, it is automatically tagged as that person's salary payment for the transaction's month.
+            </div>
+
+            {/* Add new */}
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <h3 className="font-semibold text-gray-800 mb-3">Add Keyword → Employee Rule</h3>
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-48"
+                  placeholder="Keyword (e.g. VAISHALI DHAKATE, RITU G)"
+                  value={newUkKeyword}
+                  onChange={(e) => setNewUkKeyword(e.target.value)}
+                />
+                <select
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-48"
+                  value={newUkUserId}
+                  onChange={(e) => setNewUkUserId(e.target.value)}
+                >
+                  <option value="">Select employee…</option>
+                  {staffUsers.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
+                </select>
+                <button
+                  onClick={addUserKeyword}
+                  disabled={ukLoading || !newUkKeyword.trim() || !newUkUserId}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {ukLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add Rule
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-800">Active Rules ({userKeywords.length})</h3>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {userKeywords.length === 0 && <p className="text-center py-10 text-gray-400">No employee keywords yet</p>}
+                {userKeywords.map((uk) => (
+                  <div key={uk.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
+                    <div className="flex items-center gap-3">
+                      <span className="bg-gray-100 text-gray-700 font-mono text-sm px-2 py-0.5 rounded">{uk.keyword}</span>
+                      <span className="text-gray-400 text-xs">→</span>
+                      <span className="text-sm text-gray-800 font-medium">{uk.user.fullName}</span>
+                    </div>
+                    <button onClick={() => deleteUserKeyword(uk.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>

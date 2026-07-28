@@ -60,6 +60,7 @@ model User {
   companyTermsCreated          CompanyTerms[]            @relation("CompanyTermsCreatedBy")
   complaintsRaised              Complaint[]               @relation("ComplaintRaisedBy")
   complaintsAssigned             Complaint[]               @relation("ComplaintAssignedTo")
+  paymentKeywords                UserPaymentKeyword[]      @relation("UserPaymentKeywords")
 
   // ── Call Compliance (monthly call-log + AiSensy tag cross-check) ──────────
   aisensyTag           String?                 // this agent's tag name as used in AiSensy contact exports (e.g. "Vaishali")
@@ -2257,6 +2258,21 @@ model VendorKeyword {
   vendorId  String
   createdAt DateTime @default(now())
   vendor    Vendor   @relation("VendorKeywords", fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+// Bank Statement > Employee Keywords — same convention as VendorKeyword /
+// ExpenseKeyword above, but for staff. A DR bank transaction whose
+// description contains one of a user's keywords (e.g. how their name
+// appears in bank narration) is auto-tagged as that user's salary payment
+// (BankTransaction.salaryForUserId + MATCHED_SALARY, see
+// migration 20260725100000_add_salary_bank_tagging) at import time, the
+// same way vendor/expense keywords auto-tag matchedVendorId/expenseCategoryId.
+model UserPaymentKeyword {
+  id        String   @id @default(cuid())
+  keyword   String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation("UserPaymentKeywords", fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ExpenseCategory {
