@@ -790,6 +790,34 @@ export default function AccountsPage() {
     } finally { setPvBulkProcessing(false); }
   }
 
+  async function handleBulkUndo() {
+    const ids = pvQueue.filter(e => pvSelectedIds.has(e.id) && e.checkedAt && !e.recheckedAt).map(e => e.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Undo Checked for ${ids.length} entries? Their Vendor/Expense, Expense Month and Note will become editable again.`)) return;
+    setPvBulkProcessing(true);
+    try {
+      const results = await Promise.all(ids.map(async id => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/uncheck`, { method: "PATCH", headers: getAuthHeaders() });
+          if (!res.ok) return null;
+          return (await res.json()) as PaymentVerificationEntry;
+        } catch { return null; }
+      }));
+      setPvQueue(prev => prev.map(e => {
+        const idx = ids.indexOf(e.id);
+        return idx !== -1 && results[idx] ? results[idx]! : e;
+      }));
+      // Clear stale drafts for every row that got reopened, so the inputs show the real saved values.
+      const undone = new Set(ids.filter((id, i) => results[i]));
+      setPvVendorExpenseDrafts(prev => { const n = { ...prev }; undone.forEach(id => delete n[id]); return n; });
+      setPvExpenseMonthDrafts(prev => { const n = { ...prev }; undone.forEach(id => delete n[id]); return n; });
+      setPvNoteDrafts(prev => { const n = { ...prev }; undone.forEach(id => delete n[id]); return n; });
+      const failed = ids.length - undone.size;
+      if (failed > 0) alert(`${failed} of ${ids.length} entries could not be undone.`);
+      setPvSelectedIds(new Set());
+    } finally { setPvBulkProcessing(false); }
+  }
+
   const loadReceipts = useCallback(async () => {
     setReceiptsLoading(true);
     setLoadError(null);
@@ -3712,6 +3740,12 @@ await loadHistory();
                       {pvBulkProcessing ? "..." : "Bulk Verify"}
                     </button>
                   )}
+                  {canCheckPayments && (
+                    <button onClick={handleBulkUndo} disabled={pvBulkProcessing}
+                      className="px-2.5 py-1 rounded-md border border-red-300 bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 disabled:opacity-50">
+                      {pvBulkProcessing ? "..." : "Bulk Undo"}
+                    </button>
+                  )}
                   <button onClick={() => setPvSelectedIds(new Set())} className="ml-auto text-slate-500 hover:text-slate-700 font-medium">
                     Clear selection
                   </button>
@@ -3732,8 +3766,8 @@ await loadHistory();
                       <col className="w-[150px]" />
                       <col className="w-[110px]" />
                       <col className="w-[170px]" />
-                      <col className="w-[100px]" />
-                      <col className="w-[100px]" />
+                      <col className="w-[160px]" />
+                      <col className="w-[160px]" />
                     </colgroup>
                     <thead>
                       <tr className="bg-slate-100">
@@ -3845,18 +3879,18 @@ await loadHistory();
                               </div>
                             )}
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap">
+                          <td className="border border-slate-300 px-3 py-2 align-top">
                             {entry.checkedAt ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                  <Check className="h-3.5 w-3.5" /> {entry.checkedByName || "Checked"}
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 max-w-full">
+                                  <Check className="h-3.5 w-3.5 flex-none" /> <span className="truncate">{entry.checkedByName || "Checked"}</span>
                                 </span>
                                 {canCheckPayments && (
                                   <button
                                     onClick={() => handleUndoCheck(entry)}
                                     disabled={pvCheckingId === entry.id}
                                     title="Undo Checked — reopens the row for editing"
-                                    className="text-xs font-medium text-slate-400 hover:text-red-600 underline disabled:opacity-50">
+                                    className="px-2 py-0.5 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 text-[11px] font-semibold disabled:opacity-50">
                                     Undo
                                   </button>
                                 )}
@@ -3873,10 +3907,10 @@ await loadHistory();
                               <span className="text-xs text-slate-400">Pending</span>
                             )}
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 align-top whitespace-nowrap">
+                          <td className="border border-slate-300 px-3 py-2 align-top">
                             {entry.recheckedAt ? (
                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
-                                <ShieldCheck className="h-3.5 w-3.5" /> Verified by {entry.recheckedByName || "Sanket"}
+                                <ShieldCheck className="h-3.5 w-3.5 flex-none" /> <span>Verified by {entry.recheckedByName || "Sanket"}</span>
                               </span>
                             ) : isSuperAdmin && entry.checkedAt ? (
                               <button
@@ -3936,8 +3970,8 @@ await loadHistory();
                       <col className="w-[150px]" />
                       <col className="w-[110px]" />
                       <col className="w-[170px]" />
-                      <col className="w-[100px]" />
-                      <col className="w-[100px]" />
+                      <col className="w-[160px]" />
+                      <col className="w-[160px]" />
                     </colgroup>
                     <thead>
                       <tr className="bg-slate-100">
@@ -3963,14 +3997,14 @@ await loadHistory();
                           </td>
                           <td className="border border-slate-300 px-3 py-2 text-slate-600">{p.expensePeriodLabel || "—"}</td>
                           <td className="border border-slate-300 px-3 py-2 text-slate-600">{p.accountantNote || "—"}</td>
-                          <td className="border border-slate-300 px-3 py-2 whitespace-nowrap">
+                          <td className="border border-slate-300 px-3 py-2">
                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                              <Check className="h-3.5 w-3.5" /> {p.checkedByName || "—"}
+                              <Check className="h-3.5 w-3.5 flex-none" /> <span>{p.checkedByName || "—"}</span>
                             </span>
                           </td>
-                          <td className="border border-slate-300 px-3 py-2 whitespace-nowrap">
+                          <td className="border border-slate-300 px-3 py-2">
                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
-                              <ShieldCheck className="h-3.5 w-3.5" /> {p.recheckedByName || "—"}
+                              <ShieldCheck className="h-3.5 w-3.5 flex-none" /> <span>{p.recheckedByName || "—"}</span>
                             </span>
                           </td>
                         </tr>
