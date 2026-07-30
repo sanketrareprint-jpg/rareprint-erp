@@ -687,9 +687,21 @@ export class AccountsService {
   async rejectDispatch(orderId: string, reason: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
-    return this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.APPROVED },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.APPROVED },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: OrderStatus.APPROVED,
+          changedById: 'system',
+          reason: reason || 'Dispatch approval returned by accounts',
+        },
+      });
+      return updated;
     });
   }
 
