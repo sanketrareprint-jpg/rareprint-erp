@@ -757,6 +757,7 @@ export class DispatchService {
       // discarding the multi-box package details (Bigship's manual Ship Now flow does
       // not carry over the box list from the API-created draft). Auto-invoice is
       // generated inside placeExistingOrder when no invoice file has been uploaded.
+      let manifestFailure = '';
       if (!bs.awbNumber) {
         // Defensive try/catch: the draft order already exists in Bigship at this point
         // (created moments ago with a specific invoice number). If manifesting throws for
@@ -777,17 +778,78 @@ export class DispatchService {
           if (placed.awbNumber) {
             bs = { ...bs, awbNumber: placed.awbNumber };
           } else if (placed.message) {
+            manifestFailure = placed.message;
             this.logger.warn(`Bigship manifest (place-order) failed for order ${bs.bigshipOrderId}: ${placed.message}`);
           }
         } catch (e) {
-          this.logger.warn(`Bigship manifest (place-order) threw unexpectedly for order ${bs.bigshipOrderId}: ${e instanceof Error ? e.message : e}`);
+          manifestFailure = e instanceof Error ? e.message : String(e);
+          this.logger.warn(`Bigship manifest (place-order) threw unexpectedly for order ${bs.bigshipOrderId}: ${manifestFailure}`);
+        }
+      }
+
+      // ── Courier fallback ──────────────────────────────────────────────────
+      // The confirmed courier can still fail at place-order time for reasons that
+      // have nothing to do with our booking (e.g. "380005 is non serviceable
+      // pincode" — confirmed live 2026-07-30) even though it passed rate
+      // confirmation moments earlier. Rather than leaving the order stuck
+      // unmanifested in Bigship until someone manually retries with a different
+      // courier, try up to 2 alternate couriers (courierId is just a per-call
+      // field on place-order — the same draft order can be placed with a
+      // different courier without recreating it).
+      if (!bs.awbNumber && manifestFailure) {
+        try {
+          const alternates = await this.bigship.fetchCourierRates({
+            pickupPostcode: warehouse.pincode,
+            deliveryPostcode: addr.pincode,
+            weightKg,
+            isCod: orderIsCod,
+            codAmount: orderCodAmt,
+            invoiceAmount: Number(order.grandTotal),
+            orderNumber: order.orderNumber,
+            shippingCity: addr.city,
+            shippingState: addr.state,
+            packageBoxes: normalizedBoxes,
+          });
+          const tried = new Set([courierId]);
+          const candidates = alternates
+            .filter((r) => r.courierId > 0 && !tried.has(r.courierId))
+            .sort((a, b) => a.amount - b.amount)
+            .slice(0, 2);
+          for (const candidate of candidates) {
+            if (bs.awbNumber) break;
+            tried.add(candidate.courierId);
+            try {
+              this.logger.log(`Bigship manifest fallback — retrying order ${bs.bigshipOrderId} with courier ${candidate.courierId} (${candidate.carrierName}) after: ${manifestFailure}`);
+              const retried = await this.bigship.placeExistingOrder({
+                masterCustomOrderId: bs.bigshipOrderId,
+                courierId: candidate.courierId,
+                invoiceData: {
+                  orderNumber: order.orderNumber,
+                  customerName: order.customer.businessName,
+                  amount: Number(order.grandTotal),
+                },
+              });
+              if (retried.awbNumber) {
+                bs = { ...bs, awbNumber: retried.awbNumber };
+                manifestFailure = '';
+              } else if (retried.message) {
+                manifestFailure = retried.message;
+                this.logger.warn(`Bigship manifest fallback — courier ${candidate.courierId} also failed for order ${bs.bigshipOrderId}: ${retried.message}`);
+              }
+            } catch (e) {
+              manifestFailure = e instanceof Error ? e.message : String(e);
+              this.logger.warn(`Bigship manifest fallback — courier ${candidate.courierId} threw for order ${bs.bigshipOrderId}: ${manifestFailure}`);
+            }
+          }
+        } catch (e) {
+          this.logger.warn(`Bigship manifest fallback — could not fetch alternate couriers for order ${bs.bigshipOrderId}: ${e instanceof Error ? e.message : e}`);
         }
       }
 
       trackingRef    = bs.awbNumber ?? '';
       awbNumber      = bs.awbNumber ?? null;
       bigshipOrderId = bs.bigshipOrderId ?? null;
-      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ' (manual manifest pending)'}.`;
+      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ` (manual manifest pending${manifestFailure ? ` — ${manifestFailure.slice(0, 150)}` : ''})`}.`;
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
       // ── Shiprocket booking ───────────────────────────────────────────────
       const courierCompanyId = parseInt(rateId.replace(/^sr-/, ''), 10);

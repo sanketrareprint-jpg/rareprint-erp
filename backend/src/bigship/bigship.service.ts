@@ -1204,12 +1204,6 @@ export class BigshipService {
       const details = data?.data?.getOrderDetails ?? data?.data ?? {};
       const awb = String(details?.AwbNumber ?? details?.awb_assigned ?? details?.tracking_number ?? '');
       const status = String(details?.status ?? details?.order_status ?? details?.tag ?? '');
-      // TEMP DEBUG (2026-07-28): status field here has read "Unshipped" for at least one
-      // order that Bigship's own Reports page showed as "Out For Delivery" with a real
-      // AWB assigned — logging the raw payload once per sync to see whether there's a
-      // more accurate scans/tracking field we should be preferring instead of
-      // getOrderDetails.status. Safe to remove once that's confirmed.
-      this.logger.log(`Bigship getOrderShipmentDetails raw for ${masterCustomOrderId}: ${JSON.stringify(data)?.slice(0, 1500)}`);
       return { awbNumber: awb || undefined, status: status || undefined };
     } catch (e: unknown) {
       const message = bigshipErrorMessage(e);
