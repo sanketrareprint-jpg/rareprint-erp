@@ -92,6 +92,17 @@ type RoiMonth = {
   costPerConversion: number | null;
 };
 
+type RoiMonthContact = {
+  id: string;
+  name: string | null;
+  phone: string;
+  tagRaw: string | null;
+  agentName: string | null;
+  createdOnAt: string | null;
+  lastActiveAt: string | null;
+  converted: boolean;
+};
+
 const emptyTemplate = {
   name: "",
   aisensyCampaignName: "",
@@ -161,6 +172,10 @@ function MarketingPageContent() {
   const [roiUploading, setRoiUploading] = useState(false);
   const [roiSpendDrafts, setRoiSpendDrafts] = useState<Record<string, { metaAdSpend: string; aisensySpend: string }>>({});
   const [savingRoiMonth, setSavingRoiMonth] = useState<string | null>(null);
+  const [monthContactsFor, setMonthContactsFor] = useState<{ monthKey: string; label: string } | null>(null);
+  const [monthContacts, setMonthContacts] = useState<RoiMonthContact[]>([]);
+  const [monthContactsLoading, setMonthContactsLoading] = useState(false);
+  const [monthContactsSearch, setMonthContactsSearch] = useState("");
   const roiCsvFileRef = useRef<HTMLInputElement | null>(null);
   const [broadcastSettings, setBroadcastSettings] = useState<MarketingSettings | null>(null);
   const [settingsForm, setSettingsForm] = useState<MarketingSettings>({ dailyLimit: 10000, dailyRunHour: 10, sendStartHour: 10, sendEndHour: 18, batchSize: 200, batchIntervalSec: 120 });
@@ -495,6 +510,45 @@ function MarketingPageContent() {
       setRoiLoaded(true);
     }
   }, []);
+
+  const openMonthContacts = async (monthKey: string, label: string) => {
+    setMonthContactsFor({ monthKey, label });
+    setMonthContactsSearch("");
+    setMonthContactsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/marketing/roi/months/${monthKey}/contacts`, { headers: getAuthHeaders() });
+      setMonthContacts(res.ok ? await res.json() : []);
+    } finally {
+      setMonthContactsLoading(false);
+    }
+  };
+
+  const filteredMonthContacts = monthContacts.filter((c) => {
+    if (!monthContactsSearch) return true;
+    const q = monthContactsSearch.toLowerCase();
+    return c.name?.toLowerCase().includes(q) || c.phone.includes(q) || c.tagRaw?.toLowerCase().includes(q) || c.agentName?.toLowerCase().includes(q);
+  });
+
+  const exportMonthContactsCsv = () => {
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const rows = [
+      ["Name", "Phone", "Tag", "Agent", "Created On", "Last Active", "Converted"],
+      ...filteredMonthContacts.map((c) => [
+        c.name || "", c.phone, c.tagRaw || "", c.agentName || "",
+        c.createdOnAt ? new Date(c.createdOnAt).toLocaleDateString("en-IN") : "",
+        c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString("en-IN") : "",
+        c.converted ? "Yes" : "No",
+      ]),
+    ];
+    const csv = rows.map((r) => r.map(escape).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `contacts-${monthContactsFor?.monthKey ?? "month"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (activeTab === "roi" && !roiLoaded) loadRoi();
@@ -929,7 +983,17 @@ function MarketingPageContent() {
                             />
                           </td>
                           <td className="px-3 py-2 font-semibold">₹{m.totalSpend.toLocaleString("en-IN")}</td>
-                          <td className="px-3 py-2">{m.contactsCreated.toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => openMonthContacts(m.monthKey, m.label)}
+                              disabled={m.contactsCreated === 0}
+                              className="font-semibold text-blue-700 hover:underline disabled:cursor-default disabled:text-slate-400 disabled:no-underline"
+                              title="View the contacts behind this number"
+                            >
+                              {m.contactsCreated.toLocaleString("en-IN")}
+                            </button>
+                          </td>
                           <td className="px-3 py-2">{m.convertedCustomers.toLocaleString("en-IN")}</td>
                           <td className="px-3 py-2">
                             <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">
@@ -1116,6 +1180,81 @@ function MarketingPageContent() {
           </div>
         )}
       </div>
+
+      {monthContactsFor && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={() => setMonthContactsFor(null)}>
+          <div
+            className="flex h-[85vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:h-[80vh] sm:max-w-3xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Contacts created — {monthContactsFor.label}</h2>
+                <p className="text-xs text-slate-500">{filteredMonthContacts.length} of {monthContacts.length} shown</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={exportMonthContactsCsv}
+                  disabled={filteredMonthContacts.length === 0}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Export CSV
+                </button>
+                <button type="button" onClick={() => setMonthContactsFor(null)} className="p-1 text-xl font-bold text-slate-400 hover:text-slate-600">×</button>
+              </div>
+            </div>
+            <div className="border-b border-slate-200 p-3">
+              <input
+                value={monthContactsSearch}
+                onChange={(e) => setMonthContactsSearch(e.target.value)}
+                placeholder="Search name, phone, tag, agent…"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {monthContactsLoading ? (
+                <div className="p-8 text-center text-slate-500">Loading…</div>
+              ) : filteredMonthContacts.length === 0 ? (
+                <div className="p-8 text-center text-slate-400">{monthContacts.length === 0 ? "No contacts created this month." : "No matches for this search."}</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-left text-xs font-bold uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Name</th>
+                      <th className="px-3 py-2">Phone</th>
+                      <th className="px-3 py-2">Tag</th>
+                      <th className="px-3 py-2">Agent</th>
+                      <th className="px-3 py-2">Created On</th>
+                      <th className="px-3 py-2">Last Active</th>
+                      <th className="px-3 py-2">Converted</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMonthContacts.map((c) => (
+                      <tr key={c.id}>
+                        <td className="px-3 py-2 font-semibold text-slate-800">{c.name?.trim() || `📞 ${c.phone}`}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{c.phone}</td>
+                        <td className="px-3 py-2 text-slate-500">{c.tagRaw || "—"}</td>
+                        <td className="px-3 py-2 text-slate-500">{c.agentName || "—"}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{c.createdOnAt ? new Date(c.createdOnAt).toLocaleDateString("en-IN") : "—"}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString("en-IN") : "—"}</td>
+                        <td className="px-3 py-2">
+                          {c.converted ? (
+                            <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-bold text-green-700">Yes</span>
+                          ) : (
+                            <span className="text-xs text-slate-300">No</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -32,6 +32,11 @@ export class MarketingRoiController {
     return this.service.getMonthRoi(monthKey);
   }
 
+  @Get('months/:monthKey/contacts')
+  getMonthContacts(@Param('monthKey') monthKey: string) {
+    return this.service.getMonthContacts(monthKey);
+  }
+
   @Patch('months/:monthKey/spend')
   upsertSpend(
     @Param('monthKey') monthKey: string,
