@@ -1039,27 +1039,6 @@ export class NotificationsService {
     return notif;
   }
 
-  // ── Dispatch approval disapproved by accounts (Accounts > Dispatch Approval) ─
-
-  async notifyDispatchApprovalDisapproved(data: {
-    agentId: string;
-    agentName: string;
-    orderId: string;
-    orderNo: string;
-    reason: string;
-  }) {
-    return this.create({
-      type: 'DISPATCH_APPROVAL_DISAPPROVED',
-      priority: 'HIGH',
-      title: `Dispatch Disapproved — ${data.orderNo}`,
-      message: `Accounts disapproved dispatch for order ${data.orderNo}. It has been sent back to Approved status — please review and resubmit dispatch details.\n\nReason: ${data.reason}`,
-      toUserId: data.agentId,
-      toUserName: data.agentName,
-      orderId: data.orderId,
-      orderNo: data.orderNo,
-    });
-  }
-
   async notifySalesAgentDesign(itemId: string) {
     const vaishali = await this.findUser('VAISHALI DHAKATE');
     if (!vaishali) return { error: 'Sales agent not found' };

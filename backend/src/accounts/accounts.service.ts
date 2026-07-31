@@ -21,7 +21,6 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CostTableService } from '../cost-table/cost-table.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
-import { NotificationsService } from '../notifications/notifications.service';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -88,7 +87,6 @@ export class AccountsService {
     private costTable: CostTableService,
     private loyalty: LoyaltyService,
     private hr: HrService,
-    private notifications: NotificationsService,
   ) {}
 
   private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
@@ -687,47 +685,12 @@ export class AccountsService {
   }
 
   async rejectDispatch(orderId: string, reason: string) {
-    if (!reason?.trim()) {
-      throw new BadRequestException('A reason is required to disapprove this dispatch');
-    }
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { salesAgent: { select: { id: true, fullName: true } } },
-    });
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.APPROVED },
-      });
-      await tx.statusLog.create({
-        data: {
-          orderId,
-          fromStatus: order.status,
-          toStatus: OrderStatus.APPROVED,
-          changedById: 'system',
-          reason: `Dispatch disapproved: ${reason.trim()}`,
-        },
-      });
-      return result;
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.APPROVED },
     });
-
-    if (order.salesAgent?.id) {
-      try {
-        await this.notifications.notifyDispatchApprovalDisapproved({
-          agentId: order.salesAgent.id,
-          agentName: order.salesAgent.fullName,
-          orderId: order.id,
-          orderNo: order.orderNumber,
-          reason: reason.trim(),
-        });
-      } catch (e) {
-        // Non-blocking: the disapproval itself already succeeded above.
-      }
-    }
-
-    return updated;
   }
 
   async getVendorStatements() {
