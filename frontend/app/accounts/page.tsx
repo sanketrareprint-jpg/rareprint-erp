@@ -405,6 +405,8 @@ export default function AccountsPage() {
   const [dispatchLoading, setDispatchLoading] = useState(false);
   const [dispatchExpanded, setDispatchExpanded] = useState<string | null>(null);
   const [dispatchProcessing, setDispatchProcessing] = useState<string | null>(null);
+  const [dispatchRejectId, setDispatchRejectId] = useState<string | null>(null);
+  const [dispatchRejectReason, setDispatchRejectReason] = useState("");
 
   // Sample Kit orders
   const [sampleOrders, setSampleOrders] = useState<SampleOrder[]>([]);
@@ -1327,6 +1329,20 @@ export default function AccountsPage() {
     try {
       await fetch(`${API_BASE_URL}/accounts/${id}/approve-dispatch`, { method: "PATCH", headers: getAuthHeaders() });
       await loadDispatch();
+    } finally { setDispatchProcessing(null); }
+  }
+
+  async function rejectDispatchOrder() {
+    if (!dispatchRejectId || !dispatchRejectReason.trim()) { alert("Please enter a reason"); return; }
+    setDispatchProcessing(dispatchRejectId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${dispatchRejectId}/reject-dispatch`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: dispatchRejectReason }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Failed to disapprove"); return; }
+      setDispatchRejectId(null); setDispatchRejectReason(""); await loadDispatch();
+      alert("Dispatch disapproved — sales agent has been notified.");
     } finally { setDispatchProcessing(null); }
   }
 
@@ -2619,7 +2635,11 @@ await loadHistory();
                           <p className="text-amber-900 whitespace-pre-wrap">{order.notes}</p>
                         </div>
                       )}
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setDispatchRejectId(order.id)} disabled={dispatchProcessing === order.id}
+                          className="inline-flex items-center gap-1 px-3 py-2 text-xs border border-orange-200 rounded-lg text-orange-600 hover:bg-orange-50 disabled:opacity-60 font-semibold">
+                          ✕ Disapprove
+                        </button>
                         <button onClick={() => approveDispatch(order.id)} disabled={dispatchProcessing === order.id}
                           className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 font-semibold">
                           {dispatchProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
@@ -4539,6 +4559,27 @@ await loadHistory();
               <button onClick={rejectPayment} disabled={!!verifyingId}
                 className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
                 {verifyingId ? "Rejecting..." : "Reject Receipt"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Disapprove Dispatch Modal */}
+      {dispatchRejectId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <h2 className="text-sm font-bold text-slate-800 mb-3">Disapprove Dispatch</h2>
+            <p className="text-xs text-slate-500 mb-2">Sends the order back to Approved status, before dispatch. The sales agent will be notified with your reason.</p>
+            <textarea value={dispatchRejectReason} onChange={e => setDispatchRejectReason(e.target.value)}
+              placeholder="Enter reason for disapproving..." rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400 resize-none" />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { setDispatchRejectId(null); setDispatchRejectReason(""); }}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={rejectDispatchOrder} disabled={dispatchProcessing === dispatchRejectId}
+                className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-60">
+                {dispatchProcessing === dispatchRejectId ? "Disapproving..." : "Confirm Disapprove"}
               </button>
             </div>
           </div>
