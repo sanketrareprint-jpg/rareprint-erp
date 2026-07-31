@@ -688,7 +688,7 @@ export class AccountsService {
 
   async rejectDispatch(orderId: string, reason: string) {
     if (!reason?.trim()) {
-      throw new BadRequestException('A reason is required to disapprove this dispatch');
+      throw new BadRequestException('A reason is required to reject this dispatch');
     }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -707,7 +707,7 @@ export class AccountsService {
           fromStatus: order.status,
           toStatus: OrderStatus.APPROVED,
           changedById: 'system',
-          reason: `Dispatch disapproved: ${reason.trim()}`,
+          reason: `Dispatch rejected: ${reason.trim()}`,
         },
       });
       return result;
@@ -715,7 +715,7 @@ export class AccountsService {
 
     if (order.salesAgent?.id) {
       try {
-        await this.notifications.notifyDispatchApprovalDisapproved({
+        await this.notifications.notifyDispatchRejected({
           agentId: order.salesAgent.id,
           agentName: order.salesAgent.fullName,
           orderId: order.id,
@@ -723,7 +723,7 @@ export class AccountsService {
           reason: reason.trim(),
         });
       } catch (e) {
-        // Non-blocking: the disapproval itself already succeeded above.
+        // Non-blocking: the rejection itself already succeeded above.
       }
     }
 

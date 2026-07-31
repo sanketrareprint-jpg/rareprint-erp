@@ -1039,9 +1039,9 @@ export class NotificationsService {
     return notif;
   }
 
-  // ── Dispatch approval disapproved by accounts (Accounts > Dispatch Approval) ─
+  // ── Dispatch rejected by accounts (Accounts > Dispatch Approval) ─────────
 
-  async notifyDispatchApprovalDisapproved(data: {
+  async notifyDispatchRejected(data: {
     agentId: string;
     agentName: string;
     orderId: string;
@@ -1049,10 +1049,10 @@ export class NotificationsService {
     reason: string;
   }) {
     return this.create({
-      type: 'DISPATCH_APPROVAL_DISAPPROVED',
+      type: 'DISPATCH_REJECTED',
       priority: 'HIGH',
-      title: `Dispatch Disapproved — ${data.orderNo}`,
-      message: `Accounts disapproved dispatch for order ${data.orderNo}. It has been sent back to Approved status — please review and resubmit dispatch details.\n\nReason: ${data.reason}`,
+      title: `Dispatch Rejected — ${data.orderNo}`,
+      message: `Accounts rejected dispatch for order ${data.orderNo}. It has been sent back to Approved status — please review and resubmit dispatch details.\n\nReason: ${data.reason}`,
       toUserId: data.agentId,
       toUserName: data.agentName,
       orderId: data.orderId,
