@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { whatsappLink, waitlistMailtoLink, CONTACT_EMAIL, BRAND_NAME } from "../lib/site-config";
+import { MessageCircle, Mail } from "lucide-react";
+import { whatsappLink, CONTACT_EMAIL, BRAND_NAME } from "../lib/site-config";
+import { ContactForm } from "./contact-form";
 
 export const metadata: Metadata = {
   title: "About & contact",
@@ -8,61 +10,82 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-3xl font-bold text-slate-900">Built by a printing business, for printing businesses</h1>
-      <p className="mt-6 text-slate-600">
-        {BRAND_NAME} grew out of RarePrint&apos;s own operations — production tracking, accounts, CRM
-        and dispatch software we built to run our own print shop, because nothing off-the-shelf
-        fit how printing businesses actually work. We&apos;re now opening it up to other printers.
-      </p>
-      <p className="mt-4 text-slate-600">
-        That means everything in here has been used to run a real shop, not designed in the
-        abstract — and it keeps improving as we use it ourselves.
-      </p>
+    <div>
+      <div className="bg-slate-50 py-20">
+        <div className="mx-auto max-w-3xl px-6 text-center">
+          <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+            About
+          </span>
+          <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">
+            Built by a printing business, for printing businesses
+          </h1>
+          <p className="mt-6 text-slate-600">
+            {BRAND_NAME} grew out of RarePrint&apos;s own operations — production tracking, accounts,
+            CRM and dispatch software we built to run our own print shop, because nothing
+            off-the-shelf fit how printing businesses actually work. We&apos;re now opening it up to
+            other printers.
+          </p>
+          <p className="mt-4 text-slate-600">
+            That means everything in here has been used to run a real shop, not designed in the
+            abstract — and it keeps improving as we use it ourselves.
+          </p>
+        </div>
+      </div>
 
-      <div className="mt-12 rounded-lg border border-slate-200 p-8">
-        <h2 className="text-xl font-semibold text-slate-900">Get in touch</h2>
-        <p className="mt-2 text-sm text-slate-600">
-          Fastest way to reach us is WhatsApp. Prefer email? That works too — either way we
-          respond directly, no ticket queue.
-        </p>
-        {/*
-          No lead-capture backend yet (Phase D in docs/Marketing_Site_Roadmap.md
-          is "not hard-blocked" but hasn't been built). These are direct
-          WhatsApp/email links for now — swap for a form posting to a real
-          endpoint once that lands.
+      {/*
+        No lead-capture backend yet (Phase D in docs/Marketing_Site_Roadmap.md
+        is "not hard-blocked" but hasn't been built). The form on the right
+        builds a real mailto: link client-side (see contact-form.tsx) instead
+        of faking a submission.
 
-          Deliberately NOT shown here: a business address, GSTIN, or legal
-          entity name. Competitors in this space (e.g. printerp.in) publish
-          those, but that's a real business decision (are sales made under
-          the RarePrint entity or a new one? is a separate GSTIN needed?)
-          that hasn't been made yet — better to leave it off than guess.
-        */}
-        <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
+        Deliberately NOT shown here: a business address, GSTIN, or legal
+        entity name. Competitors in this space (e.g. printerp.in) publish
+        those, but that's a real business decision (are sales made under
+        the RarePrint entity or a new one? is a separate GSTIN needed?)
+        that hasn't been made yet — better to leave it off than guess.
+      */}
+      <div className="mx-auto max-w-6xl px-6 py-20">
+        <div className="grid gap-12 lg:grid-cols-2">
           <div>
-            <dt className="font-semibold text-slate-900">Email</dt>
-            <dd className="text-slate-600">{CONTACT_EMAIL}</dd>
+            <h2 className="text-2xl font-bold text-slate-900">Get in touch</h2>
+            <p className="mt-3 text-sm text-slate-600">
+              Fastest way to reach us is WhatsApp. Prefer email? That works too — either way we
+              respond directly, no ticket queue.
+            </p>
+            <div className="mt-8 space-y-5">
+              <div className="flex items-center gap-4">
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                  <MessageCircle size={20} />
+                </span>
+                <div>
+                  <p className="text-xs text-slate-500">WhatsApp</p>
+                  <a
+                    href={whatsappLink(`Hi! I'd like to know more about ${BRAND_NAME}.`)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-semibold text-slate-900 hover:text-blue-700"
+                  >
+                    Message us directly
+                  </a>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                  <Mail size={20} />
+                </span>
+                <div>
+                  <p className="text-xs text-slate-500">Email</p>
+                  <a href={`mailto:${CONTACT_EMAIL}`} className="text-sm font-semibold text-slate-900 hover:text-blue-700">
+                    {CONTACT_EMAIL}
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <dt className="font-semibold text-slate-900">WhatsApp</dt>
-            <dd className="text-slate-600">Fastest response — see button below</dd>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+            <ContactForm />
           </div>
-        </dl>
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <a
-            href={whatsappLink(`Hi! I'd like to know more about ${BRAND_NAME}.`)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md bg-blue-700 px-5 py-2.5 text-center text-sm font-semibold text-white hover:bg-blue-800"
-          >
-            Message us on WhatsApp
-          </a>
-          <a
-            href={waitlistMailtoLink()}
-            className="rounded-md border border-slate-300 px-5 py-2.5 text-center text-sm font-semibold text-slate-700 hover:border-slate-400"
-          >
-            Email us
-          </a>
         </div>
       </div>
     </div>

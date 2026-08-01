@@ -1,8 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { SiteNav } from "./components/site-nav";
 import { SiteFooter } from "./components/site-footer";
 import { BRAND_NAME } from "./lib/site-config";
+
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-jakarta",
+});
 
 // TODO: swap in the real production domain once decided (see "Open
 // questions" in docs/Marketing_Site_Roadmap.md — new domain vs. subdomain).
@@ -42,8 +49,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-white text-slate-900">
+    <html lang="en" className={`h-full antialiased ${jakarta.variable}`}>
+      <body className="min-h-full flex flex-col bg-white text-slate-900 font-sans">
         <SiteNav />
         <main className="flex-1">{children}</main>
         <SiteFooter />

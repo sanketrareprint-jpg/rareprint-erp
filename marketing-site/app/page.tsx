@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Factory, Ban, CheckCircle2 } from "lucide-react";
 import { leadFeatures } from "./lib/features-data";
 import { faqs } from "./lib/faq-data";
 import { whatsappLink, BRAND_NAME } from "./lib/site-config";
+import { DashboardMockup } from "./components/dashboard-mockup";
 
 // NOTE on what's deliberately NOT here: no "120+ businesses / 10K+ users"
 // style stat bar. Real competitors in this space (e.g. printerp.in) show
@@ -11,16 +13,19 @@ import { whatsappLink, BRAND_NAME } from "./lib/site-config";
 const proofPoints = [
   {
     stat: "1",
+    icon: Factory,
     label: "Real printing business run on it daily",
     detail: "Built inside RarePrint's own operations, not designed in the abstract.",
   },
   {
     stat: "5+",
+    icon: CheckCircle2,
     label: "Core workflows in one place",
     detail: "Production, accounts, CRM, WhatsApp automation, and dispatch — no separate tools.",
   },
   {
     stat: "0",
+    icon: Ban,
     label: "Spreadsheets required",
     detail: "Everything that used to live in Excel or a notebook lives in one system instead.",
   },
@@ -48,60 +53,87 @@ const whyUs = [
 export default function HomePage() {
   return (
     <>
-      <section className="mx-auto max-w-6xl px-6 pt-20 pb-16 text-center">
-        <h1 className="mx-auto max-w-3xl text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-          The ERP built for printing businesses, not adapted for one.
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
-          Production tracking, accounts, CRM, WhatsApp automation and dispatch —
-          all in one place, built around how a print shop actually runs.
-        </p>
-        <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <a
-            href={whatsappLink()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800"
-          >
-            Book a demo
-          </a>
-          <Link
-            href="/pricing"
-            className="rounded-md border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:border-slate-400"
-          >
-            See pricing
-          </Link>
-        </div>
-      </section>
-
-      <section className="border-y border-slate-200 bg-slate-900 py-12 text-white">
-        <div className="mx-auto grid max-w-6xl gap-8 px-6 sm:grid-cols-3">
-          {proofPoints.map((point) => (
-            <div key={point.label} className="text-center">
-              <p className="text-4xl font-bold">{point.stat}</p>
-              <p className="mt-1 text-sm font-semibold text-blue-300">{point.label}</p>
-              <p className="mt-2 text-sm text-slate-300">{point.detail}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="border-t border-slate-200 bg-slate-50 py-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-center text-2xl font-semibold text-slate-900">
-            Everything a print shop juggles across five different tools, in one.
-          </h2>
-          <div className="mt-12 grid gap-8 sm:grid-cols-2">
-            {leadFeatures.map((feature) => (
-              <div
-                key={feature.slug}
-                className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
+      <section className="relative overflow-hidden bg-gradient-to-b from-blue-50/60 to-white">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pt-20 pb-20 lg:grid-cols-2">
+          <div>
+            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Printing business management, simplified
+            </span>
+            <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
+              The ERP built for printing businesses, not adapted for one.
+            </h1>
+            <p className="mt-6 max-w-xl text-lg text-slate-600">
+              Production tracking, accounts, CRM, WhatsApp automation and dispatch —
+              all in one place, built around how a print shop actually runs.
+            </p>
+            <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+              <a
+                href={whatsappLink()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full bg-blue-700 px-7 py-3.5 text-center text-sm font-semibold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800"
               >
-                <h3 className="text-lg font-semibold text-slate-900">{feature.title}</h3>
-                <p className="mt-1 text-sm font-medium text-blue-700">{feature.blurb}</p>
-                <p className="mt-3 text-sm text-slate-600">{feature.detail}</p>
+                Book a demo
+              </a>
+              <Link
+                href="/pricing"
+                className="rounded-full border border-slate-300 px-7 py-3.5 text-center text-sm font-semibold text-slate-700 hover:border-slate-400"
+              >
+                See pricing
+              </Link>
+            </div>
+          </div>
+          <div>
+            <DashboardMockup />
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-slate-200 bg-slate-900 py-14 text-white">
+        <div className="mx-auto grid max-w-6xl gap-10 px-6 sm:grid-cols-3">
+          {proofPoints.map((point) => {
+            const Icon = point.icon;
+            return (
+              <div key={point.label} className="text-center">
+                <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-blue-500/10 text-blue-300">
+                  <Icon size={20} />
+                </span>
+                <p className="mt-4 text-4xl font-bold">{point.stat}</p>
+                <p className="mt-1 text-sm font-semibold text-blue-300">{point.label}</p>
+                <p className="mt-2 text-sm text-slate-400">{point.detail}</p>
               </div>
-            ))}
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="bg-slate-50 py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="mx-auto max-w-2xl text-center">
+            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Core features
+            </span>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">
+              Everything a print shop juggles across five different tools, in one.
+            </h2>
+          </div>
+          <div className="mt-14 grid gap-8 sm:grid-cols-2">
+            {leadFeatures.map((feature) => {
+              const Icon = feature.icon;
+              return (
+                <div
+                  key={feature.slug}
+                  className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                    <Icon size={20} />
+                  </span>
+                  <h3 className="mt-5 text-lg font-semibold text-slate-900">{feature.title}</h3>
+                  <p className="mt-1 text-sm font-medium text-blue-700">{feature.blurb}</p>
+                  <p className="mt-3 text-sm text-slate-600">{feature.detail}</p>
+                </div>
+              );
+            })}
           </div>
           <div className="mt-10 text-center">
             <Link href="/features" className="text-sm font-semibold text-blue-700 hover:text-blue-800">
@@ -111,57 +143,76 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-center text-2xl font-semibold text-slate-900">
-            Why {BRAND_NAME}
-          </h2>
-          <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {whyUs.map((item) => (
-              <div key={item.title}>
-                <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
-                <p className="mt-2 text-sm text-slate-600">{item.detail}</p>
+      <section className="py-20">
+        <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2">
+          <DashboardMockup />
+          <div>
+            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Why {BRAND_NAME}
+            </span>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">
+              Built specifically for printing businesses
+            </h2>
+            <div className="mt-8 space-y-6">
+              {whyUs.map((item) => (
+                <div key={item.title} className="flex gap-3">
+                  <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-blue-700" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
+                    <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-slate-50 py-20">
+        <div className="mx-auto max-w-3xl px-6">
+          <div className="text-center">
+            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              FAQ
+            </span>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">Frequently asked questions</h2>
+          </div>
+          <div className="mt-12 grid gap-4 sm:grid-cols-2">
+            {faqs.map((faq) => (
+              <div key={faq.question} className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-sm font-semibold text-slate-900">{faq.question}</h3>
+                <p className="mt-2 text-sm text-slate-600">{faq.answer}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="border-t border-slate-200 bg-slate-50 py-16">
-        <div className="mx-auto max-w-3xl px-6">
-          <h2 className="text-center text-2xl font-semibold text-slate-900">
-            Frequently asked questions
-          </h2>
-          <div className="mt-10 divide-y divide-slate-200">
-            {faqs.map((faq) => (
-              <details key={faq.question} className="group py-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-slate-900">
-                  {faq.question}
-                  <span className="ml-4 text-slate-400 group-open:rotate-45 transition-transform">+</span>
-                </summary>
-                <p className="mt-2 text-sm text-slate-600">{faq.answer}</p>
-              </details>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16">
-        <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-2xl font-semibold text-slate-900">Ready to see it on your own jobs?</h2>
-          <p className="mt-3 text-slate-600">
-            We&apos;ll walk through a live demo using workflows that look like yours — production, accounts,
-            and dispatch — not a generic sales script.
-          </p>
-          <div className="mt-8">
-            <a
-              href={whatsappLink()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-md bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              Book a demo on WhatsApp
-            </a>
+      <section className="py-20">
+        <div className="mx-auto max-w-4xl px-6">
+          <div className="flex flex-col items-center gap-6 rounded-2xl bg-slate-900 px-8 py-14 text-center text-white sm:px-16">
+            <h2 className="text-2xl font-bold sm:text-3xl">
+              Start growing your printing business with {BRAND_NAME}
+            </h2>
+            <p className="max-w-xl text-slate-300">
+              We&apos;ll walk through a live demo using workflows that look like yours — production,
+              accounts, and dispatch — not a generic sales script.
+            </p>
+            <div className="flex flex-col gap-4 sm:flex-row">
+              <a
+                href={whatsappLink()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full bg-blue-600 px-7 py-3.5 text-sm font-semibold text-white hover:bg-blue-500"
+              >
+                Book a demo on WhatsApp
+              </a>
+              <Link
+                href="/pricing"
+                className="rounded-full border border-slate-600 px-7 py-3.5 text-sm font-semibold text-white hover:border-slate-400"
+              >
+                See pricing
+              </Link>
+            </div>
           </div>
         </div>
       </section>

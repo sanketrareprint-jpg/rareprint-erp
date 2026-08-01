@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
   --brand: #1d4ed8;
   --brand-dark: #1e3a8a;
