@@ -24,14 +24,12 @@ export function SiteFooter() {
               dispatch for printing businesses — one cloud ERP instead of five disconnected tools.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <a
-                href={whatsappLink()}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/start-free"
                 className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"
               >
-                Book a demo
-              </a>
+                Start free
+              </Link>
               <Link
                 href="/pricing"
                 className="rounded-full border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-slate-500"
@@ -82,6 +80,9 @@ export function SiteFooter() {
             </Link>
             <Link href="/pricing" className="hover:text-slate-300">
               Pricing
+            </Link>
+            <Link href="/faq" className="hover:text-slate-300">
+              FAQ
             </Link>
             <Link href="/about" className="hover:text-slate-300">
               Contact

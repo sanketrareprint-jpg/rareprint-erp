@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Printer } from "lucide-react";
-import { whatsappLink, BRAND_NAME } from "../lib/site-config";
+import { BRAND_NAME } from "../lib/site-config";
 
 const links = [
   { href: "/features", label: "Features" },
   { href: "/pricing", label: "Pricing" },
+  { href: "/faq", label: "FAQ" },
   { href: "/about", label: "About" },
 ];
 
@@ -25,14 +26,12 @@ export function SiteNav() {
             </Link>
           ))}
         </nav>
-        <a
-          href={whatsappLink()}
-          target="_blank"
-          rel="noopener noreferrer"
+        <Link
+          href="/start-free"
           className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800"
         >
-          Book a demo
-        </a>
+          Start free
+        </Link>
       </div>
     </header>
   );

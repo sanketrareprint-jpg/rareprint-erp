@@ -4,6 +4,7 @@ import { leadFeatures } from "./lib/features-data";
 import { faqs } from "./lib/faq-data";
 import { whatsappLink, BRAND_NAME } from "./lib/site-config";
 import { DashboardMockup } from "./components/dashboard-mockup";
+import { FadeIn } from "./components/fade-in";
 
 // NOTE on what's deliberately NOT here: no "120+ businesses / 10K+ users"
 // style stat bar. Real competitors in this space (e.g. printerp.in) show
@@ -50,12 +51,16 @@ const whyUs = [
   },
 ];
 
+// Homepage shows a short teaser of the FAQ (first 4); the full list lives
+// on its own /faq page.
+const faqTeaser = faqs.slice(0, 4);
+
 export default function HomePage() {
   return (
     <>
       <section className="relative overflow-hidden bg-gradient-to-b from-blue-50/60 to-white">
         <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pt-20 pb-20 lg:grid-cols-2">
-          <div>
+          <FadeIn>
             <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
               Printing business management, simplified
             </span>
@@ -67,71 +72,74 @@ export default function HomePage() {
               all in one place, built around how a print shop actually runs.
             </p>
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+              <Link
+                href="/start-free"
+                className="rounded-full bg-blue-700 px-7 py-3.5 text-center text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition-transform hover:-translate-y-0.5 hover:bg-blue-800"
+              >
+                Start free trial
+              </Link>
               <a
                 href={whatsappLink()}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-full bg-blue-700 px-7 py-3.5 text-center text-sm font-semibold text-white shadow-lg shadow-blue-700/20 hover:bg-blue-800"
+                className="rounded-full border border-slate-300 px-7 py-3.5 text-center text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400"
               >
                 Book a demo
               </a>
-              <Link
-                href="/pricing"
-                className="rounded-full border border-slate-300 px-7 py-3.5 text-center text-sm font-semibold text-slate-700 hover:border-slate-400"
-              >
-                See pricing
-              </Link>
             </div>
-          </div>
-          <div>
+          </FadeIn>
+          <FadeIn delay={150}>
             <DashboardMockup />
-          </div>
+          </FadeIn>
         </div>
       </section>
 
-      <section className="border-y border-slate-200 bg-slate-900 py-14 text-white">
-        <div className="mx-auto grid max-w-6xl gap-10 px-6 sm:grid-cols-3">
-          {proofPoints.map((point) => {
-            const Icon = point.icon;
-            return (
-              <div key={point.label} className="text-center">
-                <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-blue-500/10 text-blue-300">
-                  <Icon size={20} />
-                </span>
-                <p className="mt-4 text-4xl font-bold">{point.stat}</p>
-                <p className="mt-1 text-sm font-semibold text-blue-300">{point.label}</p>
-                <p className="mt-2 text-sm text-slate-400">{point.detail}</p>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      <FadeIn>
+        <section className="border-y border-slate-200 bg-slate-900 py-14 text-white">
+          <div className="mx-auto grid max-w-6xl gap-10 px-6 sm:grid-cols-3">
+            {proofPoints.map((point) => {
+              const Icon = point.icon;
+              return (
+                <div key={point.label} className="text-center">
+                  <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-blue-500/10 text-blue-300">
+                    <Icon size={20} />
+                  </span>
+                  <p className="mt-4 text-4xl font-bold">{point.stat}</p>
+                  <p className="mt-1 text-sm font-semibold text-blue-300">{point.label}</p>
+                  <p className="mt-2 text-sm text-slate-400">{point.detail}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </FadeIn>
 
       <section className="bg-slate-50 py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <div className="mx-auto max-w-2xl text-center">
-            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-              Core features
-            </span>
-            <h2 className="mt-4 text-3xl font-bold text-slate-900">
-              Everything a print shop juggles across five different tools, in one.
-            </h2>
-          </div>
+          <FadeIn>
+            <div className="mx-auto max-w-2xl text-center">
+              <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+                Core features
+              </span>
+              <h2 className="mt-4 text-3xl font-bold text-slate-900">
+                Everything a print shop juggles across five different tools, in one.
+              </h2>
+            </div>
+          </FadeIn>
           <div className="mt-14 grid gap-8 sm:grid-cols-2">
-            {leadFeatures.map((feature) => {
+            {leadFeatures.map((feature, i) => {
               const Icon = feature.icon;
               return (
-                <div
-                  key={feature.slug}
-                  className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-                    <Icon size={20} />
-                  </span>
-                  <h3 className="mt-5 text-lg font-semibold text-slate-900">{feature.title}</h3>
-                  <p className="mt-1 text-sm font-medium text-blue-700">{feature.blurb}</p>
-                  <p className="mt-3 text-sm text-slate-600">{feature.detail}</p>
-                </div>
+                <FadeIn key={feature.slug} delay={i * 80}>
+                  <div className="group rounded-xl border border-slate-200 bg-white p-7 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700 transition-colors duration-300 group-hover:bg-blue-700 group-hover:text-white">
+                      <Icon size={20} />
+                    </span>
+                    <h3 className="mt-5 text-lg font-semibold text-slate-900">{feature.title}</h3>
+                    <p className="mt-1 text-sm font-medium text-blue-700">{feature.blurb}</p>
+                    <p className="mt-3 text-sm text-slate-600">{feature.detail}</p>
+                  </div>
+                </FadeIn>
               );
             })}
           </div>
@@ -145,8 +153,10 @@ export default function HomePage() {
 
       <section className="py-20">
         <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2">
-          <DashboardMockup />
-          <div>
+          <FadeIn>
+            <DashboardMockup />
+          </FadeIn>
+          <FadeIn delay={120}>
             <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
               Why {BRAND_NAME}
             </span>
@@ -164,58 +174,69 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-          </div>
+          </FadeIn>
         </div>
       </section>
 
       <section className="bg-slate-50 py-20">
         <div className="mx-auto max-w-3xl px-6">
-          <div className="text-center">
-            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-              FAQ
-            </span>
-            <h2 className="mt-4 text-3xl font-bold text-slate-900">Frequently asked questions</h2>
-          </div>
+          <FadeIn>
+            <div className="text-center">
+              <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+                FAQ
+              </span>
+              <h2 className="mt-4 text-3xl font-bold text-slate-900">Frequently asked questions</h2>
+            </div>
+          </FadeIn>
           <div className="mt-12 grid gap-4 sm:grid-cols-2">
-            {faqs.map((faq) => (
-              <div key={faq.question} className="rounded-xl border border-slate-200 bg-white p-5">
-                <h3 className="text-sm font-semibold text-slate-900">{faq.question}</h3>
-                <p className="mt-2 text-sm text-slate-600">{faq.answer}</p>
-              </div>
+            {faqTeaser.map((faq, i) => (
+              <FadeIn key={faq.question} delay={i * 60}>
+                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                  <h3 className="text-sm font-semibold text-slate-900">{faq.question}</h3>
+                  <p className="mt-2 text-sm text-slate-600">{faq.answer}</p>
+                </div>
+              </FadeIn>
             ))}
+          </div>
+          <div className="mt-8 text-center">
+            <Link href="/faq" className="text-sm font-semibold text-blue-700 hover:text-blue-800">
+              See all FAQs &rarr;
+            </Link>
           </div>
         </div>
       </section>
 
-      <section className="py-20">
-        <div className="mx-auto max-w-4xl px-6">
-          <div className="flex flex-col items-center gap-6 rounded-2xl bg-slate-900 px-8 py-14 text-center text-white sm:px-16">
-            <h2 className="text-2xl font-bold sm:text-3xl">
-              Start growing your printing business with {BRAND_NAME}
-            </h2>
-            <p className="max-w-xl text-slate-300">
-              We&apos;ll walk through a live demo using workflows that look like yours — production,
-              accounts, and dispatch — not a generic sales script.
-            </p>
-            <div className="flex flex-col gap-4 sm:flex-row">
-              <a
-                href={whatsappLink()}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full bg-blue-600 px-7 py-3.5 text-sm font-semibold text-white hover:bg-blue-500"
-              >
-                Book a demo on WhatsApp
-              </a>
-              <Link
-                href="/pricing"
-                className="rounded-full border border-slate-600 px-7 py-3.5 text-sm font-semibold text-white hover:border-slate-400"
-              >
-                See pricing
-              </Link>
+      <FadeIn>
+        <section className="py-20">
+          <div className="mx-auto max-w-4xl px-6">
+            <div className="flex flex-col items-center gap-6 rounded-2xl bg-slate-900 px-8 py-14 text-center text-white sm:px-16">
+              <h2 className="text-2xl font-bold sm:text-3xl">
+                Start growing your printing business with {BRAND_NAME}
+              </h2>
+              <p className="max-w-xl text-slate-300">
+                We&apos;ll walk through a live demo using workflows that look like yours — production,
+                accounts, and dispatch — not a generic sales script.
+              </p>
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <Link
+                  href="/start-free"
+                  className="rounded-full bg-blue-600 px-7 py-3.5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 hover:bg-blue-500"
+                >
+                  Start free trial
+                </Link>
+                <a
+                  href={whatsappLink()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full border border-slate-600 px-7 py-3.5 text-sm font-semibold text-white hover:border-slate-400"
+                >
+                  Book a demo on WhatsApp
+                </a>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </FadeIn>
     </>
   );
 }

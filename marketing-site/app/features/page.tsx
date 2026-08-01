@@ -29,8 +29,11 @@ export default function FeaturesPage() {
           {leadFeatures.map((feature) => {
             const Icon = feature.icon;
             return (
-              <div key={feature.slug} className="rounded-xl border border-slate-200 bg-white p-6">
-                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <div
+                key={feature.slug}
+                className="group rounded-xl border border-slate-200 bg-white p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700 transition-colors duration-300 group-hover:bg-blue-700 group-hover:text-white">
                   <Icon size={20} />
                 </span>
                 <h3 className="mt-4 text-base font-semibold text-slate-900">{feature.title}</h3>
@@ -46,8 +49,11 @@ export default function FeaturesPage() {
           {moreFeatures.map((feature) => {
             const Icon = feature.icon;
             return (
-              <div key={feature.slug} className="rounded-xl border border-slate-200 bg-white p-5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+              <div
+                key={feature.slug}
+                className="group rounded-xl border border-slate-200 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700 transition-colors duration-300 group-hover:bg-blue-700 group-hover:text-white">
                   <Icon size={16} />
                 </span>
                 <h3 className="mt-3 text-sm font-semibold text-slate-900">{feature.title}</h3>
