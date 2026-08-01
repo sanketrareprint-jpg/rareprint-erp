@@ -5,7 +5,9 @@
 // getPlans() below, not a page rewrite.
 //
 // Numbers, names, and limits below are NOT final — placeholders only,
-// flagged in open question #3 of the roadmap doc.
+// flagged in open question #3 of the roadmap doc. Annual price is set to
+// 10x the monthly price ("pay for 10 months, get 12") as a common,
+// reasonable-default SaaS discount pattern — not a locked business decision.
 
 export type Plan = {
   id: string;
@@ -59,9 +61,15 @@ const PLACEHOLDER_PLANS: Plan[] = [
   },
 ];
 
+export function annualPriceInr(monthly: number): number {
+  return monthly * 10;
+}
+
 // TODO (Phase C): once the `Plan` model + `GET /public/plans` endpoint
 // exist, replace this with a fetch() call. Keep the return shape stable so
 // the pricing page doesn't need to change.
 export async function getPlans(): Promise<Plan[]> {
   return PLACEHOLDER_PLANS;
 }
+
+export const TRIAL_LENGTH_DAYS = 14;

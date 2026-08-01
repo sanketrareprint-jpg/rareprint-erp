@@ -2,25 +2,30 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SiteNav } from "./components/site-nav";
 import { SiteFooter } from "./components/site-footer";
+import { BRAND_NAME } from "./lib/site-config";
 
 // TODO: swap in the real production domain once decided (see "Open
 // questions" in docs/Marketing_Site_Roadmap.md — new domain vs. subdomain).
-const SITE_URL = "https://printerp.in";
+// Using a reserved documentation domain (rfc2606) as a placeholder —
+// NOT printerp.in, which is a real competitor's live domain.
+const SITE_URL = "https://rareprint-suite.example";
+
+const TITLE = `${BRAND_NAME} — ERP built for printing businesses`;
+const DESCRIPTION =
+  "Production tracking, accounts, CRM, WhatsApp automation and dispatch — one ERP built specifically for printing businesses.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "PrintERP — ERP built for printing businesses",
-    template: "%s — PrintERP",
+    default: TITLE,
+    template: `%s — ${BRAND_NAME}`,
   },
-  description:
-    "Production tracking, accounts, CRM, WhatsApp automation and dispatch — one ERP built specifically for printing businesses.",
+  description: DESCRIPTION,
   openGraph: {
-    title: "PrintERP — ERP built for printing businesses",
-    description:
-      "Production tracking, accounts, CRM, WhatsApp automation and dispatch — one ERP built specifically for printing businesses.",
+    title: TITLE,
+    description: DESCRIPTION,
     url: SITE_URL,
-    siteName: "PrintERP",
+    siteName: BRAND_NAME,
     type: "website",
   },
 };

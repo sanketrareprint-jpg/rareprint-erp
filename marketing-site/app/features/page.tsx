@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { leadFeatures, moreFeatures } from "../lib/features-data";
+import { BRAND_NAME } from "../lib/site-config";
 
 export const metadata: Metadata = {
   title: "Features",
-  description: "Everything included in PrintERP, from production tracking to virtual-CEO insights.",
+  description: `Everything included in ${BRAND_NAME}, from production tracking to virtual-CEO insights.`,
 };
 
 export default function FeaturesPage() {
@@ -11,7 +12,7 @@ export default function FeaturesPage() {
     <div className="mx-auto max-w-6xl px-6 py-16">
       <h1 className="text-3xl font-bold text-slate-900">Everything included</h1>
       <p className="mt-3 max-w-2xl text-slate-600">
-        PrintERP covers the full run of a printing business — the core workflows most shops feel
+        {BRAND_NAME} covers the full run of a printing business — the core workflows most shops feel
         the pain of daily, plus the operational depth that shows up once you&apos;re scaling.
       </p>
 
