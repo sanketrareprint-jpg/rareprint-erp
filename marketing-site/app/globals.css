@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+:root {
+  --brand: #1d4ed8;
+  --brand-dark: #1e3a8a;
+  --ink: #0f172a;
+  --muted: #64748b;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: var(--ink);
+}
