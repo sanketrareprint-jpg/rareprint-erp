@@ -199,6 +199,24 @@ export default function ProductionPage() {
   const [newVendor, setNewVendor] = useState({ name: "", phone: "", email: "", gstNumber: "" });
   const [savingVendor, setSavingVendor] = useState(false);
 
+  // Ready-for-dispatch confirm modal (replaces native browser confirm())
+  const [readyConfirmItemId, setReadyConfirmItemId] = useState<string | null>(null);
+  const [markingReady, setMarkingReady] = useState(false);
+  async function markReadyForDispatch(itemId: string) {
+    setMarkingReady(true);
+    try {
+      const res = await fetch(API_BASE_URL + "/production/items/" + itemId + "/stage", {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
+      });
+      if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
+      if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
+      await loadAll(true);
+    } catch { alert("Network error"); }
+    finally { setMarkingReady(false); setReadyConfirmItemId(null); }
+  }
+
   // Sheet state
   const [createSheetModal, setCreateSheetModal] = useState(false);
   const [sheetForm, setSheetForm] = useState({ gsm: "", quality: "MAPLITHO", quantity: "", actualPrintedQuantity: "", sizeInches: "", printing: "SINGLE_SIDE" });
@@ -2139,19 +2157,7 @@ export default function ProductionPage() {
                                     <DateInput key={si.dueDate ?? "empty"} defaultValue={dateInputValue(si.dueDate)} onBlur={e => updateSheetItemDueDate(si.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none" />
                                   </div>
                                   <button
-                                    onClick={async () => {
-                                      if (!confirm("Mark this item as Ready for Dispatch?")) return;
-                                      try {
-                                        const res = await fetch(API_BASE_URL + "/production/items/" + si.orderItem.id + "/stage", {
-                                          method: "PATCH",
-                                          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-                                          body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
-                                        });
-                                        if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-                                        if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-                                        await loadAll(true);
-                                      } catch { alert("Network error"); }
-                                    }}
+                                    onClick={() => setReadyConfirmItemId(si.orderItem.id)}
                                     className="mt-2 w-full rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white">
                                     Mark Ready
                                   </button>
@@ -2224,19 +2230,7 @@ export default function ProductionPage() {
                                     </td>
                                     <td className="px-3 py-2">
                                       <button
-                                        onClick={async () => {
-                                          if (!confirm("Mark this item as Ready for Dispatch?")) return;
-                                          try {
-                                            const res = await fetch(API_BASE_URL + "/production/items/" + si.orderItem.id + "/stage", {
-                                              method: "PATCH",
-                                              headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-                                              body: JSON.stringify({ stage: "READY_FOR_DISPATCH" }),
-                                            });
-                                            if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-                                            if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
-                                            await loadAll(true);
-                                          } catch { alert("Network error"); }
-                                        }}
+                                        onClick={() => setReadyConfirmItemId(si.orderItem.id)}
                                         className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
                                         Ready
                                       </button>
@@ -2390,6 +2384,26 @@ export default function ProductionPage() {
               <button onClick={receiveFromVendor} disabled={savingReceive || !receiveCost || !receiveInvNo}
                 className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
                 {savingReceive ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Confirm Received ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ready for Dispatch Confirm Modal ── */}
+      {readyConfirmItemId && (
+        <div style={{ position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(15,23,42,0.6)",padding:"1rem" }}>
+          <div style={{ width:"100%",maxWidth:"22rem",background:"white",borderRadius:"1rem",border:"1px solid #e2e8f0",padding:"1.5rem",boxShadow:"0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <h2 className="text-base font-semibold text-slate-900 mb-1">Mark as Ready for Dispatch?</h2>
+            <p className="text-sm text-slate-500 mb-5">This item will move to the Ready for Dispatch stage.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setReadyConfirmItemId(null)} disabled={markingReady}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                Cancel
+              </button>
+              <button onClick={() => markReadyForDispatch(readyConfirmItemId)} disabled={markingReady}
+                className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-60">
+                {markingReady ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Mark Ready
               </button>
             </div>
           </div>
