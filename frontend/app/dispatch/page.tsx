@@ -470,8 +470,13 @@ export default function DispatchPage() {
         }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
-      if (!res.ok) { const b = await res.json(); alert(b.message || "Could not send OTP"); return; }
-      alert("OTP sent to customer. Enter OTP here after parcel is received.");
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Could not send OTP"); return; }
+      const result = await res.json().catch(() => ({}));
+      if (result.whatsappSent) {
+        alert("OTP sent to customer via WhatsApp. Enter OTP here after parcel is received.");
+      } else {
+        alert(`⚠️ WhatsApp message failed to send. OTP: ${result.otp ?? "—"}\n\nShare this with the customer manually (call/SMS), then enter it here after the parcel is received.`);
+      }
     } finally { setBookingId(null); }
   }
 

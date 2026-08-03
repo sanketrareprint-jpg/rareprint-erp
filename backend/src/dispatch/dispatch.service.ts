@@ -1093,19 +1093,29 @@ export class DispatchService {
       return { shipmentNumber, dispatchType: input.dispatchType };
     });
 
+    // Await (not fire-and-forget) so we can tell the dispatch staff whether the
+    // WhatsApp OTP actually went out, instead of silently swallowing failures.
+    let whatsappSent = false;
     if (order.customer.phone) {
       const productNames = itemsToDispatch.map(i => i.product.name).join(', ');
-      void this.whatsapp.sendOrderUpdate({
-        customerName: order.customer.businessName,
-        customerPhone: order.customer.phone,
-        orderNo: order.orderNumber,
-        product: productNames,
-        status: `${label} delivery OTP: ${otp}. Share this only after receiving the parcel.`,
-        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
-      });
+      try {
+        whatsappSent = await this.whatsapp.sendOrderUpdate({
+          customerName: order.customer.businessName,
+          customerPhone: order.customer.phone,
+          orderNo: order.orderNumber,
+          product: productNames,
+          status: `${label} delivery OTP: ${otp}. Share this only after receiving the parcel.`,
+          agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+        });
+      } catch (e) {
+        this.logger.error(`Direct OTP WhatsApp send threw for order ${order.orderNumber}: ${e instanceof Error ? e.message : e}`);
+      }
     }
 
-    return result;
+    // If WhatsApp delivery failed (or there's no phone on file), hand the OTP back
+    // in the response so dispatch staff can share it with the customer manually
+    // (call/SMS) instead of being blocked. Never included when the send succeeded.
+    return { ...result, whatsappSent, otp: whatsappSent ? undefined : otp };
   }
 
   async verifyDirectOtp(orderId: string, otp: string, userId: string) {
