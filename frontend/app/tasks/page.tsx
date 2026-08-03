@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { CheckCircle2, Clock, GripVertical, Heart, Loader2, Pencil, Plus, Save, Sprout, Target, UserCheck, X } from "lucide-react";
@@ -346,7 +347,7 @@ export default function TasksPage() {
                 </select>
               </div>
               <div>
-                <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
+                <DateInput value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
               </div>
               <button onClick={createTask} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -493,7 +494,7 @@ export default function TasksPage() {
                           <select value={editForm.goalHorizon} onChange={e => setEditForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
                             {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                           </select>
-                          <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none" />
+                          <DateInput value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none" />
                         </div>
                         <div className="flex justify-end gap-2">
                           <button onClick={() => setEditingId(null)} disabled={editSaving} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60">

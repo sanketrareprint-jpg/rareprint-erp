@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -594,8 +595,7 @@ export default function BankStatementPage() {
               </select>
               <label className="flex items-center gap-1.5 text-xs text-gray-500">
                 From
-                <input
-                  type="date"
+                <DateInput
                   value={filterFromDate}
                   onChange={(e) => setFilterFromDate(e.target.value)}
                   className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 text-gray-700"
@@ -603,8 +603,7 @@ export default function BankStatementPage() {
               </label>
               <label className="flex items-center gap-1.5 text-xs text-gray-500">
                 To
-                <input
-                  type="date"
+                <DateInput
                   value={filterToDate}
                   onChange={(e) => setFilterToDate(e.target.value)}
                   className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 text-gray-700"

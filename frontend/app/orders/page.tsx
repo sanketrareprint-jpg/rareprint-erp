@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import {
@@ -1272,7 +1273,7 @@ export default function OrdersPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Payment Date *</label>
-                <input type="date" value={newPayment.paymentDate} onChange={e => setNewPayment(p => ({ ...p, paymentDate: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <DateInput value={newPayment.paymentDate} onChange={e => setNewPayment(p => ({ ...p, paymentDate: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Amount (₹) *</label>
@@ -1634,7 +1635,7 @@ export default function OrdersPage() {
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Payment Date</span>
-                <input type="date" value={editPaymentForm.paymentDate}
+                <DateInput value={editPaymentForm.paymentDate}
                   onChange={e => setEditPaymentForm(f => ({ ...f, paymentDate: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
               </label>

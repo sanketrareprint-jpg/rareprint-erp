@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
@@ -146,12 +147,12 @@ export default function ActivityReportPage() {
           <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">From Date</label>
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+              <DateInput value={from} onChange={e => setFrom(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">To Date</label>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)}
+              <DateInput value={to} onChange={e => setTo(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <button onClick={load} disabled={loading}

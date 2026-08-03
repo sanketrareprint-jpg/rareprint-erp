@@ -2,6 +2,7 @@
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText, Tag, TicketPercent, PackageCheck, X, Edit2 } from "lucide-react";
@@ -604,11 +605,11 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-600">Valid From</label>
-                <input type="date" value={newCodeValidFrom} onChange={e => setNewCodeValidFrom(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <DateInput value={newCodeValidFrom} onChange={e => setNewCodeValidFrom(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-600">Valid To (leave blank = no expiry)</label>
-                <input type="date" value={newCodeValidTo} onChange={e => setNewCodeValidTo(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <DateInput value={newCodeValidTo} onChange={e => setNewCodeValidTo(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
             </div>
 

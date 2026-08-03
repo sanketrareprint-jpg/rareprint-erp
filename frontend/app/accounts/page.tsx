@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiFetch";
@@ -2177,8 +2178,8 @@ await loadHistory();
                         <div className="grid grid-cols-2 gap-2">
                           <input value={purchaseForm.billNumber} onChange={e => setPurchaseForm(f => ({ ...f, billNumber: e.target.value }))} placeholder="Bill no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <input type="number" value={purchaseForm.subtotal} onChange={e => setPurchaseForm(f => ({ ...f, subtotal: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                          <input type="date" value={purchaseForm.billDate} onChange={e => setPurchaseForm(f => ({ ...f, billDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                          <input type="date" value={purchaseForm.dueDate} onChange={e => setPurchaseForm(f => ({ ...f, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <DateInput value={purchaseForm.billDate} onChange={e => setPurchaseForm(f => ({ ...f, billDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                          <DateInput value={purchaseForm.dueDate} onChange={e => setPurchaseForm(f => ({ ...f, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <input type="number" value={purchaseForm.gstRatePct} onChange={e => setPurchaseForm(f => ({ ...f, gstRatePct: e.target.value }))} placeholder="GST %" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <select value={purchaseForm.gstTreatment} onChange={e => setPurchaseForm(f => ({ ...f, gstTreatment: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
                             <option value="INTRA_STATE">CGST + SGST</option>
@@ -3042,12 +3043,12 @@ await loadHistory();
                 </select>
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-slate-500">From:</span>
-                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                  <DateInput value={dateFrom} onChange={e => setDateFrom(e.target.value)}
                     className="px-2 py-1.5 text-xs border border-slate-200 rounded-md outline-none" />
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-slate-500">To:</span>
-                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                  <DateInput value={dateTo} onChange={e => setDateTo(e.target.value)}
                     className="px-2 py-1.5 text-xs border border-slate-200 rounded-md outline-none" />
                 </div>
                 {(vendorFilter || paidFilter !== "all" || dateFrom || dateTo || vendorSearch) && (
@@ -4287,7 +4288,7 @@ await loadHistory();
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Payment Date</span>
-                <input type="date" value={editPaymentForm.paymentDate}
+                <DateInput value={editPaymentForm.paymentDate}
                   onChange={e => setEditPaymentForm(f => ({ ...f, paymentDate: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
               </label>

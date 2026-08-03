@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { getStoredUser } from "@/lib/auth";
 import { getAuthHeaders } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
@@ -234,7 +235,7 @@ export default function AttendancePage() {
                 <div className="flex flex-wrap gap-2 items-end">
                   <div>
                     <label className="text-[10px] font-semibold text-slate-500 uppercase block">Date</label>
-                    <input type="date" value={adHocLeave.date} onChange={(e) => setAdHocLeave({ ...adHocLeave, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
+                    <DateInput value={adHocLeave.date} onChange={(e) => setAdHocLeave({ ...adHocLeave, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
                   </div>
                   <div>
                     <label className="text-[10px] font-semibold text-slate-500 uppercase block">Days</label>

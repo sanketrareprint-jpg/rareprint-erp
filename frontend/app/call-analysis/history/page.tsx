@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Eye, Loader2, Trash2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
@@ -107,8 +108,8 @@ export default function CallHistoryPage() {
               <option value="">All agents</option>
               {agents.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" />
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" />
+            <DateInput value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" />
+            <DateInput value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" />
             <select value={grade} onChange={(e) => setGrade(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs">
               <option value="">All grades</option>
               {["Excellent", "Good", "Average", "Needs Work"].map((g) => <option key={g}>{g}</option>)}

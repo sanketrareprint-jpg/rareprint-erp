@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { Download, FileSpreadsheet, Loader2, RefreshCw } from "lucide-react";
@@ -83,11 +84,11 @@ export default function ReportsPage() {
             </div>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">From</label>
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              <DateInput value={from} onChange={e => setFrom(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">To</label>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              <DateInput value={to} onChange={e => setTo(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
             <button onClick={load} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">
               {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}

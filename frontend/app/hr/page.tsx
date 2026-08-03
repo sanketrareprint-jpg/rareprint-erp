@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import DateInput from "@/components/DateInput";
 import { getStoredUser, getAuthHeaders } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
@@ -462,8 +463,8 @@ export default function HrPage() {
                     Paid for hours beyond required, same hourly rate
                   </label>
                 </Field>
-                <Field label="Date of Joining"><input type="date" value={form.dateOfJoining} onChange={(e) => setForm({ ...form, dateOfJoining: e.target.value })} className={INPUT_CLS} /></Field>
-                <Field label="Date of Birth"><input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className={INPUT_CLS} /></Field>
+                <Field label="Date of Joining"><DateInput value={form.dateOfJoining} onChange={(e) => setForm({ ...form, dateOfJoining: e.target.value })} className={INPUT_CLS} /></Field>
+                <Field label="Date of Birth"><DateInput value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className={INPUT_CLS} /></Field>
                 <DropdownField label="Gender" value={form.gender} onChange={(v) => setForm({ ...form, gender: v })} options={GENDERS} otherPlaceholder="Type gender" />
                 <Field label="Mobile"><input value={form.mobileNumber} onChange={(e) => setForm({ ...form, mobileNumber: e.target.value })} className={INPUT_CLS} /></Field>
                 <Field label="Alternate Mobile"><input value={form.alternateMobile} onChange={(e) => setForm({ ...form, alternateMobile: e.target.value })} className={INPUT_CLS} /></Field>
@@ -589,7 +590,7 @@ export default function HrPage() {
                     </tbody>
                   </table>
                   <div className="flex flex-wrap gap-2 items-end pt-2 border-t border-slate-100">
-                    <input type="date" value={leaveForm.date} onChange={(e) => setLeaveForm({ ...leaveForm, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
+                    <DateInput value={leaveForm.date} onChange={(e) => setLeaveForm({ ...leaveForm, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
                     <select value={leaveForm.type} onChange={(e) => setLeaveForm({ ...leaveForm, type: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
                       {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
