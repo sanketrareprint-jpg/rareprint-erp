@@ -11,8 +11,12 @@ export function PricingToggle({ plans }: { plans: Plan[] }) {
 
   return (
     <div>
-      <div className="mt-10 flex items-center justify-center gap-3">
-        <span className={`text-sm font-medium ${cycle === "monthly" ? "text-slate-900" : "text-slate-400"}`}>
+      <div className="mt-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+        <span
+          className={`shrink-0 whitespace-nowrap text-sm font-medium ${
+            cycle === "monthly" ? "text-slate-900" : "text-slate-400"
+          }`}
+        >
           Monthly
         </span>
         <button
@@ -20,7 +24,7 @@ export function PricingToggle({ plans }: { plans: Plan[] }) {
           role="switch"
           aria-checked={cycle === "annual"}
           onClick={() => setCycle(cycle === "monthly" ? "annual" : "monthly")}
-          className="relative h-6 w-11 rounded-full bg-slate-300 transition-colors data-[on=true]:bg-blue-700"
+          className="relative h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors data-[on=true]:bg-blue-700"
           data-on={cycle === "annual"}
         >
           <span
@@ -29,8 +33,15 @@ export function PricingToggle({ plans }: { plans: Plan[] }) {
             }`}
           />
         </button>
-        <span className={`text-sm font-medium ${cycle === "annual" ? "text-slate-900" : "text-slate-400"}`}>
-          Annual <span className="text-emerald-600">(2 months free)</span>
+        <span
+          className={`shrink-0 whitespace-nowrap text-sm font-medium ${
+            cycle === "annual" ? "text-slate-900" : "text-slate-400"
+          }`}
+        >
+          Annual
+        </span>
+        <span className="shrink-0 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600">
+          2 months free
         </span>
       </div>
 

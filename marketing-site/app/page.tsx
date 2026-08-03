@@ -55,6 +55,24 @@ const whyUs = [
 // on its own /faq page.
 const faqTeaser = faqs.slice(0, 4);
 
+const steps = [
+  {
+    n: "01",
+    title: "Book a demo or request a trial",
+    detail: "Tell us a bit about your shop — flex, digital, offset, or a mix.",
+  },
+  {
+    n: "02",
+    title: "We set it up with your real jobs",
+    detail: "No blank-slate onboarding. We load your actual products and workflow, not a demo dataset.",
+  },
+  {
+    n: "03",
+    title: "Run production day to day",
+    detail: "Jobs, accounts, CRM, and dispatch — replacing the spreadsheets and WhatsApp chats.",
+  },
+];
+
 export default function HomePage() {
   return (
     <>
@@ -178,7 +196,57 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <FadeIn>
+            <div className="mx-auto max-w-2xl text-center">
+              <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+                How it works
+              </span>
+              <h2 className="mt-4 text-3xl font-bold text-slate-900">
+                From spreadsheets to a running system, in three steps
+              </h2>
+            </div>
+          </FadeIn>
+          <div className="mt-14 grid gap-8 sm:grid-cols-3">
+            {steps.map((step, i) => (
+              <FadeIn key={step.n} delay={i * 100}>
+                <div className="relative rounded-xl border border-slate-200 bg-white p-7">
+                  <span className="text-3xl font-extrabold text-blue-100">{step.n}</span>
+                  <h3 className="mt-3 text-base font-semibold text-slate-900">{step.title}</h3>
+                  <p className="mt-2 text-sm text-slate-600">{step.detail}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="bg-slate-50 py-20">
+        <div className="mx-auto max-w-3xl px-6">
+          <FadeIn>
+            {/*
+              Draft founder note — a paraphrase of the real "built for
+              RarePrint, opening it up to other printers" story, written for
+              Sanket to personalize into his own words before this goes
+              live. Not presented as a verbatim quote anywhere else on the
+              site; flagged here so it doesn't get published unedited.
+            */}
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-8 text-center sm:p-10">
+              <p className="text-lg font-medium text-slate-800">
+                &ldquo;I built this to run my own print shop — not as a side project, as the system we
+                actually use every day. Opening it up because every printer I&apos;ve talked to is
+                stuck in the same spreadsheets-and-WhatsApp mess I was.&rdquo;
+              </p>
+              <p className="mt-4 text-sm font-semibold text-slate-500">
+                — Sanket, Founder, RarePrint (draft quote — edit to your own words before publishing)
+              </p>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      <section className="py-20">
         <div className="mx-auto max-w-3xl px-6">
           <FadeIn>
             <div className="text-center">

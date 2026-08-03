@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { whatsappLink, BRAND_NAME } from "../lib/site-config";
 import { TRIAL_LENGTH_DAYS } from "../lib/plans-data";
 import { WaitlistForm } from "./waitlist-form";
+import { FadeIn } from "../components/fade-in";
 
 export const metadata: Metadata = {
   title: "Start free",
@@ -20,6 +21,7 @@ export default function StartFreePage() {
   return (
     <div className="bg-slate-50 py-20">
       <div className="mx-auto max-w-5xl px-6">
+        <FadeIn>
         <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
           <div>
             <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
@@ -65,6 +67,7 @@ export default function StartFreePage() {
             </div>
           </div>
         </div>
+        </FadeIn>
       </div>
     </div>
   );

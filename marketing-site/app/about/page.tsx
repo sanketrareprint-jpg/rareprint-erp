@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { MessageCircle, Mail } from "lucide-react";
 import { whatsappLink, CONTACT_EMAIL, BRAND_NAME } from "../lib/site-config";
 import { ContactForm } from "./contact-form";
+import { FadeIn } from "../components/fade-in";
 
 export const metadata: Metadata = {
   title: "About & contact",
@@ -12,24 +13,26 @@ export default function AboutPage() {
   return (
     <div>
       <div className="bg-slate-50 py-20">
-        <div className="mx-auto max-w-3xl px-6 text-center">
-          <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-            About
-          </span>
-          <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">
-            Built by a printing business, for printing businesses
-          </h1>
-          <p className="mt-6 text-slate-600">
-            {BRAND_NAME} grew out of RarePrint&apos;s own operations — production tracking, accounts,
-            CRM and dispatch software we built to run our own print shop, because nothing
-            off-the-shelf fit how printing businesses actually work. We&apos;re now opening it up to
-            other printers.
-          </p>
-          <p className="mt-4 text-slate-600">
-            That means everything in here has been used to run a real shop, not designed in the
-            abstract — and it keeps improving as we use it ourselves.
-          </p>
-        </div>
+        <FadeIn>
+          <div className="mx-auto max-w-3xl px-6 text-center">
+            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+              About
+            </span>
+            <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">
+              Built by a printing business, for printing businesses
+            </h1>
+            <p className="mt-6 text-slate-600">
+              {BRAND_NAME} grew out of RarePrint&apos;s own operations — production tracking, accounts,
+              CRM and dispatch software we built to run our own print shop, because nothing
+              off-the-shelf fit how printing businesses actually work. We&apos;re now opening it up to
+              other printers.
+            </p>
+            <p className="mt-4 text-slate-600">
+              That means everything in here has been used to run a real shop, not designed in the
+              abstract — and it keeps improving as we use it ourselves.
+            </p>
+          </div>
+        </FadeIn>
       </div>
 
       {/*
@@ -45,6 +48,7 @@ export default function AboutPage() {
         that hasn't been made yet — better to leave it off than guess.
       */}
       <div className="mx-auto max-w-6xl px-6 py-20">
+        <FadeIn>
         <div className="grid gap-12 lg:grid-cols-2">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">Get in touch</h2>
@@ -87,6 +91,7 @@ export default function AboutPage() {
             <ContactForm />
           </div>
         </div>
+        </FadeIn>
       </div>
     </div>
   );
