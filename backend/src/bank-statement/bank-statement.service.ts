@@ -487,9 +487,18 @@ export class BankStatementService {
       this.prisma.bankTransaction.count({ where }),
       this.prisma.bankTransaction.findMany({
         where,
+        // txnDate first: it's always populated and (per parseDate) already
+        // carries the full date+time precision from the export's "Txn Date"
+        // cell. txnDateTime (a separate column that's frequently blank/null
+        // depending on export layout) was previously sorted first — with
+        // Postgres NULLS LAST, any single row anywhere in the table that
+        // happens to have a non-null txnDateTime would outrank every row
+        // without one, regardless of actual recency. That made both this
+        // ledger list and the "Current Balance" summary below intermittently
+        // show a stale row instead of the true latest transaction.
         orderBy: [
-          { txnDateTime: { sort: 'desc', nulls: 'last' } },
           { txnDate: 'desc' },
+          { txnDateTime: { sort: 'desc', nulls: 'last' } },
           { srl: 'desc' },
           { createdAt: 'desc' },
         ],
@@ -591,8 +600,8 @@ export class BankStatementService {
     const lastBalance = await this.prisma.bankTransaction.findFirst({
       where,
       orderBy: [
-        { txnDateTime: { sort: 'desc', nulls: 'last' } },
         { txnDate: 'desc' },
+        { txnDateTime: { sort: 'desc', nulls: 'last' } },
         { srl: 'desc' },
         { createdAt: 'desc' },
       ],
