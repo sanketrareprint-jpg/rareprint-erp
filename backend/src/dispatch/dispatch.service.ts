@@ -8,7 +8,7 @@ import {
 import { OrderProductionStage, OrderStatus, PaymentVerificationStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
-import { BigshipService, type BigshipPackageBox } from '../bigship/bigship.service';
+import { BigshipService, bigshipTotalBoxCount, type BigshipPackageBox } from '../bigship/bigship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
@@ -543,7 +543,26 @@ export class DispatchService {
         // Pass bigshipWarehouseId if the selected warehouse came from Bigship
         const bsPickupWHId = (warehouse as Record<string, unknown>).bigshipWarehouseId as number | undefined
           ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined);
-        const bs = await this.bigship.fetchCourierRates({
+        // 2+ physical boxes declared → Bigship's B2C API hard-rejects it, route
+        // through domestic_b2b instead (real multi-parcel consignment support).
+        const isB2B = bigshipTotalBoxCount(normalizedBoxes) > 1;
+        const bs = isB2B
+          ? await this.bigship.fetchB2BCourierRates({
+              pickupPostcode: pickup,
+              deliveryPostcode: delivery,
+              weightKg,
+              orderNumber: order.orderNumber,
+              invoiceAmount: Number(order.grandTotal),
+              shippingName: order.customer.businessName,
+              shippingMobile: order.customer.phone ?? undefined,
+              shippingEmail: order.customer.email ?? undefined,
+              shippingAddress: addr.line,
+              isCod: orderIsCod,
+              codAmount: orderCodAmt,
+              pickupWarehouseId: bsPickupWHId,
+              packageBoxes: normalizedBoxes,
+            })
+          : await this.bigship.fetchCourierRates({
           pickupPostcode: pickup,
           deliveryPostcode: delivery,
           weightKg,
@@ -798,7 +817,24 @@ export class DispatchService {
       // different courier without recreating it).
       if (!bs.awbNumber && manifestFailure) {
         try {
-          const alternates = await this.bigship.fetchCourierRates({
+          const isB2BFallback = bigshipTotalBoxCount(normalizedBoxes) > 1;
+          const alternates = isB2BFallback
+            ? await this.bigship.fetchB2BCourierRates({
+                pickupPostcode: warehouse.pincode,
+                deliveryPostcode: addr.pincode,
+                weightKg,
+                isCod: orderIsCod,
+                codAmount: orderCodAmt,
+                invoiceAmount: Number(order.grandTotal),
+                orderNumber: order.orderNumber,
+                shippingName: order.customer.businessName,
+                shippingMobile: order.customer.phone ?? undefined,
+                shippingEmail: order.customer.email ?? undefined,
+                shippingAddress: addr.line,
+                pickupWarehouseId: bsPickupWHId,
+                packageBoxes: normalizedBoxes,
+              })
+            : await this.bigship.fetchCourierRates({
             pickupPostcode: warehouse.pincode,
             deliveryPostcode: addr.pincode,
             weightKg,

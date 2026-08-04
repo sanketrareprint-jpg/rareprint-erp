@@ -564,6 +564,45 @@ function toBigshipBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
   };
 }
 
+/** True multi-box count — sums noOfBoxes across every declared row, so a single
+ *  row entered as "2 boxes of the same size" counts as multi-box too, not just
+ *  multiple distinct rows. This is the signal used everywhere to decide whether
+ *  an order should go through Bigship's domestic_b2b segment (real multi-parcel
+ *  consignment) instead of domestic_b2c (hard single-box constraint). */
+export function bigshipTotalBoxCount(boxes?: BigshipPackageBox[]): number {
+  if (!boxes || boxes.length === 0) return 1;
+  const normalized = normalizePackageBoxes(boxes);
+  return normalized.reduce((sum, box) => sum + box.noOfBoxes, 0);
+}
+
+/**
+ * Unlike domestic_b2c (which forces exactly one box, see collapseBoxesForB2C),
+ * Bigship's domestic_b2b segment natively supports multiple boxes per order —
+ * confirmed in the official docs' "Domestic B2B Payload" sample, which shows
+ * "totalNumOfBoxes": 2 with two separate box entries in the boxes array (as
+ * opposed to the B2C sample, which only ever shows totalNumOfBoxes: 1). B2B box
+ * entries also don't carry a per-box "products" array — that field is
+ * documented as "required when segment_type is domestic_b2c" only; B2B instead
+ * takes a single top-level ProductName field on the order itself.
+ */
+function toBigshipB2BBoxes(boxes?: BigshipPackageBox[], fallbackWeightKg = 0.5) {
+  const normalized = normalizePackageBoxes(boxes, fallbackWeightKg);
+  return {
+    totalNumOfBoxes: normalized.reduce((sum, box) => sum + box.noOfBoxes, 0),
+    boxes: normalized.map((box) => ({
+      weight_unit: 'kg',
+      dimension_unit: 'cm',
+      noOfBoxes: box.noOfBoxes,
+      dimensions: [{
+        length: box.length,
+        breadth: box.breadth,
+        height: box.height,
+        weight: box.weight,
+      }],
+    })),
+  };
+}
+
 @Injectable()
 export class BigshipService {
   private readonly logger = new Logger(BigshipService.name);
@@ -805,6 +844,130 @@ export class BigshipService {
     }
   }
 
+  /**
+   * B2B rate fetching. Unlike B2C's user-rate-calculator (no order needed at all),
+   * Bigship's docs only document B2B pricing via the older two-step flow: create a
+   * throwaway draft order (segment_type domestic_b2b, real multi-box payload), then
+   * call courier-wise-shipment-cost with its MasterCustomOrderId to get live B2B
+   * courier rates. This draft is never reused for the actual booking — same as the
+   * B2C rate-calculator step, tryCreateAdhocOrder() always creates its own fresh
+   * order at dispatch time regardless of what happened here (see its comments).
+   * Response shape differs from B2C too ("Domestic B2B Response" in the docs):
+   * courierId/courierName/total/tat instead of courier_partner_id/totalCharge.
+   */
+  async fetchB2BCourierRates(params: {
+    pickupPostcode: string;
+    deliveryPostcode: string;
+    weightKg: number;
+    codAmount?: number;
+    pickupWarehouseId?: number;
+    orderNumber?: string;
+    invoiceAmount?: number;
+    shippingName?: string;
+    shippingMobile?: string;
+    shippingEmail?: string;
+    shippingAddress?: string;
+    isCod?: boolean;
+    packageBoxes?: BigshipPackageBox[];
+  }): Promise<BigshipRateRow[]> {
+    if (!this.isConfigured()) return [];
+    if (!params.pickupWarehouseId) {
+      throw new Error('Bigship warehouse not selected — required for B2B rate lookup');
+    }
+
+    const token = await this.getAuthToken();
+    const deliveryPostcode = params.deliveryPostcode?.trim() || params.pickupPostcode?.trim() || '110001';
+    const declaredValue = Math.max(1, Math.round(Number(params.invoiceAmount) || 1000));
+    const codAmount = params.isCod ? Math.max(1, Math.round(Number(params.codAmount) || declaredValue)) : 0;
+    const packagePayload = toBigshipB2BBoxes(params.packageBoxes, params.weightKg);
+    const cityStateAttempts = cityStateAttemptsFromPincode(deliveryPostcode);
+    // Throwaway invoice number — this draft is only used to price the shipment,
+    // never manifested, so uniqueness across repeated rate-checks is all that matters.
+    const throwawayInvoice = `RPRATE${Date.now()}`.slice(0, 25);
+
+    try {
+      let createData: unknown = null;
+      let lastCreateError = '';
+      for (const attempt of cityStateAttempts) {
+        try {
+          const res = await this.api().post(
+            '/api/outbound/create-order',
+            {
+              segment_type:               'domestic_b2b',
+              MasterOrderPickUpLocation:  params.pickupWarehouseId,
+              MasterOrderReturnLocation:  params.pickupWarehouseId,
+              MasterOrderDate:            bigshipDateNow(),
+              MasterOrderPaymentMode:     params.isCod ? 2 : 1,
+              OrderInvoiceNo:             throwawayInvoice,
+              MasterOrderInvoiceAmount:   declaredValue,
+              MasterOrderCollectableAmount: params.isCod ? String(codAmount) : '',
+              ProductName:                'Print order',
+              MasterOrderShippingName:    limitBigshipName(params.shippingName, 'Customer', 25),
+              MasterOrderShippingEmail:   params.shippingEmail || '',
+              MasterOrderShippingMobileNo: sanitizeMobile(params.shippingMobile),
+              MasterOrderShippingAddress: limitBigshipAddress(params.shippingAddress, 'Address', 75),
+              MasterOrderShippingAddress2: '',
+              MasterOrderShippingLandmark: '',
+              MasterOrderShippingZipCode: deliveryPostcode,
+              MasterOrderShippingCity:    attempt.city,
+              MasterOrderShippingState:   attempt.state,
+              MasterOrderShippingCountry: 'India',
+              totalNumOfBoxes: packagePayload.totalNumOfBoxes,
+              boxes: packagePayload.boxes,
+            },
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (res.data?.status === false) {
+            lastCreateError = res.data?.message ?? 'city validation failed';
+            continue;
+          }
+          createData = res.data;
+          break;
+        } catch (e: unknown) {
+          lastCreateError = bigshipErrorMessage(e);
+        }
+      }
+      if (!createData) {
+        throw new Error(`Bigship B2B draft order failed: ${lastCreateError}`);
+      }
+
+      const dataPayload = (createData as any)?.data ?? createData;
+      const customOrderId = String(
+        dataPayload?.CustomGlobalOrderId ?? dataPayload?.MasterCustomOrderId ?? '',
+      );
+      if (!customOrderId || customOrderId === '0') {
+        throw new Error('Bigship B2B draft order created but returned no order ID');
+      }
+
+      const { data } = await this.api().post(
+        '/api/outbound/courier-wise-shipment-cost',
+        { MasterCustomOrderId: customOrderId },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (data?.status === false) {
+        throw new Error(data?.message ?? 'Bigship B2B rate lookup failed');
+      }
+      const list = data?.data?.calculatedRates;
+      if (!Array.isArray(list)) return [];
+
+      return list
+        .map((c: Record<string, unknown>) => ({
+          rateId:        `bs-${c.courierId}`,
+          carrierName:   String(c.courierName ?? c.planName ?? 'Courier'),
+          amount:        Math.round(Number(c.total ?? c.base_freight ?? 0) * 100) / 100,
+          currency:      'INR',
+          estimatedDays: Number(c.tat ?? 3),
+          courierId:     Number(c.courierId),
+          bigshipOrderId: '',
+        }))
+        .filter((r) => r.courierId > 0 && r.amount >= 0);
+    } catch (e) {
+      const message = bigshipErrorMessage(e) || (e instanceof Error ? e.message : String(e));
+      this.logger.warn(`Bigship fetchB2BCourierRates failed: ${message}`);
+      throw new Error(`Bigship B2B rates fetch failed: ${message}`);
+    }
+  }
+
   // ── Order creation ──────────────────────────────────────────────────────────
 
   /**
@@ -856,7 +1019,14 @@ export class BigshipService {
       `0RP${orderStr}`.slice(0, 25),
       `00RP${orderStr}`.slice(0, 25),
     ];
-    const packagePayload = toBigshipBoxes(input.packageBoxes, input.weightKg);
+    // Multi-box orders (2+ physical boxes declared) can't go through B2C at all —
+    // Bigship hard-rejects it ("Number of boxes must be 1 for B2C orders"). Route
+    // those through domestic_b2b instead, which is Bigship's real multi-parcel
+    // consignment segment. See toBigshipB2BBoxes() for the payload differences.
+    const isB2B = bigshipTotalBoxCount(input.packageBoxes) > 1;
+    const packagePayload = isB2B
+      ? toBigshipB2BBoxes(input.packageBoxes, input.weightKg)
+      : toBigshipBoxes(input.packageBoxes, input.weightKg);
     // Use the same city+state cascade as fetchCourierRates — BigShip validates city
     // and may require a specific casing or alternate name. cityStateAttemptsFromPincode
     // generates titleCase + UPPERCASE variants with state-capital fallback.
@@ -872,7 +1042,7 @@ export class BigshipService {
           const res = await this.api().post(
             '/api/outbound/create-order',
             {
-              segment_type:               'domestic_b2c',
+              segment_type:               isB2B ? 'domestic_b2b' : 'domestic_b2c',
               MasterOrderPickUpLocation:  pickupWarehouseId,
               MasterOrderReturnLocation:  pickupWarehouseId,
               MasterOrderDate:            bigshipDateNow(),
@@ -880,6 +1050,7 @@ export class BigshipService {
               OrderInvoiceNo:             invoiceNo,
               MasterOrderInvoiceAmount:   declaredValue,
               MasterOrderCollectableAmount: input.isCod ? String(codAmount) : '',
+              ...(isB2B ? { ProductName: 'Print order' } : {}),
               MasterOrderShippingName:    limitBigshipName(input.customerName, 'Customer', 25),
               MasterOrderShippingEmail:   input.customerEmail || '',
               MasterOrderShippingMobileNo: sanitizeMobile(input.customerPhone),
@@ -891,7 +1062,7 @@ export class BigshipService {
               MasterOrderShippingState:   attempt.state,
               MasterOrderShippingCountry: 'India',
               totalNumOfBoxes: packagePayload.totalNumOfBoxes,
-              boxes: packagePayload.boxes.map((box) => ({
+              boxes: isB2B ? packagePayload.boxes : packagePayload.boxes.map((box) => ({
                 ...box,
                 products: [{
                   productName:       'Print order',
