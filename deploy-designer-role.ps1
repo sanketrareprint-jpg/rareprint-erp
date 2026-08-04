@@ -20,8 +20,11 @@
 #    user.role dropdown (frontend/app/admin/database/page.tsx) so an admin
 #    can actually assign the role to a user.
 #
-#  To create a Designer user: go to Database (admin) > user table > add/edit
-#  a row > set role = DESIGNER. There's no separate "create user" form.
+#  Also creates one Designer login (step 5 below):
+#    email:    designer.rareprint@gmail.com
+#    password: Design123
+#  (Alternative if you'd rather do it by hand: Database (admin) > user
+#  table > add/edit a row > set role = DESIGNER.)
 
 $repo = "C:\Users\ASUS\Downloads\rareprint-erp"
 
@@ -36,10 +39,10 @@ Set-Location "$repo\frontend"
 npm install
 npm run build
 
-# 3. Apply the new migration to the database right now.
-#    (Optional — Railway's start script runs `prisma migrate deploy`
-#    automatically on every deploy anyway, so skip this if you'd rather
-#    just let step 5 handle it.)
+# 3. Apply the new migration to the database right now. This step is NOT
+#    optional this time (unlike other deploy scripts) — step 5 below
+#    creates a DESIGNER user directly against the database, so the enum
+#    value must exist before that runs.
 Set-Location "$repo\backend"
 npx prisma migrate deploy
 
@@ -49,7 +52,12 @@ SELECT unnest(enum_range(NULL::"UserRole"))::text AS role;
 "@
 $sql | npx prisma db execute --stdin
 
-# 5. Commit and push — this is what actually triggers Railway to build
+# 5. Create the Designer login. Not safe to re-run — it will error with
+#    a unique-constraint violation if this email already exists, which
+#    just means the account was already created; nothing to worry about.
+node create-designer-user.js
+
+# 6. Commit and push — this is what actually triggers Railway to build
 #    and deploy both the backend and frontend.
 Set-Location $repo
 git add backend/prisma/schema.prisma
@@ -59,6 +67,7 @@ git add frontend/components/dashboard-shell.tsx
 git add frontend/app/production/page.tsx
 git add frontend/app/settings/page.tsx
 git add frontend/app/admin/database/page.tsx
+git add backend/create-designer-user.js
 git add deploy-designer-role.ps1
 git commit -m "Add DESIGNER role: access to Sheet Layout, Sticker, Production > Created Sheets"
 git push
