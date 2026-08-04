@@ -640,14 +640,14 @@ export default function BankStatementPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {displayedTxns.map((txn) => {
+                    {displayedTxns.map((txn, i) => {
                       const meta = STATUS_META[txn.reconcileStatus];
                       const Icon = meta.icon;
                       const isExpanded = expandedTxn === txn.id;
                       return (
                         <React.Fragment key={txn.id}>
                           <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedTxn(isExpanded ? null : txn.id)}>
-                            <td className="px-4 py-2.5 text-gray-400 text-xs">{txn.srl}</td>
+                            <td className="px-4 py-2.5 text-gray-400 text-xs">{(txnPage - 1) * 50 + i + 1}</td>
                             <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(txn.txnDate)}</td>
                             <td className="px-4 py-2.5 text-gray-800 max-w-xs truncate">{txn.description}</td>
                             <td className={`px-4 py-2.5 font-medium text-right whitespace-nowrap ${txn.crDr === "CR" ? "text-green-600" : "text-red-600"}`}>
