@@ -1431,7 +1431,7 @@ export default function OrdersPage() {
                       <button onClick={fetchRates} disabled={ratesLoading}
                         className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 hover:bg-brand-100 disabled:opacity-60">
                         {ratesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
-                        Fetch Shiprocket Rates
+                        Fetch Courier Rates
                       </button>
                     </div>
                     {rates.length > 0 && (

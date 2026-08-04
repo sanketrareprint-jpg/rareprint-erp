@@ -1251,6 +1251,16 @@ export class DispatchService {
     }
 
     const mappedStatus = mapBigshipStatusToShipmentStatus(details.status);
+
+    // If Bigship says this order was cancelled (e.g. cancelled directly from their
+    // dashboard, outside the ERP), don't just park it as a CANCELLED shipment record —
+    // put the order back in the dispatch queue automatically so it can be re-booked,
+    // same effect as clicking "↩ Queue" by hand.
+    if (mappedStatus === ShipmentStatus.CANCELLED) {
+      await this.autoReturnToQueueOnCancellation(shipmentId, details.status ?? 'Cancelled');
+      return { success: true, awbNumber: details.awbNumber ?? null, status: details.status ?? null };
+    }
+
     await this.prisma.shipment.update({
       where: { id: shipmentId },
       data: {
@@ -1262,6 +1272,45 @@ export class DispatchService {
     });
 
     return { success: true, awbNumber: details.awbNumber ?? null, status: details.status ?? null };
+  }
+
+  /** Same effect as returnToQueue(), but triggered automatically from a Bigship sync
+   *  (single or bulk) when the live status comes back cancelled, rather than requiring
+   *  a human to notice and click "↩ Queue". changedById is left null since no user
+   *  initiated this — it's a system reaction to an external cancellation. */
+  private async autoReturnToQueueOnCancellation(shipmentId: string, rawStatus: string): Promise<void> {
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) return;
+
+    const order = await this.prisma.order.findUnique({ where: { id: shipment.orderId } });
+    if (!order) return;
+
+    // Only orders still sitting in a dispatched state should bounce back to the queue —
+    // if it's already DELIVERED/RETURNED or was manually handled since, leave it alone.
+    if (order.status !== OrderStatus.DISPATCHED && order.status !== OrderStatus.PARTIALLY_DISPATCHED) {
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.shipment.delete({ where: { id: shipmentId } });
+      await tx.orderItem.updateMany({
+        where: { orderId: order.id },
+        data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
+      });
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.READY_FOR_DISPATCH },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId: order.id,
+          fromStatus: order.status,
+          toStatus: OrderStatus.READY_FOR_DISPATCH,
+          changedById: null,
+          reason: `Bigship order cancelled ("${rawStatus}") — auto-returned to dispatch queue`,
+        },
+      });
+    });
   }
 
   /** Sync every open Bigship-linked shipment in one go, instead of clicking
