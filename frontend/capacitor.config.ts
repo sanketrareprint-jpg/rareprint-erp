@@ -16,8 +16,11 @@ const config: CapacitorConfig = {
 
   android: {
     allowMixedContent: false,
-    // Enables Chrome DevTools remote debugging — turn off for production
-    webContentsDebuggingEnabled: false,
+    // Enables Chrome DevTools remote debugging — turn off for production.
+    // Temporarily true to diagnose the "could not reach the server" login
+    // issue via chrome://inspect's Network tab. Set back to false once
+    // resolved.
+    webContentsDebuggingEnabled: true,
     backgroundColor: "#ffffff",
   },
 

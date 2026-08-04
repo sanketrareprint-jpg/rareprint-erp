@@ -1,20 +1,20 @@
-import type { Metadata } from "next";
+"use client";
+
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { ProductCard } from "../components/ProductCard";
 import { searchProducts } from "../catalog";
 
-export const revalidate = 3600;
-
-export const metadata: Metadata = {
-  title: "Search Print Products | RarePrint",
-  description: "Search RarePrint products, rates, categories, and web-to-print ordering options.",
-};
-
-export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const { q = "" } = await searchParams;
-  const query = q.trim();
+// This page reads the "q" query string param, which requires a server at
+// request time — incompatible with static export (Capacitor/Android build).
+// Converted to a client component using useSearchParams() so it reads the
+// query string directly from the browser URL at runtime instead. searchProducts()
+// just filters an in-memory array, so it's safe to run client-side too.
+export default function SearchPage() {
+  const searchParams = useSearchParams();
+  const query = (searchParams.get("q") ?? "").trim();
   const products = query ? searchProducts(query).slice(0, 48) : [];
 
   return (

@@ -24,13 +24,35 @@ export function PricingToggle({ plans }: { plans: Plan[] }) {
           role="switch"
           aria-checked={cycle === "annual"}
           onClick={() => setCycle(cycle === "monthly" ? "annual" : "monthly")}
-          className="relative h-6 w-11 shrink-0 rounded-full bg-slate-300 transition-colors data-[on=true]:bg-blue-700"
-          data-on={cycle === "annual"}
+          className="shrink-0"
+          style={{
+            position: "relative",
+            display: "block",
+            width: "44px",
+            height: "24px",
+            minWidth: "44px",
+            maxWidth: "44px",
+            borderRadius: "9999px",
+            backgroundColor: cycle === "annual" ? "#1d4ed8" : "#cbd5e1",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            transition: "background-color 0.2s ease",
+            flexShrink: 0,
+          }}
         >
           <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              cycle === "annual" ? "translate-x-5" : "translate-x-0.5"
-            }`}
+            style={{
+              position: "absolute",
+              top: "2px",
+              left: cycle === "annual" ? "22px" : "2px",
+              width: "20px",
+              height: "20px",
+              borderRadius: "9999px",
+              backgroundColor: "#ffffff",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+              transition: "left 0.2s ease",
+            }}
           />
         </button>
         <span

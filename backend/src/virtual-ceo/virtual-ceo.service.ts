@@ -92,6 +92,38 @@ export class VirtualCeoService {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   }
 
+  // 0 = Sunday, in IST, for a "YYYY-MM-DD" calendar date string
+  private getISTDayOfWeek(dateStr: string): number {
+    return new Date(`${dateStr}T00:00:00.000Z`).getUTCDay();
+  }
+
+  // Was this user on an approved leave (any type) covering the given IST calendar date?
+  private async isUserOnLeave(userId: string, dateStr: string): Promise<boolean> {
+    const employee = await this.prisma.employee.findUnique({ where: { userId }, select: { id: true } });
+    if (!employee) return false;
+    const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+    const dayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+    const entries = await this.prisma.employeeLeaveEntry.findMany({
+      where: {
+        employeeId: employee.id,
+        date: { lte: dayEnd },
+        OR: [
+          { endDate: { gte: dayStart } },
+          { endDate: null, date: { gte: dayStart } },
+        ],
+      },
+      select: { id: true },
+    });
+    return entries.length > 0;
+  }
+
+  // Should this required reviewer's daily CEO review be skipped for this date
+  // (Sunday off, or an approved leave day)?
+  private async isExemptDate(userId: string, dateStr: string): Promise<boolean> {
+    if (this.getISTDayOfWeek(dateStr) === 0) return true; // Sunday
+    return this.isUserOnLeave(userId, dateStr);
+  }
+
   // ─── Required Reviewers ───────────────────────────────────────────────────
 
   private async getRequiredReviewers(): Promise<string[]> {
@@ -147,6 +179,10 @@ export class VirtualCeoService {
     const yesterdayDone = yRow ? (JSON.parse(yRow.value) as { completedAt?: string }).completedAt : null;
 
     if (!yesterdayDone) {
+      // Sunday and approved-leave days don't count as a missed review
+      if (await this.isExemptDate(userId, yesterday)) {
+        return { status: 'OK' as const };
+      }
       return { status: 'REVIEW_REQUIRED' as const };
     }
 
@@ -234,6 +270,44 @@ export class VirtualCeoService {
       if (new Date() > new Date(data.deadlineAt)) {
         const userId = row.key.replace('vceo_pending_', '');
         await this.lockAccount(userId, 'CEO review not completed within 2 hours');
+      }
+    }
+  }
+
+  // ─── Cron: End-of-day hard enforcement (23:50 IST) ────────────────────────
+  // The pending/2-hour flow above only fires while a required reviewer is
+  // actively using the app (it needs a login to call review-status + show the
+  // popup). Anyone who simply never opens the panel that day slips through it
+  // entirely — which is how a missed report can go unlocked indefinitely.
+  // This cron is the backstop: once the day is basically over, if a required
+  // reviewer still hasn't submitted and it isn't a Sunday or an approved leave
+  // day for them, lock the account outright.
+  @Cron('50 23 * * *', { timeZone: 'Asia/Kolkata' })
+  async enforceEndOfDayReview() {
+    const today = this.getTodayIST();
+    if (this.getISTDayOfWeek(today) === 0) {
+      this.logger.log('Virtual CEO: Sunday — skipping end-of-day enforcement');
+      return;
+    }
+
+    const reviewers = await this.getRequiredReviewers();
+    for (const userId of reviewers) {
+      try {
+        const lockRow = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_locked_${userId}` } });
+        if (lockRow) continue; // already locked
+
+        const todayRow = await this.prisma.systemConfig.findUnique({ where: { key: `vceo_review_${userId}_${today}` } });
+        const completed = todayRow ? !!(JSON.parse(todayRow.value) as { completedAt?: string }).completedAt : false;
+        if (completed) continue;
+
+        if (await this.isUserOnLeave(userId, today)) {
+          this.logger.log(`Virtual CEO: ${userId} excused (leave) for ${today}, no lock`);
+          continue;
+        }
+
+        await this.lockAccount(userId, `CEO report not submitted for ${today}`);
+      } catch (e) {
+        this.logger.error(`Virtual CEO: end-of-day enforcement failed for ${userId}`, e);
       }
     }
   }

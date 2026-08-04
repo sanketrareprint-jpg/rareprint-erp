@@ -1495,7 +1495,7 @@ export default function AccountsPage() {
         alert(`Receipt verification failed: ${err.message || res.statusText}`);
         return;
       }
-      await loadReceipts();
+      await Promise.all([loadReceipts(), load()]);
     } finally {
       setVerifyingId(null);
       setVerifyUtrId(null);
@@ -1512,8 +1512,7 @@ export default function AccountsPage() {
         body: JSON.stringify({ reason: rejectPaymentReason }),
       });
       setRejectPaymentId(null); setRejectPaymentReason("");
-      await loadReceipts();
-await loadHistory();
+      await Promise.all([loadReceipts(), loadHistory(), load()]);
     } finally { setVerifyingId(null); }
   }
 

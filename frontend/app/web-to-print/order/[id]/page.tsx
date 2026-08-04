@@ -7,6 +7,17 @@ export const metadata = {
   description: "Your RarePrint web-to-print order has been created successfully.",
 };
 
+// Required for static export (Capacitor/Android build) — order IDs are
+// created dynamically at checkout, so there's no real one to know at build
+// time. Next's static export requires at least one param set (an empty
+// array triggers a misleading "missing generateStaticParams()" build
+// error), so we pre-render one placeholder path. This customer storefront
+// route isn't actually used inside the internal staff Android app — it just
+// needs to not break the overall static export.
+export async function generateStaticParams() {
+  return [{ id: "placeholder" }];
+}
+
 export default async function OrderConfirmationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 

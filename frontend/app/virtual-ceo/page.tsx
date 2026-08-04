@@ -528,10 +528,10 @@ function CeoSettingsPanel() {
           <UserCheck size={16} color="#6366f1" /> Required Daily Reviewers
         </div>
         <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>
-          Users marked here must review the CEO report every day. Missing a review triggers a 2-hour enforcement popup — if not completed, their account is locked until you unlock it here.
+          Users marked here must review the CEO report every day (Sundays and their approved leave days are excused). Missing a review locks their account by end of day — unlock it here.
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {allUsers.filter(u => u.role !== "ADMIN").map(u => {
+          {allUsers.map(u => {
             const required = lockData?.requiredReviewers.includes(u.id) ?? false;
             return (
               <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: required ? "#f0f9ff" : "#f8fafc", borderRadius: 8, border: `1px solid ${required ? "#bae6fd" : "#e2e8f0"}` }}>
@@ -554,7 +554,7 @@ function CeoSettingsPanel() {
               </div>
             );
           })}
-          {allUsers.filter(u => u.role !== "ADMIN").length === 0 && (
+          {allUsers.length === 0 && (
             <div style={{ color: "#94a3b8", fontSize: 13, textAlign: "center", padding: 20 }}>No users found</div>
           )}
         </div>

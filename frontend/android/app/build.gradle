@@ -1,4 +1,9 @@
 apply plugin: 'com.android.application'
+// Required to compile MainActivity.kt / CallManagerPlugin.kt / OverlayService.kt —
+// without this, Gradle silently ignores .kt sources (no build error) and the
+// resulting APK is missing those classes, crashing at launch with
+// ClassNotFoundException for MainActivity.
+apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
     namespace = "com.rareprint.crm"
@@ -21,6 +26,11 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    // Matches the sourceCompatibility/targetCompatibility (Java 21) set in
+    // capacitor.build.gradle, so the Kotlin and Java compilers agree.
+    kotlinOptions {
+        jvmTarget = "21"
     }
 }
 

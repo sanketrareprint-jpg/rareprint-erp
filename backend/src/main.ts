@@ -25,8 +25,26 @@ async function bootstrap() {
       forbidNonWhitelisted: false,
     }),
   );
+  // Allow the live website origin (FRONTEND_ORIGIN, e.g. the Vercel deploy)
+  // plus the Capacitor Android app's origin. Capacitor's WebView makes
+  // requests from "https://localhost" (because capacitor.config.ts sets
+  // androidScheme: "https") — a different origin than the website, so
+  // without explicitly allowing it here, the Android app's login/API calls
+  // get silently blocked by CORS and show as "could not reach the server."
+  const allowedOrigins = [
+    process.env.FRONTEND_ORIGIN ?? 'https://rareprint-erp.vercel.app',
+    'https://localhost', // Capacitor Android app
+    'capacitor://localhost', // Capacitor iOS / legacy Android scheme, just in case
+  ];
   app.enableCors({
-    origin: process.env.FRONTEND_ORIGIN ?? true,
+    origin: (origin, callback) => {
+      // No Origin header (e.g. curl, server-to-server) — allow.
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`), false);
+      }
+    },
     credentials: true,
   });
   await app.listen(process.env.PORT ?? 3000);
