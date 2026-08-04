@@ -986,6 +986,7 @@ enum UserRole {
   PRODUCTION
   DISPATCH
   SALES_AGENT
+  DESIGNER
 }
 
 enum SalesAgentCategory {

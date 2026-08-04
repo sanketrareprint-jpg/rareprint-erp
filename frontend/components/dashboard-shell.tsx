@@ -15,7 +15,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
-type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
+type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH" | "DESIGNER";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
 interface StoredUser { id: string; fullName?: string; email: string; role: Role; }
 type ErpConfig = {
@@ -123,7 +123,17 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],
+  DESIGNER: [
+    { label: "Sheet Layout", href: "/sheet-layout", icon: Grid },
+    { label: "Sticker",    href: "/sticker-sheet",  icon: Layers },
+    { label: "Production", href: "/production",     icon: Package },
+  ],
 };
+
+// Routes a DESIGNER account is allowed to open directly (by URL or nav).
+// Anything else redirects back to Sheet Layout — nav-hiding alone doesn't
+// stop direct navigation, so this is enforced here for this restricted role.
+const DESIGNER_ALLOWED_PATHS = ["/sheet-layout", "/sticker-sheet", "/production"];
 
 function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;
@@ -199,6 +209,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) router.replace("/login");
   }, [router, user]);
+
+  // DESIGNER is a single-purpose role — block direct navigation to any
+  // page outside its allowed set, since hiding the nav link alone doesn't
+  // stop someone from typing the URL.
+  useEffect(() => {
+    if (user?.role === "DESIGNER" && !DESIGNER_ALLOWED_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+      router.replace("/sheet-layout");
+    }
+  }, [router, user, pathname]);
 
   // Check Virtual CEO review / lock status for required reviewers
   useEffect(() => {

@@ -94,6 +94,7 @@ export const DEFAULT_ERP_CONFIG: ErpConfig = {
     PRODUCTION: ['dashboard', 'orders', 'production', 'design', 'paper-stock', 'tasks', 'storefront', 'sticker', 'sheet-layout'],
     DISPATCH: ['dashboard', 'orders', 'dispatch', 'tasks', 'storefront'],
     INHOUSE: ['orders', 'production', 'dispatch'],
+    DESIGNER: ['production', 'sticker', 'sheet-layout'],
   },
   virtualCeoTags: [
     { id: 'job_on_hold', label: 'Job on hold', color: '#f59e0b' },

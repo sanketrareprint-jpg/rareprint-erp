@@ -69,7 +69,7 @@ type ErpConfig = {
   virtualCeoCardTags: Record<string, string>;
 };
 
-const ROLES = ["ADMIN", "AGENT", "SALES_AGENT", "ACCOUNTS", "PRODUCTION", "DISPATCH", "INHOUSE"];
+const ROLES = ["ADMIN", "AGENT", "SALES_AGENT", "ACCOUNTS", "PRODUCTION", "DISPATCH", "INHOUSE", "DESIGNER"];
 const FIELD_TYPES: CustomField["type"][] = ["text", "number", "date", "select", "textarea"];
 const TAG_COLORS = ["#f59e0b", "#ef4444", "#6366f1", "#10b981", "#0ea5e9", "#64748b"];
 

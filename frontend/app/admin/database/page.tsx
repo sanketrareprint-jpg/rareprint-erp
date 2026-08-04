@@ -35,7 +35,7 @@ const PROTECTED = ["user", "order", "payment"];
 const PRINTING_TYPE_OPTIONS = ["OFFSET", "DIGITAL", "SCREEN", "FLEX"];
 const PRODUCT_SIDE_OPTIONS = ["SINGLE_SIDE", "DOUBLE_SIDE"];
 const PAPER_TYPE_OPTIONS = ["Bond", "Maplitho", "Art", "Ivory", "Kraft", "NCR", "PP", "Synthetic", "Other"];
-const USER_ROLE_OPTIONS = ["ADMIN", "INHOUSE", "ACCOUNTS", "PRODUCTION", "DISPATCH", "SALES_AGENT"];
+const USER_ROLE_OPTIONS = ["ADMIN", "INHOUSE", "ACCOUNTS", "PRODUCTION", "DISPATCH", "SALES_AGENT", "DESIGNER"];
 
 type ProductCategoryOption = {
   id: string;

@@ -171,6 +171,11 @@ export default function ProductionPage() {
     if (userRole === "INHOUSE") setActiveTab("inhouse");
   }, [userRole]);
 
+  // Lock DESIGNER role to sheets tab only
+  useEffect(() => {
+    if (userRole === "DESIGNER") setActiveTab("sheets");
+  }, [userRole]);
+
   // Assign modal
   const [assignModal, setAssignModal] = useState<{ orderId: string; orderNo: string; customerName: string; items: OrderItem[] } | null>(null);
   const [categorySelections, setCategorySelections] = useState<Record<string, ProductionCategory>>({});
@@ -235,6 +240,10 @@ export default function ProductionPage() {
   const [multipleDialog, setMultipleDialog] = useState<{ sheetId: string; sheetNo: string; sheetQty: number; item: PlaceableItem; maxMultiple: number; suggestedMultiple: number } | null>(null);
   const [multipleValue, setMultipleValue] = useState("1");
   const [sheetSubTab, setSheetSubTab] = useState("unassigned");
+  // Lock DESIGNER role to Created Sheets subtab only
+  useEffect(() => {
+    if (userRole === "DESIGNER") setSheetSubTab("created");
+  }, [userRole]);
   const [sheetSearch, setSheetSearch] = useState("");
   const [sheetFilters, setSheetFilters] = useState({ product: "", size: "", gsm: "", sides: "" });
   const [sheetHistory, setSheetHistory] = useState<{ logs: any[]; total: number; page: number }>({ logs: [], total: 0, page: 1 });
@@ -1055,8 +1064,8 @@ export default function ProductionPage() {
 
           {/* Tabs */}
           <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit flex-wrap">
-            {tabs.filter(tab => userRole === "INHOUSE" ? tab.key === "inhouse" : true).map(tab => (
-              <button key={tab.key} onClick={() => { if (userRole !== "INHOUSE") setActiveTab(tab.key); }}
+            {tabs.filter(tab => userRole === "INHOUSE" ? tab.key === "inhouse" : userRole === "DESIGNER" ? tab.key === "sheets" : true).map(tab => (
+              <button key={tab.key} onClick={() => { if (userRole !== "INHOUSE" && userRole !== "DESIGNER") setActiveTab(tab.key); }}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {tab.label}
                 <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>{tab.count}</span>
@@ -1546,7 +1555,7 @@ export default function ProductionPage() {
                       { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
                       { key: "processing", label: "Processing Sheets", color: "text-orange-600" },
                       { key: "history",    label: "History", color: "text-purple-700" },
-                    ].map(t => {
+                    ].filter(t => userRole !== "DESIGNER" || t.key === "created").map(t => {
                       const aqm: Record<string,number> = {};
                       sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
                       const count = t.key === "unassigned"
@@ -1555,7 +1564,7 @@ export default function ProductionPage() {
                         : t.key === "processing" ? sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length
                         : sheetHistory.total;
                       return (
-                        <button key={t.key} onClick={() => setSheetSubTab(t.key)}
+                        <button key={t.key} onClick={() => { if (userRole !== "DESIGNER") setSheetSubTab(t.key); }}
                           className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
                           {t.label}
                           <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? (t.key === "history" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700") : "bg-slate-200 text-slate-500"}`}>{count}</span>
