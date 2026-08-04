@@ -1836,7 +1836,7 @@ export default function ProductionPage() {
                       const createdLabel = sheet.createdBySource === "AUTO" ? getSheetCreatedLabel(sheet) : null;
                       return (
                         <div key={sheet.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                          <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp) loadPlaceableItems(sheet.gsm); }}>
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-cyan-50 border-b border-cyan-100 cursor-pointer" onClick={() => { setExpandedSheet(isExp ? null : sheet.id); if (!isExp && sheet.status !== "COMPLETE") loadPlaceableItems(sheet.gsm); }}>
                             <div className="flex items-center gap-3 flex-wrap">
                               <span className="font-bold text-cyan-700 text-sm">Sheet No: {displaySheetNo(sheet.sheetNo)}</span>
                               {sheet.createdBySource === "AUTO" && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">AUTO</span>}
@@ -1890,6 +1890,7 @@ export default function ProductionPage() {
                                     </div>))}</div>
                                 )}
                               </div>
+                              {sheet.status !== "COMPLETE" && (
                               <div>
                                 <p className="text-xs font-semibold text-slate-600 mb-2">Place items (GSM: {sheet.gsm})</p>
                                 {loadingPlaceable ? <Loader2 className="h-4 w-4 animate-spin text-cyan-600" /> : placeableItems.length === 0 ? (
@@ -1916,6 +1917,7 @@ export default function ProductionPage() {
                                   })}</div>
                                 )}
                               </div>
+                              )}
 
                             </div>
                           )}
