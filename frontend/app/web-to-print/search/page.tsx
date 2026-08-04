@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
@@ -12,7 +13,20 @@ import { searchProducts } from "../catalog";
 // Converted to a client component using useSearchParams() so it reads the
 // query string directly from the browser URL at runtime instead. searchProducts()
 // just filters an in-memory array, so it's safe to run client-side too.
+//
+// useSearchParams() requires a <Suspense> boundary around it, or Next.js
+// fails to prerender this page at build time ("should be wrapped in a
+// suspense boundary"). Default export below is just the Suspense wrapper;
+// the real page body lives in SearchPageInner.
 export default function SearchPage() {
+  return (
+    <Suspense fallback={null}>
+      <SearchPageInner />
+    </Suspense>
+  );
+}
+
+function SearchPageInner() {
   const searchParams = useSearchParams();
   const query = (searchParams.get("q") ?? "").trim();
   const products = query ? searchProducts(query).slice(0, 48) : [];
