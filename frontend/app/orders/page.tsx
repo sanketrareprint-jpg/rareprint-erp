@@ -10,6 +10,7 @@ import {
   Paperclip, Upload, FileText, Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
 type ItemDetail = {
   productName: string; size: string | null; gsm: string | null;
@@ -126,6 +127,10 @@ function stageBadgeClass(value?: string | null) {
 
 export default function OrdersPage() {
   const router = useRouter();
+  const isNativeApp = useIsNativeApp();
+  // Website keeps its original spacing; the Android app gets the tighter
+  // density pass (see components/dashboard-shell.tsx / useIsNativeApp).
+  const cx = (web: string, native: string) => (isNativeApp ? native : web);
   const [orders, setOrders] = useState<Order[]>([]);
   const [readyOrders, setReadyOrders] = useState<Order[]>([]);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
@@ -734,14 +739,14 @@ export default function OrdersPage() {
               <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : (
               <>
-              <div className="space-y-2 md:hidden">
+              <div className={cx("space-y-3 md:hidden", "space-y-2 md:hidden")}>
                 {filteredOrders.length === 0 ? (
                   <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
                     {search !== debouncedSearch ? "Searching…" : "No orders found."}
                   </div>
                 ) : filteredOrders.map(o => (
                   <div key={o.id} className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${selectedOrderIds.has(o.id) ? "ring-2 ring-indigo-200" : ""}`}>
-                    <div className="bg-brand-700 px-3 py-1.5 text-white">
+                    <div className={cx("bg-brand-700 px-3 py-2 text-white", "bg-brand-700 px-3 py-1.5 text-white")}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -750,13 +755,13 @@ export default function OrdersPage() {
                                 {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                               </button>
                             )}
-                            <p className="text-sm font-bold leading-none">{o.orderNo}</p>
+                            <p className={cx("text-base font-bold leading-none", "text-sm font-bold leading-none")}>{o.orderNo}</p>
                             {o.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST</span>}
                             <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-semibold">
                               {orderAge(o.date)}
                             </span>
                           </div>
-                          <p className="mt-0.5 truncate text-sm font-semibold">{o.customerName}</p>
+                          <p className={cx("mt-1 truncate text-sm font-semibold", "mt-0.5 truncate text-sm font-semibold")}>{o.customerName}</p>
                           <p className="text-xs text-brand-100">{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} · {o.customerPhone ?? "No phone"}</p>
                         </div>
                         <div className="text-right">
@@ -766,41 +771,41 @@ export default function OrdersPage() {
                       </div>
                     </div>
                     <div className={`grid ${canViewMargin ? "grid-cols-5" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
-                      <div className="px-2 py-1">
+                      <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                         <p className="text-[10px] font-semibold text-slate-400">Total</p>
                         <p className="text-xs font-bold text-slate-900">{fmt(o.totalAmount)}</p>
                       </div>
-                      <div className="px-2 py-1">
+                      <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                         <p className="text-[10px] font-semibold text-slate-400">Paid</p>
                         <p className="text-xs font-bold text-emerald-700">{fmt(o.advancePaid)}</p>
                       </div>
-                      <div className="px-2 py-1">
+                      <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                         <p className="text-[10px] font-semibold text-slate-400">Ready</p>
                         <p className="text-xs font-bold text-indigo-700">{o.readyItemsCount ?? 0}/{o.totalItemsCount ?? o.itemDetails?.length ?? 0}</p>
                       </div>
                       {canViewMargin && (
-                        <div className="px-2 py-1">
+                        <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                           <p className="text-[10px] font-semibold text-slate-400">Margin</p>
                           <p className={`text-xs font-bold ${marginColor(o.marginPct)}`}>{marginText(o.marginPct)}</p>
                         </div>
                       )}
                       {canViewMargin && (
-                        <div className="px-2 py-1">
+                        <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                           <p className="text-[10px] font-semibold text-slate-400">Comm.</p>
                           <p className="text-xs font-bold text-purple-700">{o.commissionTotal == null ? "—" : fmt(o.commissionTotal)}</p>
                         </div>
                       )}
                     </div>
-                    <div className="space-y-1.5 p-2.5">
+                    <div className={cx("space-y-2 p-3", "space-y-1.5 p-2.5")}>
                       {o.salesAgentName && <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">{o.salesAgentName}</span>}
-                      <div className="space-y-1">
+                      <div className={cx("space-y-1.5", "space-y-1")}>
                         {(o.itemDetails?.length ? o.itemDetails : o.products.split(" | ").map(p => ({ productName: p, size: null, gsm: null, sides: null, quantity: 0, lineTotal: 0, itemProductionStage: "" }))).map((item: any, idx) => (
-                          <div key={idx} className="rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5">
+                          <div key={idx} className={cx("rounded-lg border border-slate-100 bg-slate-50 px-3 py-2", "rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5")}>
                             <div className="flex items-start justify-between gap-2">
-                              <p className="truncate text-sm font-bold text-slate-900">{item.productName}</p>
+                              <p className={cx("truncate font-bold text-slate-900", "truncate text-sm font-bold text-slate-900")}>{item.productName}</p>
                               {item.itemProductionStage && <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>{itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}</span>}
                             </div>
-                            <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500">
+                            <div className={cx("mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500", "mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500")}>
                               {item.size && <span>{item.size}</span>}
                               {item.gsm && <span>{item.gsm} GSM</span>}
                               {item.sides && <span>{item.sides}</span>}
@@ -810,24 +815,24 @@ export default function OrdersPage() {
                           </div>
                         ))}
                       </div>
-                      <div className="flex gap-2 pt-0.5">
+                      <div className={cx("flex gap-2 pt-1", "flex gap-2 pt-0.5")}>
                         <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
-                          className="flex-1 rounded-lg bg-emerald-600 p-1.5 text-white"><CreditCard className="mx-auto h-4 w-4" /></button>
+                          className={cx("flex-1 rounded-lg bg-emerald-600 p-2 text-white", "flex-1 rounded-lg bg-emerald-600 p-1.5 text-white")}><CreditCard className="mx-auto h-4 w-4" /></button>
                         <button title="Payment History" onClick={() => togglePayments(o.id)}
-                          className="flex-1 rounded-lg border border-slate-200 p-1.5 text-slate-600">{expandedPayments === o.id ? <ChevronUp className="mx-auto h-4 w-4" /> : <ChevronDown className="mx-auto h-4 w-4" />}</button>
+                          className={cx("flex-1 rounded-lg border border-slate-200 p-2 text-slate-600", "flex-1 rounded-lg border border-slate-200 p-1.5 text-slate-600")}>{expandedPayments === o.id ? <ChevronUp className="mx-auto h-4 w-4" /> : <ChevronDown className="mx-auto h-4 w-4" />}</button>
                         <button title="Order Journey" onClick={() => toggleJourney(o.id)}
-                          className="flex-1 rounded-lg border border-blue-200 bg-blue-50 p-1.5 text-blue-700"><FileText className="mx-auto h-4 w-4" /></button>
+                          className={cx("flex-1 rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700", "flex-1 rounded-lg border border-blue-200 bg-blue-50 p-1.5 text-blue-700")}><FileText className="mx-auto h-4 w-4" /></button>
                         {o.status === "PENDING_APPROVAL" ? (
                           <button title="Edit Order" onClick={() => router.push(`/orders/edit?id=${o.id}`)}
-                            className="flex-1 rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700">Edit</button>
+                            className={cx("flex-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-700", "flex-1 rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700")}>Edit</button>
                         ) : <span />}
                         {o.items && o.items.length > 0 && (
                           <button title="Design Files" onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
-                            className="flex-1 rounded-lg border border-purple-200 bg-purple-50 p-1.5 text-purple-700"><Paperclip className="mx-auto h-4 w-4" /></button>
+                            className={cx("flex-1 rounded-lg border border-purple-200 bg-purple-50 p-2 text-purple-700", "flex-1 rounded-lg border border-purple-200 bg-purple-50 p-1.5 text-purple-700")}><Paperclip className="mx-auto h-4 w-4" /></button>
                         )}
                       </div>
                       {expandedPayments === o.id && (
-                        <div className="rounded-xl bg-slate-50 p-2.5 text-xs text-slate-600">
+                        <div className={cx("rounded-xl bg-slate-50 p-3 text-xs text-slate-600", "rounded-xl bg-slate-50 p-2.5 text-xs text-slate-600")}>
                           {!orderPayments[o.id] ? <Loader2 className="h-4 w-4 animate-spin" />
                             : orderPayments[o.id].length === 0 ? "No payments recorded yet."
                             : orderPayments[o.id].map(p => <div key={p.id} className="flex justify-between border-b border-slate-100 py-1 last:border-0"><span>{new Date(p.paymentDate).toLocaleDateString("en-IN")} · {METHOD_LABELS[p.method] ?? p.method}</span><strong className="text-emerald-700">{fmt(Number(p.amount))}</strong></div>)}

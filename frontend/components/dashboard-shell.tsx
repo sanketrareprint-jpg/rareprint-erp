@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
@@ -182,6 +183,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem("rareprint_sidebar_collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
   useActivityTracker(); // Track active time when cursor is moving
+
+  // Reflect "running inside the native Android app" as a class on <html>,
+  // so globals.css can scope compact-UI rules to the app only, never the
+  // website (including the website viewed on a phone).
+  const isNativeApp = useIsNativeApp();
+  useEffect(() => {
+    document.documentElement.classList.toggle("is-native-app", isNativeApp);
+  }, [isNativeApp]);
   const [coins, setCoins] = useState<number | null>(null);
   const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
   const [vceoLocked, setVceoLocked] = useState(false);
@@ -483,6 +492,23 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <main className="erp-main" style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#f8fafc" }}>
         {children}
       </main>
+
+      <nav className="erp-bottom-nav" aria-label="Primary navigation">
+        {navItems.slice(0, 6).map((item) => {
+          const Icon = item.icon;
+          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`erp-bottom-nav-item${active ? " is-active" : ""}`}
+            >
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
 
       {mobileMenuOpen && (
         <div className="erp-mobile-menu-backdrop" onClick={() => setMobileMenuOpen(false)}>
