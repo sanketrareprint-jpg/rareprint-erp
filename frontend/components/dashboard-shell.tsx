@@ -484,23 +484,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      <nav className="erp-bottom-nav" aria-label="Primary navigation">
-        {navItems.slice(0, 6).map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`erp-bottom-nav-item${active ? " is-active" : ""}`}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
       {mobileMenuOpen && (
         <div className="erp-mobile-menu-backdrop" onClick={() => setMobileMenuOpen(false)}>
           <div className="erp-mobile-menu" onClick={(event) => event.stopPropagation()}>

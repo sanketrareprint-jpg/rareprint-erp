@@ -55,7 +55,6 @@ textarea {
 }
 
 .erp-mobile-topbar,
-.erp-bottom-nav,
 .erp-mobile-menu-backdrop {
   display: none;
 }
@@ -124,7 +123,7 @@ textarea {
     position: fixed;
     top: calc(env(safe-area-inset-top) + 56px);
     right: 0;
-    bottom: calc(env(safe-area-inset-bottom) + 72px);
+    bottom: env(safe-area-inset-bottom);
     left: 0;
     min-height: 0;
     width: 100% !important;
@@ -216,46 +215,6 @@ textarea {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-  }
-
-  .erp-bottom-nav {
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 9000;
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
-    border-top: 1px solid #dbe4ee;
-    background: rgba(255, 255, 255, 0.97);
-    box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.12);
-    scrollbar-width: none;
-  }
-
-  .erp-bottom-nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .erp-bottom-nav-item {
-    min-width: 74px;
-    height: 54px;
-    border-radius: 14px;
-    color: #64748b;
-    text-decoration: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1;
-  }
-
-  .erp-bottom-nav-item.is-active {
-    color: #ffffff;
-    background: #ee1c25;
-    box-shadow: 0 8px 22px rgba(238, 28, 37, 0.28);
   }
 
   .erp-mobile-menu-backdrop {
@@ -384,6 +343,34 @@ textarea {
   .erp-main .py-3 {
     padding-top: 0.5rem !important;
     padding-bottom: 0.5rem !important;
+  }
+
+  /* Slightly tighter density pass for mobile list/card views (orders,
+     production, etc.) — modest reduction, not aggressive. */
+  .erp-main .p-3 {
+    padding: 0.625rem !important;
+  }
+
+  .erp-main .px-3 {
+    padding-left: 0.625rem !important;
+    padding-right: 0.625rem !important;
+  }
+
+  .erp-main .py-2 {
+    padding-top: 0.4375rem !important;
+    padding-bottom: 0.4375rem !important;
+  }
+
+  .erp-main .mt-2 {
+    margin-top: 0.375rem !important;
+  }
+
+  .erp-main .mt-3 {
+    margin-top: 0.625rem !important;
+  }
+
+  .erp-main .space-y-1\.5 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.3125rem !important;
   }
 
   .erp-main .grid {
