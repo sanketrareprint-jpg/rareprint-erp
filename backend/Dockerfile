@@ -1,6 +1,7 @@
-FROM node:18
+FROM node:22
 
-# Cache bust: 2026-06-19c
+# Cache bust: 2026-08-04a — bumped from node:18 because Prisma 7.9.0 requires
+# Node 20.19+/22.12+/24.0+ and no longer installs on Node 18.
 WORKDIR /app
 
 COPY package*.json ./
