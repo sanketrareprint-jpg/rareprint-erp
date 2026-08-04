@@ -4,7 +4,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Prisma ORM v7 no longer supports `url` here — the connection string now
+  // lives in prisma.config.ts (for the CLI/migrations) and is passed via a
+  // driver adapter to the PrismaClient constructor at runtime (see
+  // src/prisma/prisma.service.ts).
 }
 
 model User {
