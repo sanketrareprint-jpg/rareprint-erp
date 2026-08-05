@@ -769,123 +769,23 @@ export class DispatchService {
         throw new BadRequestException(`Bigship booking failed: ${message}`);
       }
 
-      // ── Manifest immediately (place-order) so the AWB comes back and gets stored
-      // here in the ERP. Without this, tryCreateAdhocOrder only leaves an unmanifested
-      // draft in Bigship — the user then has to open the Bigship dashboard, pick the
-      // courier again and click "Ship Now" by hand, which is also what was silently
-      // discarding the multi-box package details (Bigship's manual Ship Now flow does
-      // not carry over the box list from the API-created draft). Auto-invoice is
-      // generated inside placeExistingOrder when no invoice file has been uploaded.
-      let manifestFailure = '';
-      if (!bs.awbNumber) {
-        // Defensive try/catch: the draft order already exists in Bigship at this point
-        // (created moments ago with a specific invoice number). If manifesting throws for
-        // any unexpected reason, we must NOT let it fail the whole booking request — that
-        // would burn through the RP/0RP/00RP invoice-candidate fallback on retry and could
-        // eventually stop new orders from reaching Bigship at all. Fall back to the
-        // pre-existing "manual manifest pending" behavior instead.
-        try {
-          const placed = await this.bigship.placeExistingOrder({
-            masterCustomOrderId: bs.bigshipOrderId,
-            courierId,
-            invoiceData: {
-              orderNumber: order.orderNumber,
-              customerName: order.customer.businessName,
-              amount: Number(order.grandTotal),
-            },
-          });
-          if (placed.awbNumber) {
-            bs = { ...bs, awbNumber: placed.awbNumber };
-          } else if (placed.message) {
-            manifestFailure = placed.message;
-            this.logger.warn(`Bigship manifest (place-order) failed for order ${bs.bigshipOrderId}: ${placed.message}`);
-          }
-        } catch (e) {
-          manifestFailure = e instanceof Error ? e.message : String(e);
-          this.logger.warn(`Bigship manifest (place-order) threw unexpectedly for order ${bs.bigshipOrderId}: ${manifestFailure}`);
-        }
-      }
-
-      // ── Courier fallback ──────────────────────────────────────────────────
-      // The confirmed courier can still fail at place-order time for reasons that
-      // have nothing to do with our booking (e.g. "380005 is non serviceable
-      // pincode" — confirmed live 2026-07-30) even though it passed rate
-      // confirmation moments earlier. Rather than leaving the order stuck
-      // unmanifested in Bigship until someone manually retries with a different
-      // courier, try up to 2 alternate couriers (courierId is just a per-call
-      // field on place-order — the same draft order can be placed with a
-      // different courier without recreating it).
-      if (!bs.awbNumber && manifestFailure) {
-        try {
-          const isB2BFallback = bigshipTotalBoxCount(normalizedBoxes) > 1;
-          const alternates = isB2BFallback
-            ? await this.bigship.fetchB2BCourierRates({
-                pickupPostcode: warehouse.pincode,
-                deliveryPostcode: addr.pincode,
-                weightKg,
-                isCod: orderIsCod,
-                codAmount: orderCodAmt,
-                invoiceAmount: Number(order.grandTotal),
-                orderNumber: order.orderNumber,
-                shippingName: order.customer.businessName,
-                shippingMobile: order.customer.phone ?? undefined,
-                shippingEmail: order.customer.email ?? undefined,
-                shippingAddress: addr.line,
-                pickupWarehouseId: bsPickupWHId,
-                packageBoxes: normalizedBoxes,
-              })
-            : await this.bigship.fetchCourierRates({
-            pickupPostcode: warehouse.pincode,
-            deliveryPostcode: addr.pincode,
-            weightKg,
-            isCod: orderIsCod,
-            codAmount: orderCodAmt,
-            invoiceAmount: Number(order.grandTotal),
-            orderNumber: order.orderNumber,
-            shippingCity: addr.city,
-            shippingState: addr.state,
-            packageBoxes: normalizedBoxes,
-          });
-          const tried = new Set([courierId]);
-          const candidates = alternates
-            .filter((r) => r.courierId > 0 && !tried.has(r.courierId))
-            .sort((a, b) => a.amount - b.amount)
-            .slice(0, 2);
-          for (const candidate of candidates) {
-            if (bs.awbNumber) break;
-            tried.add(candidate.courierId);
-            try {
-              this.logger.log(`Bigship manifest fallback — retrying order ${bs.bigshipOrderId} with courier ${candidate.courierId} (${candidate.carrierName}) after: ${manifestFailure}`);
-              const retried = await this.bigship.placeExistingOrder({
-                masterCustomOrderId: bs.bigshipOrderId,
-                courierId: candidate.courierId,
-                invoiceData: {
-                  orderNumber: order.orderNumber,
-                  customerName: order.customer.businessName,
-                  amount: Number(order.grandTotal),
-                },
-              });
-              if (retried.awbNumber) {
-                bs = { ...bs, awbNumber: retried.awbNumber };
-                manifestFailure = '';
-              } else if (retried.message) {
-                manifestFailure = retried.message;
-                this.logger.warn(`Bigship manifest fallback — courier ${candidate.courierId} also failed for order ${bs.bigshipOrderId}: ${retried.message}`);
-              }
-            } catch (e) {
-              manifestFailure = e instanceof Error ? e.message : String(e);
-              this.logger.warn(`Bigship manifest fallback — courier ${candidate.courierId} threw for order ${bs.bigshipOrderId}: ${manifestFailure}`);
-            }
-          }
-        } catch (e) {
-          this.logger.warn(`Bigship manifest fallback — could not fetch alternate couriers for order ${bs.bigshipOrderId}: ${e instanceof Error ? e.message : e}`);
-        }
-      }
-
-      trackingRef    = bs.awbNumber ?? '';
-      awbNumber      = bs.awbNumber ?? null;
+      // ── Do NOT auto-manifest ────────────────────────────────────────────
+      // By design (2026-08-04): the ERP only creates the draft order in Bigship
+      // and stops there — it deliberately does not call place-order to pick a
+      // courier and generate an AWB automatically. A human reviews the order in
+      // Bigship's own dashboard (it sits in the "Unshipped" tab) and manifests it
+      // manually via the "Ship Now" action in the row's Action dropdown, choosing
+      // the courier there. Sync Bigship (single row or "Sync All Bigship") will
+      // then pick up the AWB and flip the shipment to IN_TRANSIT automatically
+      // once that manual step happens — no separate ERP action needed after that.
+      //
+      // Previously this block auto-manifested immediately with a courier-fallback
+      // retry; that was reverted in favor of always leaving orders in Unshipped
+      // for manual review before shipping.
+      trackingRef    = '';
+      awbNumber      = null;
       bigshipOrderId = bs.bigshipOrderId ?? null;
-      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId}${bs.awbNumber ? ` AWB: ${bs.awbNumber}` : ` (manual manifest pending${manifestFailure ? ` — ${manifestFailure.slice(0, 150)}` : ''})`}.`;
+      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId} — created in Bigship, pending manual "Ship Now" (Unshipped tab).`;
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
       // ── Shiprocket booking ───────────────────────────────────────────────
       const courierCompanyId = parseInt(rateId.replace(/^sr-/, ''), 10);
