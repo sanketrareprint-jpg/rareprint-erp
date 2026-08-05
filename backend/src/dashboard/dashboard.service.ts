@@ -51,8 +51,8 @@ export class DashboardService {
     const [statsResult, agentsResult, catStagesResult, avgProdResult, leadDataResult, productionKpisResult, salesByMonthResult, profitResult, cashflowResult, superAdminTasksResult, complaintsOverviewResult] = await Promise.allSettled([
       this.getStats(),
       this.getAgentLeaderboard(),
-      this.getCategoryStageQuantities(),
-      this.getAvgProductionTime(),
+      this.withTimeout(this.getCategoryStageQuantities(), 8000, []),
+      this.withTimeout(this.getAvgProductionTime(), 8000, []),
       this.getLeadSourceAnalytics(),
       this.withTimeout(this.getProductionKpis(), 10000, this.getEmptyProductionKpis()),
       this.getSalesByMonth(6),
@@ -734,12 +734,23 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
   }
 
   // ── Agent leaderboard ────────────────────────────────────────────────────
-  async getAgentLeaderboard() {
-    const now = new Date();
-    const istOffsetMs = 330 * 60 * 1000;
-    const istNow = new Date(now.getTime() + istOffsetMs);
-    const startOfMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1) - istOffsetMs);
-    const startOfNextMonth = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 1) - istOffsetMs);
+  // `month`, when given, is "YYYY-MM" (e.g. "2026-07") and switches the
+  // "month" columns from the current month to that specific past month —
+  // powers the month filter next to "Sales Leaderboard" on the dashboard.
+  async getAgentLeaderboard(month?: string) {
+    const b = this.istBoundaries();
+    let startOfMonth: Date;
+    let startOfNextMonth: Date;
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      const [yearStr, monthStr] = month.split('-');
+      const year = Number(yearStr);
+      const mIndex = Number(monthStr) - 1;
+      startOfMonth = new Date(Date.UTC(year, mIndex, 1) - b.istOffsetMs);
+      startOfNextMonth = new Date(Date.UTC(year, mIndex + 1, 1) - b.istOffsetMs);
+    } else {
+      startOfMonth = b.startOfMonth;
+      startOfNextMonth = b.startOfNextMonth;
+    }
 
     const [allTimeGroups, monthGroups, allAgents] = await Promise.all([
       this.prisma.order.groupBy({
@@ -782,27 +793,32 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     return Object.values(map).sort((a: any, b: any) => b.monthRevenue - a.monthRevenue || b.totalRevenue - a.totalRevenue);
   }
   // ── Product category quantity by stage ──────────────────────────────────
+  // Was: orderItem.findMany() with a product→category include, pulling every
+  // matching row + relation into Node just to sum quantities in JS. Pushed
+  // down to a single grouped SQL aggregate instead — same result, far less
+  // data crossing the wire and no per-row JS work. itemProductionStage is
+  // indexed (@@index([itemProductionStage, updatedAt])) so this is a fast
+  // index scan, not a table scan.
   async getCategoryStageQuantities() {
-    const items = await this.prisma.orderItem.findMany({
-      where: {
-        order: {
-          status: {
-            in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION, OrderStatus.READY_FOR_DISPATCH],
-          },
-        },
-        itemProductionStage: { not: OrderProductionStage.NOT_PRINTED },
-      },
-      include: {
-        product: { include: { category: true } },
-      },
-    });
+    type Row = { category: string; stage: string; qty: number };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT
+        cat.name AS category,
+        oi."itemProductionStage"::text AS stage,
+        SUM(oi.quantity)::int AS qty
+      FROM "OrderItem" oi
+      JOIN "Order" o ON o.id = oi."orderId"
+      JOIN "Product" p ON p.id = oi."productId"
+      JOIN "ProductCategory" cat ON cat.id = p."categoryId"
+      WHERE o.status IN ('APPROVED', 'IN_PRODUCTION', 'READY_FOR_DISPATCH')
+        AND oi."itemProductionStage"::text != 'NOT_PRINTED'
+      GROUP BY cat.name, oi."itemProductionStage"
+    `;
 
     const result: Record<string, Record<string, number>> = {};
-    for (const item of items) {
-      const cat   = item.product.category.name;
-      const stage = item.itemProductionStage;
-      if (!result[cat]) result[cat] = {};
-      result[cat][stage] = (result[cat][stage] ?? 0) + item.quantity;
+    for (const row of rows) {
+      if (!result[row.category]) result[row.category] = {};
+      result[row.category][row.stage] = Number(row.qty);
     }
 
     return Object.entries(result).map(([category, stages]) => ({
@@ -814,34 +830,50 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
   }
 
   // ── Average production time per category ────────────────────────────────
+  // Was the single biggest contributor to the dashboard's slow load: an
+  // unbounded orderItem.findMany() over EVERY item that has ever reached
+  // READY_FOR_DISPATCH across the company's entire history, each pulled in
+  // with its full stageLogs array AND the full parent order row included —
+  // then the PRINTING→READY_FOR_DISPATCH gap was computed by scanning those
+  // arrays in JS. No date filter, no take limit, so this only got slower as
+  // order history grew. Replaced with a SQL aggregate (mirrors the pattern
+  // already used in getProductionKpis below): a lateral join finds each
+  // item's first PRINTING and first READY_FOR_DISPATCH log directly via the
+  // ItemStageLog(orderItemId, createdAt) index, and the average is computed
+  // in Postgres instead of Node.
   async getAvgProductionTime() {
-    // Items that completed (reached READY_FOR_DISPATCH) — measure from order approval to ready
-    const items = await this.prisma.orderItem.findMany({
-      where: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
-      include: {
-        product: { include: { category: true } },
-        stageLogs: { orderBy: { createdAt: 'asc' } },
-        order: true,
-      },
+    type Row = { category: string; avg_hours: number | string | null; cnt: number | string };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT
+        cat.name AS category,
+        AVG(EXTRACT(EPOCH FROM (end_log.min_created - start_log.min_created)) / 3600)::float AS avg_hours,
+        COUNT(*)::int AS cnt
+      FROM "OrderItem" oi
+      JOIN "Product" p ON p.id = oi."productId"
+      JOIN "ProductCategory" cat ON cat.id = p."categoryId"
+      JOIN LATERAL (
+        SELECT MIN("createdAt") AS min_created FROM "ItemStageLog"
+        WHERE "orderItemId" = oi.id AND "toStage"::text = 'PRINTING'
+      ) start_log ON true
+      JOIN LATERAL (
+        SELECT MIN("createdAt") AS min_created FROM "ItemStageLog"
+        WHERE "orderItemId" = oi.id AND "toStage"::text = 'READY_FOR_DISPATCH'
+      ) end_log ON true
+      WHERE oi."itemProductionStage"::text = 'READY_FOR_DISPATCH'
+        AND start_log.min_created IS NOT NULL
+        AND end_log.min_created IS NOT NULL
+      GROUP BY cat.name
+    `;
+
+    return rows.map((row) => {
+      const avgHours = row.avg_hours == null ? 0 : Number(row.avg_hours);
+      return {
+        category: row.category,
+        avgHours: Math.round(avgHours),
+        avgDays: +(avgHours / 24).toFixed(1),
+        sampleSize: Number(row.cnt),
+      };
     });
-
-    const catTimes: Record<string, number[]> = {};
-    for (const item of items) {
-      const startLog = item.stageLogs.find(l => l.toStage === OrderProductionStage.PRINTING);
-      const endLog   = item.stageLogs.find(l => l.toStage === OrderProductionStage.READY_FOR_DISPATCH);
-      if (!startLog || !endLog) continue;
-      const hours = (endLog.createdAt.getTime() - startLog.createdAt.getTime()) / 3600000;
-      const cat   = item.product.category.name;
-      if (!catTimes[cat]) catTimes[cat] = [];
-      catTimes[cat].push(hours);
-    }
-
-    return Object.entries(catTimes).map(([category, times]) => ({
-      category,
-      avgHours:  Math.round(times.reduce((s, t) => s + t, 0) / times.length),
-      avgDays:   +(times.reduce((s, t) => s + t, 0) / times.length / 24).toFixed(1),
-      sampleSize: times.length,
-    }));
   }
 
   private hoursBetween(start?: Date | null, end?: Date | null) {

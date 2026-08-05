@@ -1,5 +1,5 @@
 // backend/src/dashboard/dashboard.controller.ts
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { DashboardService } from './dashboard.service';
@@ -20,7 +20,7 @@ export class DashboardController {
   getStats() { return this.dashboardService.getStats(); }
 
   @Get('agent-leaderboard')
-  getAgentLeaderboard() { return this.dashboardService.getAgentLeaderboard(); }
+  getAgentLeaderboard(@Query('month') month?: string) { return this.dashboardService.getAgentLeaderboard(month); }
 
   @Get('category-stage-quantities')
   getCategoryStageQuantities() { return this.dashboardService.getCategoryStageQuantities(); }

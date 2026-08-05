@@ -114,6 +114,9 @@ export default function DashboardPage() {
   const router = useRouter();
   const [stats,     setStats]     = useState<DashboardStats | null>(null);
   const [agents,    setAgents]    = useState<AgentRow[]>([]);
+  const [leaderboardMonth, setLeaderboardMonth] = useState(""); // "" = this month (uses `agents` above)
+  const [leaderboardAgents, setLeaderboardAgents] = useState<AgentRow[] | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [catStages, setCatStages] = useState<CatStage[]>([]);
   const [avgProd,   setAvgProd]   = useState<AvgProd[]>([]);
   const [leadData,  setLeadData]  = useState<LeadAnalytics | null>(null);
@@ -164,36 +167,51 @@ export default function DashboardPage() {
       // dashboard if there's no data imported yet. Fetched by the dedicated
       // effect below (keyed off complianceMonth) so switching the month
       // dropdown doesn't have to reload the entire dashboard.
-      try {
-        const monthsRes = await fetch(`${API_BASE_URL}/call-compliance/months`, { headers: h });
-        if (monthsRes.ok) setAvailableMonths(await monthsRes.json());
-      } catch { /* ignore */ }
+      fetch(`${API_BASE_URL}/call-compliance/months`, { headers: h })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setAvailableMonths(d); })
+        .catch(() => { /* ignore */ });
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, [router]);
 
   const loadCompliance = useCallback(async (month: string) => {
-    try {
-      const h = getAuthHeaders();
-      const qs = month ? `?month=${month}` : "";
-      const complianceRes = await fetch(`${API_BASE_URL}/call-compliance/dashboard${qs}`, { headers: h });
-      if (complianceRes.ok) setCompliance(await complianceRes.json());
-    } catch { /* ignore */ }
-    try {
-      const h = getAuthHeaders();
-      const qs = month ? `?month=${month}` : "";
-      const myStatsRes = await fetch(`${API_BASE_URL}/call-compliance/my-stats${qs}`, { headers: h });
-      if (myStatsRes.ok) setMyStats(await myStatsRes.json());
-    } catch { /* ignore */ }
-    try {
-      const h = getAuthHeaders();
-      const qs = month ? `?month=${month}` : "";
-      const teamStatsRes = await fetch(`${API_BASE_URL}/call-compliance/team-stats${qs}`, { headers: h });
-      if (teamStatsRes.ok) setTeamStats(await teamStatsRes.json());
-    } catch { /* ignore */ }
+    // These three were previously awaited one after another (three
+    // sequential round trips, each with its own CORS preflight on the
+    // Android app) — that's what made the dashboard feel like it hung.
+    // Firing them in parallel cuts load time roughly to the slowest single
+    // call instead of the sum of all three.
+    const h = getAuthHeaders();
+    const qs = month ? `?month=${month}` : "";
+    await Promise.allSettled([
+      fetch(`${API_BASE_URL}/call-compliance/dashboard${qs}`, { headers: h })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setCompliance(d); }),
+      fetch(`${API_BASE_URL}/call-compliance/my-stats${qs}`, { headers: h })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setMyStats(d); }),
+      fetch(`${API_BASE_URL}/call-compliance/team-stats${qs}`, { headers: h })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setTeamStats(d); }),
+    ]);
   }, []);
 
   useEffect(() => { void loadCompliance(complianceMonth); }, [complianceMonth, loadCompliance]);
+
+  // Sales Leaderboard month filter — "" keeps using the current-month
+  // `agents` already loaded by /dashboard/summary; picking a past month
+  // fetches that month specifically instead of reloading the whole dashboard.
+  useEffect(() => {
+    if (!leaderboardMonth) { setLeaderboardAgents(null); return; }
+    let cancelled = false;
+    setLeaderboardLoading(true);
+    fetch(`${API_BASE_URL}/dashboard/agent-leaderboard?month=${leaderboardMonth}`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { if (!cancelled) setLeaderboardAgents(d); })
+      .catch(() => { if (!cancelled) setLeaderboardAgents([]); })
+      .finally(() => { if (!cancelled) setLeaderboardLoading(false); });
+    return () => { cancelled = true; };
+  }, [leaderboardMonth]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -209,7 +227,21 @@ export default function DashboardPage() {
   );
 
   const maxDayRevenue = Math.max(...stats.orders.last7Days.map(d => d.revenue), 1);
-  const activeAgents = [...agents].sort((a, b) => b.monthRevenue - a.monthRevenue || b.monthOrders - a.monthOrders);
+  const leaderboardSource = leaderboardMonth ? (leaderboardAgents ?? []) : agents;
+  const activeAgents = [...leaderboardSource].sort((a, b) => b.monthRevenue - a.monthRevenue || b.monthOrders - a.monthOrders);
+  // Last 12 months for the leaderboard month filter — "" (first option)
+  // means "this month" and reuses the already-loaded `agents` data.
+  const leaderboardMonthOptions = [
+    { value: "", label: "This Month" },
+    ...Array.from({ length: 11 }, (_, i) => {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - (i + 1));
+      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+      return { value, label };
+    }),
+  ];
 
   // Sales-by-month bar chart geometry (mirrors the "Orders — Last 7 Days" bar chart below)
   const maxMonthSales = Math.max(...salesByMonth.map(m => m.total), 1);
@@ -545,9 +577,18 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1 mb-1">
               <Trophy className="h-3 w-3 text-amber-500" />
               <p className="text-xs font-semibold text-slate-700">Sales Leaderboard</p>
+              <select
+                value={leaderboardMonth}
+                onChange={(e) => setLeaderboardMonth(e.target.value)}
+                className="text-slate-600 bg-white border border-slate-200 rounded outline-none"
+                style={{ fontSize: "10px", padding: "1px 3px" }}
+              >
+                {leaderboardMonthOptions.map(o => <option key={o.value || "current"} value={o.value}>{o.label}</option>)}
+              </select>
+              {leaderboardLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
               <span className="text-xs text-slate-400 ml-auto">{activeAgents.length} agents</span>
             </div>
-            {agents.length === 0 ? (
+            {activeAgents.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-3">No sales agents yet</p>
             ) : (
               <div className="grid grid-cols-2 gap-x-3 gap-y-1">
