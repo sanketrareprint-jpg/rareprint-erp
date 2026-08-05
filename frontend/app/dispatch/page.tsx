@@ -639,10 +639,11 @@ export default function DispatchPage() {
                             {h.bigshipStatus && (
                               <div className="mt-0.5 text-[9px] text-slate-500" title="Live status as reported by Bigship">{h.bigshipStatus}</div>
                             )}
-                            {h.status === "PACKED" && (
+                            {(h.status === "PACKED" || h.status === "IN_TRANSIT" || h.status === "CANCELLED") && (
                               <button
                                 onClick={() => void returnToQueue(h.orderId)}
                                 disabled={returningId === h.orderId}
+                                title="Reset this order back to Ready for Dispatch — use this if the shipment was cancelled or stuck in Bigship and needs to be rebooked"
                                 className="mt-1 block w-full rounded border border-orange-300 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
                               >↩ Queue</button>
                             )}
