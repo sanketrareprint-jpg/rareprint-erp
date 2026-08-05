@@ -1018,6 +1018,12 @@ export class BigshipService {
       `RP${orderStr}`.slice(0, 25),
       `0RP${orderStr}`.slice(0, 25),
       `00RP${orderStr}`.slice(0, 25),
+      // Last-resort: the three fixed candidates above are all Bigship-account-unique
+      // invoice numbers, so they run out if the same order gets dispatched/rebooked
+      // more than twice (heavy manual testing, or repeated real-world courier
+      // failures needing rebooks). A timestamp suffix is always unique, guaranteeing
+      // this never hard-blocks — at the cost of a slightly less readable invoice no.
+      `RP${orderStr}-${Date.now().toString().slice(-6)}`.slice(0, 25),
     ];
     // Multi-box orders (2+ physical boxes declared) can't go through B2C at all —
     // Bigship hard-rejects it ("Number of boxes must be 1 for B2C orders"). Route
