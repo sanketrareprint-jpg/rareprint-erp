@@ -193,7 +193,17 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
+        <p className="mt-6 text-center text-sm text-slate-600">
+          Don&apos;t have an account?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-brand-600 hover:text-brand-700 hover:underline"
+          >
+            Sign up
+          </Link>
+        </p>
+
+        <p className="mt-3 text-center text-xs text-slate-500">
           Printing operations management · Secure access
         </p>
       </div>

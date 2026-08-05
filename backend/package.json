@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "prisma generate && node --max-old-space-size=2048 ./node_modules/@nestjs/cli/bin/nest.js build",
+    "build": "prisma generate && node --max-old-space-size=4096 ./node_modules/@nestjs/cli/bin/nest.js build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "node scripts/railway-migrate.js && node dist/src/main",
     "start:dev": "node --max-old-space-size=4096 ./node_modules/@nestjs/cli/bin/nest.js start --watch",

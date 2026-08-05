@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GmailDraftService } from '../production/gmail-draft.service';
 
@@ -85,6 +86,44 @@ export class AuthService {
         email: user.email,
         role: user.role,
       },
+    };
+  }
+
+  // ── Sign up ──────────────────────────────────────────────────────────────
+  // Creates the account and returns the same shape as login() so the signup
+  // form can log the person straight in. Defaults to SALES_AGENT when no role
+  // is given — the least-privileged role, rather than silently granting ADMIN.
+  async register(
+    fullName: string,
+    email: string,
+    password: string,
+    role?: UserRole,
+  ): Promise<{
+    accessToken: string;
+    tokenType: 'Bearer';
+    user: { id: string; fullName: string; email: string; role: string };
+  }> {
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictException('An account with this email already exists');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await this.prisma.user.create({
+      data: {
+        fullName,
+        email,
+        passwordHash,
+        role: role ?? UserRole.SALES_AGENT,
+      },
+    });
+
+    const payload: JwtUserPayload = { sub: user.id, email: user.email, role: user.role };
+
+    return {
+      accessToken: await this.jwtService.signAsync(payload),
+      tokenType: 'Bearer',
+      user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role },
     };
   }
 

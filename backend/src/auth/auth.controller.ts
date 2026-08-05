@@ -1,6 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { UserRole } from '@prisma/client';
 import { AuthService } from './auth.service';
 
 class LoginDto {
@@ -10,6 +11,24 @@ class LoginDto {
   @IsString()
   @MinLength(6)
   password: string;
+}
+
+class RegisterDto {
+  @IsString()
+  @MinLength(2)
+  fullName: string;
+
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @MinLength(6)
+  password: string;
+
+  // Optional — defaults to SALES_AGENT if omitted (see AuthService.register).
+  @IsOptional()
+  @IsEnum(UserRole)
+  role?: UserRole;
 }
 
 class ForgotPasswordDto {
@@ -36,6 +55,13 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto.email, dto.password);
+  }
+
+  // Public — creates a new account and logs it straight in (same response
+  // shape as /login), so the login page can offer a working "Sign up" option.
+  @Post('register')
+  async register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto.fullName, dto.email, dto.password, dto.role);
   }
 
   // Public — no JwtAuthGuard on this controller. Always returns { sent: true }
