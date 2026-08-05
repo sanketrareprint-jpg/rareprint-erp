@@ -328,12 +328,17 @@ export default function OrdersPage() {
       fetch(`${API_BASE_URL}/orders/payment-accounts`, { headers }),
     ]);
     const readyPayload: PagedOrders = rRes.ok ? await rRes.json() : { data: [], page: nextPage, limit: ORDER_PAGE_SIZE, total: 0, hasMore: false };
-    const rawReady = readyPayload.data ?? [];
-    const cu = (() => { try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; } })();
-    const visibleReady = cu?.role === "SALES_AGENT" ? rawReady.filter((o: any) => o.salesAgentName === cu.fullName) : rawReady;
-    setReadyOrders(prev => append ? [...prev, ...visibleReady] : visibleReady);
+    // Scoping for SALES_AGENT accounts now happens server-side (see
+    // OrdersController.getReadyForDispatch) — the backend only returns that
+    // agent's own orders in the first place, so no client-side re-filter
+    // needed here anymore. The old client-side filter only checked whatever
+    // page had already loaded, so an agent's own orders elsewhere in the
+    // full list were invisible — this endpoint's response is now already
+    // correctly scoped and paginated.
+    const readyData = readyPayload.data ?? [];
+    setReadyOrders(prev => append ? [...prev, ...readyData] : readyData);
     setReadyPage(readyPayload.page ?? nextPage);
-    setReadyTotal(readyPayload.total ?? visibleReady.length);
+    setReadyTotal(readyPayload.total ?? readyData.length);
     setReadyHasMore(Boolean(readyPayload.hasMore));
     const accs = await aRes.json();
     setAccounts(accs);
@@ -535,9 +540,10 @@ export default function OrdersPage() {
   }
 
   // ── Filtered orders ────────────────────────────────────────────────────────
-  const agentOrders = currentUser?.role === "SALES_AGENT"
-    ? orders.filter(o => o.salesAgentName === currentUser.fullName)
-    : orders;
+  // GET /orders already scopes to the caller's own orders server-side for
+  // SALES_AGENT accounts (see OrdersController.findAll) — `orders` here is
+  // already the right set, no client-side re-filter needed.
+  const agentOrders = orders;
   const allOrders        = agentOrders;
   const inProgressOrders = agentOrders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
 

@@ -81,6 +81,9 @@ type OrderListQuery = {
   marginMode?: string;
   marginThreshold?: string | number;
   includeMargin?: boolean;
+  // Scopes results to one sales agent's own orders. Set by the controller
+  // for SALES_AGENT-role callers — see findAllForTable/getOrdersWithReadyItems.
+  salesAgentId?: string;
 };
 
 function paging(query: OrderListQuery) {
@@ -260,6 +263,12 @@ export class OrdersService {
     const includeMargin = query.includeMargin === true || mf.active;
     const where: Prisma.OrderWhereInput = {};
     if (query.status && query.status !== 'ALL') where.status = query.status as OrderStatus;
+    // SALES_AGENT-role callers only ever see their own orders — set by the
+    // controller from the JWT, never trusted from the client. Was previously
+    // enforced client-side only (filtering an already-paginated, unscoped
+    // page by salesAgentName), which meant an agent's own orders that didn't
+    // happen to fall on the current unfiltered page were invisible to them.
+    if (query.salesAgentId) where.salesAgentId = query.salesAgentId;
     const search = query.search?.trim();
     if (search) {
       where.OR = [
@@ -1192,6 +1201,8 @@ export class OrdersService {
       status: { notIn: EXCLUDED_STATUSES },
       items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
     };
+    // Same server-side scoping as findAllForTable — see comment there.
+    if (query.salesAgentId) where.salesAgentId = query.salesAgentId;
     const search = query.search?.trim();
     if (search) {
       where.OR = [

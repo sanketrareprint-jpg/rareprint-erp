@@ -22,7 +22,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-type JwtUser = { id: string };
+type JwtUser = { id: string; role: string };
 type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number; base64?: string; mimeType?: string };
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads', 'designs');
@@ -57,6 +57,11 @@ export class OrdersController {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
         const includeMargin = user?.fullName === 'Sanket Admin';
+        // SALES_AGENT accounts only ever see their own orders — scoped
+        // server-side from the JWT's role/id, not something the client can
+        // influence. See OrdersService.findAllForTable for why this used to
+        // be broken when done as a client-side filter instead.
+        const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : undefined;
         return this.ordersService.findAllForTable({
           page,
           limit,
@@ -65,6 +70,7 @@ export class OrdersController {
           marginMode: includeMargin ? marginMode : undefined,
           marginThreshold: includeMargin ? marginThreshold : undefined,
           includeMargin,
+          salesAgentId,
         });
       });
   }
@@ -82,6 +88,7 @@ export class OrdersController {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
         const includeMargin = user?.fullName === 'Sanket Admin';
+        const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : undefined;
         return this.ordersService.getOrdersWithReadyItems({
           page,
           limit,
@@ -89,6 +96,7 @@ export class OrdersController {
           marginMode: includeMargin ? marginMode : undefined,
           marginThreshold: includeMargin ? marginThreshold : undefined,
           includeMargin,
+          salesAgentId,
         });
       });
   }
