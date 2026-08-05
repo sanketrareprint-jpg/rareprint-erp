@@ -1391,13 +1391,46 @@ export class DispatchService {
   }
 
   /** Return a dispatched order back to the dispatch queue.
-   *  Deletes the latest shipment record and resets order + items to READY_FOR_DISPATCH. */
+   *  Deletes the latest shipment record and resets order + items to READY_FOR_DISPATCH.
+   *
+   *  Safety check: if the shipment is linked to a Bigship order, this refuses to run
+   *  unless Bigship confirms the order is actually cancelled (live check, not the
+   *  ERP's possibly-stale cached bigshipStatus) — otherwise a still-active shipment
+   *  could get silently requeued and rebooked, risking a duplicate dispatch. A
+   *  "not found"/"does not exist" response from Bigship is also treated as cancelled:
+   *  that's the response Bigship gives for a draft that was cancelled before it was
+   *  ever manifested (still in their Unshipped tab), so there's genuinely nothing
+   *  left there to conflict with. Shipments with no Bigship order (manual/by-hand
+   *  dispatch etc.) skip this check entirely — nothing external to verify against. */
   async returnToQueue(orderId: string, userId: string): Promise<{ success: boolean }> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { items: true, shipments: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
     if (!order) throw new NotFoundException(`Order ${orderId} not found`);
+
+    const latestShipment = order.shipments[0];
+    const bigshipOrderId = (latestShipment as any)?.bigshipOrderId as string | null | undefined;
+    if (latestShipment && bigshipOrderId) {
+      const details = await this.bigship.getOrderShipmentDetails(bigshipOrderId);
+      const mappedStatus = mapBigshipStatusToShipmentStatus(details.status);
+      const bigshipOrderGone = !!details.message &&
+        /not found|does not exist|invalid order/i.test(details.message);
+      const isCancelled = mappedStatus === ShipmentStatus.CANCELLED || bigshipOrderGone;
+      if (!isCancelled) {
+        throw new BadRequestException(
+          `Cannot return to queue — Bigship order ${bigshipOrderId} is not cancelled ` +
+          `(current status: ${details.status || details.message || 'unknown'}). ` +
+          `Cancel it in Bigship first, then try again.`,
+        );
+      }
+      // Persist the confirmed status so History reflects what we just verified,
+      // even though the shipment row itself is about to be deleted below.
+      await this.prisma.shipment.update({
+        where: { id: latestShipment.id },
+        data: ({ bigshipStatus: details.status ?? 'Cancelled', bigshipSyncedAt: new Date() } as any),
+      }).catch(() => {}); // best-effort — deletion right after makes this non-critical
+    }
 
     await this.prisma.$transaction(async (tx) => {
       if (order.shipments.length > 0) {
