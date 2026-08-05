@@ -146,6 +146,10 @@ export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState<"all" | "inprogress" | "dispatch">("all");
   const [expandedPayments, setExpandedPayments] = useState<string | null>(null);
   const [expandedJourney, setExpandedJourney] = useState<string | null>(null);
+  // Android app only: order cards collapse to a single thin summary row by
+  // default (like the website's desktop table row) and expand on tap to
+  // show items/stats/actions. Website always shows the full card.
+  const [nativeExpandedOrderId, setNativeExpandedOrderId] = useState<string | null>(null);
   const [orderJourneys, setOrderJourneys] = useState<Record<string, any[]>>({});
   const [orderPayments, setOrderPayments] = useState<Record<string, Payment[]>>({});
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
@@ -235,6 +239,11 @@ export default function OrdersPage() {
     try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; }
   }, []);
   const canViewMargin = currentUser?.fullName === "Sanket Admin";
+  // Commission is now visible to every seller (sales agent) and admin, not
+  // just the owner — Margin stays owner-only (canViewMargin above) since it
+  // exposes cost/profitability, which is more sensitive than an agent's own
+  // commission on their own sale.
+  const canViewCommission = canViewMargin || currentUser?.role === "ADMIN" || currentUser?.role === "SALES_AGENT" || currentUser?.role === "AGENT";
   // Verified payments are normally locked from edit/delete once reconciled —
   // but the super admin still needs a way to correct a genuine mistake (e.g.
   // a bank reference pasted onto the wrong order), so allow delete-only,
@@ -556,7 +565,7 @@ export default function OrdersPage() {
   const canLoadMore = activeTab === "dispatch" ? readyHasMore : ordersHasMore;
   const loadedCount = activeTab === "dispatch" ? readyOrders.length : orders.length;
   const totalCount = activeTab === "dispatch" ? readyTotal : ordersTotal;
-  const tableColSpan = 11 + (canViewMargin ? 2 : 0) + (activeTab === "dispatch" ? 2 : 0);
+  const tableColSpan = 11 + (canViewMargin ? 1 : 0) + (canViewCommission ? 1 : 0) + (activeTab === "dispatch" ? 2 : 0);
   const loadMore = () => {
     const nextPage = activeTab === "dispatch" ? readyPage + 1 : ordersPage + 1;
     void load(nextPage, true);
@@ -746,7 +755,10 @@ export default function OrdersPage() {
                   </div>
                 ) : filteredOrders.map(o => (
                   <div key={o.id} className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${selectedOrderIds.has(o.id) ? "ring-2 ring-indigo-200" : ""}`}>
-                    <div className={cx("bg-brand-700 px-3 py-2 text-white", "bg-brand-700 px-3 py-1.5 text-white")}>
+                    <div
+                      className={cx("bg-brand-700 px-3 py-2 text-white", "bg-brand-700 px-3 py-1 text-white")}
+                      onClick={isNativeApp ? () => setNativeExpandedOrderId(id => id === o.id ? null : o.id) : undefined}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -761,16 +773,22 @@ export default function OrdersPage() {
                               {orderAge(o.date)}
                             </span>
                           </div>
-                          <p className={cx("mt-1 truncate text-sm font-semibold", "mt-0.5 truncate text-sm font-semibold")}>{o.customerName}</p>
-                          <p className="text-xs text-brand-100">{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} · {o.customerPhone ?? "No phone"}</p>
+                          <p className={cx("mt-1 truncate text-sm font-semibold", "mt-0 truncate text-xs font-semibold leading-tight")}>{o.customerName}</p>
+                          {(!isNativeApp || nativeExpandedOrderId === o.id) && (
+                            <p className="text-xs text-brand-100">{new Date(o.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} · {o.customerPhone ?? "No phone"}</p>
+                          )}
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs text-brand-100">Balance</p>
-                          <p className="text-sm font-bold">{fmt(o.balanceDue)}</p>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="text-right">
+                            <p className="text-xs text-brand-100">Balance</p>
+                            <p className="text-sm font-bold">{fmt(o.balanceDue)}</p>
+                          </div>
+                          {isNativeApp && (nativeExpandedOrderId === o.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
                         </div>
                       </div>
                     </div>
-                    <div className={`grid ${canViewMargin ? "grid-cols-5" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
+                    {(!isNativeApp || nativeExpandedOrderId === o.id) && (
+                    <div className={`grid ${canViewMargin ? "grid-cols-5" : canViewCommission ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
                       <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                         <p className="text-[10px] font-semibold text-slate-400">Total</p>
                         <p className="text-xs font-bold text-slate-900">{fmt(o.totalAmount)}</p>
@@ -789,7 +807,7 @@ export default function OrdersPage() {
                           <p className={`text-xs font-bold ${marginColor(o.marginPct)}`}>{marginText(o.marginPct)}</p>
                         </div>
                       )}
-                      {canViewMargin && (
+                      {canViewCommission && (
                         <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                           <p className="text-[10px] font-semibold text-slate-400">Comm.</p>
                           <p className="text-xs font-bold text-purple-700">{o.commissionTotal == null ? "—" : fmt(o.commissionTotal)}</p>
@@ -839,6 +857,7 @@ export default function OrdersPage() {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -870,7 +889,7 @@ export default function OrdersPage() {
                       {canViewMargin && (
                         <th className="px-1.5 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Margin</th>
                       )}
-                      {canViewMargin && (
+                      {canViewCommission && (
                         <th className="px-1.5 py-2 font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200" style={TH}>Commission</th>
                       )}
                       <th className="px-1.5 py-2 font-semibold text-slate-600 border-b border-slate-200" style={TH}>Actions</th>
@@ -921,7 +940,7 @@ export default function OrdersPage() {
                               {marginText(o.marginPct)}
                             </td>
                           )}
-                          {canViewMargin && (
+                          {canViewCommission && (
                             <td className="px-1.5 py-1.5 align-top whitespace-nowrap">
                               {o.commissionTotal == null ? (
                                 <span className="text-xs text-slate-400">No cost</span>
