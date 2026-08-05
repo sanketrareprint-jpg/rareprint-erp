@@ -67,6 +67,7 @@ export const DEFAULT_MODULES: ModuleConfig[] = [
   { key: 'cost-table', label: 'Cost Table', href: '/cost-table', enabled: true },
   { key: 'bank-statement', label: 'Bank Stmt', href: '/bank-statement', enabled: true },
   { key: 'remittance-import', label: 'COD Remittance', href: '/remittance-import', enabled: true },
+  { key: 'loyalty', label: 'Loyalty', href: '/loyalty', enabled: true },
   { key: 'settings', label: 'Settings', href: '/settings', enabled: true },
   { key: 'virtual-ceo', label: 'Virtual CEO', href: '/virtual-ceo', enabled: true },
 ];
@@ -89,8 +90,8 @@ export const DEFAULT_ERP_CONFIG: ErpConfig = {
   roleAccess: {
     ADMIN: DEFAULT_MODULES.map((m) => m.key),
     AGENT: ['dashboard', 'orders', 'tasks', 'storefront', 'marketing', 'customers', 'crm', 'rate-calculator'],
-    SALES_AGENT: ['dashboard', 'orders', 'tasks', 'storefront', 'marketing', 'customers', 'crm', 'rate-calculator', 'design'],
-    ACCOUNTS: ['dashboard', 'orders', 'accounts', 'tasks', 'storefront', 'cost-table', 'bank-statement', 'remittance-import', 'reports'],
+    SALES_AGENT: ['dashboard', 'orders', 'tasks', 'storefront', 'marketing', 'customers', 'crm', 'rate-calculator', 'design', 'loyalty'],
+    ACCOUNTS: ['dashboard', 'orders', 'accounts', 'tasks', 'storefront', 'cost-table', 'bank-statement', 'remittance-import', 'reports', 'loyalty'],
     PRODUCTION: ['dashboard', 'orders', 'production', 'design', 'paper-stock', 'tasks', 'storefront', 'sticker', 'sheet-layout'],
     DISPATCH: ['dashboard', 'orders', 'dispatch', 'tasks', 'storefront'],
     INHOUSE: ['orders', 'production', 'dispatch'],

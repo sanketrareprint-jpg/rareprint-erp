@@ -84,6 +84,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Design", href: "/design-studio", icon: Palette },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
+    { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],
@@ -175,6 +176,7 @@ const MODULE_KEY_BY_HREF: Record<string, string> = {
   "/cost-table": "cost-table",
   "/bank-statement": "bank-statement",
   "/remittance-import": "remittance-import",
+  "/loyalty": "loyalty",
   "/settings": "settings",
   "/virtual-ceo": "virtual-ceo",
 };
