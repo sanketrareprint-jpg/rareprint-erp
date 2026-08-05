@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat, ShieldCheck, MessageSquare } from "lucide-react";
+import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat, ShieldCheck, MessageSquare, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 
 type DashboardStats = {
   revenue: {
@@ -141,6 +141,43 @@ export default function DashboardPage() {
       if (next.has(agentId)) next.delete(agentId); else next.add(agentId);
       return next;
     });
+  };
+
+  // "Not Contacted — by Agent": click a row's count to load that agent's
+  // actual not-contacted numbers (GET /call-compliance/agents/:id/stats),
+  // cached per agentId+month so re-expanding doesn't re-fetch.
+  const [expandedNotContactedAgent, setExpandedNotContactedAgent] = useState<string | null>(null);
+  const [loadingNotContactedAgent, setLoadingNotContactedAgent] = useState<string | null>(null);
+  const [notContactedDetail, setNotContactedDetail] = useState<Record<string, NotContactedNumber[]>>({});
+  const [copiedNotContactedKey, setCopiedNotContactedKey] = useState<string | null>(null);
+  const canViewAgentCompliance = (agentId: string) => currentUser?.role === "ADMIN" || currentUser?.id === agentId;
+  const toggleNotContactedAgent = (agentId: string) => {
+    setExpandedNotContactedAgent((prev) => (prev === agentId ? null : agentId));
+  };
+  // Fetches (and re-fetches if the month filter changes while a row is
+  // expanded) that agent's actual not-contacted numbers.
+  useEffect(() => {
+    if (!expandedNotContactedAgent) return;
+    const agentId = expandedNotContactedAgent;
+    const cacheKey = `${agentId}:${complianceMonth}`;
+    if (notContactedDetail[cacheKey]) return;
+    let cancelled = false;
+    setLoadingNotContactedAgent(agentId);
+    const qs = complianceMonth ? `?month=${complianceMonth}` : "";
+    fetch(`${API_BASE_URL}/call-compliance/agents/${agentId}/stats${qs}`, { headers: getAuthHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!cancelled && data) setNotContactedDetail((prev) => ({ ...prev, [cacheKey]: data.notContactedNumbers ?? [] })); })
+      .catch(() => { /* silent — expanded panel just shows empty */ })
+      .finally(() => { if (!cancelled) setLoadingNotContactedAgent(null); });
+    return () => { cancelled = true; };
+  }, [expandedNotContactedAgent, complianceMonth, notContactedDetail]);
+  const copyNotContactedNumbers = (agentId: string, numbers: NotContactedNumber[]) => {
+    const cacheKey = `${agentId}:${complianceMonth}`;
+    const text = numbers.map((n) => n.phone).join("\n");
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopiedNotContactedKey(cacheKey);
+      setTimeout(() => setCopiedNotContactedKey((k) => (k === cacheKey ? null : k)), 1500);
+    }).catch(() => {});
   };
 
   const load = useCallback(async () => {
@@ -718,15 +755,56 @@ export default function DashboardPage() {
                 <span className="text-xs text-slate-400 ml-auto">{compliance.totals.notContacted} total</span>
               </div>
               <div className="space-y-1">
-                {[...compliance.agents].sort((a, b) => b.notContacted - a.notContacted).map((row) => (
-                  <div key={row.agentId} className="flex items-center justify-between gap-2 px-1.5 py-0.5">
-                    <span className="text-xs text-slate-700 truncate">{row.agentName}</span>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-slate-400">{row.contacted}/{row.tagsApplied} contacted</span>
-                      <span className={`text-xs font-bold ${row.notContacted > 0 ? "text-red-600" : "text-emerald-600"}`}>{row.notContacted}</span>
+                {[...compliance.agents].sort((a, b) => b.notContacted - a.notContacted).map((row) => {
+                  const canExpand = row.notContacted > 0 && canViewAgentCompliance(row.agentId);
+                  const isOpen = expandedNotContactedAgent === row.agentId;
+                  const cacheKey = `${row.agentId}:${complianceMonth}`;
+                  const numbers = notContactedDetail[cacheKey];
+                  return (
+                    <div key={row.agentId}>
+                      <div
+                        className={`flex items-center justify-between gap-2 px-1.5 py-0.5 rounded ${canExpand ? "cursor-pointer hover:bg-slate-50" : ""}`}
+                        onClick={() => canExpand && toggleNotContactedAgent(row.agentId)}
+                      >
+                        <span className="text-xs text-slate-700 truncate">{row.agentName}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-xs text-slate-400">{row.contacted}/{row.tagsApplied} contacted</span>
+                          <span className={`text-xs font-bold ${row.notContacted > 0 ? "text-red-600" : "text-emerald-600"}`}>{row.notContacted}</span>
+                          {canExpand && (isOpen ? <ChevronUp className="h-3 w-3 text-slate-400" /> : <ChevronDown className="h-3 w-3 text-slate-400" />)}
+                        </div>
+                      </div>
+                      {isOpen && (
+                        <div className="ml-1.5 mb-1 mt-0.5 rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5">
+                          {loadingNotContactedAgent === row.agentId ? (
+                            <div className="flex items-center gap-1.5 py-1"><Loader2 className="h-3 w-3 animate-spin text-slate-400" /><span className="text-xs text-slate-400">Loading…</span></div>
+                          ) : !numbers || numbers.length === 0 ? (
+                            <p className="text-xs text-slate-400 py-1">No not-contacted numbers.</p>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs text-slate-500">{numbers.length} number{numbers.length === 1 ? "" : "s"}</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); copyNotContactedNumbers(row.agentId, numbers); }}
+                                  className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-100"
+                                >
+                                  {copiedNotContactedKey === cacheKey ? <><Check className="h-3 w-3 text-emerald-600" /> Copied</> : <><Copy className="h-3 w-3" /> Copy all</>}
+                                </button>
+                              </div>
+                              <div className="max-h-40 overflow-y-auto space-y-0.5">
+                                {numbers.map((n, i) => (
+                                  <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="text-slate-700 truncate">{n.name || "—"}</span>
+                                    <span className="text-slate-500 font-mono flex-shrink-0">{n.phone}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
