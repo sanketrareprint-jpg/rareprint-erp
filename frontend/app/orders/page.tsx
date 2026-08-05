@@ -788,6 +788,7 @@ export default function OrdersPage() {
                       </div>
                     </div>
                     {(!isNativeApp || nativeExpandedOrderId === o.id) && (
+                    <>
                     <div className={`grid ${canViewMargin ? "grid-cols-5" : canViewCommission ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
                       <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                         <p className="text-[10px] font-semibold text-slate-400">Total</p>
@@ -857,6 +858,7 @@ export default function OrdersPage() {
                         </div>
                       )}
                     </div>
+                    </>
                     )}
                   </div>
                 ))}
