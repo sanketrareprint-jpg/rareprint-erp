@@ -1115,7 +1115,6 @@ export default function OrdersPage() {
                                         const isApproved = log.toStatus === 'APPROVED';
                                         const isReady = log.toStatus === 'READY_FOR_DISPATCH';
                                         const dotColor = isPayment ? 'bg-emerald-500' : isSheetEvent ? 'bg-indigo-400' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : 'bg-slate-400';
-                                        const qty = meta.quantityOnSheet ?? meta.sheetQuantity;
                                         return (
                                           <div key={log.id} className="relative flex gap-4 pb-4">
                                             {/* Dot */}
@@ -1148,29 +1147,40 @@ export default function OrdersPage() {
                                                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(meta.sheetStatus)}`}>{labelize(meta.sheetStatus)}</span>
                                                         )}
                                                       </div>
-                                                      {/* One flowing line instead of a label/value grid — same info, no
-                                                          per-field boxes, and drops fields that just repeat what the
-                                                          badges/description above already say (item stage, "multiple",
-                                                          vendor+invoice when the description already names the vendor). */}
-                                                      <p className="mt-0.5 text-xs text-slate-500">
+                                                      <p className="mt-1 text-xs font-medium text-slate-700">
+                                                        {eventType === "SHEET_ASSIGNED"
+                                                          ? `${meta.productName ?? "Item"} assigned to sheet ${meta.sheetNo ?? ""}`
+                                                          : eventType === "SHEET_STAGE_VENDOR_ASSIGNED"
+                                                          ? `${labelize(meta.stage)} assigned to ${meta.vendorName ?? "vendor"}`
+                                                          : log.reason}
+                                                      </p>
+                                                      {/* Every field from the original grid, kept — just as one flowing
+                                                          line instead of boxed label/value cells (more compact, same
+                                                          info). The only thing actually dropped is Work stage / Vendor
+                                                          on a Stage Vendor event specifically, since the sentence right
+                                                          above already says "{stage} assigned to {vendor}" — that's the
+                                                          one genuine repeat. Invoice isn't in that sentence, so it stays. */}
+                                                      <p className="mt-1 text-xs text-slate-500">
                                                         {[
-                                                          eventType === "SHEET_ASSIGNED" ? `${meta.productName ?? "Item"} assigned to sheet ${meta.sheetNo ?? ""}`
-                                                            : eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? `${labelize(meta.stage)} assigned to ${meta.vendorName ?? "vendor"}${meta.vendorInvoiceNo ? ` (Inv ${meta.vendorInvoiceNo})` : ""}`
-                                                            : meta.productName,
-                                                          qty !== undefined ? `Qty ${qty}` : null,
-                                                          meta.sheetSize,
-                                                          meta.sheetGsm ? `${meta.sheetGsm} GSM` : null,
-                                                          meta.sheetPrinting ? labelize(meta.sheetPrinting) : null,
+                                                          meta.productName ? `Item: ${meta.productName}` : null,
+                                                          meta.quantityOnSheet !== undefined ? `Qty on sheet: ${meta.quantityOnSheet}` : null,
+                                                          meta.multiple !== undefined ? `Multiple: ${meta.multiple}` : null,
+                                                          meta.sheetQuantity !== undefined ? `Sheet qty: ${meta.sheetQuantity}` : null,
+                                                          (meta.actualPrintedQuantity !== undefined && meta.actualPrintedQuantity !== null) ? `Printed qty: ${meta.actualPrintedQuantity}` : null,
+                                                          meta.sheetSize ? `Sheet size: ${meta.sheetSize}` : null,
+                                                          meta.sheetGsm ? `GSM: ${meta.sheetGsm}` : null,
+                                                          meta.sheetPrinting ? `Printing: ${labelize(meta.sheetPrinting)}` : null,
+                                                          (meta.itemStage || meta.orderItemStage) ? `Item stage: ${labelize(meta.itemStage ?? meta.orderItemStage)}` : null,
+                                                          (meta.stage && eventType !== "SHEET_STAGE_VENDOR_ASSIGNED") ? `Work stage: ${labelize(meta.stage)}` : null,
+                                                          (meta.vendorName && eventType !== "SHEET_STAGE_VENDOR_ASSIGNED") ? `Vendor: ${meta.vendorName}` : null,
+                                                          meta.vendorInvoiceNo ? `Invoice: ${meta.vendorInvoiceNo}` : null,
                                                         ].filter(Boolean).join(" · ")}
                                                       </p>
-                                                      {/* Cumulative vendor-per-stage summary — only shown on "Current
-                                                          Sheet" where it's the one place this info appears; the
-                                                          Stage Vendor event already states its single vendor above. */}
-                                                      {eventType === "SHEET_CURRENT_STATUS" && Array.isArray(meta.stageVendors) && meta.stageVendors.length > 0 && (
-                                                        <div className="mt-1 flex flex-wrap gap-1">
+                                                      {Array.isArray(meta.stageVendors) && meta.stageVendors.length > 0 && (
+                                                        <div className="mt-1.5 flex flex-wrap gap-1">
                                                           {meta.stageVendors.map((sv: any, vendorIdx: number) => (
                                                             <span key={`${log.id}-vendor-${vendorIdx}`} className="rounded-full bg-white px-1.5 py-0.5 text-xs font-medium text-slate-600 border border-slate-200">
-                                                              {labelize(sv.stage)}: {sv.vendorName}
+                                                              {labelize(sv.stage)}: {sv.vendorName}{sv.invoiceNo ? ` · Inv ${sv.invoiceNo}` : ""}
                                                             </span>
                                                           ))}
                                                         </div>
