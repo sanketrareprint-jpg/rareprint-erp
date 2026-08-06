@@ -482,11 +482,16 @@ export class CallComplianceService {
         }
         const distinctNumbersCalled = byPhone.size;
         const repeatCallRate = distinctNumbersCalled ? Math.round((calledRepeat / distinctNumbersCalled) * 100) : 0;
+        // Total call count (every ring, including repeats to the same number) —
+        // distinct from distinctNumbersCalled above, which is unique numbers only.
+        // This is what powers the dashboard's "Monthly Calls — by Agent" card.
+        const totalCalls = [...byPhone.values()].reduce((sum, v) => sum + v.count, 0);
 
         return {
           agentId,
           agentName: nameById.get(agentId) ?? 'Unknown',
           distinctNumbersCalled,
+          totalCalls,
           top5Called,
           callingPattern: {
             distinctNumbersCalled,

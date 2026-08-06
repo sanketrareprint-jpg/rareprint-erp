@@ -72,6 +72,7 @@ type TeamAgentCallStats = {
   agentId: string;
   agentName: string;
   distinctNumbersCalled: number;
+  totalCalls: number;
   top5Called: TopCalledNumber[];
   callingPattern: { distinctNumbersCalled: number; calledOnce: number; calledRepeat: number; repeatCallRate: number; distribution: CallingPatternBucket[] };
 };
@@ -742,6 +743,36 @@ export default function DashboardPage() {
               <option value="">All time</option>
               {availableMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
             </select>
+          </div>
+        )}
+
+        {/* ── Call Compliance: total calls per agent, for the selected period ── */}
+        {teamStats && teamStats.agents.length > 0 && (
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1 mb-1">
+              <PhoneCall className="h-3 w-3 text-emerald-500" />
+              <p className="text-xs font-semibold text-slate-700">Monthly Calls — by Agent</p>
+              <span className="text-xs text-slate-400 ml-auto">
+                {teamStats.agents.reduce((sum, a) => sum + a.totalCalls, 0).toLocaleString("en-IN")} total
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {[...teamStats.agents].sort((a, b) => b.totalCalls - a.totalCalls).map((a) => {
+                const maxCalls = Math.max(...teamStats.agents.map((r) => r.totalCalls), 1);
+                const pct = Math.round((a.totalCalls / maxCalls) * 100);
+                return (
+                  <div key={a.agentId} className="min-w-0">
+                    <div className="flex justify-between mb-0.5 gap-1">
+                      <span className="text-xs font-medium text-slate-700 truncate">{a.agentName}</span>
+                      <span className="text-emerald-600 font-bold flex-shrink-0" style={{ fontSize: "10px" }}>{a.totalCalls}</span>
+                    </div>
+                    <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
