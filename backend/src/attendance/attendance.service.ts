@@ -354,7 +354,12 @@ export class AttendanceService {
         isPaidLeave: r?.isPaidLeave ?? false,
         source: r?.source ?? null,
         note: r?.note ?? null,
-        needsReview: !!r && !r.isAbsent && !r.isPaidLeave && !r.timeIn && !r.timeOut && Number(r.hoursWorked) === 0,
+        // Flag on hoursWorked===0 alone (not "both timeIn and timeOut missing") —
+        // a punch-in with no matching punch-out (e.g. thumb missed the second
+        // scan) still has a timeIn, so the old condition let it through as 0
+        // hours with no review flag. Confirmed against real data: 2 rows in a
+        // real import had exactly this shape and were silently paid as 0 hours.
+        needsReview: !!r && !r.isAbsent && !r.isPaidLeave && Number(r.hoursWorked) === 0,
       });
     }
 

@@ -501,7 +501,37 @@ export class HrService {
     ]);
 
     const workingDays = workingDaysInMonth(year, month);
-    const leaveDays = leaveEntries.reduce((sum, e) => sum + Number(e.days), 0);
+
+    // Only leave types that are actually PAID excuse the day from
+    // requiredHours (which is what determines whether a day counts as a
+    // shortfall). UNPAID was being summed in here identically to PAID —
+    // meaning marking someone's leave as "Unpaid" in the ledger had the
+    // opposite of the intended effect: it forgave that day's required hours
+    // instead of docking pay for it. Confirmed: UNPAID is a real, selectable
+    // option in the HR leave-entry UI, not a dead enum value.
+    const paidLeaveEntries = leaveEntries.filter((e) => e.type !== 'UNPAID');
+    let leaveDays = paidLeaveEntries.reduce((sum, e) => sum + Number(e.days), 0);
+
+    // The Attendance page's per-day "Paid Leave" checkbox (AttendanceRecord.
+    // isPaidLeave) is a separate flag from the leave ledger above, and was
+    // never read here — ticking it looked identical to ticking "Absent" in
+    // the UI but had zero effect on requiredHours, so it didn't actually
+    // protect pay the way an admin would expect. Count grid-ticked paid-leave
+    // days that don't already have a ledger entry covering that date (avoid
+    // double-counting if both were used for the same day).
+    const ledgerDates = new Set<string>();
+    for (const e of leaveEntries) {
+      const start = new Date(e.date);
+      const end = e.endDate ? new Date(e.endDate) : start;
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        ledgerDates.add(d.toISOString().slice(0, 10));
+      }
+    }
+    const gridPaidLeaveDays = records.filter(
+      (r) => r.isPaidLeave && !ledgerDates.has(r.date.toISOString().slice(0, 10)),
+    ).length;
+    leaveDays += gridPaidLeaveDays;
+
     const netDays = Math.max(0, workingDays - leaveDays);
     const workingHoursPerDay = Number(employee.workingHoursPerDay);
     const requiredHours = netDays * workingHoursPerDay;
@@ -530,7 +560,10 @@ export class HrService {
       }
     }
 
-    const daysMissingPunch = records.filter((r) => !r.timeIn && !r.timeOut && !r.isAbsent && !r.isPaidLeave).length;
+    // Matches the needsReview fix in attendance.service.ts: flag on
+    // hoursWorked===0, not "both timeIn and timeOut missing" (a punch-in
+    // with no punch-out has a timeIn but still nets 0 hours).
+    const daysMissingPunch = records.filter((r) => Number(r.hoursWorked) === 0 && !r.isAbsent && !r.isPaidLeave).length;
     const daysInMonth = new Date(year, month, 0).getDate();
     const recordedDays = records.length;
 
