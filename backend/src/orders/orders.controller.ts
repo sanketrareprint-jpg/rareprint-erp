@@ -57,6 +57,13 @@ export class OrdersController {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
         const includeMargin = user?.fullName === 'Sanket Admin';
+        // Commission visibility is intentionally broader than Margin — every
+        // seller sees their own commission, only the owner sees profit
+        // margin. Mirrors canViewCommission in frontend/app/orders/page.tsx;
+        // keep the two in sync if that ever changes.
+        const includeCommission = includeMargin
+          || req.user.role === 'ADMIN'
+          || req.user.role === 'SALES_AGENT';
         // SALES_AGENT accounts only ever see their own orders — scoped
         // server-side from the JWT's role/id, not something the client can
         // influence. See OrdersService.findAllForTable for why this used to
@@ -70,6 +77,7 @@ export class OrdersController {
           marginMode: includeMargin ? marginMode : undefined,
           marginThreshold: includeMargin ? marginThreshold : undefined,
           includeMargin,
+          includeCommission,
           salesAgentId,
         });
       });
@@ -88,6 +96,9 @@ export class OrdersController {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
         const includeMargin = user?.fullName === 'Sanket Admin';
+        const includeCommission = includeMargin
+          || req.user.role === 'ADMIN'
+          || req.user.role === 'SALES_AGENT';
         const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : undefined;
         return this.ordersService.getOrdersWithReadyItems({
           page,
@@ -96,6 +107,7 @@ export class OrdersController {
           marginMode: includeMargin ? marginMode : undefined,
           marginThreshold: includeMargin ? marginThreshold : undefined,
           includeMargin,
+          includeCommission,
           salesAgentId,
         });
       });

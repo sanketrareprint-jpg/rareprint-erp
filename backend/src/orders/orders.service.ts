@@ -81,6 +81,11 @@ type OrderListQuery = {
   marginMode?: string;
   marginThreshold?: string | number;
   includeMargin?: boolean;
+  // Independent from includeMargin — Commission is visible to sellers +
+  // admins (their own sale's commission), Margin stays owner-only (exposes
+  // cost/profitability). Both need matchingCostSlab attached, so the two
+  // flags share the slab-fetch below, but each gates its own output fields.
+  includeCommission?: boolean;
   // Scopes results to one sales agent's own orders. Set by the controller
   // for SALES_AGENT-role callers — see findAllForTable/getOrdersWithReadyItems.
   salesAgentId?: string;
@@ -261,6 +266,7 @@ export class OrdersService {
     const { page, limit, skip } = paging(query);
     const mf = marginFilter(query);
     const includeMargin = query.includeMargin === true || mf.active;
+    const includeCommission = includeMargin || query.includeCommission === true;
     const where: Prisma.OrderWhereInput = {};
     if (query.status && query.status !== 'ALL') where.status = query.status as OrderStatus;
     // SALES_AGENT-role callers only ever see their own orders — set by the
@@ -317,10 +323,10 @@ export class OrdersService {
         payments: true,
       },
     });
-    const slabsByProductId = includeMargin
+    const slabsByProductId = (includeMargin || includeCommission)
       ? await this.getSlabsByProductId(orders.flatMap((o) => o.items.map((i) => i.productId)))
       : new Map<string, any[]>();
-    const ordersWithSlabs = includeMargin ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
+    const ordersWithSlabs = (includeMargin || includeCommission) ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
     const marginFiltered = mf.active
       ? ordersWithSlabs.filter((o) => {
           const marginPct = this.calculateOrderMargin(o).marginPct;
@@ -339,7 +345,9 @@ export class OrdersService {
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = total - advancePaid;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
-      const commission = includeMargin ? this.calculateOrderCommission(o) : null;
+      // Was gated behind includeMargin (admin-only) — commission needs its
+      // own, less restrictive gate now that it's visible to sellers too.
+      const commission = includeCommission ? this.calculateOrderCommission(o) : null;
 
       return {
         id: o.id,
@@ -355,6 +363,8 @@ export class OrdersService {
           marginPct: margin.marginPct,
           marginTotal: margin.marginTotal,
           costTotal: margin.costTotal,
+        } : {}),
+        ...(includeCommission ? {
           commissionTotal: commission?.commissionTotal ?? null,
           commissionPctOfSale: commission?.commissionPctOfSale ?? null,
         } : {}),
@@ -1190,6 +1200,7 @@ export class OrdersService {
     const { page, limit, skip } = paging(query);
     const mf = marginFilter(query);
     const includeMargin = query.includeMargin === true || mf.active;
+    const includeCommission = includeMargin || query.includeCommission === true;
     const EXCLUDED_STATUSES = [
       OrderStatus.PENDING_DISPATCH_APPROVAL,
       OrderStatus.DISPATCHED,
@@ -1251,10 +1262,10 @@ export class OrdersService {
         payments: true,
       },
     });
-    const slabsByProductId = includeMargin
+    const slabsByProductId = (includeMargin || includeCommission)
       ? await this.getSlabsByProductId(orders.flatMap((o) => o.items.map((i) => i.productId)))
       : new Map<string, any[]>();
-    const ordersWithSlabs = includeMargin ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
+    const ordersWithSlabs = (includeMargin || includeCommission) ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
     const marginFiltered = mf.active
       ? ordersWithSlabs.filter((o) => {
           const marginPct = this.calculateOrderMargin(o).marginPct;
@@ -1274,7 +1285,7 @@ export class OrdersService {
       const balanceDue = total - advancePaid;
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
-      const commission = includeMargin ? this.calculateOrderCommission(o) : null;
+      const commission = includeCommission ? this.calculateOrderCommission(o) : null;
 
       return {
         id: o.id,
@@ -1290,6 +1301,8 @@ export class OrdersService {
           marginPct: margin.marginPct,
           marginTotal: margin.marginTotal,
           costTotal: margin.costTotal,
+        } : {}),
+        ...(includeCommission ? {
           commissionTotal: commission?.commissionTotal ?? null,
           commissionPctOfSale: commission?.commissionPctOfSale ?? null,
         } : {}),
