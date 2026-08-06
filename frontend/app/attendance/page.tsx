@@ -7,7 +7,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
 import {
-  CalendarClock, Upload, Loader2, Save, ShieldAlert, AlertTriangle, CheckCircle2, Plus,
+  CalendarClock, Upload, Loader2, Save, ShieldAlert, AlertTriangle, CheckCircle2, Plus, History, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 type EmployeeListItem = { id: string; employeeCode: string; fullName: string; designation: string; status: string };
@@ -18,6 +18,12 @@ type DayRow = {
   note: string | null; needsReview: boolean;
 };
 type MonthGrid = { employeeId: string; employeeCode: string; fullName: string; workingHoursPerDay: number; year: number; month: number; days: DayRow[] };
+
+type ImportSession = {
+  id: string; fileName: string; periodStart: string; periodEnd: string;
+  rowsFound: number; rowsImported: number; rowsSkipped: number; createdAt: string;
+  importedBy?: { fullName: string } | null;
+};
 
 type SalaryCalc = {
   workingDays: number; leaveDays: number; netDays: number; requiredHours: number;
@@ -49,10 +55,17 @@ export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [importSessions, setImportSessions] = useState<ImportSession[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const [showAdHocLeave, setShowAdHocLeave] = useState(false);
   const [adHocLeave, setAdHocLeave] = useState({ date: "", days: "1", reason: "" });
   const [savingLeave, setSavingLeave] = useState(false);
+
+  const loadImportSessions = useCallback(async () => {
+    const data = await apiFetch<ImportSession[]>("/attendance/import-sessions", {}, undefined);
+    if (data) setImportSessions(data);
+  }, []);
 
   useEffect(() => {
     if (!canAccess) return;
@@ -62,8 +75,20 @@ export default function AttendancePage() {
         if (!employeeId && data.length) setEmployeeId(data[0].id);
       }
     });
+    void loadImportSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canAccess]);
+
+  // Does any import session's period overlap the currently selected month? (Imports cover
+  // a date range for ALL employees at once, so this is a company-wide check, not per-employee.)
+  const monthStartSel = new Date(year, month - 1, 1);
+  const monthEndSel = new Date(year, month, 0);
+  const sessionsForMonth = importSessions.filter((s) => {
+    const ps = new Date(s.periodStart);
+    const pe = new Date(s.periodEnd);
+    return ps <= monthEndSel && pe >= monthStartSel;
+  });
+  const monthImported = sessionsForMonth.length > 0;
 
   const loadGrid = useCallback(async () => {
     if (!employeeId) return;
@@ -130,6 +155,7 @@ export default function AttendancePage() {
       const data = await res.json();
       setImportResult(data);
       void loadGrid();
+      void loadImportSessions();
     } catch (err: any) {
       setError(err.message || "Import failed");
     } finally {
@@ -183,6 +209,38 @@ export default function AttendancePage() {
               )}
             </div>
           )}
+
+          <button onClick={() => setShowHistory((v) => !v)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-800">
+            <History size={13} /> Import history ({importSessions.length}) {showHistory ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          {showHistory && (
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
+                    <th className="py-2 px-2">Period covered</th>
+                    <th className="py-2 px-2">File</th>
+                    <th className="py-2 px-2">Rows</th>
+                    <th className="py-2 px-2">Imported by</th>
+                    <th className="py-2 px-2">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importSessions.length === 0 ? (
+                    <tr><td colSpan={5} className="py-3 px-2 text-slate-400 text-center">No imports yet.</td></tr>
+                  ) : importSessions.map((s) => (
+                    <tr key={s.id} className="border-b border-slate-50">
+                      <td className="py-1.5 px-2 whitespace-nowrap">{new Date(s.periodStart).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} – {new Date(s.periodEnd).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                      <td className="py-1.5 px-2 text-slate-500">{s.fileName}</td>
+                      <td className="py-1.5 px-2">{s.rowsImported}/{s.rowsFound} <span className="text-slate-400">({s.rowsSkipped} skipped)</span></td>
+                      <td className="py-1.5 px-2 text-slate-500">{s.importedBy?.fullName ?? "—"}</td>
+                      <td className="py-1.5 px-2 text-slate-400 whitespace-nowrap">{new Date(s.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
@@ -201,6 +259,17 @@ export default function AttendancePage() {
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Year</label>
             <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="mt-1 block w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+          </div>
+          <div>
+            {monthImported ? (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
+                <CheckCircle2 size={13} /> Report imported for {MONTH_NAMES[month - 1]} {year}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                <AlertTriangle size={13} /> No report imported yet for {MONTH_NAMES[month - 1]} {year}
+              </span>
+            )}
           </div>
         </div>
 
