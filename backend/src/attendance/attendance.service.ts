@@ -164,6 +164,19 @@ export class AttendanceService {
     let rowsSkipped = 0;
     const unmatched = new Map<string, string>(); // biometricId -> name
 
+    // Was doing one findUnique + one upsert PER ROW, sequentially awaited —
+    // for a full month (employees × ~30 days) that's hundreds of one-at-a-time
+    // round trips to the remote DB, which is what made the import spin for a
+    // long time. Fetch every existing record for the period in a single query
+    // up front, then fire the upserts concurrently instead of one at a time.
+    const existingRecords = employees.length
+      ? await this.prisma.attendanceRecord.findMany({
+          where: { employeeId: { in: employees.map((e) => e.id) }, date: { gte: periodStart, lte: periodEnd } },
+        })
+      : [];
+    const existingByKey = new Map(existingRecords.map((r) => [`${r.employeeId}|${r.date.getTime()}`, r]));
+
+    const upserts: Promise<unknown>[] = [];
     for (const row of rows) {
       const employee = byBiometricId.get(row.biometricId);
       if (!employee) {
@@ -172,9 +185,7 @@ export class AttendanceService {
         continue;
       }
 
-      const existing = await this.prisma.attendanceRecord.findUnique({
-        where: { employeeId_date: { employeeId: employee.id, date: row.date } },
-      });
+      const existing = existingByKey.get(`${employee.id}|${row.date.getTime()}`);
       if (existing && (existing.source === 'MANUAL' || existing.source === 'EDITED')) {
         rowsSkipped++; // a human already corrected this day — never clobber it on re-import
         continue;
@@ -184,37 +195,39 @@ export class AttendanceService {
       const hasAnyPunch = !!(row.onDuty1 || row.offDuty1 || row.onDuty2 || row.offDuty2);
       const isAbsent = !hasAnyPunch;
 
-      await this.prisma.attendanceRecord.upsert({
-        where: { employeeId_date: { employeeId: employee.id, date: row.date } },
-        create: {
-          employeeId: employee.id,
-          date: row.date,
-          timeIn: row.onDuty1,
-          timeOut: row.offDuty2 || row.offDuty1, // last punch of the day
-          secondTimeIn: row.offDuty1 && row.onDuty2 ? row.onDuty2 : null,
-          secondTimeOut: row.offDuty1 && row.onDuty2 ? row.offDuty2 : null,
-          hoursWorked,
-          lateMinutes: row.lateMinutes,
-          earlyLeaveMinutes: row.earlyLeaveMinutes,
-          isAbsent,
-          source: 'IMPORTED',
-          importSessionId: session.id,
-        },
-        update: {
-          timeIn: row.onDuty1,
-          timeOut: row.offDuty2 || row.offDuty1,
-          secondTimeIn: row.offDuty1 && row.onDuty2 ? row.onDuty2 : null,
-          secondTimeOut: row.offDuty1 && row.onDuty2 ? row.offDuty2 : null,
-          hoursWorked,
-          lateMinutes: row.lateMinutes,
-          earlyLeaveMinutes: row.earlyLeaveMinutes,
-          isAbsent,
-          source: 'IMPORTED',
-          importSessionId: session.id,
-        },
-      });
-      rowsImported++;
+      upserts.push(
+        this.prisma.attendanceRecord.upsert({
+          where: { employeeId_date: { employeeId: employee.id, date: row.date } },
+          create: {
+            employeeId: employee.id,
+            date: row.date,
+            timeIn: row.onDuty1,
+            timeOut: row.offDuty2 || row.offDuty1, // last punch of the day
+            secondTimeIn: row.offDuty1 && row.onDuty2 ? row.onDuty2 : null,
+            secondTimeOut: row.offDuty1 && row.onDuty2 ? row.offDuty2 : null,
+            hoursWorked,
+            lateMinutes: row.lateMinutes,
+            earlyLeaveMinutes: row.earlyLeaveMinutes,
+            isAbsent,
+            source: 'IMPORTED',
+            importSessionId: session.id,
+          },
+          update: {
+            timeIn: row.onDuty1,
+            timeOut: row.offDuty2 || row.offDuty1,
+            secondTimeIn: row.offDuty1 && row.onDuty2 ? row.onDuty2 : null,
+            secondTimeOut: row.offDuty1 && row.onDuty2 ? row.offDuty2 : null,
+            hoursWorked,
+            lateMinutes: row.lateMinutes,
+            earlyLeaveMinutes: row.earlyLeaveMinutes,
+            isAbsent,
+            source: 'IMPORTED',
+            importSessionId: session.id,
+          },
+        }).then(() => { rowsImported++; }),
+      );
     }
+    await Promise.all(upserts);
 
     const unmatchedIds = Array.from(unmatched.entries()).map(([id, name]) => ({ id, name }));
     await this.prisma.attendanceImportSession.update({
