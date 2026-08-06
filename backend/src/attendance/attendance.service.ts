@@ -54,6 +54,34 @@ function cellStr(v: unknown): string {
   return String(v).trim();
 }
 
+// Excel stores a time-only cell as a fraction of 24h (e.g. 0.3854166... =
+// 09:15) whenever the cell isn't explicitly typed as text. Some rows in a
+// given export are formatted as text ("09:15") and some as an actual time
+// value — xlsx's raw:true read returns the fraction as a plain JS number for
+// the latter, and cellStr() was just stringifying that number as-is, which
+// is exactly the "0.3854166" showing up on the Attendance page instead of a
+// real time. Handles both forms (and HH:MM:SS, just in case) and always
+// normalizes to "HH:MM".
+function parseTimeCell(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return null;
+    const fraction = v - Math.floor(v); // ignore any whole-day part
+    let totalMinutes = Math.round(fraction * 24 * 60);
+    totalMinutes = ((totalMinutes % 1440) + 1440) % 1440;
+    const h = Math.floor(totalMinutes / 60);
+    const mm = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+  const s = String(v).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/); // HH:MM or HH:MM:SS
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (h > 23 || mm > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
 function timeToMinutes(hhmm: string | null): number | null {
   if (!hhmm) return null;
   const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
@@ -157,10 +185,10 @@ function parseExceptionSheet(sheet: XLSX.WorkSheet): { rows: ParsedRow[]; period
       biometricId,
       name: cellStr(r[1]),
       date,
-      onDuty1: cellStr(r[4]) || null,
-      offDuty1: cellStr(r[5]) || null,
-      onDuty2: cellStr(r[6]) || null,
-      offDuty2: cellStr(r[7]) || null,
+      onDuty1: parseTimeCell(r[4]),
+      offDuty1: parseTimeCell(r[5]),
+      onDuty2: parseTimeCell(r[6]),
+      offDuty2: parseTimeCell(r[7]),
       lateMinutes: r[8] != null && r[8] !== '' ? Number(r[8]) : null,
       earlyLeaveMinutes: r[9] != null && r[9] !== '' ? Number(r[9]) : null,
       absenceMinutes: r[10] != null && r[10] !== '' ? Number(r[10]) : null,
