@@ -1080,14 +1080,14 @@ export default function OrdersPage() {
                             <td colSpan={tableColSpan} className="bg-slate-50 px-6 py-4 border-t border-slate-100">
                               <p className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Order Journey</p>
                               {(() => {
-                                // Simple customer journey: only real order-level milestones
-                                // + payments — not internal sheet/production bookkeeping or
-                                // per-item duplicates of the order-level transition next to them.
+                                // Simple journey: order-level milestones + payments + a
+                                // one-line-each summary of sheet/quantity events — not the
+                                // full production grid (GSM, printing side, invoice no,
+                                // vendor chips), and not the per-item duplicates of the
+                                // order-level transition that sits right next to them.
                                 const simpleLogs = (orderJourneys[o.id] ?? []).filter((log: any) => {
-                                  const eventType = log.metadata?.eventType ?? log.type;
-                                  const isSheetEvent = eventType === "SHEET_ASSIGNED" || eventType === "SHEET_STATUS_CHANGED" || eventType === "SHEET_CURRENT_STATUS" || eventType === "SHEET_STAGE_VENDOR_ASSIGNED";
                                   const isItemLog = log.reason?.startsWith('Item:');
-                                  return !isSheetEvent && !isItemLog;
+                                  return !isItemLog;
                                 });
                                 return !orderJourneys[o.id] ? (
                                 <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
@@ -1109,10 +1109,13 @@ export default function OrdersPage() {
                                         // into that status, which made it look like the order had
                                         // gone back to e.g. Ready for Dispatch when it never left.
                                         const isPayment = meta.eventType === 'PAYMENT_RECORDED';
+                                        const eventType = meta.eventType ?? log.type;
+                                        const isSheetEvent = eventType === "SHEET_ASSIGNED" || eventType === "SHEET_STATUS_CHANGED" || eventType === "SHEET_CURRENT_STATUS" || eventType === "SHEET_STAGE_VENDOR_ASSIGNED";
                                         const isDispatch = log.toStatus?.includes('DISPATCH');
                                         const isApproved = log.toStatus === 'APPROVED';
                                         const isReady = log.toStatus === 'READY_FOR_DISPATCH';
-                                        const dotColor = isPayment ? 'bg-emerald-500' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : 'bg-slate-400';
+                                        const dotColor = isPayment ? 'bg-emerald-500' : isSheetEvent ? 'bg-indigo-400' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : 'bg-slate-400';
+                                        const qty = meta.quantityOnSheet ?? meta.sheetQuantity;
                                         return (
                                           <div key={log.id} className="relative flex gap-4 pb-4">
                                             {/* Dot */}
@@ -1127,6 +1130,22 @@ export default function OrdersPage() {
                                                       <span className="text-xs font-medium text-slate-700">
                                                         ₹{Number(meta.amount ?? 0).toLocaleString("en-IN")} ({labelize(meta.method)})
                                                       </span>
+                                                    </div>
+                                                  ) : isSheetEvent ? (
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                      <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-indigo-100 text-indigo-700">
+                                                        {meta.sheetNo ? `Sheet ${meta.sheetNo}` : "Sheet"}
+                                                      </span>
+                                                      <span className="text-xs font-medium text-slate-700">
+                                                        {meta.productName ?? "Item"}{qty !== undefined ? ` · Qty ${qty}` : ""}
+                                                      </span>
+                                                      {eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? (
+                                                        <span className="text-xs text-slate-500">· {labelize(meta.stage)} → {meta.vendorName ?? "vendor"}</span>
+                                                      ) : meta.sheetStatus ? (
+                                                        <span className="text-xs text-slate-500">
+                                                          · {meta.fromSheetStatus ? `${labelize(meta.fromSheetStatus)} → ` : ""}{labelize(meta.sheetStatus)}
+                                                        </span>
+                                                      ) : null}
                                                     </div>
                                                   ) : (
                                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -1144,7 +1163,7 @@ export default function OrdersPage() {
                                                   <div className="flex items-center gap-1 mt-0.5">
                                                     <span className="text-xs text-slate-400">by</span>
                                                     <span className="text-xs font-semibold text-slate-600">{log.changedBy}</span>
-                                                    {!isPayment && log.reason && (
+                                                    {!isPayment && !isSheetEvent && log.reason && (
                                                       <span className="text-xs text-slate-400 italic">({log.reason})</span>
                                                     )}
                                                   </div>
