@@ -5,7 +5,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { HrService, EmployeeUpsertDto, SUPERADMIN_EMAIL } from './hr.service';
+import { HrService, EmployeeUpsertDto, SalesIncentivePlanUpsertDto, SUPERADMIN_EMAIL } from './hr.service';
 
 @Controller('hr')
 @UseGuards(JwtAuthGuard)
@@ -108,6 +108,32 @@ export class HrController {
     if (!file.mimetype?.startsWith('image/')) throw new ForbiddenException('Only image files are allowed');
     const dataUri = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     return this.svc.updateEmployee(id, { photoUrl: dataUri });
+  }
+
+  // ── Sales incentive plans (Plan A / B / C templates) ─────────────────────
+
+  @Get('incentive-plans')
+  listIncentivePlans(@Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.listIncentivePlans();
+  }
+
+  @Post('incentive-plans')
+  createIncentivePlan(@Body() dto: SalesIncentivePlanUpsertDto, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.createIncentivePlan(dto);
+  }
+
+  @Put('incentive-plans/:id')
+  updateIncentivePlan(@Param('id') id: string, @Body() dto: SalesIncentivePlanUpsertDto, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.updateIncentivePlan(id, dto);
+  }
+
+  @Delete('incentive-plans/:id')
+  deleteIncentivePlan(@Param('id') id: string, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.deleteIncentivePlan(id);
   }
 
   // ── Company Terms & Conditions ────────────────────────────────────────

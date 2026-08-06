@@ -27,7 +27,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Employee, EmployeeKraType, LeaveType, Prisma } from '@prisma/client';
+import { Employee, EmployeeKraType, LeaveType, OrderStatus, Prisma } from '@prisma/client';
 import { GmailDraftService } from '../production/gmail-draft.service';
 
 // The one person who can approve an employee's master record for payroll.
@@ -47,6 +47,7 @@ const HR_NOTIFY_EMAIL = 'hr.rareprint@gmail.com';
 const PAYROLL_FIELDS = [
   'baseSalary', 'workingHoursPerDay', 'paidLeavePerMonth', 'annualPaidLeaveQuota',
   'designation', 'department', 'status', 'overtimeAllowed',
+  'incentivePlanId', 'petrolAllowance', 'simAllowance',
 ] as const;
 
 export type EmployeeUpsertDto = Partial<{
@@ -79,6 +80,16 @@ export type EmployeeUpsertDto = Partial<{
   notes: string | null;
   email: string | null;
   overtimeAllowed: boolean;
+  incentivePlanId: string | null;
+  petrolAllowance: number | null;
+  simAllowance: number | null;
+}>;
+
+export type SalesIncentivePlanUpsertDto = Partial<{
+  label: string;
+  monthlyTarget: number;
+  incentivePct: number;
+  isActive: boolean;
 }>;
 
 /** Weekly off day used to derive "working days in month" (0 = Sunday). Every
@@ -122,10 +133,63 @@ export class HrService {
         kras: { orderBy: [{ type: 'asc' }, { createdAt: 'asc' }] },
         leaveEntries: { orderBy: { date: 'desc' }, take: 50 },
         user: { select: { id: true, fullName: true, email: true, role: true } },
+        incentivePlan: true,
       },
     });
     if (!employee) throw new NotFoundException('Employee not found');
     return employee;
+  }
+
+  // ── Sales incentive plans (admin-managed templates) ──────────────────────
+
+  listIncentivePlans() {
+    return this.prisma.salesIncentivePlan.findMany({ orderBy: { label: 'asc' } });
+  }
+
+  async createIncentivePlan(dto: SalesIncentivePlanUpsertDto) {
+    if (!dto.label?.trim()) throw new BadRequestException('label is required');
+    if (dto.monthlyTarget === undefined || dto.monthlyTarget === null) throw new BadRequestException('monthlyTarget is required');
+    if (dto.incentivePct === undefined || dto.incentivePct === null) throw new BadRequestException('incentivePct is required');
+    try {
+      return await this.prisma.salesIncentivePlan.create({
+        data: {
+          label: dto.label.trim(),
+          monthlyTarget: dto.monthlyTarget,
+          incentivePct: dto.incentivePct,
+          isActive: dto.isActive ?? true,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') throw new BadRequestException(`A plan named "${dto.label}" already exists`);
+      throw err;
+    }
+  }
+
+  async updateIncentivePlan(id: string, dto: SalesIncentivePlanUpsertDto) {
+    const data: Prisma.SalesIncentivePlanUpdateInput = {};
+    if (dto.label !== undefined) data.label = dto.label.trim();
+    if (dto.monthlyTarget !== undefined) data.monthlyTarget = dto.monthlyTarget;
+    if (dto.incentivePct !== undefined) data.incentivePct = dto.incentivePct;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    try {
+      return await this.prisma.salesIncentivePlan.update({ where: { id }, data });
+    } catch (err: any) {
+      if (err?.code === 'P2025') throw new NotFoundException('Plan not found');
+      if (err?.code === 'P2002') throw new BadRequestException(`A plan named "${dto.label}" already exists`);
+      throw err;
+    }
+  }
+
+  async deleteIncentivePlan(id: string) {
+    // Employee.incentivePlanId is ON DELETE SET NULL, so this is safe even if
+    // employees currently use this plan — they just lose the assignment.
+    try {
+      await this.prisma.salesIncentivePlan.delete({ where: { id } });
+      return { success: true };
+    } catch (err: any) {
+      if (err?.code === 'P2025') throw new NotFoundException('Plan not found');
+      throw err;
+    }
   }
 
   /** Suggests the next sequential employee code, e.g. existing RP01..RP17 -> "RP18". */
@@ -185,6 +249,9 @@ export class HrService {
           notes: dto.notes ?? null,
           email: dto.email ?? null,
           overtimeAllowed: dto.overtimeAllowed ?? false,
+          incentivePlanId: dto.incentivePlanId || null,
+          petrolAllowance: this.toDecimalOrUndefined(dto.petrolAllowance) ?? null,
+          simAllowance: this.toDecimalOrUndefined(dto.simAllowance) ?? null,
         },
       });
     } catch (err: any) {
@@ -229,6 +296,9 @@ export class HrService {
     if (dto.email !== undefined) data.email = dto.email;
     if (dto.overtimeAllowed !== undefined) data.overtimeAllowed = dto.overtimeAllowed;
     if (dto.userId !== undefined) data.userId = dto.userId || null;
+    if (dto.incentivePlanId !== undefined) data.incentivePlanId = dto.incentivePlanId || null;
+    if (dto.petrolAllowance !== undefined) data.petrolAllowance = dto.petrolAllowance;
+    if (dto.simAllowance !== undefined) data.simAllowance = dto.simAllowance;
 
     // Any change to a payroll-relevant field re-locks salary generation until
     // Sanket approves the record again (see PAYROLL_FIELDS / approveEmployee).
@@ -404,13 +474,13 @@ export class HrService {
   // ── Salary calculation (attendance-driven) ───────────────────────────
 
   async salaryForMonth(employeeId: string, year: number, month: number) {
-    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId }, include: { incentivePlan: true } });
     if (!employee) throw new NotFoundException('Employee not found');
 
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 1); // exclusive
 
-    const [records, leaveEntries] = await Promise.all([
+    const [records, leaveEntries, salesAgg] = await Promise.all([
       this.prisma.attendanceRecord.findMany({
         where: { employeeId, date: { gte: monthStart, lt: monthEnd } },
         orderBy: { date: 'asc' },
@@ -418,6 +488,16 @@ export class HrService {
       this.prisma.employeeLeaveEntry.findMany({
         where: { employeeId, date: { gte: monthStart, lt: monthEnd } },
       }),
+      // Actual sales this month, for the sales incentive plan below — only
+      // meaningful if this Employee is linked to a login (userId) that has
+      // orders against it (salesAgentId). Not every employee sells, so this
+      // is simply 0 when there's no linked user.
+      employee.userId
+        ? this.prisma.order.aggregate({
+            where: { salesAgentId: employee.userId, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: monthStart, lt: monthEnd } },
+            _sum: { grandTotal: true },
+          })
+        : Promise.resolve(null),
     ]);
 
     const workingDays = workingDaysInMonth(year, month);
@@ -454,6 +534,20 @@ export class HrService {
     const daysInMonth = new Date(year, month, 0).getDate();
     const recordedDays = records.length;
 
+    // Sales incentive — incentivePct always applies to actual sales (not the
+    // target), so it naturally scales down when the employee falls short of
+    // target rather than a hard "0 if you miss it" cliff. monthlyTarget is
+    // just used for the targetAchieved flag (reporting/visibility).
+    const monthSales = Number(salesAgg?._sum.grandTotal ?? 0);
+    const incentivePlan = employee.incentivePlan;
+    const incentivePct = incentivePlan ? Number(incentivePlan.incentivePct) : 0;
+    const monthlyTarget = incentivePlan ? Number(incentivePlan.monthlyTarget) : null;
+    const targetAchieved = incentivePlan ? monthSales >= Number(incentivePlan.monthlyTarget) : null;
+    const incentiveAmount = incentivePlan ? monthSales * (incentivePct / 100) : 0;
+    const petrolAllowance = Number(employee.petrolAllowance ?? 0);
+    const simAllowance = Number(employee.simAllowance ?? 0);
+    const totalPayable = salary + incentiveAmount + petrolAllowance + simAllowance;
+
     // Salary gate: master record must be approved by Sanket before a figure
     // is payable. We still return the full breakdown (useful for admins to
     // review before approving) but zero the payable salary and flag it.
@@ -477,9 +571,21 @@ export class HrService {
       overtimeAllowed: employee.overtimeAllowed,
       overtimeHours: round2(overtimeHours),
       overtimePay: round2(overtimePay),
+      // calculatedSalary stays attendance-based pay only (unchanged meaning);
+      // `salary` below is the actual bottom-line payable figure, which now
+      // also folds in the sales incentive + flat allowances.
       calculatedSalary: round2(salary),
+      incentivePlanLabel: incentivePlan?.label ?? null,
+      incentivePct: incentivePlan ? round2(incentivePct) : null,
+      monthlyTarget: monthlyTarget != null ? round2(monthlyTarget) : null,
+      monthSales: round2(monthSales),
+      targetAchieved,
+      incentiveAmount: round2(incentiveAmount),
+      petrolAllowance: round2(petrolAllowance),
+      simAllowance: round2(simAllowance),
+      calculatedTotal: round2(totalPayable),
       approvalRequired,
-      salary: approvalRequired ? 0 : round2(salary),
+      salary: approvalRequired ? 0 : round2(totalPayable),
       daysInMonth,
       recordedDays,
       daysMissingPunch,

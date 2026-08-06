@@ -684,6 +684,23 @@ model CommissionOverride {
   setBy         User      @relation("CommOverrideSetBy", fields: [setById], references: [id])
 }
 
+// Admin-managed sales incentive templates ("Plan A" / "Plan B" / "Plan C",
+// though the label is free text so more can be added later). Each plan is a
+// monthlyTarget + incentivePct pair; an Employee just picks which plan
+// applies to them (Employee.incentivePlanId). See HrService.salaryForMonth
+// for how the incentive amount is actually computed each month.
+model SalesIncentivePlan {
+  id            String     @id @default(cuid())
+  label         String     @unique // e.g. "Plan A"
+  monthlyTarget Decimal    @db.Decimal(12, 2)
+  incentivePct  Decimal    @db.Decimal(5, 2) // % of the employee's actual monthly sales
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  employees     Employee[]
+}
+
 // ── HR: Employee Master ──────────────────────────────────────────────────
 // The single source of truth for pay/attendance calculations. Mirrors the
 // old "HR master" table (SR, EMPLOYEE ID, NAME, POST, SALARY, WORKING HOURS,
@@ -704,6 +721,20 @@ model Employee {
   workingHoursPerDay  Decimal             @db.Decimal(5, 2)  @default(8) // required hrs/day
   paidLeavePerMonth   Decimal             @db.Decimal(4, 2)  @default(2) // allowed paid leave days/month
   annualPaidLeaveQuota Decimal?           @db.Decimal(5, 2) // optional yearly quota for the leave ledger
+
+  // Sales incentive (monthly payroll bonus, distinct from the per-order
+  // Commission model / User.salesAgentCategory) — see SalesIncentivePlan.
+  // Only meaningful when this Employee is linked to a User (userId) who
+  // actually has sales (Order.salesAgentId). incentivePct of that plan is
+  // applied to the employee's actual sales for the month either way — no
+  // hard cliff at the target, it just naturally scales down when they fall
+  // short (see HrService.salaryForMonth).
+  incentivePlanId     String?
+  incentivePlan       SalesIncentivePlan? @relation(fields: [incentivePlanId], references: [id])
+
+  // Flat monthly allowances, added on top of the attendance-based salary.
+  petrolAllowance     Decimal?            @db.Decimal(10, 2)
+  simAllowance        Decimal?            @db.Decimal(10, 2)
 
   // Registration / master record
   dateOfJoining       DateTime?

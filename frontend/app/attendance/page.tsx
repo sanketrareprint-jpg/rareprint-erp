@@ -30,6 +30,9 @@ type SalaryCalc = {
   hoursWorked: number; absentHours: number; baseSalary: number; salary: number;
   overtimeAllowed?: boolean; overtimeHours?: number; overtimePay?: number;
   calculatedSalary?: number; approvalRequired?: boolean;
+  incentivePlanLabel?: string | null; incentivePct?: number | null; monthlyTarget?: number | null;
+  monthSales?: number; targetAchieved?: boolean | null; incentiveAmount?: number;
+  petrolAllowance?: number; simAllowance?: number; calculatedTotal?: number;
 };
 
 const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -292,6 +295,15 @@ export default function AttendancePage() {
                 </>
               )}
               <div><span className="text-slate-400 block uppercase">Base salary</span><span className="font-bold text-slate-700">₹{salary.baseSalary.toLocaleString("en-IN")}</span></div>
+              {!!salary.incentivePlanLabel && (
+                <>
+                  <div><span className="text-slate-400 block uppercase">{salary.incentivePlanLabel} sales</span><span className="font-bold text-slate-700">₹{(salary.monthSales ?? 0).toLocaleString("en-IN")} <span className={`text-[10px] font-semibold ${salary.targetAchieved ? "text-green-700" : "text-amber-600"}`}>({salary.targetAchieved ? "target hit" : `target ₹${(salary.monthlyTarget ?? 0).toLocaleString("en-IN")}`})</span></span></div>
+                  <div><span className="text-slate-400 block uppercase">Sales incentive ({salary.incentivePct}%)</span><span className="font-bold text-purple-700">₹{(salary.incentiveAmount ?? 0).toLocaleString("en-IN")}</span></div>
+                </>
+              )}
+              {(!!salary.petrolAllowance || !!salary.simAllowance) && (
+                <div><span className="text-slate-400 block uppercase">Allowances</span><span className="font-bold text-slate-700">₹{((salary.petrolAllowance ?? 0) + (salary.simAllowance ?? 0)).toLocaleString("en-IN")} <span className="text-[10px] text-slate-400">(petrol + SIM)</span></span></div>
+              )}
               <div><span className="text-slate-400 block uppercase">{salary.approvalRequired ? "Payable (blocked)" : "Payable salary"}</span><span className={`font-bold ${salary.approvalRequired ? "text-amber-600" : "text-blue-700"}`}>₹{salary.salary.toLocaleString("en-IN")}</span></div>
             </div>
 

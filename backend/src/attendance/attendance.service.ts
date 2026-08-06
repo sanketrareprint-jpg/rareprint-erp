@@ -5,11 +5,24 @@
 // then reads to calculate pay.
 //
 // The machine (ZKTeco-style) exports a multi-sheet .xls workbook. The sheet
-// worth parsing is "Exception Stat." — one row per employee per day, with
-// clean columns (ID, Name, Department, Date, On-duty, Off-duty, second time
-// zone, Late/Early/Absence minutes). The other sheets ("Att.log report") pack
-// every punch of the day into a single concatenated string per cell (e.g.
-// "10:56 18:42 18:44" with no separator) and are not used here.
+// worth parsing is the "Exception Statistic Report" — one row per employee
+// per day, with clean columns (ID, Name, Department, Date, On-duty, Off-duty,
+// second time zone, Late/Early/Absence minutes). It's usually named
+// "Exception Stat.", but it's sometimes re-exported with that tab deleted
+// (to avoid two sheets that look like they mean the same thing), leaving the
+// same data on whatever sheet remains — e.g. literally named "Sheet1". So
+// findExceptionSheet() below matches by CONTENT (the report's own title
+// text, then its header-row shape) rather than trusting the sheet's name.
+// The other sheets ("Att.log report") pack every punch of the day into a
+// single concatenated string per cell (e.g. "10:56 18:42 18:44" with no
+// separator) and are not used here.
+//
+// hoursWorked is always computed here from the On-duty/Off-duty columns
+// (computeHoursWorked, below) — the report's own "Total(Min)" column is
+// intentionally never read. That column is baked in at export time, so if a
+// day gets hand-corrected afterwards (thumb reader missed a punch, on-duty/
+// off-duty edited manually) it would go stale; recomputing from the actual
+// times avoids that entirely.
 //
 // The machine's own numeric ID (e.g. "1", "2"...) is NOT the same as the
 // employeeCode used elsewhere in the ERP (e.g. "RP02") — it's whatever order
@@ -75,8 +88,37 @@ function parseCellDate(v: unknown): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
+// Finds the "Exception Statistic Report"-shaped sheet by its CONTENT, not
+// its name. Previously this only matched a sheet literally named
+// "Exception Stat." — but the report is sometimes re-exported with that tab
+// deleted (to avoid having two sheets that look like they mean the same
+// thing) and the same data ends up on whatever sheet is left, e.g. one
+// literally named "Sheet1". Matching by content means it keeps working no
+// matter what the tab happens to be called.
 function findExceptionSheet(wb: XLSX.WorkBook): XLSX.WorkSheet | null {
-  const name = wb.SheetNames.find((n) => /exception/i.test(n));
+  // 1. Look for the report's own title text in the first few rows of any sheet.
+  for (const name of wb.SheetNames) {
+    const sheet = wb.Sheets[name];
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null }).slice(0, 10);
+    const text = aoa.map((row) => (row ?? []).map(cellStr).join(' ')).join(' ').toLowerCase();
+    if (text.includes('exception statistic report')) return sheet;
+  }
+  // 2. Fall back to the actual header-row shape (ID / Name / Date / On-duty),
+  //    in case the title text got trimmed but the data itself is still there.
+  for (const name of wb.SheetNames) {
+    const sheet = wb.Sheets[name];
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null }).slice(0, 10);
+    for (const row of aoa) {
+      const cells = row ?? [];
+      const joined = cells.map(cellStr).join(' | ').toLowerCase();
+      if (cellStr(cells[0]).toLowerCase() === 'id' && joined.includes('name') && joined.includes('date') && joined.includes('on-duty')) {
+        return sheet;
+      }
+    }
+  }
+  // 3. Last resort: name-based match, covering both the original export name
+  //    and the common "data ended up on Sheet1" case.
+  const name = wb.SheetNames.find((n) => /exception/i.test(n) || /^sheet\s*1$/i.test(n.trim()));
   return name ? wb.Sheets[name] : null;
 }
 
@@ -145,7 +187,7 @@ export class AttendanceService {
     const sheet = findExceptionSheet(wb);
     if (!sheet) {
       throw new BadRequestException(
-        `No "Exception Stat." sheet found in ${fileName}. Export the "Exception Statistic Report" from the attendance machine software and upload that .xls file.`,
+        `Could not find an "Exception Statistic Report" sheet in ${fileName} (checked every tab by name and by content, including a plain "Sheet1"). Export the "Exception Statistic Report" from the attendance machine software and upload that .xls file.`,
       );
     }
     const { rows, periodStart, periodEnd } = parseExceptionSheet(sheet);

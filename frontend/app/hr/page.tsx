@@ -32,12 +32,15 @@ type EmployeeDetail = EmployeeListItem & {
   email: string | null; photoUrl: string | null; overtimeAllowed: boolean;
   masterDataApproved: boolean; approvedAt: string | null;
   agreementSentAt: string | null; agreementAcceptedAt: string | null; agreementSignatureName: string | null;
+  incentivePlanId: string | null; petrolAllowance: string | number | null; simAllowance: string | number | null;
+  incentivePlan: SalesIncentivePlan | null;
   kras: Kra[]; leaveEntries: LeaveEntry[];
 };
 
 type Kra = { id: string; type: "KRA" | "RESPONSIBILITY"; title: string; description: string | null; targetMetric: string | null };
 type LeaveEntry = { id: string; date: string; days: string | number; type: string; reason: string | null; recordedBy?: { fullName: string } | null };
 type CompanyTerm = { id: string; version: number; title: string; content: string; isActive: boolean; createdAt: string };
+type SalesIncentivePlan = { id: string; label: string; monthlyTarget: string | number; incentivePct: string | number; isActive: boolean };
 
 const STATUS_OPTIONS = ["ACTIVE", "ON_LEAVE", "RESIGNED", "TERMINATED"];
 const LEAVE_TYPES = ["PAID", "UNPAID", "SICK", "CASUAL", "HALF_DAY", "OTHER"];
@@ -54,6 +57,7 @@ const emptyForm = {
   mobileNumber: "", alternateMobile: "", emergencyContactName: "", emergencyContactPhone: "",
   idProofType: "", idProofNumber: "", bankAccountNumber: "", bankIfsc: "", notes: "",
   email: "", overtimeAllowed: false,
+  incentivePlanId: "", petrolAllowance: "", simAllowance: "",
 };
 
 function fmtMoney(n: string | number | null | undefined) {
@@ -101,6 +105,44 @@ export default function HrPage() {
   const [showTermsEditor, setShowTermsEditor] = useState(false);
   const [termsForm, setTermsForm] = useState({ title: "", content: "" });
   const [savingTerms, setSavingTerms] = useState(false);
+
+  // Sales incentive plans (Plan A/B/C templates) — admin-managed, shared
+  // across employees; picked per-employee via a dropdown on the form below.
+  const [incentivePlans, setIncentivePlans] = useState<SalesIncentivePlan[]>([]);
+  const [showPlansPanel, setShowPlansPanel] = useState(false);
+  const [planForm, setPlanForm] = useState({ label: "", monthlyTarget: "", incentivePct: "" });
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
+
+  const loadIncentivePlans = useCallback(async () => {
+    const data = await apiFetch<SalesIncentivePlan[]>("/hr/incentive-plans", {}, undefined);
+    if (data) setIncentivePlans(data);
+  }, []);
+
+  useEffect(() => { if (canAccess) void loadIncentivePlans(); }, [canAccess, loadIncentivePlans]);
+
+  const handleAddPlan = async () => {
+    if (!planForm.label.trim() || !planForm.monthlyTarget || !planForm.incentivePct) return;
+    setSavingPlan(true);
+    const res = await apiMutate("/hr/incentive-plans", "POST", {
+      label: planForm.label.trim(),
+      monthlyTarget: Number(planForm.monthlyTarget),
+      incentivePct: Number(planForm.incentivePct),
+    }, setError);
+    setSavingPlan(false);
+    if (res) {
+      setPlanForm({ label: "", monthlyTarget: "", incentivePct: "" });
+      void loadIncentivePlans();
+    }
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    if (!window.confirm("Delete this plan? Any employee currently on it will just have it unassigned.")) return;
+    setDeletingPlanId(id);
+    const res = await apiMutate(`/hr/incentive-plans/${id}`, "DELETE", undefined, setError);
+    setDeletingPlanId(null);
+    if (res !== null) void loadIncentivePlans();
+  };
 
   const loadList = useCallback(async () => {
     setLoadingList(true);
@@ -152,6 +194,9 @@ export default function HrPage() {
         idProofNumber: data.idProofNumber ?? "", bankAccountNumber: data.bankAccountNumber ?? "",
         bankIfsc: data.bankIfsc ?? "", notes: data.notes ?? "",
         email: data.email ?? "", overtimeAllowed: !!data.overtimeAllowed,
+        incentivePlanId: data.incentivePlanId ?? "",
+        petrolAllowance: data.petrolAllowance != null ? String(data.petrolAllowance) : "",
+        simAllowance: data.simAllowance != null ? String(data.simAllowance) : "",
       });
     }
     const bal = await apiFetch<{ quota: number; takenTotal: number; balance: number }>(
@@ -199,6 +244,9 @@ export default function HrPage() {
       dateOfBirth: form.dateOfBirth || null,
       email: form.email || null,
       overtimeAllowed: !!form.overtimeAllowed,
+      incentivePlanId: form.incentivePlanId || null,
+      petrolAllowance: form.petrolAllowance ? Number(form.petrolAllowance) : null,
+      simAllowance: form.simAllowance ? Number(form.simAllowance) : null,
     };
     if (mode === "create") {
       const created = await apiMutate<EmployeeDetail>("/hr/employees", "POST", payload, setError);
@@ -371,6 +419,51 @@ export default function HrPage() {
           )}
         </div>
 
+        {/* Sales incentive plans (Plan A/B/C templates) — target + % applied to
+            an employee's actual monthly sales; assigned per-employee on the
+            Master Record form below. */}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <button onClick={() => setShowPlansPanel((v) => !v)} className="w-full flex items-center justify-between p-4 text-left">
+            <span className="text-sm font-bold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+              <Target size={16} /> Sales Incentive Plans {incentivePlans.length > 0 && <span className="text-xs font-normal normal-case text-slate-400">— {incentivePlans.map((p) => p.label).join(", ")}</span>}
+            </span>
+            {showPlansPanel ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {showPlansPanel && (
+            <div className="p-4 pt-0 space-y-3 border-t border-slate-100">
+              {incentivePlans.length === 0 && <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">No plans set up yet — add one below, then assign it to employees on their Master Record.</div>}
+              {incentivePlans.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-slate-400"><th className="py-1 pr-3">Plan</th><th className="py-1 pr-3">Monthly Target</th><th className="py-1 pr-3">Incentive %</th><th className="py-1"></th></tr></thead>
+                  <tbody>
+                    {incentivePlans.map((p) => (
+                      <tr key={p.id} className="border-t border-slate-50">
+                        <td className="py-1.5 pr-3 font-semibold">{p.label}</td>
+                        <td className="py-1.5 pr-3">{fmtMoney(p.monthlyTarget)}</td>
+                        <td className="py-1.5 pr-3">{Number(p.incentivePct)}% of actual sales that month</td>
+                        <td className="py-1.5">
+                          <button onClick={() => handleDeletePlan(p.id)} disabled={deletingPlanId === p.id} className="text-slate-400 hover:text-red-600 disabled:opacity-50">
+                            {deletingPlanId === p.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                <input value={planForm.label} onChange={(e) => setPlanForm({ ...planForm, label: e.target.value })} placeholder="Plan name, e.g. Plan A" className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]" />
+                <input type="number" value={planForm.monthlyTarget} onChange={(e) => setPlanForm({ ...planForm, monthlyTarget: e.target.value })} placeholder="Monthly target (₹)" className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]" />
+                <input type="number" value={planForm.incentivePct} onChange={(e) => setPlanForm({ ...planForm, incentivePct: e.target.value })} placeholder="Incentive % of sales" className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]" />
+                <button onClick={handleAddPlan} disabled={savingPlan || !planForm.label.trim() || !planForm.monthlyTarget || !planForm.incentivePct} className="inline-flex items-center gap-1 text-xs font-semibold bg-slate-800 text-white rounded-lg px-3 py-1.5 disabled:opacity-50">
+                  {savingPlan ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add Plan
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">The incentive % always applies to the employee's actual sales that month, not the target — so it naturally scales down if they fall short instead of paying nothing. The target is just used to flag "target achieved" on their salary breakdown.</p>
+            </div>
+          )}
+        </div>
+
         {mode === "list" && (
           <div className="space-y-3">
             <div className="flex items-center gap-4 flex-wrap">
@@ -512,6 +605,14 @@ export default function HrPage() {
                     Paid for hours beyond required, same hourly rate
                   </label>
                 </Field>
+                <Field label="Sales Incentive Plan">
+                  <select value={form.incentivePlanId} onChange={(e) => setForm({ ...form, incentivePlanId: e.target.value })} className={INPUT_CLS}>
+                    <option value="">None</option>
+                    {incentivePlans.map((p) => <option key={p.id} value={p.id}>{p.label} — {Number(p.incentivePct)}% of sales, target {fmtMoney(p.monthlyTarget)}</option>)}
+                  </select>
+                </Field>
+                <Field label="Petrol Allowance (monthly)"><input type="number" value={form.petrolAllowance} onChange={(e) => setForm({ ...form, petrolAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
+                <Field label="SIM Recharge Allowance (monthly)"><input type="number" value={form.simAllowance} onChange={(e) => setForm({ ...form, simAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
                 <Field label="Date of Joining"><DateInput value={form.dateOfJoining} onChange={(e) => setForm({ ...form, dateOfJoining: e.target.value })} className={INPUT_CLS} /></Field>
                 <Field label="Date of Birth"><DateInput value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className={INPUT_CLS} /></Field>
                 <DropdownField label="Gender" value={form.gender} onChange={(v) => setForm({ ...form, gender: v })} options={GENDERS} otherPlaceholder="Type gender" />
