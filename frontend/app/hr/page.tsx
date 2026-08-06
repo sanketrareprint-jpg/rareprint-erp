@@ -19,6 +19,7 @@ type EmployeeListItem = {
   id: string; employeeCode: string; fullName: string; designation: string;
   department: string | null; status: string; baseSalary: string | number;
   mobileNumber: string | null; dateOfJoining: string | null;
+  masterDataApproved: boolean;
   _count?: { kras: number; leaveEntries: number };
 };
 
@@ -72,7 +73,11 @@ export default function HrPage() {
 
   const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  // Client-side — the approve/unapprove flag is already on every row from
+  // GET /hr/employees, no separate endpoint needed for this filter.
+  const [approvalFilter, setApprovalFilter] = useState<"" | "approved" | "pending">("");
   const [loadingList, setLoadingList] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<"list" | "create" | "edit">("list");
@@ -105,6 +110,21 @@ export default function HrPage() {
   }, [statusFilter]);
 
   useEffect(() => { if (canAccess) void loadList(); }, [canAccess, loadList]);
+
+  const visibleEmployees = employees.filter((e) => {
+    if (approvalFilter === "approved") return e.masterDataApproved;
+    if (approvalFilter === "pending") return !e.masterDataApproved;
+    return true;
+  });
+
+  const handleDeleteEmployee = async (e: React.MouseEvent, id: string, name: string) => {
+    e.stopPropagation(); // don't also trigger the row's openEdit(id)
+    if (!window.confirm(`Delete ${name}? This removes their KRAs, leave ledger, and attendance history too. This can't be undone.`)) return;
+    setDeletingId(id);
+    const ok = await apiMutate(`/hr/employees/${id}`, "DELETE", undefined, setError);
+    setDeletingId(null);
+    if (ok !== null) void loadList();
+  };
 
   const loadTerms = useCallback(async () => {
     const data = await apiFetch<CompanyTerm[]>("/hr/terms", {}, undefined);
@@ -353,12 +373,22 @@ export default function HrPage() {
 
         {mode === "list" && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase">Status</label>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
-                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                <option value="">All</option>
-              </select>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Status</label>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
+                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  <option value="">All</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Payroll approval</label>
+                <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
+                  <option value="">All</option>
+                  <option value="approved">Approved</option>
+                  <option value="pending">Not approved</option>
+                </select>
+              </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden overflow-x-auto">
               {loadingList ? (
@@ -375,10 +405,12 @@ export default function HrPage() {
                       <th className="py-2 px-3">Mobile</th>
                       <th className="py-2 px-3">Joined</th>
                       <th className="py-2 px-3">Status</th>
+                      <th className="py-2 px-3">Approved</th>
+                      <th className="py-2 px-3"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {employees.map((e) => (
+                    {visibleEmployees.map((e) => (
                       <tr key={e.id} onClick={() => openEdit(e.id)} className="border-b border-slate-50 hover:bg-blue-50 cursor-pointer">
                         <td className="py-2 px-3 font-semibold">{e.employeeCode}</td>
                         <td className="py-2 px-3">{e.fullName}</td>
@@ -390,10 +422,27 @@ export default function HrPage() {
                         <td className="py-2 px-3">
                           <span className="text-xs font-semibold bg-slate-100 rounded-full px-2 py-0.5">{e.status}</span>
                         </td>
+                        <td className="py-2 px-3">
+                          {e.masterDataApproved ? (
+                            <span className="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5 inline-flex items-center gap-1"><CheckCircle2 size={12} /> Approved</span>
+                          ) : (
+                            <span className="text-xs font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 inline-flex items-center gap-1"><AlertTriangle size={12} /> Not approved</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3">
+                          <button
+                            onClick={(ev) => handleDeleteEmployee(ev, e.id, e.fullName)}
+                            disabled={deletingId === e.id}
+                            title="Delete employee"
+                            className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                          >
+                            {deletingId === e.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                          </button>
+                        </td>
                       </tr>
                     ))}
-                    {employees.length === 0 && (
-                      <tr><td colSpan={8} className="p-6 text-center text-slate-400">No employees yet.</td></tr>
+                    {visibleEmployees.length === 0 && (
+                      <tr><td colSpan={10} className="p-6 text-center text-slate-400">No employees {approvalFilter ? "match this filter" : "yet"}.</td></tr>
                     )}
                   </tbody>
                 </table>

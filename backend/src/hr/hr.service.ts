@@ -270,6 +270,19 @@ export class HrService {
     });
   }
 
+  // KRAs, leave entries, and attendance records all cascade-delete via the
+  // schema (onDelete: Cascade on Employee relations) — no manual cleanup
+  // needed here.
+  async deleteEmployee(id: string) {
+    try {
+      await this.prisma.employee.delete({ where: { id } });
+      return { success: true };
+    } catch (err: any) {
+      if (err?.code === 'P2025') throw new NotFoundException('Employee not found');
+      throw err;
+    }
+  }
+
   async setEmployeeStatus(id: string, status: 'ACTIVE' | 'ON_LEAVE' | 'RESIGNED' | 'TERMINATED') {
     const isActive = status === 'ACTIVE' || status === 'ON_LEAVE';
     return this.prisma.employee.update({

@@ -72,6 +72,18 @@ export class HrController {
     return this.svc.setEmployeeStatus(id, dto.status);
   }
 
+  // Permanently removes an Employee master record (and its KRAs, leave
+  // ledger, attendance history — all cascade-deleted). Same HR access as
+  // create/edit, not Sanket-only: unlike payroll approval, deleting a
+  // mis-entered/test record doesn't need the extra gate. Meant for cleaning
+  // up test/duplicate entries, not offboarding real staff (use status ->
+  // RESIGNED/TERMINATED for that, which keeps their history intact).
+  @Delete('employees/:id')
+  deleteEmployee(@Param('id') id: string, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.deleteEmployee(id);
+  }
+
   // Sanket-only: approve/unapprove a master record for payroll.
   @Put('employees/:id/approve')
   approveEmployee(@Param('id') id: string, @Req() req: any) {
