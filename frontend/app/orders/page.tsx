@@ -1079,114 +1079,88 @@ export default function OrdersPage() {
                           <tr>
                             <td colSpan={tableColSpan} className="bg-slate-50 px-6 py-4 border-t border-slate-100">
                               <p className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Order Journey</p>
-                              {!orderJourneys[o.id] ? (
+                              {(() => {
+                                // Simple customer journey: only real order-level milestones
+                                // + payments — not internal sheet/production bookkeeping or
+                                // per-item duplicates of the order-level transition next to them.
+                                const simpleLogs = (orderJourneys[o.id] ?? []).filter((log: any) => {
+                                  const eventType = log.metadata?.eventType ?? log.type;
+                                  const isSheetEvent = eventType === "SHEET_ASSIGNED" || eventType === "SHEET_STATUS_CHANGED" || eventType === "SHEET_CURRENT_STATUS" || eventType === "SHEET_STAGE_VENDOR_ASSIGNED";
+                                  const isItemLog = log.reason?.startsWith('Item:');
+                                  return !isSheetEvent && !isItemLog;
+                                });
+                                return !orderJourneys[o.id] ? (
                                 <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
-                              ) : orderJourneys[o.id].length === 0 ? (
+                              ) : simpleLogs.length === 0 ? (
                                 <p className="text-xs text-slate-400">No activity recorded yet.</p>
                               ) : (
                                 <div className="relative">
                                   {/* Vertical line */}
                                   <div className="absolute left-[7px] top-2 bottom-2 w-px bg-slate-200" />
                                   <div className="space-y-0">
-                                    {orderJourneys[o.id].map((log: any, idx: number) => {
-                                      const isItemLog = log.reason?.startsWith('Item:');
-                                      const eventType = log.metadata?.eventType ?? log.type;
-                                      const isSheetEvent = eventType === "SHEET_ASSIGNED" || eventType === "SHEET_STATUS_CHANGED" || eventType === "SHEET_CURRENT_STATUS" || eventType === "SHEET_STAGE_VENDOR_ASSIGNED";
-                                      const isDispatch = log.toStatus?.includes('DISPATCH') || log.toStatus?.includes('DISPATCHED');
-                                      const isApproved = log.toStatus === 'APPROVED';
-                                      const isReady = log.toStatus === 'READY_FOR_DISPATCH';
-                                      const meta = log.metadata ?? {};
-                                      const dotColor = isSheetEvent ? 'bg-indigo-500' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : isItemLog ? 'bg-amber-400' : 'bg-slate-400';
-                                      return (
-                                        <div key={log.id} className="relative flex gap-4 pb-4">
-                                          {/* Dot */}
-                                          <div className={`relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 border-white shadow flex-shrink-0 ${dotColor}`} />
-                                          {/* Content */}
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-start justify-between gap-2">
-                                              <div>
-                                                {isSheetEvent ? (
-                                                  <div>
+                                    {simpleLogs
+                                      .map((log: any) => {
+                                        const meta = log.metadata ?? {};
+                                        // A payment doesn't change the order's stage — addPayment
+                                        // only ever updates paymentStatus, never status — so this
+                                        // log entry always has fromStatus === toStatus (it's just
+                                        // recording the order's stage AT THE TIME, unchanged). It
+                                        // used to render with the same badge as a real transition
+                                        // into that status, which made it look like the order had
+                                        // gone back to e.g. Ready for Dispatch when it never left.
+                                        const isPayment = meta.eventType === 'PAYMENT_RECORDED';
+                                        const isDispatch = log.toStatus?.includes('DISPATCH');
+                                        const isApproved = log.toStatus === 'APPROVED';
+                                        const isReady = log.toStatus === 'READY_FOR_DISPATCH';
+                                        const dotColor = isPayment ? 'bg-emerald-500' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : 'bg-slate-400';
+                                        return (
+                                          <div key={log.id} className="relative flex gap-4 pb-4">
+                                            {/* Dot */}
+                                            <div className={`relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 border-white shadow flex-shrink-0 ${dotColor}`} />
+                                            {/* Content */}
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-start justify-between gap-2">
+                                                <div>
+                                                  {isPayment ? (
                                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(eventType)}`}>
-                                                        {eventType === "SHEET_ASSIGNED" ? "Sheet Assigned" : eventType === "SHEET_STATUS_CHANGED" ? "Sheet Stage" : eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? "Stage Vendor" : "Current Sheet"}
+                                                      <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">Payment</span>
+                                                      <span className="text-xs font-medium text-slate-700">
+                                                        ₹{Number(meta.amount ?? 0).toLocaleString("en-IN")} ({labelize(meta.method)})
                                                       </span>
-                                                      {meta.sheetNo && <span className="text-xs font-bold text-slate-700">Sheet {meta.sheetNo}</span>}
-                                                      {meta.fromSheetStatus && (
+                                                    </div>
+                                                  ) : (
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                      {log.fromStatus && log.fromStatus !== log.toStatus && (
                                                         <>
-                                                          <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{labelize(meta.fromSheetStatus)}</span>
+                                                          <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{log.fromStatus.replace(/_/g,' ')}</span>
                                                           <span className="text-slate-300 text-xs">→</span>
                                                         </>
                                                       )}
-                                                      {meta.sheetStatus && (
-                                                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(meta.sheetStatus)}`}>{labelize(meta.sheetStatus)}</span>
-                                                      )}
+                                                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isDispatch ? 'bg-green-100 text-green-700' : isApproved ? 'bg-blue-100 text-blue-700' : isReady ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {log.toStatus.replace(/_/g,' ')}
+                                                      </span>
                                                     </div>
-                                                    <p className="mt-1 text-xs font-medium text-slate-700">
-                                                      {eventType === "SHEET_ASSIGNED"
-                                                        ? `${meta.productName ?? "Item"} assigned to sheet ${meta.sheetNo ?? ""}`
-                                                        : eventType === "SHEET_STAGE_VENDOR_ASSIGNED"
-                                                        ? `${labelize(meta.stage)} assigned to ${meta.vendorName ?? "vendor"}`
-                                                        : log.reason}
-                                                    </p>
-                                                    <div className="mt-2 grid gap-1.5 text-xs text-slate-500 sm:grid-cols-2 lg:grid-cols-4">
-                                                      {meta.productName && <span><b className="text-slate-600">Item:</b> {meta.productName}</span>}
-                                                      {meta.quantityOnSheet !== undefined && <span><b className="text-slate-600">Qty on sheet:</b> {meta.quantityOnSheet}</span>}
-                                                      {meta.multiple !== undefined && <span><b className="text-slate-600">Multiple:</b> {meta.multiple}</span>}
-                                                      {meta.sheetQuantity !== undefined && <span><b className="text-slate-600">Sheet qty:</b> {meta.sheetQuantity}</span>}
-                                                      {meta.actualPrintedQuantity !== undefined && meta.actualPrintedQuantity !== null && <span><b className="text-slate-600">Printed qty:</b> {meta.actualPrintedQuantity}</span>}
-                                                      {meta.sheetSize && <span><b className="text-slate-600">Sheet size:</b> {meta.sheetSize}</span>}
-                                                      {meta.sheetGsm && <span><b className="text-slate-600">GSM:</b> {meta.sheetGsm}</span>}
-                                                      {meta.sheetPrinting && <span><b className="text-slate-600">Printing:</b> {labelize(meta.sheetPrinting)}</span>}
-                                                      {(meta.itemStage || meta.orderItemStage) && <span><b className="text-slate-600">Item stage:</b> {labelize(meta.itemStage ?? meta.orderItemStage)}</span>}
-                                                      {meta.stage && <span><b className="text-slate-600">Work stage:</b> {labelize(meta.stage)}</span>}
-                                                      {meta.vendorName && <span><b className="text-slate-600">Vendor:</b> {meta.vendorName}</span>}
-                                                      {meta.vendorInvoiceNo && <span><b className="text-slate-600">Invoice:</b> {meta.vendorInvoiceNo}</span>}
-                                                    </div>
-                                                    {Array.isArray(meta.stageVendors) && meta.stageVendors.length > 0 && (
-                                                      <div className="mt-2 flex flex-wrap gap-1.5">
-                                                        {meta.stageVendors.map((sv: any, vendorIdx: number) => (
-                                                          <span key={`${log.id}-vendor-${vendorIdx}`} className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-600 border border-slate-200">
-                                                            {labelize(sv.stage)}: {sv.vendorName}{sv.invoiceNo ? ` · Inv ${sv.invoiceNo}` : ""}
-                                                          </span>
-                                                        ))}
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                ) : isItemLog ? (
-                                                  <p className="text-xs font-medium text-slate-700">{log.reason}</p>
-                                                ) : (
-                                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                                    {log.fromStatus && log.fromStatus !== log.toStatus && (
-                                                      <>
-                                                        <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{log.fromStatus.replace(/_/g,' ')}</span>
-                                                        <span className="text-slate-300 text-xs">→</span>
-                                                      </>
-                                                    )}
-                                                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isDispatch ? 'bg-green-100 text-green-700' : isApproved ? 'bg-blue-100 text-blue-700' : isReady ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-                                                      {log.toStatus.replace(/_/g,' ')}
-                                                    </span>
-                                                  </div>
-                                                )}
-                                                <div className="flex items-center gap-1 mt-0.5">
-                                                  <span className="text-xs text-slate-400">by</span>
-                                                  <span className="text-xs font-semibold text-slate-600">{log.changedBy}</span>
-                                                  {!isItemLog && log.reason && (
-                                                    <span className="text-xs text-slate-400 italic">· {log.reason}</span>
                                                   )}
+                                                  <div className="flex items-center gap-1 mt-0.5">
+                                                    <span className="text-xs text-slate-400">by</span>
+                                                    <span className="text-xs font-semibold text-slate-600">{log.changedBy}</span>
+                                                    {!isPayment && log.reason && (
+                                                      <span className="text-xs text-slate-400 italic">({log.reason})</span>
+                                                    )}
+                                                  </div>
                                                 </div>
+                                                <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+                                                  {new Date(log.changedAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:true })}
+                                                </span>
                                               </div>
-                                              <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
-                                                {new Date(log.changedAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:true })}
-                                              </span>
                                             </div>
                                           </div>
-                                        </div>
-                                      );
-                                    })}
+                                        );
+                                      })}
                                   </div>
                                 </div>
-                              )}
+                              );
+                              })()}
                             </td>
                           </tr>
                         )}
