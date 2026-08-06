@@ -35,3 +35,4 @@ run('node', ['scripts/ensure-commission-override-table.js'], { allowFailure: tru
 run('node', ['scripts/ensure-customer-phone2-column.js'], { allowFailure: true });
 run('node', ['scripts/ensure-shipment-bigship-columns.js'], { allowFailure: true });
 run('node', ['scripts/ensure-user-payment-keyword-table.js'], { allowFailure: true });
+run('node', ['scripts/ensure-attendance-final-column.js'], { allowFailure: true });
