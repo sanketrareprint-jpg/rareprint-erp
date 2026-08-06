@@ -1098,8 +1098,14 @@ export default function OrdersPage() {
                                   {/* Vertical line */}
                                   <div className="absolute left-[7px] top-2 bottom-2 w-px bg-slate-200" />
                                   <div className="space-y-0">
-                                    {simpleLogs
-                                      .map((log: any) => {
+                                    {(() => {
+                                      // A sheet's specs (item, qty, size, GSM, printing side...)
+                                      // don't change as it moves through stages — only the stage
+                                      // does. Track which sheet numbers have already had their
+                                      // spec line shown (in chronological order) so it prints once
+                                      // per sheet, not on every single stage-transition entry.
+                                      const shownSheetSpecs = new Set<string>();
+                                      return simpleLogs.map((log: any) => {
                                         const meta = log.metadata ?? {};
                                         // A payment doesn't change the order's stage — addPayment
                                         // only ever updates paymentStatus, never status — so this
@@ -1115,6 +1121,13 @@ export default function OrdersPage() {
                                         const isApproved = log.toStatus === 'APPROVED';
                                         const isReady = log.toStatus === 'READY_FOR_DISPATCH';
                                         const dotColor = isPayment ? 'bg-emerald-500' : isSheetEvent ? 'bg-indigo-400' : isDispatch ? 'bg-green-500' : isApproved ? 'bg-blue-500' : 'bg-slate-400';
+                                        // Sheet spec fields (item, qty, size, GSM, printing side) are
+                                        // constant for a given sheet number — only show them on the
+                                        // first entry for that sheet. Fields that genuinely change per
+                                        // event (item stage, work stage, vendor, invoice) always show.
+                                        const sheetKey = isSheetEvent && meta.sheetNo != null ? String(meta.sheetNo) : null;
+                                        const isFirstForSheet = !sheetKey || !shownSheetSpecs.has(sheetKey);
+                                        if (sheetKey) shownSheetSpecs.add(sheetKey);
                                         return (
                                           <div key={log.id} className="relative flex gap-4 pb-4">
                                             {/* Dot */}
@@ -1154,28 +1167,34 @@ export default function OrdersPage() {
                                                           ? `${labelize(meta.stage)} assigned to ${meta.vendorName ?? "vendor"}`
                                                           : log.reason}
                                                       </p>
-                                                      {/* Every field from the original grid, kept — just as one flowing
-                                                          line instead of boxed label/value cells (more compact, same
-                                                          info). The only thing actually dropped is Work stage / Vendor
-                                                          on a Stage Vendor event specifically, since the sentence right
-                                                          above already says "{stage} assigned to {vendor}" — that's the
-                                                          one genuine repeat. Invoice isn't in that sentence, so it stays. */}
-                                                      <p className="mt-1 text-xs text-slate-500">
-                                                        {[
-                                                          meta.productName ? `Item: ${meta.productName}` : null,
-                                                          meta.quantityOnSheet !== undefined ? `Qty on sheet: ${meta.quantityOnSheet}` : null,
-                                                          meta.multiple !== undefined ? `Multiple: ${meta.multiple}` : null,
-                                                          meta.sheetQuantity !== undefined ? `Sheet qty: ${meta.sheetQuantity}` : null,
-                                                          (meta.actualPrintedQuantity !== undefined && meta.actualPrintedQuantity !== null) ? `Printed qty: ${meta.actualPrintedQuantity}` : null,
-                                                          meta.sheetSize ? `Sheet size: ${meta.sheetSize}` : null,
-                                                          meta.sheetGsm ? `GSM: ${meta.sheetGsm}` : null,
-                                                          meta.sheetPrinting ? `Printing: ${labelize(meta.sheetPrinting)}` : null,
+                                                      {/* Sheet spec (item/qty/size/GSM/printing) only on the first
+                                                          entry for this sheet number — it doesn't change as the sheet
+                                                          moves through stages, so repeating it on every stage-change
+                                                          entry was the actual redundancy. Item stage / Work stage /
+                                                          Vendor / Invoice DO change per event, so those always show
+                                                          (except Work stage + Vendor on a Stage Vendor event, since the
+                                                          sentence above already states them). */}
+                                                      {(() => {
+                                                        const parts = [
+                                                          ...(isFirstForSheet ? [
+                                                            meta.productName ? `Item: ${meta.productName}` : null,
+                                                            meta.quantityOnSheet !== undefined ? `Qty on sheet: ${meta.quantityOnSheet}` : null,
+                                                            meta.multiple !== undefined ? `Multiple: ${meta.multiple}` : null,
+                                                            meta.sheetQuantity !== undefined ? `Sheet qty: ${meta.sheetQuantity}` : null,
+                                                            (meta.actualPrintedQuantity !== undefined && meta.actualPrintedQuantity !== null) ? `Printed qty: ${meta.actualPrintedQuantity}` : null,
+                                                            meta.sheetSize ? `Sheet size: ${meta.sheetSize}` : null,
+                                                            meta.sheetGsm ? `GSM: ${meta.sheetGsm}` : null,
+                                                            meta.sheetPrinting ? `Printing: ${labelize(meta.sheetPrinting)}` : null,
+                                                          ] : []),
                                                           (meta.itemStage || meta.orderItemStage) ? `Item stage: ${labelize(meta.itemStage ?? meta.orderItemStage)}` : null,
                                                           (meta.stage && eventType !== "SHEET_STAGE_VENDOR_ASSIGNED") ? `Work stage: ${labelize(meta.stage)}` : null,
                                                           (meta.vendorName && eventType !== "SHEET_STAGE_VENDOR_ASSIGNED") ? `Vendor: ${meta.vendorName}` : null,
                                                           meta.vendorInvoiceNo ? `Invoice: ${meta.vendorInvoiceNo}` : null,
-                                                        ].filter(Boolean).join(" · ")}
-                                                      </p>
+                                                        ].filter(Boolean);
+                                                        return parts.length > 0 ? (
+                                                          <p className="mt-1 text-xs text-slate-500">{parts.join(" · ")}</p>
+                                                        ) : null;
+                                                      })()}
                                                       {Array.isArray(meta.stageVendors) && meta.stageVendors.length > 0 && (
                                                         <div className="mt-1.5 flex flex-wrap gap-1">
                                                           {meta.stageVendors.map((sv: any, vendorIdx: number) => (
@@ -1214,7 +1233,8 @@ export default function OrdersPage() {
                                             </div>
                                           </div>
                                         );
-                                      })}
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               );
