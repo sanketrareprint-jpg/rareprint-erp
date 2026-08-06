@@ -33,6 +33,21 @@ export class AttendanceController {
     return this.svc.listImportSessions();
   }
 
+  // Marks this session as THE sheet for whatever month(s) it covers — any
+  // other import for the same month is ignored on the grid/salary from then
+  // on (hand-corrected days always still apply on top).
+  @Put('import-sessions/:id/finalize')
+  finalizeSession(@Param('id') id: string, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.finalizeImportSession(id);
+  }
+
+  @Put('import-sessions/:id/unfinalize')
+  unfinalizeSession(@Param('id') id: string, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.unfinalizeImportSession(id);
+  }
+
   @Get('employees/:id/month')
   async getMonthGrid(
     @Param('id') id: string,

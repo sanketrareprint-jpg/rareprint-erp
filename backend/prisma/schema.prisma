@@ -918,6 +918,7 @@ model AttendanceImportSession {
   rowsImported Int                @default(0)
   rowsSkipped  Int                @default(0)
   unmatchedIds String? // JSON array of machine IDs with no matching Employee.biometricId
+  isFinal      Boolean            @default(false) // the authoritative sheet for its month — see finalizeImportSession()
   createdAt    DateTime           @default(now())
 
   importedBy   User               @relation("AttendanceImports", fields: [importedById], references: [id])

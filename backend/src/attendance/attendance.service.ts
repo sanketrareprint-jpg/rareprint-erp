@@ -324,6 +324,39 @@ export class AttendanceService {
     });
   }
 
+  // Marks one import session as the authoritative sheet for whatever month(s)
+  // its period overlaps. Only one session can be final per overlapping
+  // period — marking a new one final automatically un-finals any other
+  // session that overlaps the same period, so "final" always means exactly
+  // one sheet per month, not a growing pile of them.
+  async finalizeImportSession(sessionId: string) {
+    const session = await this.prisma.attendanceImportSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Import session not found');
+    await this.prisma.attendanceImportSession.updateMany({
+      where: {
+        id: { not: sessionId },
+        isFinal: true,
+        periodStart: { lte: session.periodEnd },
+        periodEnd: { gte: session.periodStart },
+      },
+      data: { isFinal: false },
+    });
+    return this.prisma.attendanceImportSession.update({ where: { id: sessionId }, data: { isFinal: true } });
+  }
+
+  async unfinalizeImportSession(sessionId: string) {
+    const session = await this.prisma.attendanceImportSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Import session not found');
+    return this.prisma.attendanceImportSession.update({ where: { id: sessionId }, data: { isFinal: false } });
+  }
+
+  /** The session flagged final for a given month, if any. Shared by the grid and salaryForMonth so both agree on what's "the" sheet. */
+  async getFinalSessionForMonth(monthStart: Date, monthEnd: Date) {
+    return this.prisma.attendanceImportSession.findFirst({
+      where: { isFinal: true, periodStart: { lt: monthEnd }, periodEnd: { gte: monthStart } },
+    });
+  }
+
   // ── Monthly grid (editable) ──────────────────────────────────────────
 
   async getMonthGrid(employeeId: string, year: number, month: number) {
@@ -332,8 +365,21 @@ export class AttendanceService {
 
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 1);
+
+    // If a sheet's been marked Final for this month, only its rows (plus any
+    // hand-corrected days, which always take precedence regardless of which
+    // sheet they came from) are shown — any other import for the same month
+    // is ignored. Before anything's finalized, everything imported/edited so
+    // far is shown, same as before this feature existed.
+    const finalSession = await this.getFinalSessionForMonth(monthStart, monthEnd);
     const records = await this.prisma.attendanceRecord.findMany({
-      where: { employeeId, date: { gte: monthStart, lt: monthEnd } },
+      where: {
+        employeeId,
+        date: { gte: monthStart, lt: monthEnd },
+        ...(finalSession
+          ? { OR: [{ importSessionId: finalSession.id }, { source: { in: ['MANUAL', 'EDITED'] } }] }
+          : {}),
+      },
     });
     const byDate = new Map(records.map((r) => [r.date.toISOString().slice(0, 10), r]));
 
@@ -371,6 +417,7 @@ export class AttendanceService {
       year,
       month,
       days,
+      finalSessionId: finalSession?.id ?? null,
     };
   }
 

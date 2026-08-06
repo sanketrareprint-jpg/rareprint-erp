@@ -107,6 +107,21 @@ export function workingDaysInMonth(year: number, month: number, offDow = WEEKLY_
   return count;
 }
 
+// Standing automatic monthly paid-leave credit ("2 days paid leave", per
+// Sanket, 2026-08-06) — applied every month for every employee without an
+// admin having to log a leave-ledger entry or tick the Attendance grid
+// checkbox. These 7 get 16h (2 x 8h day); everyone else gets 14h (2 x 7h
+// day). Matched on the first identifying word of the name since the list as
+// given includes honorifics/nicknames, not necessarily the literal stored
+// fullName — confirm these match your actual Employee list.
+const AUTOMATIC_16H_NAME_TOKENS = ['PRAJAKTA', 'VAISHALI', 'SANDIP', 'YASH', 'DEEPAK', 'WARSHA', 'SUNITA'];
+
+export function automaticMonthlyPaidLeaveHours(fullName: string | null | undefined): number {
+  const upper = (fullName ?? '').toUpperCase();
+  const is16h = AUTOMATIC_16H_NAME_TOKENS.some((token) => new RegExp(`\\b${token}\\b`).test(upper));
+  return is16h ? 16 : 14;
+}
+
 @Injectable()
 export class HrService {
   private readonly logger = new Logger(HrService.name);
@@ -480,9 +495,22 @@ export class HrService {
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 1); // exclusive
 
+    // If a sheet's been marked Final for this month (see AttendanceService.
+    // finalizeImportSession), payroll must agree with what the Attendance
+    // grid shows: only that session's rows, plus any hand-corrected days.
+    const finalSession = await this.prisma.attendanceImportSession.findFirst({
+      where: { isFinal: true, periodStart: { lt: monthEnd }, periodEnd: { gte: monthStart } },
+    });
+
     const [records, leaveEntries, salesAgg] = await Promise.all([
       this.prisma.attendanceRecord.findMany({
-        where: { employeeId, date: { gte: monthStart, lt: monthEnd } },
+        where: {
+          employeeId,
+          date: { gte: monthStart, lt: monthEnd },
+          ...(finalSession
+            ? { OR: [{ importSessionId: finalSession.id }, { source: { in: ['MANUAL', 'EDITED'] } }] }
+            : {}),
+        },
         orderBy: { date: 'asc' },
       }),
       this.prisma.employeeLeaveEntry.findMany({
@@ -502,15 +530,13 @@ export class HrService {
 
     const workingDays = workingDaysInMonth(year, month);
 
-    // Only leave types that are actually PAID excuse the day from
-    // requiredHours (which is what determines whether a day counts as a
-    // shortfall). UNPAID was being summed in here identically to PAID —
-    // meaning marking someone's leave as "Unpaid" in the ledger had the
-    // opposite of the intended effect: it forgave that day's required hours
-    // instead of docking pay for it. Confirmed: UNPAID is a real, selectable
-    // option in the HR leave-entry UI, not a dead enum value.
-    const paidLeaveEntries = leaveEntries.filter((e) => e.type !== 'UNPAID');
-    let leaveDays = paidLeaveEntries.reduce((sum, e) => sum + Number(e.days), 0);
+    // NOTE: every leave type (including UNPAID) reduces requiredHours here —
+    // that's intentional, matching the legacy Google Sheet this mirrors (see
+    // file header comment): leave of any kind lowers the bar rather than
+    // separately docking pay on top of low hours. An earlier pass in this
+    // file flagged UNPAID-reduces-hours as a bug and excluded it, which was
+    // wrong — it contradicted this documented, deliberate design. Reverted.
+    let leaveDays = leaveEntries.reduce((sum, e) => sum + Number(e.days), 0);
 
     // The Attendance page's per-day "Paid Leave" checkbox (AttendanceRecord.
     // isPaidLeave) is a separate flag from the leave ledger above, and was
@@ -534,7 +560,17 @@ export class HrService {
 
     const netDays = Math.max(0, workingDays - leaveDays);
     const workingHoursPerDay = Number(employee.workingHoursPerDay);
-    const requiredHours = netDays * workingHoursPerDay;
+
+    // Automatic 2-days-paid-leave-per-month credit, applied every month
+    // without needing a ledger entry or a grid checkbox — Sanket's standing
+    // rule, not something admins should have to re-enter each time. Named
+    // employees get 16h (2 x 8h), everyone else 14h (2 x 7h). Matched by the
+    // first identifying word of Employee.fullName (case-insensitive) since
+    // the names given include honorifics/nicknames ("Sandip Sir", "Sunita
+    // Designer") that likely aren't the literal stored fullName — verify
+    // these actually match your Employee list after deploying.
+    const automaticPaidLeaveHours = automaticMonthlyPaidLeaveHours(employee.fullName);
+    const requiredHours = Math.max(0, netDays * workingHoursPerDay - automaticPaidLeaveHours);
     const hoursWorked = records.reduce((sum, r) => sum + Number(r.hoursWorked), 0);
     const absentHours = hoursWorked - requiredHours;
     const baseSalary = Number(employee.baseSalary);
@@ -597,6 +633,7 @@ export class HrService {
       leaveDays,
       netDays,
       workingHoursPerDay,
+      automaticPaidLeaveHours,
       requiredHours: round2(requiredHours),
       hoursWorked: round2(hoursWorked),
       absentHours: round2(absentHours),

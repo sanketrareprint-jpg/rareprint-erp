@@ -17,12 +17,12 @@ type DayRow = {
   hoursWorked: number; isAbsent: boolean; isPaidLeave: boolean; source: string | null;
   note: string | null; needsReview: boolean;
 };
-type MonthGrid = { employeeId: string; employeeCode: string; fullName: string; workingHoursPerDay: number; year: number; month: number; days: DayRow[] };
+type MonthGrid = { employeeId: string; employeeCode: string; fullName: string; workingHoursPerDay: number; year: number; month: number; days: DayRow[]; finalSessionId?: string | null };
 
 type ImportSession = {
   id: string; fileName: string; periodStart: string; periodEnd: string;
   rowsFound: number; rowsImported: number; rowsSkipped: number; createdAt: string;
-  importedBy?: { fullName: string } | null;
+  importedBy?: { fullName: string } | null; isFinal?: boolean;
 };
 
 type SalaryCalc = {
@@ -33,6 +33,7 @@ type SalaryCalc = {
   incentivePlanLabel?: string | null; incentivePct?: number | null; monthlyTarget?: number | null;
   monthSales?: number; targetAchieved?: boolean | null; incentiveAmount?: number;
   petrolAllowance?: number; simAllowance?: number; calculatedTotal?: number;
+  automaticPaidLeaveHours?: number;
 };
 
 const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -64,6 +65,7 @@ export default function AttendancePage() {
   const [showAdHocLeave, setShowAdHocLeave] = useState(false);
   const [adHocLeave, setAdHocLeave] = useState({ date: "", days: "1", reason: "" });
   const [savingLeave, setSavingLeave] = useState(false);
+  const [finalizingId, setFinalizingId] = useState<string | null>(null);
 
   const loadImportSessions = useCallback(async () => {
     const data = await apiFetch<ImportSession[]>("/attendance/import-sessions", {}, undefined);
@@ -137,6 +139,17 @@ export default function AttendancePage() {
     if (res) {
       setAdHocLeave({ date: "", days: "1", reason: "" });
       setShowAdHocLeave(false);
+      void loadGrid();
+    }
+  };
+
+  const handleToggleFinal = async (session: ImportSession) => {
+    setFinalizingId(session.id);
+    const path = session.isFinal ? `/attendance/import-sessions/${session.id}/unfinalize` : `/attendance/import-sessions/${session.id}/finalize`;
+    const res = await apiMutate(path, "PUT", {}, setError);
+    setFinalizingId(null);
+    if (res) {
+      await loadImportSessions();
       void loadGrid();
     }
   };
@@ -218,6 +231,7 @@ export default function AttendancePage() {
           </button>
           {showHistory && (
             <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <p className="text-[11px] text-slate-400 px-2 pt-2">Mark a sheet Final to make it the one everyone sees for that month — any other upload covering the same month is then ignored (your hand-corrected days on the grid still always apply).</p>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
@@ -226,18 +240,30 @@ export default function AttendancePage() {
                     <th className="py-2 px-2">Rows</th>
                     <th className="py-2 px-2">Imported by</th>
                     <th className="py-2 px-2">When</th>
+                    <th className="py-2 px-2">Final</th>
                   </tr>
                 </thead>
                 <tbody>
                   {importSessions.length === 0 ? (
-                    <tr><td colSpan={5} className="py-3 px-2 text-slate-400 text-center">No imports yet.</td></tr>
+                    <tr><td colSpan={6} className="py-3 px-2 text-slate-400 text-center">No imports yet.</td></tr>
                   ) : importSessions.map((s) => (
-                    <tr key={s.id} className="border-b border-slate-50">
+                    <tr key={s.id} className={`border-b border-slate-50 ${s.isFinal ? "bg-green-50" : ""}`}>
                       <td className="py-1.5 px-2 whitespace-nowrap">{new Date(s.periodStart).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} – {new Date(s.periodEnd).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
                       <td className="py-1.5 px-2 text-slate-500">{s.fileName}</td>
                       <td className="py-1.5 px-2">{s.rowsImported}/{s.rowsFound} <span className="text-slate-400">({s.rowsSkipped} skipped)</span></td>
                       <td className="py-1.5 px-2 text-slate-500">{s.importedBy?.fullName ?? "—"}</td>
                       <td className="py-1.5 px-2 text-slate-400 whitespace-nowrap">{new Date(s.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                      <td className="py-1.5 px-2">
+                        {s.isFinal ? (
+                          <button onClick={() => handleToggleFinal(s)} disabled={finalizingId === s.id} className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-100 border border-green-300 rounded-lg px-2 py-1 disabled:opacity-50">
+                            {finalizingId === s.id ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />} Final
+                          </button>
+                        ) : (
+                          <button onClick={() => handleToggleFinal(s)} disabled={finalizingId === s.id} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 border border-slate-300 rounded-lg px-2 py-1 hover:bg-slate-50 disabled:opacity-50">
+                            {finalizingId === s.id ? <Loader2 size={11} className="animate-spin" /> : null} Mark Final
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -274,6 +300,15 @@ export default function AttendancePage() {
               </span>
             )}
           </div>
+          {grid?.finalSessionId ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
+              <CheckCircle2 size={13} /> Showing the Final sheet for this month
+            </span>
+          ) : monthImported ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">
+              No sheet marked Final yet — showing everything imported/edited so far
+            </span>
+          ) : null}
         </div>
 
         {salary && (
@@ -288,6 +323,9 @@ export default function AttendancePage() {
               <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{salary.hoursWorked}</span></div>
               <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${salary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{salary.absentHours}</span></div>
               <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{salary.leaveDays}</span></div>
+              {!!salary.automaticPaidLeaveHours && (
+                <div><span className="text-slate-400 block uppercase">Auto paid leave</span><span className="font-bold text-slate-700">{salary.automaticPaidLeaveHours} hrs <span className="text-[10px] text-slate-400">(already in required hrs)</span></span></div>
+              )}
               {!!salary.overtimeAllowed && (
                 <>
                   <div><span className="text-slate-400 block uppercase">Overtime hrs</span><span className="font-bold text-slate-700">{salary.overtimeHours ?? 0}</span></div>
