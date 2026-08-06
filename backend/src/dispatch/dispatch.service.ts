@@ -61,6 +61,11 @@ function extractPincode(address?: string | null): string | null {
   return m ? m[1] : null;
 }
 
+/** A valid Indian PIN code is exactly 6 digits — nothing more, nothing less. */
+function isValidIndianPincode(pin?: string | null): pin is string {
+  return !!pin && /^\d{6}$/.test(pin.trim());
+}
+
 function splitAddressForShiprocket(customer: {
   shippingAddress: string | null;
   billingAddress: string | null;
@@ -70,7 +75,16 @@ function splitAddressForShiprocket(customer: {
   pincode?: string | null;
 }): { line: string; city: string; state: string; pincode: string } {
   const raw = customer.shippingAddress?.trim() || customer.billingAddress?.trim() || customer.businessName;
-  const pin = customer.pincode?.trim() || extractPincode(raw) || '110001';
+  // The stored customer.pincode field is trusted blindly here previously — if it
+  // held anything truthy but malformed (wrong digit count, stray characters, a
+  // half-entered value, etc.) it went straight to the courier API as-is, which is
+  // exactly what produces "MasterOrderShippingZipCode ... is invalid" from Bigship
+  // after burning through all retry attempts. Now it's validated as a real 6-digit
+  // PIN before being trusted; a bad stored value falls through to extracting one
+  // from the free-text address, then to the Delhi default, same as an empty field
+  // always did.
+  const storedPin = customer.pincode?.trim();
+  const pin = (isValidIndianPincode(storedPin) ? storedPin : null) ?? extractPincode(raw) ?? '110001';
   const city = customer.city?.trim() || '';
   const state = customer.state?.trim() || '';
   // Use the raw address as the line (strip pincode if present)
