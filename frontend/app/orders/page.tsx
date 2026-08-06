@@ -1132,20 +1132,49 @@ export default function OrdersPage() {
                                                       </span>
                                                     </div>
                                                   ) : isSheetEvent ? (
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                      <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-indigo-100 text-indigo-700">
-                                                        {meta.sheetNo ? `Sheet ${meta.sheetNo}` : "Sheet"}
-                                                      </span>
-                                                      <span className="text-xs font-medium text-slate-700">
-                                                        {meta.productName ?? "Item"}{qty !== undefined ? ` · Qty ${qty}` : ""}
-                                                      </span>
-                                                      {eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? (
-                                                        <span className="text-xs text-slate-500">· {labelize(meta.stage)} → {meta.vendorName ?? "vendor"}</span>
-                                                      ) : meta.sheetStatus ? (
-                                                        <span className="text-xs text-slate-500">
-                                                          · {meta.fromSheetStatus ? `${labelize(meta.fromSheetStatus)} → ` : ""}{labelize(meta.sheetStatus)}
+                                                    <div>
+                                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(eventType)}`}>
+                                                          {eventType === "SHEET_ASSIGNED" ? "Sheet Assigned" : eventType === "SHEET_STATUS_CHANGED" ? "Sheet Stage" : eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? "Stage Vendor" : "Current Sheet"}
                                                         </span>
-                                                      ) : null}
+                                                        {meta.sheetNo && <span className="text-xs font-bold text-slate-700">Sheet {meta.sheetNo}</span>}
+                                                        {meta.fromSheetStatus && (
+                                                          <>
+                                                            <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{labelize(meta.fromSheetStatus)}</span>
+                                                            <span className="text-slate-300 text-xs">→</span>
+                                                          </>
+                                                        )}
+                                                        {meta.sheetStatus && (
+                                                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${stageBadgeClass(meta.sheetStatus)}`}>{labelize(meta.sheetStatus)}</span>
+                                                        )}
+                                                      </div>
+                                                      {/* One flowing line instead of a label/value grid — same info, no
+                                                          per-field boxes, and drops fields that just repeat what the
+                                                          badges/description above already say (item stage, "multiple",
+                                                          vendor+invoice when the description already names the vendor). */}
+                                                      <p className="mt-0.5 text-xs text-slate-500">
+                                                        {[
+                                                          eventType === "SHEET_ASSIGNED" ? `${meta.productName ?? "Item"} assigned to sheet ${meta.sheetNo ?? ""}`
+                                                            : eventType === "SHEET_STAGE_VENDOR_ASSIGNED" ? `${labelize(meta.stage)} assigned to ${meta.vendorName ?? "vendor"}${meta.vendorInvoiceNo ? ` (Inv ${meta.vendorInvoiceNo})` : ""}`
+                                                            : meta.productName,
+                                                          qty !== undefined ? `Qty ${qty}` : null,
+                                                          meta.sheetSize,
+                                                          meta.sheetGsm ? `${meta.sheetGsm} GSM` : null,
+                                                          meta.sheetPrinting ? labelize(meta.sheetPrinting) : null,
+                                                        ].filter(Boolean).join(" · ")}
+                                                      </p>
+                                                      {/* Cumulative vendor-per-stage summary — only shown on "Current
+                                                          Sheet" where it's the one place this info appears; the
+                                                          Stage Vendor event already states its single vendor above. */}
+                                                      {eventType === "SHEET_CURRENT_STATUS" && Array.isArray(meta.stageVendors) && meta.stageVendors.length > 0 && (
+                                                        <div className="mt-1 flex flex-wrap gap-1">
+                                                          {meta.stageVendors.map((sv: any, vendorIdx: number) => (
+                                                            <span key={`${log.id}-vendor-${vendorIdx}`} className="rounded-full bg-white px-1.5 py-0.5 text-xs font-medium text-slate-600 border border-slate-200">
+                                                              {labelize(sv.stage)}: {sv.vendorName}
+                                                            </span>
+                                                          ))}
+                                                        </div>
+                                                      )}
                                                     </div>
                                                   ) : (
                                                     <div className="flex items-center gap-1.5 flex-wrap">
