@@ -8,6 +8,7 @@
   "scripts": {
     "build": "prisma generate && node --max-old-space-size=4096 ./node_modules/@nestjs/cli/bin/nest.js build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "migrate": "node scripts/railway-migrate.js",
     "start": "node scripts/railway-migrate.js && node dist/src/main",
     "start:dev": "node --max-old-space-size=4096 ./node_modules/@nestjs/cli/bin/nest.js start --watch",
     "start:debug": "nest start --debug --watch",
