@@ -248,8 +248,8 @@ export class OrdersController {
 
   @Delete(":id")
   @UseGuards(AuthGuard("jwt"))
-  async deleteOrder(@Param("id") id: string) {
-    return this.ordersService.deleteOrder(id);
+  async deleteOrder(@Param("id") id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.ordersService.deleteOrder(id, req.user.role === "ADMIN");
   }
 
   // ── Design Files ────────────────────────────────────────────────────────────

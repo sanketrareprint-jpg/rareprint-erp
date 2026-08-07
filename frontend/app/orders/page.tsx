@@ -155,6 +155,12 @@ export default function OrdersPage() {
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Admin force-delete (order past PENDING_APPROVAL) — gated behind typing
+  // the order number so it can't happen from a stray click.
+  const [forceDeleteOrder, setForceDeleteOrder] = useState<Order | null>(null);
+  const [forceDeleteConfirmText, setForceDeleteConfirmText] = useState("");
+  const [forceDeleting, setForceDeleting] = useState(false);
+
   // Edit payment
   const [editingPayment, setEditingPayment] = useState<{ payment: Payment; orderId: string } | null>(null);
   const [editPaymentForm, setEditPaymentForm] = useState({ amount: "", method: "CASH", paymentAccountId: "", referenceNumber: "", notes: "", paymentDate: "" });
@@ -982,12 +988,20 @@ export default function OrdersPage() {
                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 </button>
                               )}
-                              {/* Delete — always shown for test orders; PENDING_APPROVAL only for real orders */}
-                              {(o.isTest || o.status === "PENDING_APPROVAL") && (
-                                <button title={o.isTest ? "Delete Test Order" : "Delete Order"} onClick={async () => {
-                                  if (!confirm(`Delete order ${o.orderNo}? Cannot be undone.`)) return;
-                                  const res = await fetch(`${API_BASE_URL}/orders/${o.id}`, { method: "DELETE", headers: getAuthHeaders() });
-                                  if (res.ok) { alert("Order deleted!"); load(); } else { alert("Delete failed"); }
+                              {/* Delete — always shown for test orders and PENDING_APPROVAL orders;
+                                  ADMIN also gets it for any other order, but that path opens a
+                                  type-to-confirm modal instead of deleting straight away. */}
+                              {(o.isTest || o.status === "PENDING_APPROVAL" || currentUser?.role === "ADMIN") && (
+                                <button title={o.isTest ? "Delete Test Order" : o.status === "PENDING_APPROVAL" ? "Delete Order" : "Delete Order (admin override)"} onClick={async () => {
+                                  if (o.isTest || o.status === "PENDING_APPROVAL") {
+                                    if (!confirm(`Delete order ${o.orderNo}? Cannot be undone.`)) return;
+                                    const res = await fetch(`${API_BASE_URL}/orders/${o.id}`, { method: "DELETE", headers: getAuthHeaders() });
+                                    if (res.ok) { alert("Order deleted!"); load(); } else { alert("Delete failed"); }
+                                    return;
+                                  }
+                                  // Past PENDING_APPROVAL — admin override, needs typed confirmation.
+                                  setForceDeleteConfirmText("");
+                                  setForceDeleteOrder(o);
                                 }} className={`px-1 py-1.5 rounded-md border ${o.isTest ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"}`}>
                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                                 </button>
@@ -1291,6 +1305,63 @@ export default function OrdersPage() {
           </div>
         </div>
       </DashboardShell>
+
+      {/* ── Admin Force-Delete Confirmation Modal ───────────────────────────
+          Only reachable for ADMIN, and only for orders past PENDING_APPROVAL
+          (the simple browser confirm() above still handles PENDING_APPROVAL
+          and test orders for everyone). Requires typing the exact order
+          number so an admin can't force-delete the wrong order by mistake. */}
+      {forceDeleteOrder && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
+          <div style={{ width: "100%", maxWidth: "28rem", background: "white", borderRadius: "1rem", border: "1px solid #fecaca", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <h3 className="text-base font-bold text-red-700 mb-2">Force delete order {forceDeleteOrder.orderNo}?</h3>
+            <p className="text-xs text-slate-600 mb-3">
+              This order is past Pending Approval (currently <strong>{forceDeleteOrder.status.replace(/_/g, " ")}</strong>).
+              Deleting it permanently removes its items, payments, invoices, production and dispatch records, and status history. This cannot be undone.
+            </p>
+            <p className="text-xs text-slate-600 mb-2">
+              Type the order number <strong>{forceDeleteOrder.orderNo}</strong> to confirm:
+            </p>
+            <input
+              value={forceDeleteConfirmText}
+              onChange={e => setForceDeleteConfirmText(e.target.value)}
+              placeholder={forceDeleteOrder.orderNo}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm mb-4 outline-none focus:border-red-400"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setForceDeleteOrder(null); setForceDeleteConfirmText(""); }} disabled={forceDeleting}
+                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!forceDeleteOrder) return;
+                  setForceDeleting(true);
+                  try {
+                    const res = await fetch(`${API_BASE_URL}/orders/${forceDeleteOrder.id}`, { method: "DELETE", headers: getAuthHeaders() });
+                    if (res.ok) {
+                      alert("Order deleted.");
+                      setForceDeleteOrder(null);
+                      setForceDeleteConfirmText("");
+                      load();
+                    } else {
+                      const b = await res.json().catch(() => ({}));
+                      alert(b.message || "Delete failed");
+                    }
+                  } finally {
+                    setForceDeleting(false);
+                  }
+                }}
+                disabled={forceDeleteConfirmText.trim() !== forceDeleteOrder.orderNo || forceDeleting}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 font-semibold">
+                {forceDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Design File Upload Modal ─────────────────────────────────────── */}
       {fileModalOrder && (

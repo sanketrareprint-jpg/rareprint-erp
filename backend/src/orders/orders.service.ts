@@ -767,11 +767,23 @@ export class OrdersService {
     return { success: true };
   }
 
-  async deleteOrder(orderId: string) {
+  // isAdmin lets ADMIN-role users force-delete an order in any status, not
+  // just PENDING_APPROVAL/test — the frontend gates this behind a
+  // type-the-order-number confirmation so it can't happen by a stray click.
+  // Everything that references the order cascades at the DB level (OrderItem,
+  // Payment, Invoice, Commission, ProductionJob, Shipment, StatusLog,
+  // AccountingLedgerEntry, OrderReassuranceLog — see schema.prisma), so a
+  // plain order delete cleans those up automatically. A few tables keep the
+  // order id as a soft, non-FK reference for history (RewardTransaction,
+  // CustomerLoyaltyTransaction, Notification) and are deliberately left
+  // pointing at the deleted order — same as how those tables already behave
+  // for any other historical reference.
+  async deleteOrder(orderId: string, isAdmin: boolean = false) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new Error('Order not found');
-    // Test orders can be deleted at any stage; real orders only when PENDING_APPROVAL
-    if (!order.isTest && order.status !== OrderStatus.PENDING_APPROVAL) {
+    // Test orders can be deleted at any stage; real orders only when
+    // PENDING_APPROVAL — unless an admin is force-deleting.
+    if (!order.isTest && order.status !== OrderStatus.PENDING_APPROVAL && !isAdmin) {
       throw new Error('Only PENDING_APPROVAL orders can be deleted');
     }
 
