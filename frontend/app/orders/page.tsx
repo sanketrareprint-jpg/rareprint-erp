@@ -26,7 +26,7 @@ type Order = {
   id: string; orderNo: string; customerName: string; customerPhone?: string; shippingAddress?: string;
   salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
-  balanceDue: number; status: string; date: string; isTest?: boolean;
+  balanceDue: number; status: string; date: string; isTest?: boolean; isSample?: boolean;
   marginPct?: number | null; marginTotal?: number | null; costTotal?: number | null;
   commissionTotal?: number | null; commissionPctOfSale?: number | null;
   readyItemsCount?: number; totalItemsCount?: number;
@@ -1077,6 +1077,35 @@ export default function OrdersPage() {
                           <tr>
                             <td colSpan={tableColSpan} className="bg-slate-50 px-6 py-4 border-t border-slate-100">
                               <p className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wide">Order Journey</p>
+                              {/* "Ready for Dispatch" and "Pending Dispatch Approval" don't tell you
+                                  WHO needs to act next — approving dispatch deliberately puts the
+                                  order back into READY_FOR_DISPATCH (same tag as before submission),
+                                  so it looks stuck even when everything so far has worked correctly.
+                                  This banner spells out the actual next step and who owns it. */}
+                              {(o.status === 'PENDING_DISPATCH_APPROVAL' || o.status === 'READY_FOR_DISPATCH') && (() => {
+                                const logs = orderJourneys[o.id];
+                                if (!logs) return null;
+                                if (o.status === 'PENDING_DISPATCH_APPROVAL') {
+                                  return (
+                                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                      Submitted for dispatch — waiting on <strong>Accounts → Dispatch Approval</strong> to approve before this can be booked.
+                                    </div>
+                                  );
+                                }
+                                const hasApprovalLog = logs.some((l: any) => l.fromStatus === 'PENDING_DISPATCH_APPROVAL' && l.toStatus === 'READY_FOR_DISPATCH');
+                                if (o.isSample || hasApprovalLog) {
+                                  return (
+                                    <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                                      Approved and ready — next step is for the <strong>Dispatch</strong> team to open the Dispatch page and book/ship it. The tag stays "Ready for Dispatch" until that actually happens.
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                                    Not yet submitted for dispatch approval — select this order in the <strong>Ready for Dispatch</strong> tab, fill in courier/COD details and submit, then Accounts must approve it before Dispatch can book it.
+                                  </div>
+                                );
+                              })()}
                               {(() => {
                                 // Simple journey: order-level milestones + payments + a
                                 // one-line-each summary of sheet/quantity events — not the
