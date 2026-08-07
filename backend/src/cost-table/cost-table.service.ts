@@ -1138,37 +1138,42 @@ export class CostTableService {
             commAmt = lineTotal * 0.10;
             calcMethod = `Sale × 10%`;
           }
-        } else if (!costSlab) {
-          // No cost slab covers this product at this exact quantity (a Cost
-          // Table gap — e.g. slab ranges don't extend far enough), so profit
-          // can't be computed and the profit÷4 branches above can't run.
-          // Previously this silently zeroed the line's commission entirely —
-          // dragging the whole order's commission % down — even when the sale
-          // was priced exactly rate-to-rate (matches the rate card, or there's
-          // no rate card at all) and the agent had done nothing wrong. A
-          // rate-to-rate sale still earns the normal flat commission
-          // regardless of whether Accounts has finished entering cost data
-          // for this specific quantity tier. Only skip to $0 when a real
-          // discount is detected (profit can't be safely estimated without
-          // cost, so we don't want to overpay commission on it either) —
-          // flag those for manual review instead of quietly underpaying.
+        } else {
+          // Either (a) no cost slab covers this product at this exact
+          // quantity (a Cost Table gap — slab ranges don't extend far
+          // enough), or (b) a cost slab does exist but the computed profit
+          // came back zero or negative (e.g. a low per-unit rate at high
+          // volume that undercuts the cost card). Either way the profit÷4
+          // branches above can't safely run. Previously both cases silently
+          // zeroed the line's commission entirely — dragging the whole
+          // order's commission % down — even when the sale was priced
+          // exactly rate-to-rate (matches the rate card, or there's no rate
+          // card at all) and the agent had done nothing wrong. A rate-to-rate
+          // sale still earns the normal flat commission regardless of
+          // whether Accounts has finished entering cost data, or whether the
+          // cost card and rate card genuinely disagree on margin for this
+          // quantity tier. Only skip to $0 when a real discount is detected
+          // (profit can't be safely estimated without reliable cost, so we
+          // don't want to overpay commission on it either) — flag those for
+          // manual review instead of quietly underpaying.
+          const noCostReason = costSlab ? 'cost ≥ sale, no margin' : 'no cost data';
           const discountPctNoCost = rateSlab && rateAmt > 0
             ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100)
             : 0;
           if (discountPctNoCost > 5) {
-            calcMethod = `No cost data — cannot verify margin on a ${discountPctNoCost.toFixed(1)}% discounted sale, needs manual review`;
+            calcMethod = `Cannot verify margin (${noCostReason}) on a ${discountPctNoCost.toFixed(1)}% discounted sale, needs manual review`;
           } else if (agentCategory === 'D') {
             commAmt = Math.max(0, lineTotal - rateAmt);
-            calcMethod = `Sale − Rate (₹${lineTotal.toFixed(0)} − ₹${rateAmt.toFixed(0)}) [no cost data]`;
+            calcMethod = `Sale − Rate (₹${lineTotal.toFixed(0)} − ₹${rateAmt.toFixed(0)}) [${noCostReason}]`;
           } else if (agentCategory === 'A') {
             commAmt = lineTotal * (sticker ? 0.15 : 0.10);
-            calcMethod = `Sale × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'}, no cost data — rate-to-rate)`;
+            calcMethod = `Sale × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'}, ${noCostReason} — rate-to-rate)`;
           } else if (agentCategory === 'C') {
             commAmt = lineTotal * (sticker ? 0.17 : 0.12);
-            calcMethod = `Sale × ${sticker ? '17' : '12'}% (${sticker ? 'sticker' : 'standard'}, no cost data — rate-to-rate)`;
+            calcMethod = `Sale × ${sticker ? '17' : '12'}% (${sticker ? 'sticker' : 'standard'}, ${noCostReason} — rate-to-rate)`;
           } else {
             commAmt = lineTotal * 0.10;
-            calcMethod = `Sale × 10% (no cost data — rate-to-rate)`;
+            calcMethod = `Sale × 10% (${noCostReason} — rate-to-rate)`;
           }
         }
 

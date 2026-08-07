@@ -174,23 +174,52 @@ export class OrdersService {
     let commissionTotal = 0;
     for (const item of order.items) {
       const slab = item.matchingCostSlab;
-      if (!slab) return { commissionTotal: null, commissionPctOfSale: null };
       const lineTotal = Number(item.lineTotal);
       const unitPrice = Number(item.unitPrice);
-      const rawCost = Number(slab.unitPrice);
-      const costPerUnit = rawCost > unitPrice ? rawCost / slab.minQuantity : rawCost;
-      const costTotal = costPerUnit * item.quantity;
-      const profit = lineTotal - costTotal;
-      if (profit <= 0) continue;
+
+      // profit stays null when there's no cost slab for this exact quantity;
+      // it's a number (possibly <= 0) whenever a slab was found.
+      let profit: number | null = null;
+      if (slab) {
+        const rawCost = Number(slab.unitPrice);
+        const costPerUnit = rawCost > unitPrice ? rawCost / slab.minQuantity : rawCost;
+        const costTotal = costPerUnit * item.quantity;
+        profit = lineTotal - costTotal;
+      }
 
       const rateSlab = this.matchingRateSlab(item);
       const rateTotal = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
       const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
 
-      if (category === 'D') {
+      if (profit !== null && profit > 0) {
+        if (category === 'D') {
+          commissionTotal += Math.max(0, lineTotal - rateTotal);
+        } else if (discountPct > 5) {
+          commissionTotal += profit / (category === 'C' ? 3.75 : 4);
+        } else if (category === 'A') {
+          commissionTotal += lineTotal * (this.isSticker(item) ? 0.15 : 0.10);
+        } else if (category === 'C') {
+          commissionTotal += lineTotal * (this.isSticker(item) ? 0.17 : 0.12);
+        } else {
+          commissionTotal += lineTotal * 0.10;
+        }
+        continue;
+      }
+
+      // Either no cost slab covers this quantity, or one does but comes back
+      // with zero/negative profit (a cost/rate card mismatch). The profit÷N
+      // branches above can't safely run either way. A rate-to-rate sale
+      // (<=5% off the rate card, or no rate card at all) still earns the
+      // normal flat commission — this used to silently zero the whole
+      // order's commission (or just this line) even when the agent gave no
+      // discount and did nothing wrong. Only stay at $0 for a real >5%
+      // discount, since profit can't be safely verified there without
+      // reliable cost data. Mirrors the fallback in
+      // cost-table.service.ts::getAgentCommissionSheet.
+      if (discountPct > 5) {
+        continue; // real discount, unverifiable margin — leave at $0
+      } else if (category === 'D') {
         commissionTotal += Math.max(0, lineTotal - rateTotal);
-      } else if (discountPct > 5) {
-        commissionTotal += profit / (category === 'C' ? 3.75 : 4);
       } else if (category === 'A') {
         commissionTotal += lineTotal * (this.isSticker(item) ? 0.15 : 0.10);
       } else if (category === 'C') {
