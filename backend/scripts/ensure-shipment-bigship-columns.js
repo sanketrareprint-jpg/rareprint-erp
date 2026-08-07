@@ -55,8 +55,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  // Never block app startup over this — worst case, columns stay missing
-  // (as they already are) and the next deploy retries.
-  console.error('[ensure-shipment-bigship-columns] Failed:', err.message);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    // Never block app startup over this — worst case, columns stay missing
+    // (as they already are) and the next deploy retries.
+    console.error('[ensure-shipment-bigship-columns] Failed:', err.message);
+    process.exit(0);
+  });

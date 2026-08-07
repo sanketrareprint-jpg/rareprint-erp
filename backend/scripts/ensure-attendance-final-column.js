@@ -43,8 +43,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  // Never block app startup over this — worst case, the column stays
-  // missing (as it already is) and the next deploy retries.
-  console.error('[ensure-attendance-final-column] Failed:', err.message);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    // Never block app startup over this — worst case, the column stays
+    // missing (as it already is) and the next deploy retries.
+    console.error('[ensure-attendance-final-column] Failed:', err.message);
+    process.exit(0);
+  });

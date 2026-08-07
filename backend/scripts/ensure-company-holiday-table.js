@@ -81,8 +81,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  // Never block app startup over this — worst case, holidays stay broken
-  // (as they already are) and the next deploy retries.
-  console.error('[ensure-company-holiday-table] Failed:', err.message);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    // Never block app startup over this — worst case, holidays stay broken
+    // (as they already are) and the next deploy retries.
+    console.error('[ensure-company-holiday-table] Failed:', err.message);
+    process.exit(0);
+  });

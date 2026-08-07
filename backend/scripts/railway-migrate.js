@@ -37,3 +37,8 @@ run('node', ['scripts/ensure-shipment-bigship-columns.js'], { allowFailure: true
 run('node', ['scripts/ensure-user-payment-keyword-table.js'], { allowFailure: true });
 run('node', ['scripts/ensure-attendance-final-column.js'], { allowFailure: true });
 run('node', ['scripts/ensure-company-holiday-table.js'], { allowFailure: true });
+
+// Diagnostic: if this line never shows up in the deploy log, the hang is
+// inside one of the run() calls above (a spawned child process not fully
+// exiting) — not in `node dist/src/main.js` itself.
+console.log('[railway-migrate] All steps complete, handing off to the app...');

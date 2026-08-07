@@ -11,7 +11,12 @@ import { PrismaExceptionFilter } from './prisma/prisma-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
+  // Diagnostic: if this never shows up in the deploy log, dist/src/main.js
+  // itself was never reached (the hang is in railway-migrate.js, before the
+  // app even starts) — not inside NestJS bootstrap.
+  console.log('[main] bootstrap() starting, about to call NestFactory.create...');
   const app = await NestFactory.create(AppModule);
+  console.log('[main] NestFactory.create resolved, configuring app...');
   // Order matters: NestJS applies filters last-registered first.
   // AllExceptionsFilter is the outermost catch-all; PrismaExceptionFilter
   // handles known Prisma codes with more specific messages.
@@ -47,6 +52,15 @@ async function bootstrap() {
     },
     credentials: true,
   });
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT ?? 3000;
+  console.log(`[main] Calling app.listen(${port})...`);
+  await app.listen(port);
+  console.log(`[main] Listening on port ${port}.`);
 }
-bootstrap();
+// Explicit catch so a rejected bootstrap() prints a real stack trace and
+// exits non-zero, instead of potentially hanging silently as an unhandled
+// promise rejection with no further output.
+bootstrap().catch((err) => {
+  console.error('[main] bootstrap() failed:', err);
+  process.exit(1);
+});
