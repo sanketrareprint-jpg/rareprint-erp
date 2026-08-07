@@ -10,7 +10,7 @@ RUN npm install --include=dev
 COPY . .
 RUN npx prisma generate && npx nest build && find dist/ -name "*.js" | head -20
 
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=3000
+EXPOSE 3000
 
 CMD npx prisma db execute --file ./scripts/repair.sql --schema ./prisma/schema.prisma; node dist/src/main.js
