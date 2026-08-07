@@ -18,6 +18,14 @@ function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
+// Customer name and address are always stored in caps, regardless of how the
+// sales agent typed them in — keeps order records/printouts consistent.
+function upper(value: string): string;
+function upper(value?: string | null): string | null | undefined;
+function upper(value?: string | null): string | null | undefined {
+  return typeof value === 'string' ? value.toUpperCase() : value;
+}
+
 function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string }>) {
   return items.map((i) => {
     // Try to read from productionNotes first
@@ -464,10 +472,15 @@ export class OrdersService {
       ? await this.generateSampleNumber()
       : await this.generateOrderNumber();
 
+    const customerNameUpper = upper(dto.customer.name);
+    const customerAddressUpper = upper(dto.customer.address);
+    const customerCityUpper = upper(dto.customer.city);
+    const customerStateUpper = upper(dto.customer.state);
+
     const shippingParts = [
-      dto.customer.address,
-      dto.customer.city,
-      dto.customer.state,
+      customerAddressUpper,
+      customerCityUpper,
+      customerStateUpper,
       dto.customer.pincode,
     ].filter(Boolean);
     const shippingAddress = shippingParts.length > 0 ? shippingParts.join(', ') : undefined;
@@ -514,28 +527,28 @@ export class OrdersService {
         ? await tx.customer.update({
             where: { id: existingCustomer.id },
             data: {
-              businessName: dto.customer.name,
-              contactPerson: dto.customer.name,
+              businessName: customerNameUpper,
+              contactPerson: customerNameUpper,
               phone: dto.customer.phone,
               phone2: dto.customer.phone2,
               email: dto.customer.email,
               shippingAddress,
-              city: dto.customer.city,
-              state: dto.customer.state,
+              city: customerCityUpper,
+              state: customerStateUpper,
               pincode: dto.customer.pincode,
             },
           })
         : await tx.customer.create({
             data: {
               customerCode,
-              businessName: dto.customer.name,
-              contactPerson: dto.customer.name,
+              businessName: customerNameUpper,
+              contactPerson: customerNameUpper,
               phone: dto.customer.phone,
               phone2: dto.customer.phone2,
               email: dto.customer.email,
               shippingAddress,
-              city: dto.customer.city,
-              state: dto.customer.state,
+              city: customerCityUpper,
+              state: customerStateUpper,
               pincode: dto.customer.pincode,
             },
           });
@@ -658,10 +671,15 @@ export class OrdersService {
       throw new Error('Only PENDING_APPROVAL orders can be edited');
     }
 
+    const editCustomerNameUpper = upper(body.customer?.name);
+    const editCustomerAddressUpper = upper(body.customer?.address);
+    const editCustomerCityUpper = upper(body.customer?.city);
+    const editCustomerStateUpper = upper(body.customer?.state);
+
     const shippingParts = [
-      body.customer?.address,
-      body.customer?.city,
-      body.customer?.state,
+      editCustomerAddressUpper,
+      editCustomerCityUpper,
+      editCustomerStateUpper,
       body.customer?.pincode,
     ].filter(Boolean);
     // Only recompute shippingAddress when at least one address part was actually
@@ -674,13 +692,13 @@ export class OrdersService {
       await tx.customer.update({
         where: { id: order.customerId },
         data: {
-          businessName: body.customer?.name,
-          contactPerson: body.customer?.name,
+          businessName: editCustomerNameUpper,
+          contactPerson: editCustomerNameUpper,
           phone: body.customer?.phone,
           email: body.customer?.email,
           shippingAddress,
-          city: body.customer?.city,
-          state: body.customer?.state,
+          city: editCustomerCityUpper,
+          state: editCustomerStateUpper,
           pincode: body.customer?.pincode,
         },
       });
