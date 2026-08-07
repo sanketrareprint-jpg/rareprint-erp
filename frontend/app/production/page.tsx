@@ -1892,6 +1892,7 @@ export default function ProductionPage() {
                                     <div key={si.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                                       <span className="font-semibold text-slate-800">{si.orderItem.product.name}</span>
                                       <span className="text-slate-500">{si.orderItem.order.orderNumber} — {si.orderItem.order.customer.businessName}</span>
+                                      {si.orderItem.order.salesAgent?.fullName ? <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 font-medium">{si.orderItem.order.salesAgent.fullName}</span> : <span className="text-slate-300">—</span>}
                                       <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 font-medium">{si.orderItem.product.sizeInches}"</span>
                                       <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 font-medium">{si.orderItem.product.gsm} GSM</span>
                                       <span className="text-cyan-700 font-semibold">x{si.multiple} · Qty {si.quantityOnSheet}</span>

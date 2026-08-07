@@ -942,47 +942,6 @@ export class CostTableService {
     return Math.floor(saleTotal / 100000) * 1000;
   }
 
-  // ── Per-item commission % helper ─────────────────────────────────────────
-  private commissionPctForLine(
-    category: string | null,
-    lineTotal: number,
-    rateTotal: number,
-    costTotal: number,
-    isSticker: boolean,
-    belowThreshold = false,
-  ): number {
-    if (!category || lineTotal <= 0) return 0;
-    const profit = lineTotal - costTotal;
-    if (profit <= 0) return 0;
-    const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
-    if (category === 'D') {
-      const diff = Math.max(0, lineTotal - rateTotal);
-      return Number(((diff / lineTotal) * 100).toFixed(2));
-    }
-    // Below ₹1.15L monthly threshold: reduced cap (7% A / 5% B) instead of
-    // the normal 10-17% cap — but still profit÷4-based whenever there's a
-    // real discount. Flat rate only applies rate-to-rate (no discount).
-    if (belowThreshold && (category === 'A' || category === 'B')) {
-      const cap = category === 'A' ? 7 : 5;
-      if (discountPct > 5) {
-        const commAmt = profit / 4;
-        const pct = (commAmt / lineTotal) * 100;
-        return Number(Math.min(pct, cap).toFixed(2));
-      }
-      return cap;
-    }
-    if (discountPct > 5) {
-      const commAmt = profit / (category === 'C' ? 3.75 : 4);
-      let pct = (commAmt / lineTotal) * 100;
-      const cap = this.categoryCommissionCapPct(category, isSticker);
-      if (cap != null) pct = Math.min(pct, cap);
-      return Number(pct.toFixed(2));
-    }
-    if (category === 'A') return isSticker ? 15 : 10;
-    if (category === 'C') return isSticker ? 17 : 12;
-    return 10;
-  }
-
   // ── Detailed commission sheet for one agent, any month ───────────────────
   async getAgentCommissionSheet(userId: string, year: number, month: number) {
     const from = new Date(year, month - 1, 1);
@@ -1128,7 +1087,6 @@ export class CostTableService {
         const rateSlab = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
         const rateAmt  = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
         const sticker  = isStickerItem(item);
-        const commPct  = this.commissionPctForLine(agentCategory, lineTotal, rateAmt, costItemTotal, sticker, belowThreshold);
         let   commAmt  = 0;
         let   calcMethod = '';
 
@@ -1181,7 +1139,37 @@ export class CostTableService {
             calcMethod = `Sale × 10%`;
           }
         } else if (!costSlab) {
-          calcMethod = 'No cost data';
+          // No cost slab covers this product at this exact quantity (a Cost
+          // Table gap — e.g. slab ranges don't extend far enough), so profit
+          // can't be computed and the profit÷4 branches above can't run.
+          // Previously this silently zeroed the line's commission entirely —
+          // dragging the whole order's commission % down — even when the sale
+          // was priced exactly rate-to-rate (matches the rate card, or there's
+          // no rate card at all) and the agent had done nothing wrong. A
+          // rate-to-rate sale still earns the normal flat commission
+          // regardless of whether Accounts has finished entering cost data
+          // for this specific quantity tier. Only skip to $0 when a real
+          // discount is detected (profit can't be safely estimated without
+          // cost, so we don't want to overpay commission on it either) —
+          // flag those for manual review instead of quietly underpaying.
+          const discountPctNoCost = rateSlab && rateAmt > 0
+            ? Math.max(0, ((rateAmt - lineTotal) / rateAmt) * 100)
+            : 0;
+          if (discountPctNoCost > 5) {
+            calcMethod = `No cost data — cannot verify margin on a ${discountPctNoCost.toFixed(1)}% discounted sale, needs manual review`;
+          } else if (agentCategory === 'D') {
+            commAmt = Math.max(0, lineTotal - rateAmt);
+            calcMethod = `Sale − Rate (₹${lineTotal.toFixed(0)} − ₹${rateAmt.toFixed(0)}) [no cost data]`;
+          } else if (agentCategory === 'A') {
+            commAmt = lineTotal * (sticker ? 0.15 : 0.10);
+            calcMethod = `Sale × ${sticker ? '15' : '10'}% (${sticker ? 'sticker' : 'standard'}, no cost data — rate-to-rate)`;
+          } else if (agentCategory === 'C') {
+            commAmt = lineTotal * (sticker ? 0.17 : 0.12);
+            calcMethod = `Sale × ${sticker ? '17' : '12'}% (${sticker ? 'sticker' : 'standard'}, no cost data — rate-to-rate)`;
+          } else {
+            commAmt = lineTotal * 0.10;
+            calcMethod = `Sale × 10% (no cost data — rate-to-rate)`;
+          }
         }
 
         const discountPct = rateSlab && rateAmt > 0
@@ -1192,6 +1180,12 @@ export class CostTableService {
         const calculatedCommAmt = commAmt;
         const override = overrideMap.get(item.id);
         if (override) commAmt = override.amount;
+        // Derive the displayed commission % straight from the amount actually
+        // being paid (post-override), not the separate commissionPctForLine()
+        // helper — that helper doesn't know about the no-cost-data fallback
+        // above (or overrides), so it could disagree with commissionAmt and
+        // show a misleading rate next to the real payout.
+        const displayCommPct = lineTotal > 0 ? Number(((commAmt / lineTotal) * 100).toFixed(2)) : 0;
 
         commissionTotal += commAmt;
         rows.push({
@@ -1216,7 +1210,7 @@ export class CostTableService {
           cost: costSlab ? Number(costItemTotal.toFixed(2)) : null,
           grossProfit: grossProfit !== null ? Number(grossProfit.toFixed(2)) : null,
           marginPct,
-          commissionPct: commPct,
+          commissionPct: displayCommPct,
           commissionAmt: Number(commAmt.toFixed(2)),
           calculatedCommissionAmt: Number(calculatedCommAmt.toFixed(2)),
           isOverridden: !!override,
