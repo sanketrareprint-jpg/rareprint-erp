@@ -547,20 +547,18 @@ export default function OrdersPage() {
   const allOrders        = agentOrders;
   const inProgressOrders = agentOrders.filter(o => IN_PROGRESS_STATUSES.includes(o.status));
 
+  // search and statusFilter are already applied server-side (GET /orders and
+  // /orders/ready-for-dispatch both take `search`/`status` params — see load()
+  // above), so `orders` / `readyOrders` are already the correctly filtered
+  // set. Re-filtering client-side here on top of that was redundant and buggy:
+  // it checked stringy fields like orderNo/customerPhone that don't always
+  // match the same way the backend's OR-query does (e.g. an order matched on
+  // phone/agent/product server-side could still get dropped here), and its
+  // dependency array tracked `search` while reading `debouncedSearch`, so it
+  // could also render a stale result. Just use the already-filtered set.
   const filteredOrders = useMemo(() => {
-    const base = activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;
-    const q = debouncedSearch.trim().toLowerCase();
-    return base.filter(o => {
-      const matchSearch = !q ||
-        o.orderNo?.toLowerCase().includes(q) ||
-        o.customerName?.toLowerCase().includes(q) ||
-        o.customerPhone?.includes(q) ||
-        o.salesAgentName?.toLowerCase().includes(q) ||
-        o.products?.toLowerCase().includes(q);
-      const matchStatus = statusFilter === "ALL" || o.status === statusFilter;
-      return matchSearch && matchStatus;
-    });
-  }, [orders, readyOrders, activeTab, search, statusFilter]);
+    return activeTab === "all" ? allOrders : activeTab === "inprogress" ? inProgressOrders : readyOrders;
+  }, [allOrders, inProgressOrders, readyOrders, activeTab]);
 
   const tabs = [
     { key: "all",        label: "All Orders",         count: ordersTotal || allOrders.length },
