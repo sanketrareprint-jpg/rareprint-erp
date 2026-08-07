@@ -475,4 +475,46 @@ export class AttendanceService {
       },
     });
   }
+
+  // ── Company holidays / extra leaves (Attendance > Holidays tab) ─────────
+  //
+  // Company-wide, date-specific calendar entries. HrService.workingDaysInMonth
+  // /salaryForMonth reads this same table directly (via Prisma) to reduce
+  // everyone's working days — see hr.service.ts for the calculation itself.
+  // This service only owns the CRUD for managing the list.
+
+  listHolidays(year: number, month?: number) {
+    const start = month ? new Date(year, month - 1, 1) : new Date(year, 0, 1);
+    const end = month ? new Date(year, month, 1) : new Date(year + 1, 0, 1);
+    return this.prisma.companyHoliday.findMany({
+      where: { date: { gte: start, lt: end } },
+      orderBy: { date: 'asc' },
+      include: { createdBy: { select: { fullName: true } } },
+    });
+  }
+
+  async addHoliday(dto: { date: string; label: string; type?: 'HOLIDAY' | 'EXTRA_LEAVE' }, createdById: string) {
+    if (!dto.date) throw new BadRequestException('date is required');
+    if (!dto.label?.trim()) throw new BadRequestException('label is required');
+    const date = parseCellDate(dto.date) ?? new Date(dto.date);
+    if (isNaN(date.getTime())) throw new BadRequestException('Invalid date');
+    try {
+      return await this.prisma.companyHoliday.create({
+        data: { date, label: dto.label.trim(), type: dto.type ?? 'HOLIDAY', createdById },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') throw new BadRequestException('A holiday/extra leave is already recorded for this date');
+      throw err;
+    }
+  }
+
+  async deleteHoliday(id: string) {
+    try {
+      await this.prisma.companyHoliday.delete({ where: { id } });
+      return { success: true };
+    } catch (err: any) {
+      if (err?.code === 'P2025') throw new NotFoundException('Holiday not found');
+      throw err;
+    }
+  }
 }

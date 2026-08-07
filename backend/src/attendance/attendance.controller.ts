@@ -1,6 +1,6 @@
 // backend/src/attendance/attendance.controller.ts
 import {
-  Body, Controller, ForbiddenException, Get, Param, Post, Put,
+  Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put,
   Query, Req, UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -69,5 +69,26 @@ export class AttendanceController {
   ) {
     this.assertHrAccess(req);
     return this.svc.upsertDay(id, date, dto, req.user.id);
+  }
+
+  // ── Company holidays / extra leaves ────────────────────────────────────
+
+  @Get('holidays')
+  listHolidays(@Query('year') year: string | undefined, @Query('month') month: string | undefined, @Req() req: any) {
+    this.assertHrAccess(req);
+    const now = new Date();
+    return this.svc.listHolidays(year ? Number(year) : now.getFullYear(), month ? Number(month) : undefined);
+  }
+
+  @Post('holidays')
+  addHoliday(@Body() dto: { date: string; label: string; type?: 'HOLIDAY' | 'EXTRA_LEAVE' }, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.addHoliday(dto, req.user.id);
+  }
+
+  @Delete('holidays/:id')
+  deleteHoliday(@Param('id') id: string, @Req() req: any) {
+    this.assertHrAccess(req);
+    return this.svc.deleteHoliday(id);
   }
 }

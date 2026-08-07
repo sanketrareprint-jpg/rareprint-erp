@@ -9,7 +9,10 @@
 // Also owns the salary formula, which mirrors the legacy Google Sheet's
 // VLOOKUP-based calculation exactly:
 //
-//   workingDays   = calendar days in the month that aren't the weekly off
+//   workingDays   = calendar days in the month that aren't the weekly off,
+//                   minus any CompanyHoliday dates for that month (company-
+//                   wide, managed on the Attendance > Holidays tab) — a
+//                   holiday that already falls on the weekly off is a no-op
 //   leaveDays     = sum of EmployeeLeaveEntry.days recorded in that month
 //                   (paid and unpaid both reduce the requirement — that's
 //                   how the old sheet did it: leave of any kind lowers the
@@ -502,7 +505,7 @@ export class HrService {
       where: { isFinal: true, periodStart: { lt: monthEnd }, periodEnd: { gte: monthStart } },
     });
 
-    const [records, leaveEntries, salesAgg] = await Promise.all([
+    const [records, leaveEntries, salesAgg, holidays] = await Promise.all([
       this.prisma.attendanceRecord.findMany({
         where: {
           employeeId,
@@ -526,9 +529,16 @@ export class HrService {
             _sum: { grandTotal: true },
           })
         : Promise.resolve(null),
+      // Company-wide holidays/extra-leave dates (Attendance > Holidays tab).
+      // Applies to every employee equally.
+      this.prisma.companyHoliday.findMany({ where: { date: { gte: monthStart, lt: monthEnd } } }),
     ]);
 
-    const workingDays = workingDaysInMonth(year, month);
+    // A holiday that lands on the weekly off (Sunday) is already excluded
+    // from workingDaysInMonth below, so it's a deliberate no-op here rather
+    // than double-subtracting.
+    const holidayDays = holidays.filter((h) => h.date.getDay() !== WEEKLY_OFF_DOW).length;
+    const workingDays = Math.max(0, workingDaysInMonth(year, month) - holidayDays);
 
     // NOTE: every leave type (including UNPAID) reduces requiredHours here —
     // that's intentional, matching the legacy Google Sheet this mirrors (see
@@ -630,6 +640,7 @@ export class HrService {
       year,
       month,
       workingDays,
+      holidayDays,
       leaveDays,
       netDays,
       workingHoursPerDay,

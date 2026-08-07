@@ -26,7 +26,7 @@ type ImportSession = {
 };
 
 type SalaryCalc = {
-  workingDays: number; leaveDays: number; netDays: number; requiredHours: number;
+  workingDays: number; holidayDays?: number; leaveDays: number; netDays: number; requiredHours: number;
   hoursWorked: number; absentHours: number; baseSalary: number; salary: number;
   overtimeAllowed?: boolean; overtimeHours?: number; overtimePay?: number;
   calculatedSalary?: number; approvalRequired?: boolean;
@@ -34,6 +34,11 @@ type SalaryCalc = {
   monthSales?: number; targetAchieved?: boolean | null; incentiveAmount?: number;
   petrolAllowance?: number; simAllowance?: number; calculatedTotal?: number;
   automaticPaidLeaveHours?: number;
+};
+
+type Holiday = {
+  id: string; date: string; label: string; type: "HOLIDAY" | "EXTRA_LEAVE";
+  createdBy?: { fullName: string } | null;
 };
 
 const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -66,6 +71,44 @@ export default function AttendancePage() {
   const [adHocLeave, setAdHocLeave] = useState({ date: "", days: "1", reason: "" });
   const [savingLeave, setSavingLeave] = useState(false);
   const [finalizingId, setFinalizingId] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<"grid" | "holidays">("grid");
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [holidaysYear, setHolidaysYear] = useState(now.getFullYear());
+  const [loadingHolidays, setLoadingHolidays] = useState(false);
+  const [newHoliday, setNewHoliday] = useState({ date: "", label: "", type: "HOLIDAY" as "HOLIDAY" | "EXTRA_LEAVE" });
+  const [savingHoliday, setSavingHoliday] = useState(false);
+  const [deletingHolidayId, setDeletingHolidayId] = useState<string | null>(null);
+
+  const loadHolidays = useCallback(async () => {
+    setLoadingHolidays(true);
+    const data = await apiFetch<Holiday[]>(`/attendance/holidays?year=${holidaysYear}`, {}, setError);
+    if (data) setHolidays(data);
+    setLoadingHolidays(false);
+  }, [holidaysYear]);
+
+  useEffect(() => {
+    if (!canAccess || activeTab !== "holidays") return;
+    void loadHolidays();
+  }, [canAccess, activeTab, loadHolidays]);
+
+  const handleAddHoliday = async () => {
+    if (!newHoliday.date || !newHoliday.label.trim()) return;
+    setSavingHoliday(true);
+    const res = await apiMutate("/attendance/holidays", "POST", newHoliday, setError);
+    setSavingHoliday(false);
+    if (res) {
+      setNewHoliday({ date: "", label: "", type: "HOLIDAY" });
+      void loadHolidays();
+    }
+  };
+
+  const handleDeleteHoliday = async (id: string) => {
+    setDeletingHolidayId(id);
+    const res = await apiMutate(`/attendance/holidays/${id}`, "DELETE", undefined, setError);
+    setDeletingHolidayId(null);
+    if (res) void loadHolidays();
+  };
 
   const loadImportSessions = useCallback(async () => {
     const data = await apiFetch<ImportSession[]>("/attendance/import-sessions", {}, undefined);
@@ -200,8 +243,103 @@ export default function AttendancePage() {
           <p className="text-sm text-slate-500">Import the in/out machine's monthly report, then fill in any blanks the thumb reader missed.</p>
         </div>
 
+        <div className="flex gap-1 border-b border-slate-200">
+          <button
+            onClick={() => setActiveTab("grid")}
+            className={`px-3 py-2 text-xs font-semibold border-b-2 -mb-px ${activeTab === "grid" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          >
+            Monthly Grid
+          </button>
+          <button
+            onClick={() => setActiveTab("holidays")}
+            className={`px-3 py-2 text-xs font-semibold border-b-2 -mb-px ${activeTab === "holidays" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          >
+            Holidays &amp; Extra Leaves
+          </button>
+        </div>
+
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>}
 
+        {activeTab === "holidays" && (
+          <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+            <div>
+              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Office holidays &amp; extra leaves</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Predefine dates the whole office is off (festivals, declared extra leaves). These apply to every employee automatically —
+                working days and required hours on the Monthly Grid (and Salary) recalculate to exclude them. A date that falls on the
+                weekly off (Sunday) has no extra effect since it's already excluded.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-2 pb-3 border-b border-slate-100">
+              <div>
+                <label className="text-[10px] font-semibold text-slate-500 uppercase block">Date</label>
+                <DateInput value={newHoliday.date} onChange={(e) => setNewHoliday({ ...newHoliday, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs w-32" />
+              </div>
+              <div className="flex-1 min-w-[160px]">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase block">Label</label>
+                <input value={newHoliday.label} onChange={(e) => setNewHoliday({ ...newHoliday, label: e.target.value })} placeholder='e.g. "Diwali", "Extra leave — Sanket approved"' className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-500 uppercase block">Type</label>
+                <select value={newHoliday.type} onChange={(e) => setNewHoliday({ ...newHoliday, type: e.target.value as "HOLIDAY" | "EXTRA_LEAVE" })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
+                  <option value="HOLIDAY">Holiday</option>
+                  <option value="EXTRA_LEAVE">Extra leave</option>
+                </select>
+              </div>
+              <button onClick={handleAddHoliday} disabled={savingHoliday || !newHoliday.date || !newHoliday.label.trim()} className="inline-flex items-center gap-1 text-xs font-semibold bg-slate-800 text-white rounded-lg px-3 py-1.5 disabled:opacity-50">
+                {savingHoliday ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Year</label>
+              <input type="number" value={holidaysYear} onChange={(e) => setHolidaysYear(Number(e.target.value))} className="w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+            </div>
+
+            {loadingHolidays ? (
+              <div className="p-4 text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading...</div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
+                      <th className="py-2 px-2">Date</th>
+                      <th className="py-2 px-2">Label</th>
+                      <th className="py-2 px-2">Type</th>
+                      <th className="py-2 px-2">Added by</th>
+                      <th className="py-2 px-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holidays.length === 0 ? (
+                      <tr><td colSpan={5} className="py-3 px-2 text-slate-400 text-center">No holidays/extra leaves recorded for {holidaysYear}.</td></tr>
+                    ) : holidays.map((h) => (
+                      <tr key={h.id} className="border-b border-slate-50">
+                        <td className="py-1.5 px-2 whitespace-nowrap">{new Date(h.date).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</td>
+                        <td className="py-1.5 px-2">{h.label}</td>
+                        <td className="py-1.5 px-2">
+                          <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded ${h.type === "HOLIDAY" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}`}>
+                            {h.type === "HOLIDAY" ? "Holiday" : "Extra leave"}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2 text-slate-400">{h.createdBy?.fullName ?? "—"}</td>
+                        <td className="py-1.5 px-2">
+                          <button onClick={() => handleDeleteHoliday(h.id)} disabled={deletingHolidayId === h.id} className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50">
+                            {deletingHolidayId === h.id ? <Loader2 size={12} className="animate-spin" /> : "Remove"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "grid" && (
+        <>
         <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
           <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Import machine report</h2>
           <p className="text-xs text-slate-500">Upload the "Exception Statistic Report" .xls exported from the attendance machine software (the sheet named "Exception Stat.").</p>
@@ -323,6 +461,9 @@ export default function AttendancePage() {
               <div><span className="text-slate-400 block uppercase">Worked hrs</span><span className="font-bold text-slate-700">{salary.hoursWorked}</span></div>
               <div><span className="text-slate-400 block uppercase">Shortfall/Excess</span><span className={`font-bold ${salary.absentHours < 0 ? "text-red-600" : "text-green-700"}`}>{salary.absentHours}</span></div>
               <div><span className="text-slate-400 block uppercase">Leave days</span><span className="font-bold text-slate-700">{salary.leaveDays}</span></div>
+              {!!salary.holidayDays && (
+                <div><span className="text-slate-400 block uppercase">Holidays</span><span className="font-bold text-slate-700">{salary.holidayDays} <span className="text-[10px] text-slate-400">(already excluded from working days)</span></span></div>
+              )}
               {!!salary.automaticPaidLeaveHours && (
                 <div><span className="text-slate-400 block uppercase">Auto paid leave</span><span className="font-bold text-slate-700">{salary.automaticPaidLeaveHours} hrs <span className="text-[10px] text-slate-400">(already in required hrs)</span></span></div>
               )}
@@ -431,6 +572,8 @@ export default function AttendancePage() {
           )}
         </div>
         <p className="text-xs text-slate-400">Rows highlighted in amber have no punch recorded at all — fill in a time or tick Absent/Paid Leave, then save.</p>
+        </>
+        )}
       </div>
     </DashboardShell>
   );

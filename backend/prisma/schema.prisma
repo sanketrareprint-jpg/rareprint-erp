@@ -61,6 +61,7 @@ model User {
   attendanceImports            AttendanceImportSession[] @relation("AttendanceImports")
   employeesApproved            Employee[]                @relation("EmployeeApprovedBy")
   companyTermsCreated          CompanyTerms[]            @relation("CompanyTermsCreatedBy")
+  companyHolidaysCreated       CompanyHoliday[]          @relation("CompanyHolidayCreatedBy")
   complaintsRaised              Complaint[]               @relation("ComplaintRaisedBy")
   complaintsAssigned             Complaint[]               @relation("ComplaintAssignedTo")
   paymentKeywords                UserPaymentKeyword[]      @relation("UserPaymentKeywords")
@@ -816,6 +817,32 @@ enum EmployeeStatus {
   ON_LEAVE
   RESIGNED
   TERMINATED
+}
+
+// Company-wide, date-specific calendar entries that reduce everyone's
+// working days for the month — used by workingDaysInMonth()/salaryForMonth()
+// in hr.service.ts so requiredHours reflects declared holidays and extra
+// leave days without an admin having to touch every employee's leave ledger.
+// `type` is purely for display/labeling in the Attendance > Holidays tab
+// (e.g. "Diwali" vs "Extra leave — Sanket Sir approved") — both types are
+// subtracted from working days identically. A date that already falls on
+// the weekly off (Sunday) is a no-op by design (see workingDaysInMonth).
+enum CompanyHolidayType {
+  HOLIDAY
+  EXTRA_LEAVE
+}
+
+model CompanyHoliday {
+  id          String             @id @default(cuid())
+  date        DateTime           @unique
+  label       String
+  type        CompanyHolidayType @default(HOLIDAY)
+  createdById String?
+  createdAt   DateTime           @default(now())
+
+  createdBy   User?              @relation("CompanyHolidayCreatedBy", fields: [createdById], references: [id])
+
+  @@index([date])
 }
 
 // KRA (key result areas) and job responsibilities, tracked per employee.
