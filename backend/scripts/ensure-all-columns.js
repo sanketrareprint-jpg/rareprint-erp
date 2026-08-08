@@ -10,6 +10,17 @@
 //
 // Each check is wrapped so one failing doesn't block the rest — matches
 // the "allowFailure" behavior every individual script already had.
+//
+// dotenv/config is required so this also works when run manually from a
+// local machine (DATABASE_URL only lives in .env there) — on Railway itself
+// DATABASE_URL is already a real env var so this is a no-op there. Without
+// it, running this locally silently skips every check and just prints an
+// info line ("No DATABASE_URL set") that doesn't look like an error at a
+// glance — which is exactly what happened on 2026-08-08: the
+// pendingDispatchItemIds column was never actually added, breaking every
+// Order query built with `include` (which pulls every column) while
+// `select`-based queries kept working, until this was caught.
+require('dotenv/config');
 const { Client } = require('pg');
 
 async function safely(label, fn) {
