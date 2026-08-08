@@ -42,3 +42,11 @@ run('node', ['scripts/ensure-company-holiday-table.js'], { allowFailure: true })
 // inside one of the run() calls above (a spawned child process not fully
 // exiting) — not in `node dist/src/main.js` itself.
 console.log('[railway-migrate] All steps complete, handing off to the app...');
+
+// This script never called process.exit() before falling off the end of the
+// file — relying on Node to exit on its own once the event loop empties.
+// Confirmed via deploy logs: the line above always prints, but the next
+// shell command (`node dist/src/main.js`, chained with &&) never runs,
+// meaning this process wasn't actually terminating even though its JS had
+// nothing left to do. Forcing it explicitly removes any ambiguity.
+process.exit(0);
