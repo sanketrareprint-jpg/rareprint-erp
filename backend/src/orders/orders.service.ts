@@ -1215,6 +1215,24 @@ export class OrdersService {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: `Order status (${order.status}) isn't eligible for dispatch submission.` });
         continue;
       }
+
+      // Defense in depth against the AMAN PHARMACY-style resubmission loop:
+      // getOrdersWithReadyItems already excludes already-approved orders from
+      // the list this is called from, but guard here too in case of a stale
+      // frontend list or a direct API call — an order that's already been
+      // through accounts approval should never be resubmitted, it just needs
+      // the Dispatch team to book it.
+      if (order.status === OrderStatus.READY_FOR_DISPATCH) {
+        const alreadyApproved = await this.prisma.statusLog.findFirst({
+          where: { orderId, fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL, toStatus: OrderStatus.READY_FOR_DISPATCH },
+          select: { id: true },
+        });
+        if (alreadyApproved) {
+          skipped.push({ orderId, orderNumber: order.orderNumber, reason: 'Already approved by accounts — this needs the Dispatch team to book it, not resubmission.' });
+          continue;
+        }
+      }
+
       const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
       if (readyItems.length === 0) {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: 'No items are ready for dispatch yet.' });
@@ -1313,6 +1331,25 @@ export class OrdersService {
     const where: Prisma.OrderWhereInput = {
       status: { notIn: EXCLUDED_STATUSES },
       items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
+      // Once accounts has approved an order for dispatch (a StatusLog entry
+      // PENDING_DISPATCH_APPROVAL → READY_FOR_DISPATCH exists), it goes back
+      // to looking exactly like a freshly-finished, never-submitted order —
+      // same status, same "ready item" shape — because approval intentionally
+      // returns the order to READY_FOR_DISPATCH. Without this exclusion, that
+      // order kept reappearing here as if it still needed to be submitted,
+      // and re-submitting an already-approved order just re-creates the same
+      // PENDING_DISPATCH_APPROVAL → (re-approved) → READY_FOR_DISPATCH cycle
+      // forever without ever reaching the Dispatch team's booking queue —
+      // this is the root cause of orders like AMAN PHARMACY / SHRI VIJAY
+      // NURSING HOME looping and never actually dispatching. Once approved,
+      // the order belongs in the Dispatch module (which independently lists
+      // it via listReadyForDispatch), not back in this submission tab.
+      statusLogs: {
+        none: {
+          fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+          toStatus: OrderStatus.READY_FOR_DISPATCH,
+        },
+      },
     };
     // Same server-side scoping as findAllForTable — see comment there.
     if (query.salesAgentId) where.salesAgentId = query.salesAgentId;
