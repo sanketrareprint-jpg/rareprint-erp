@@ -1183,17 +1183,43 @@ export class OrdersService {
   async submitDispatchBatch(
     orderIds: string[],
     agentId: string,
-    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string },
+    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string; itemIdsByOrder?: Record<string, string[]> },
   ) {
     const results: string[] = [];
     const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
     for (const orderId of orderIds) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { items: { select: { itemProductionStage: true } } },
+        include: { items: { select: { id: true, itemProductionStage: true, product: { select: { name: true } } } } },
       });
       if (!order) continue;
-      if (order.status !== OrderStatus.READY_FOR_DISPATCH) continue;
+
+      // Used to require the WHOLE order to already be READY_FOR_DISPATCH (every
+      // item done), which meant a single still-printing item silently blocked
+      // submission of every other item that WAS ready on the same order — the
+      // agent would select the order, submit, and it would just no-op with no
+      // explanation. Now: submit as soon as at least one item is ready, whether
+      // the rest of the order is still IN_PRODUCTION or not. Items not yet
+      // ready simply aren't included (Dispatch still only ever books items at
+      // READY_FOR_DISPATCH stage — see dispatch.service.ts bookItems), and stay
+      // behind for a later, separate submission once they catch up.
+      const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
+      if (readyItems.length === 0) continue;
+      if (order.status !== OrderStatus.READY_FOR_DISPATCH && order.status !== OrderStatus.IN_PRODUCTION) continue;
+
+      // Optional per-item selection from the booking modal (agent can hold a
+      // specific ready item back even when it's ready, e.g. to combine with a
+      // later order). Falls back to "every ready item" when not provided, so
+      // older/simpler callers keep working unchanged.
+      const requestedItemIds = data.itemIdsByOrder?.[orderId];
+      const submittedItems = requestedItemIds
+        ? readyItems.filter((i) => requestedItemIds.includes(i.id))
+        : readyItems;
+      if (submittedItems.length === 0) continue;
+      const itemNames = submittedItems.map((i) => i.product.name).join(', ');
+      const partialNote = submittedItems.length < order.items.length
+        ? `Submitting ${submittedItems.length}/${order.items.length} item(s): ${itemNames}`
+        : '';
 
       const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
         ? `Transport: ${data.transportName ?? ''}, LR: ${data.lrNumber ?? ''}, ${data.transportChargesType ?? ''}, By: ${data.transportBy ?? ''}`
@@ -1207,6 +1233,7 @@ export class OrdersService {
 
       const dispatchNotes = [
         data.notes,
+        partialNote,
         dispatchTypeLine,
         dispatchCharge > 0 ? `Courier charges: ₹${dispatchCharge}` : '',
         data.isCod ? `COD: ₹${data.codAmount ?? 0} to be collected on delivery` : 'Prepaid',

@@ -154,6 +154,11 @@ export class OrdersController {
       deliveryBoyName?: string;
       collectedByName?: string;
       collectedByPhone?: string;
+      // Optional: which specific ready items to submit per order, when the
+      // agent held some ready items back on an order with several. Keyed by
+      // orderId -> item ids. Omitted (or an order missing from the map) means
+      // "every ready item on that order" — unchanged default behavior.
+      itemIdsByOrder?: Record<string, string[]>;
     },
   ) {
     return this.ordersService.submitDispatchBatch(body.orderIds, req.user.id, body);

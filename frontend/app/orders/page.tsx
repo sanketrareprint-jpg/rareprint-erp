@@ -268,6 +268,12 @@ export default function OrdersPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [bookingModal, setBookingModal] = useState(false);
   const [bookingItems, setBookingItems] = useState<Record<string, OrderItem[]>>({});
+  // Which of each order's ready items the agent actually wants to submit in
+  // THIS batch — defaults to "all of them" (matches the old behavior), but
+  // lets an agent uncheck one on a multi-item order to hold it back for a
+  // separate/later submission instead of being forced to send everything
+  // ready on that order together.
+  const [selectedItemIds, setSelectedItemIds] = useState<Record<string, Set<string>>>({});
   const [itemsLoading, setItemsLoading] = useState(false);
   const [rates, setRates] = useState<RateQuote[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
@@ -467,13 +473,27 @@ export default function OrdersPage() {
     setBookingForm(p => ({ ...p, productPhoto: "" }));
     try {
       const itemsMap: Record<string, OrderItem[]> = {};
+      const selectionMap: Record<string, Set<string>> = {};
       for (const orderId of selectedOrderIds) {
         const res = await fetch(`${API_BASE_URL}/orders/${orderId}/items`, { headers: getAuthHeaders() });
         const items = await res.json();
-        itemsMap[orderId] = items.filter((i: OrderItem) => i.itemProductionStage === "READY_FOR_DISPATCH");
+        const ready = items.filter((i: OrderItem) => i.itemProductionStage === "READY_FOR_DISPATCH");
+        itemsMap[orderId] = ready;
+        // Default: everything ready is selected — matches the previous
+        // "submit the whole order" behavior unless the agent unchecks something.
+        selectionMap[orderId] = new Set(ready.map((i: OrderItem) => i.id));
       }
       setBookingItems(itemsMap);
+      setSelectedItemIds(selectionMap);
     } finally { setItemsLoading(false); }
+  }
+
+  function toggleBookingItem(orderId: string, itemId: string) {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev[orderId] ?? []);
+      if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+      return { ...prev, [orderId]: next };
+    });
   }
 
   async function fetchRates() {
@@ -500,14 +520,18 @@ export default function OrdersPage() {
     if (selectedOrderIds.size === 0) return;
     if (shouldChargeDispatch && !bookingForm.courierCharges) { alert("Enter courier charges"); return; }
     if (!bookingForm.isCod && !bookingForm.paymentAccountId) { alert("Select payment account"); return; }
+    const orderIds = Array.from(selectedOrderIds);
+    const emptyOrder = orderIds.find(id => (selectedItemIds[id]?.size ?? 0) === 0);
+    if (emptyOrder) { alert("At least one item must stay checked per order — untick the order itself if you don't want to submit it at all."); return; }
     setBookingSubmitting(true);
     try {
-      const orderIds = Array.from(selectedOrderIds);
+      const itemIdsByOrder: Record<string, string[]> = {};
+      for (const id of orderIds) itemIdsByOrder[id] = Array.from(selectedItemIds[id] ?? []);
       const res = await fetch(`${API_BASE_URL}/orders/submit-dispatch-batch`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderIds, courierCharges: courierNum, isCod: bookingForm.isCod,
+          orderIds, itemIdsByOrder, courierCharges: courierNum, isCod: bookingForm.isCod,
           codAmount: bookingForm.isCod ? Number(bookingForm.codAmount || suggestedCod) : undefined,
           paymentMethod: bookingForm.isCod ? undefined : bookingForm.paymentMethod,
           paymentAccountId: bookingForm.isCod ? undefined : bookingForm.paymentAccountId,
@@ -528,7 +552,7 @@ export default function OrdersPage() {
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       const result = await res.json();
       const processed = result.processedOrders ?? orderIds.length;
-      if (processed === 0) { alert("⚠️ No orders were submitted. Orders must be in 'Ready for Dispatch' status."); return; }
+      if (processed === 0) { alert("⚠️ No orders were submitted. Each order needs at least one item marked Ready for Dispatch."); return; }
       // Store data for print receipt
       setPrintReceiptData({
         orders: selectedOrders,
@@ -540,7 +564,7 @@ export default function OrdersPage() {
         awbNumber: bookingForm.awbNumber,
         productPhoto: bookingForm.productPhoto,
       });
-      setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setRates([]);
+      setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setSelectedItemIds({}); setRates([]);
       await load();
     } finally { setBookingSubmitting(false); }
   }
@@ -1525,7 +1549,19 @@ export default function OrdersPage() {
                           <span className="font-bold text-blue-700">{o.orderNo}</span>
                           {o.customerPhone && <span className="ml-1.5 text-slate-500">📞 {o.customerPhone}</span>}
                           {o.shippingAddress && <div className="text-slate-600 truncate">📍 {o.shippingAddress}</div>}
-                          {bookingItems[o.id]?.map((item, i) => { const n = parseNotes(item.productionNotes); return <div key={i} className="text-[10px] text-slate-500 truncate">• {item.productName}{n.size ? ` ${n.size}"` : ""}{n.gsm ? ` ${n.gsm}G` : ""} ×{item.quantity}</div>; })}
+                          {bookingItems[o.id]?.map((item) => {
+                            const n = parseNotes(item.productionNotes);
+                            const checked = selectedItemIds[o.id]?.has(item.id) ?? true;
+                            return (
+                              <label key={item.id} className="flex items-center gap-1 text-[10px] text-slate-500 truncate cursor-pointer">
+                                <input type="checkbox" className="h-2.5 w-2.5" checked={checked} onChange={() => toggleBookingItem(o.id, item.id)} />
+                                {item.productName}{n.size ? ` ${n.size}"` : ""}{n.gsm ? ` ${n.gsm}G` : ""} ×{item.quantity}
+                              </label>
+                            );
+                          })}
+                          {bookingItems[o.id] && bookingItems[o.id].length > 1 && (
+                            <p className="text-[9px] text-slate-400 mt-0.5">Untick an item to hold it back and submit it separately later.</p>
+                          )}
                         </div>
                       ))}
                     </div>
