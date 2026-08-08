@@ -395,6 +395,18 @@ export class AccountsService {
       const courierCreditApplied = courierCharge == null ? 0 : Math.min(customerCredit, courierCharge);
       const netCourierCharge = courierCharge == null ? null : courierCharge - courierCreditApplied;
 
+      // Only show the item(s) actually covered by THIS dispatch submission,
+      // not every item on the order — an order can now be submitted one
+      // ready item at a time (see submitDispatchBatch), so showing all
+      // items here made a single-item submission look like the whole order
+      // was pending approval. Empty/missing list (older orders, or a
+      // submission that genuinely covered everything) falls back to
+      // showing every item, unchanged from before.
+      const submittedIds: string[] = (order as any).pendingDispatchItemIds ?? [];
+      const itemsForApproval = submittedIds.length > 0
+        ? order.items.filter((i) => submittedIds.includes(i.id))
+        : order.items;
+
       return {
         id: order.id,
         orderNo: order.orderNumber,
@@ -403,7 +415,7 @@ export class AccountsService {
         customerEmail: order.customer.email,
         shippingAddress: order.customer.shippingAddress ?? order.customer.billingAddress ?? null,
         salesAgentName: order.salesAgent?.fullName ?? null,
-        items: order.items.map((i) => ({
+        items: itemsForApproval.map((i) => ({
           productName:     i.product.name,
           productDescription: i.product.description,
           sku:             i.product.sku,
@@ -695,6 +707,16 @@ export class AccountsService {
       include: { salesAgent: { select: { id: true, fullName: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');
+    // This must only ever apply to a fresh dispatch submission still
+    // awaiting approval. Without this guard, calling it on an order that's
+    // already past this stage (e.g. already approved and sitting at
+    // READY_FOR_DISPATCH) would reset it to APPROVED while it still carries
+    // its old approval StatusLog — orders.service.ts's getOrdersWithReadyItems
+    // relies on current status + that log to tell "needs resubmission" apart
+    // from "already approved", so this guard is what keeps that logic sound.
+    if (order.status !== OrderStatus.PENDING_DISPATCH_APPROVAL) {
+      throw new BadRequestException(`Only PENDING_DISPATCH_APPROVAL orders can be rejected (current status: ${order.status})`);
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.order.update({

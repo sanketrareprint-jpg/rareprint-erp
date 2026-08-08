@@ -382,6 +382,15 @@ model Order {
   shippingCharge   Decimal                 @default(0) @db.Decimal(14, 2)
   grandTotal       Decimal                 @db.Decimal(14, 2)
   notes            String?
+  // Item ids included in the CURRENT pending-dispatch-approval submission
+  // (set by OrdersService.submitDispatchBatch, read by
+  // AccountsService.getPendingDispatchOrders so the approval screen shows
+  // only the item(s) actually being submitted, not every item on the
+  // order — matters once an order can be submitted a single ready item at
+  // a time instead of all-or-nothing. Only meaningful while status is
+  // PENDING_DISPATCH_APPROVAL; gets overwritten on the next submission and
+  // ignored (empty = "show everything") otherwise.
+  pendingDispatchItemIds String[]           @default([])
   leadSource       String? // e.g. "WALK_IN", "FB_AD_Jan_2025"
   isTest           Boolean                 @default(false)
   isSample         Boolean                 @default(false)

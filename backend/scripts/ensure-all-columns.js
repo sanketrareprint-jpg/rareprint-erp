@@ -158,6 +158,21 @@ async function main() {
       console.log('[ensure-all-columns] AttendanceImportSession.isFinal: added.');
     });
 
+    // ── Order.pendingDispatchItemIds column ───────────────────────────────
+    await safely('Order.pendingDispatchItemIds', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = 'pendingDispatchItemIds'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] Order.pendingDispatchItemIds: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] Order.pendingDispatchItemIds: missing, adding.');
+      await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "pendingDispatchItemIds" TEXT[] NOT NULL DEFAULT '{}';`);
+      console.log('[ensure-all-columns] Order.pendingDispatchItemIds: added.');
+    });
+
     // ── CompanyHoliday table ──────────────────────────────────────────────
     await safely('CompanyHoliday', async () => {
       const { rows } = await client.query(`SELECT to_regclass('public."CompanyHoliday"') AS reg`);

@@ -1279,6 +1279,13 @@ export class OrdersService {
             status: OrderStatus.PENDING_DISPATCH_APPROVAL,
             shippingCharge: new Prisma.Decimal(dispatchCharge / orderIds.length),
             notes: dispatchNotes,
+            // Record exactly which item(s) this submission covers so the
+            // accounts approval screen can show only those, not every item
+            // on the order — see getPendingDispatchOrders. `as any` because
+            // this sandbox can't run `prisma generate` against the live DB,
+            // so the locally-generated client type doesn't know about this
+            // field yet (it will on the real build).
+            ...({ pendingDispatchItemIds: submittedItems.map((i) => i.id) } as any),
           },
         });
 
@@ -1323,6 +1330,7 @@ export class OrdersService {
     const includeCommission = includeMargin || query.includeCommission === true;
     const EXCLUDED_STATUSES = [
       OrderStatus.PENDING_DISPATCH_APPROVAL,
+      OrderStatus.PARTIALLY_DISPATCHED,
       OrderStatus.DISPATCHED,
       OrderStatus.DELIVERED,
       OrderStatus.CANCELLED,
@@ -1331,25 +1339,41 @@ export class OrdersService {
     const where: Prisma.OrderWhereInput = {
       status: { notIn: EXCLUDED_STATUSES },
       items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
-      // Once accounts has approved an order for dispatch (a StatusLog entry
-      // PENDING_DISPATCH_APPROVAL → READY_FOR_DISPATCH exists), it goes back
-      // to looking exactly like a freshly-finished, never-submitted order —
-      // same status, same "ready item" shape — because approval intentionally
-      // returns the order to READY_FOR_DISPATCH. Without this exclusion, that
-      // order kept reappearing here as if it still needed to be submitted,
-      // and re-submitting an already-approved order just re-creates the same
-      // PENDING_DISPATCH_APPROVAL → (re-approved) → READY_FOR_DISPATCH cycle
-      // forever without ever reaching the Dispatch team's booking queue —
-      // this is the root cause of orders like AMAN PHARMACY / SHRI VIJAY
-      // NURSING HOME looping and never actually dispatching. Once approved,
-      // the order belongs in the Dispatch module (which independently lists
-      // it via listReadyForDispatch), not back in this submission tab.
-      statusLogs: {
-        none: {
-          fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
-          toStatus: OrderStatus.READY_FOR_DISPATCH,
+      // READY_FOR_DISPATCH is overloaded: it means both "production just
+      // finished, not yet submitted" AND "accounts already approved this for
+      // dispatch" (approveDispatch deliberately returns the order to this
+      // same status so Dispatch's own queue picks it up). Without telling
+      // these apart, an already-approved order kept reappearing here looking
+      // exactly like a fresh one, and re-submitting it just re-created the
+      // same PENDING_DISPATCH_APPROVAL → (re-approved) → READY_FOR_DISPATCH
+      // cycle forever without ever reaching Dispatch's booking queue — the
+      // root cause of orders like AMAN PHARMACY / SHRI VIJAY NURSING HOME
+      // looping and never actually dispatching.
+      //
+      // The exclusion below is deliberately scoped to ONLY apply while
+      // status is READY_FOR_DISPATCH (the ambiguous case) — an order sitting
+      // at APPROVED or IN_PRODUCTION is unambiguous regardless of whether it
+      // has an OLD approval log somewhere in its history (e.g. after
+      // rejectDispatch sends it back to APPROVED, or if it's ever
+      // legitimately reset for a reprint/re-dispatch cycle) and must still
+      // show up here normally. Scoping by current status, not "has this log
+      // ever existed", is what makes this safe against that case.
+      AND: [
+        {
+          OR: [
+            { status: { not: OrderStatus.READY_FOR_DISPATCH } },
+            {
+              status: OrderStatus.READY_FOR_DISPATCH,
+              statusLogs: {
+                none: {
+                  fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
+                  toStatus: OrderStatus.READY_FOR_DISPATCH,
+                },
+              },
+            },
+          ],
         },
-      },
+      ],
     };
     // Same server-side scoping as findAllForTable — see comment there.
     if (query.salesAgentId) where.salesAgentId = query.salesAgentId;
