@@ -1,14 +1,27 @@
+console.log('[main] main.js loaded, starting requires...');
+
 import * as cryptoNode from 'crypto';
 if (!globalThis.crypto) {
   (globalThis as any).crypto = cryptoNode.webcrypto;
 }
+console.log('[main] crypto polyfill done.');
 
 import 'dotenv/config';
+console.log('[main] dotenv/config required.');
+
 import { ValidationPipe } from '@nestjs/common';
+console.log('[main] @nestjs/common required.');
+
 import { NestFactory } from '@nestjs/core';
+console.log('[main] @nestjs/core required.');
+
+console.log('[main] about to require ./app.module (pulls in every feature module)...');
 import { AppModule } from './app.module';
+console.log('[main] ./app.module required successfully.');
+
 import { PrismaExceptionFilter } from './prisma/prisma-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+console.log('[main] all imports done, defining bootstrap()...');
 
 async function bootstrap() {
   // Diagnostic: if this never shows up in the deploy log, dist/src/main.js
