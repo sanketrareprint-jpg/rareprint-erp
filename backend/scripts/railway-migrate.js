@@ -19,24 +19,27 @@ function run(command, args, options = {}) {
   return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 }
 
+// Call the local prisma binary directly instead of going through `npx` —
+// npx pays its own resolution overhead (checking local vs global, registry
+// lookups) on every single invocation. With 5 separate prisma calls in this
+// file, that overhead was adding up: the whole migrate+ensure phase was
+// consistently taking 40-47s before the app even started booting.
+const PRISMA_BIN = require('path').join(__dirname, '..', 'node_modules', '.bin', 'prisma');
+
 for (const migration of RECOVERABLE_MIGRATIONS) {
   console.log(`Checking recoverable migration ${migration} before deploy...`);
-  run('npx', ['prisma', 'migrate', 'resolve', '--applied', migration], { allowFailure: true });
+  run(PRISMA_BIN, ['migrate', 'resolve', '--applied', migration], { allowFailure: true });
 }
 
-run('npx', ['prisma', 'migrate', 'deploy']);
+run(PRISMA_BIN, ['migrate', 'deploy']);
 
 // Belt-and-suspenders check: migrate deploy can report success while a
-// table is still missing if _prisma_migrations drifted from the real
-// schema (see ensure-commission-override-table.js for the story on this
-// one specifically). Verify/create it directly so a stale migration
-// record can never again silently break the commission-override feature.
-run('node', ['scripts/ensure-commission-override-table.js'], { allowFailure: true });
-run('node', ['scripts/ensure-customer-phone2-column.js'], { allowFailure: true });
-run('node', ['scripts/ensure-shipment-bigship-columns.js'], { allowFailure: true });
-run('node', ['scripts/ensure-user-payment-keyword-table.js'], { allowFailure: true });
-run('node', ['scripts/ensure-attendance-final-column.js'], { allowFailure: true });
-run('node', ['scripts/ensure-company-holiday-table.js'], { allowFailure: true });
+// table/column is still missing if _prisma_migrations drifted from the real
+// schema (see ensure-commission-override-table.js's original header for the
+// full story). This used to be 6 separate `node scripts/ensure-x.js` child
+// processes — each paid its own Node startup + DB-connect cost. Now it's one
+// combined script, one connection, one process.
+run('node', ['scripts/ensure-all-columns.js'], { allowFailure: true });
 
 // Diagnostic: if this line never shows up in the deploy log, the hang is
 // inside one of the run() calls above (a spawned child process not fully
