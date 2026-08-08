@@ -112,14 +112,43 @@ export class ComplaintsService {
   // ── Create ────────────────────────────────────────────────────────────────
 
   async create(dto: CreateComplaintDto, raisedById?: string) {
-    if (!dto.customerId) throw new BadRequestException('customerId is required');
+    if (!dto.customerId && !dto.customerName?.trim()) {
+      throw new BadRequestException('customerId or customerName is required');
+    }
     if (!dto.subject?.trim()) throw new BadRequestException('subject is required');
     if (!dto.description?.trim()) throw new BadRequestException('description is required');
     if (!dto.channel) throw new BadRequestException('channel is required');
     if (!dto.category) throw new BadRequestException('category is required');
 
-    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
-    if (!customer) throw new NotFoundException('Customer not found');
+    let customerId = dto.customerId;
+    if (customerId) {
+      const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+      if (!customer) throw new NotFoundException('Customer not found');
+    } else {
+      // No existing customer selected — this is someone not yet in the
+      // directory (e.g. a one-off complaint contact). Reuse an existing
+      // customer with the exact same name if one exists, otherwise create a
+      // lightweight new Customer record so the complaint still has a valid
+      // customer to link to (Complaint.customerId is a required FK).
+      const name = dto.customerName!.trim();
+      const phone = dto.customerPhone?.trim() || null;
+      const existing = await this.prisma.customer.findFirst({
+        where: { businessName: { equals: name, mode: 'insensitive' } },
+      });
+      if (existing) {
+        customerId = existing.id;
+      } else {
+        const created = await this.prisma.customer.create({
+          data: {
+            customerCode: `CUST-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+            businessName: name,
+            phone,
+          },
+        });
+        customerId = created.id;
+      }
+    }
+
     if (dto.orderId) {
       const order = await this.prisma.order.findUnique({ where: { id: dto.orderId } });
       if (!order) throw new NotFoundException('Order not found');
@@ -145,7 +174,7 @@ export class ComplaintsService {
             const complaint = await (tx as any).complaint.create({
               data: {
                 ticketNumber,
-                customerId: dto.customerId,
+                customerId,
                 orderId: dto.orderId ?? null,
                 orderItemId: dto.orderItemId ?? null,
                 productId: dto.productId ?? null,

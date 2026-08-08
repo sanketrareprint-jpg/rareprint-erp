@@ -22,6 +22,13 @@ export default function NewComplaintPage() {
   const [customerSearching, setCustomerSearching] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
 
+  // For a customer who isn't in the directory yet — typed name (+ optional
+  // phone) instead of picking an existing record. Backend auto-creates a
+  // lightweight Customer for them on submit.
+  const [manualCustomer, setManualCustomer] = useState(false);
+  const [manualName, setManualName] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
+
   const [orders, setOrders] = useState<OrderOption[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState("");
@@ -72,7 +79,7 @@ export default function NewComplaintPage() {
 
   async function submit() {
     setError(null);
-    if (!selectedCustomer) { setError("Select a customer first"); return; }
+    if (!selectedCustomer && !manualName.trim()) { setError("Select a customer, or add one below"); return; }
     if (!subject.trim()) { setError("Subject is required"); return; }
     if (!description.trim()) { setError("Description is required"); return; }
 
@@ -82,7 +89,9 @@ export default function NewComplaintPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerId: selectedCustomer.id,
+          customerId: selectedCustomer?.id,
+          customerName: selectedCustomer ? undefined : manualName.trim(),
+          customerPhone: selectedCustomer ? undefined : (manualPhone.trim() || undefined),
           orderId: selectedOrderId || undefined,
           channel,
           category,
@@ -125,6 +134,31 @@ export default function NewComplaintPage() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
+            ) : manualCustomer ? (
+              <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-600">New customer (not in directory)</p>
+                  <button
+                    onClick={() => { setManualCustomer(false); setManualName(""); setManualPhone(""); }}
+                    className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <input
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="Customer / business name"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+                <input
+                  value={manualPhone}
+                  onChange={(e) => setManualPhone(e.target.value)}
+                  placeholder="Phone (optional)"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+                <p className="text-xs text-slate-500">A customer record will be created automatically for them.</p>
+              </div>
             ) : (
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -145,6 +179,13 @@ export default function NewComplaintPage() {
                     ))}
                   </div>
                 )}
+                <button
+                  type="button"
+                  onClick={() => { setManualCustomer(true); setManualName(customerSearch); setCustomerSearch(""); setCustomerResults([]); }}
+                  className="mt-1 text-xs font-medium text-brand-600 hover:underline"
+                >
+                  Can&apos;t find them? Add as a new customer
+                </button>
               </div>
             )}
           </div>

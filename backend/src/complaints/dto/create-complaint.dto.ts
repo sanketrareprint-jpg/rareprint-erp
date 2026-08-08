@@ -21,7 +21,12 @@ export type ComplaintCategory =
   | 'OTHER';
 
 export interface CreateComplaintDto {
-  customerId: string;
+  // Either customerId (an existing customer picked from search) or
+  // customerName (free text, for a customer who isn't in the directory yet —
+  // a lightweight Customer record is auto-created for them) must be provided.
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
   orderId?: string;
   orderItemId?: string;
   productId?: string;
