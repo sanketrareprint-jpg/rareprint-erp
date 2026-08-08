@@ -453,6 +453,18 @@ export default function OrdersPage() {
     }
   }
 
+  // An order can only be submitted for dispatch once every item on it has
+  // finished production — see submitDispatchBatch on the backend for why
+  // (submitting mid-production used to hide the still-printing items from
+  // Production's queue entirely). Orders with only SOME items ready still
+  // show up in this tab for visibility, but aren't selectable until the
+  // rest catch up.
+  function isOrderFullyReady(o: Order) {
+    const total = o.totalItemsCount ?? o.itemDetails?.length ?? 0;
+    const ready = o.readyItemsCount ?? 0;
+    return total > 0 && ready === total;
+  }
+
   function toggleOrderSelection(orderId: string, customerName: string) {
     setCustomerError(null);
     const selected = readyOrders.filter(o => selectedOrderIds.has(o.id));
@@ -552,7 +564,17 @@ export default function OrdersPage() {
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
       const result = await res.json();
       const processed = result.processedOrders ?? orderIds.length;
-      if (processed === 0) { alert("⚠️ No orders were submitted. Each order needs at least one item marked Ready for Dispatch."); return; }
+      const skipped: { orderId: string; orderNumber: string; reason: string }[] = result.skipped ?? [];
+      if (processed === 0) {
+        const detail = skipped.length
+          ? skipped.map(s => `#${s.orderNumber}: ${s.reason}`).join("\n")
+          : "Each order needs every item marked Ready for Dispatch before it can be submitted.";
+        alert(`⚠️ No orders were submitted.\n\n${detail}`);
+        return;
+      }
+      if (skipped.length) {
+        alert(`Submitted ${processed} order(s). Skipped:\n\n${skipped.map(s => `#${s.orderNumber}: ${s.reason}`).join("\n")}`);
+      }
       // Store data for print receipt
       setPrintReceiptData({
         orders: selectedOrders,
@@ -797,7 +819,11 @@ export default function OrdersPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             {activeTab === "dispatch" && (
-                              <button onClick={() => toggleOrderSelection(o.id, o.customerName)} className="rounded-lg bg-white/15 p-1">
+                              <button
+                                onClick={() => isOrderFullyReady(o) && toggleOrderSelection(o.id, o.customerName)}
+                                disabled={!isOrderFullyReady(o)}
+                                title={isOrderFullyReady(o) ? undefined : `Not fully ready — ${o.readyItemsCount ?? 0}/${o.totalItemsCount ?? 0} items done. All items must finish production before this order can be booked for dispatch.`}
+                                className={`rounded-lg bg-white/15 p-1 ${!isOrderFullyReady(o) ? "opacity-40 cursor-not-allowed" : ""}`}>
                                 {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                               </button>
                             )}
@@ -942,7 +968,11 @@ export default function OrdersPage() {
                         <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
                           {activeTab === "dispatch" && (
                             <td className="px-1.5 py-1.5 align-top">
-                              <button onClick={() => toggleOrderSelection(o.id, o.customerName)}>
+                              <button
+                                onClick={() => isOrderFullyReady(o) && toggleOrderSelection(o.id, o.customerName)}
+                                disabled={!isOrderFullyReady(o)}
+                                title={isOrderFullyReady(o) ? undefined : `Not fully ready — ${o.readyItemsCount ?? 0}/${o.totalItemsCount ?? 0} items done. All items must finish production before this order can be booked for dispatch.`}
+                                className={!isOrderFullyReady(o) ? "opacity-40 cursor-not-allowed" : ""}>
                                 {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4 text-indigo-600" /> : <Square className="h-4 w-4 text-slate-400" />}
                               </button>
                             </td>

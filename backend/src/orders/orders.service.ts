@@ -1186,6 +1186,7 @@ export class OrdersService {
     data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string; itemIdsByOrder?: Record<string, string[]> },
   ) {
     const results: string[] = [];
+    const skipped: { orderId: string; orderNumber: string; reason: string }[] = [];
     const dispatchCharge = data.dispatchType === 'COURIER' ? Number(data.courierCharges || 0) : 0;
     for (const orderId of orderIds) {
       const order = await this.prisma.order.findUnique({
@@ -1194,18 +1195,30 @@ export class OrdersService {
       });
       if (!order) continue;
 
-      // Used to require the WHOLE order to already be READY_FOR_DISPATCH (every
-      // item done), which meant a single still-printing item silently blocked
-      // submission of every other item that WAS ready on the same order — the
-      // agent would select the order, submit, and it would just no-op with no
-      // explanation. Now: submit as soon as at least one item is ready, whether
-      // the rest of the order is still IN_PRODUCTION or not. Items not yet
-      // ready simply aren't included (Dispatch still only ever books items at
-      // READY_FOR_DISPATCH stage — see dispatch.service.ts bookItems), and stay
-      // behind for a later, separate submission once they catch up.
+      // The order can only be submitted once EVERY item has finished
+      // production (order.status === READY_FOR_DISPATCH). This used to also
+      // allow submission mid-production (order.status === IN_PRODUCTION) as
+      // soon as just one item was ready, but that forced the WHOLE order's
+      // status straight to PENDING_DISPATCH_APPROVAL even while other items
+      // were still printing — and Production's queue only shows orders with
+      // status APPROVED/IN_PRODUCTION, so the still-unfinished item silently
+      // vanished from the print team's view with no way to complete it. That
+      // broke production tracking for any order submitted early, so it was
+      // reverted. Submitting a subset of an order's items (to book them
+      // separately or combine with another order) is still fully supported
+      // via itemIdsByOrder below — just only once the whole order is ready.
+      if (order.status !== OrderStatus.READY_FOR_DISPATCH) {
+        skipped.push({
+          orderId,
+          orderNumber: order.orderNumber,
+          reason: order.items.some((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH)
+            ? 'Not fully ready yet — some items are still in production. All items must finish before the order can be submitted for dispatch.'
+            : 'No items are ready for dispatch yet.',
+        });
+        continue;
+      }
       const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
-      if (readyItems.length === 0) continue;
-      if (order.status !== OrderStatus.READY_FOR_DISPATCH && order.status !== OrderStatus.IN_PRODUCTION) continue;
+      if (readyItems.length === 0) continue; // shouldn't happen once order.status is READY_FOR_DISPATCH, but stay safe
 
       // Optional per-item selection from the booking modal (agent can hold a
       // specific ready item back even when it's ready, e.g. to combine with a
@@ -1218,7 +1231,7 @@ export class OrdersService {
       if (submittedItems.length === 0) continue;
       const itemNames = submittedItems.map((i) => i.product.name).join(', ');
       const partialNote = submittedItems.length < order.items.length
-        ? `Submitting ${submittedItems.length}/${order.items.length} item(s): ${itemNames}`
+        ? `Submitting ${submittedItems.length}/${order.items.length} item(s), holding back the rest: ${itemNames}`
         : '';
 
       const dispatchTypeLine = data.dispatchType === 'TRANSPORT'
@@ -1281,7 +1294,7 @@ export class OrdersService {
       results.push(orderId);
     }
 
-    return { success: true, processedOrders: results.length };
+    return { success: true, processedOrders: results.length, skipped };
   }
 
   async getOrdersWithReadyItems(query: OrderListQuery = {}) {
