@@ -453,16 +453,14 @@ export default function OrdersPage() {
     }
   }
 
-  // An order can only be submitted for dispatch once every item on it has
-  // finished production — see submitDispatchBatch on the backend for why
-  // (submitting mid-production used to hide the still-printing items from
-  // Production's queue entirely). Orders with only SOME items ready still
-  // show up in this tab for visibility, but aren't selectable until the
-  // rest catch up.
-  function isOrderFullyReady(o: Order) {
-    const total = o.totalItemsCount ?? o.itemDetails?.length ?? 0;
-    const ready = o.readyItemsCount ?? 0;
-    return total > 0 && ready === total;
+  // An order is selectable for dispatch as soon as it has AT LEAST ONE item
+  // that's finished production — you don't have to wait for the rest of the
+  // order to catch up. The booking modal (openBookingModal) only lists each
+  // order's actually-ready items as checkboxes, so a partially-ready order
+  // just offers fewer items to book; the still-printing ones stay untouched
+  // and keep showing up in Production's queue normally.
+  function hasReadyItem(o: Order) {
+    return (o.readyItemsCount ?? 0) > 0;
   }
 
   function toggleOrderSelection(orderId: string, customerName: string) {
@@ -820,10 +818,10 @@ export default function OrdersPage() {
                           <div className="flex items-center gap-2">
                             {activeTab === "dispatch" && (
                               <button
-                                onClick={() => isOrderFullyReady(o) && toggleOrderSelection(o.id, o.customerName)}
-                                disabled={!isOrderFullyReady(o)}
-                                title={isOrderFullyReady(o) ? undefined : `Not fully ready — ${o.readyItemsCount ?? 0}/${o.totalItemsCount ?? 0} items done. All items must finish production before this order can be booked for dispatch.`}
-                                className={`rounded-lg bg-white/15 p-1 ${!isOrderFullyReady(o) ? "opacity-40 cursor-not-allowed" : ""}`}>
+                                onClick={() => hasReadyItem(o) && toggleOrderSelection(o.id, o.customerName)}
+                                disabled={!hasReadyItem(o)}
+                                title={hasReadyItem(o) ? undefined : `No items ready yet — ${o.readyItemsCount ?? 0}/${o.totalItemsCount ?? 0} items done.`}
+                                className={`rounded-lg bg-white/15 p-1 ${!hasReadyItem(o) ? "opacity-40 cursor-not-allowed" : ""}`}>
                                 {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                               </button>
                             )}
@@ -969,10 +967,10 @@ export default function OrdersPage() {
                           {activeTab === "dispatch" && (
                             <td className="px-1.5 py-1.5 align-top">
                               <button
-                                onClick={() => isOrderFullyReady(o) && toggleOrderSelection(o.id, o.customerName)}
-                                disabled={!isOrderFullyReady(o)}
-                                title={isOrderFullyReady(o) ? undefined : `Not fully ready — ${o.readyItemsCount ?? 0}/${o.totalItemsCount ?? 0} items done. All items must finish production before this order can be booked for dispatch.`}
-                                className={!isOrderFullyReady(o) ? "opacity-40 cursor-not-allowed" : ""}>
+                                onClick={() => hasReadyItem(o) && toggleOrderSelection(o.id, o.customerName)}
+                                disabled={!hasReadyItem(o)}
+                                title={hasReadyItem(o) ? undefined : `No items ready yet — ${o.readyItemsCount ?? 0}/${o.totalItemsCount ?? 0} items done.`}
+                                className={!hasReadyItem(o) ? "opacity-40 cursor-not-allowed" : ""}>
                                 {selectedOrderIds.has(o.id) ? <CheckSquare className="h-4 w-4 text-indigo-600" /> : <Square className="h-4 w-4 text-slate-400" />}
                               </button>
                             </td>

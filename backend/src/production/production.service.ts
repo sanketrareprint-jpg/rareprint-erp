@@ -68,7 +68,26 @@ export class ProductionService {
   async listInProduction() {
     const orders = await this.prisma.order.findMany({
       where: {
-        status: { in: [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION] },
+        // Normally APPROVED/IN_PRODUCTION already implies "has an unfinished
+        // item" (the rollup above only sets READY_FOR_DISPATCH once every
+        // item is done). But an order can now have ONE item submitted for
+        // dispatch early while a sibling item is still printing — that
+        // pushes order.status past IN_PRODUCTION (PENDING_DISPATCH_APPROVAL /
+        // READY_FOR_DISPATCH / PARTIALLY_DISPATCHED) even though there's
+        // still real production work left. Include those statuses too, but
+        // gate on the item-level check so a fully-finished order (all items
+        // READY_FOR_DISPATCH) doesn't reappear here just because it's
+        // working its way through the dispatch pipeline.
+        status: {
+          in: [
+            OrderStatus.APPROVED,
+            OrderStatus.IN_PRODUCTION,
+            OrderStatus.PENDING_DISPATCH_APPROVAL,
+            OrderStatus.READY_FOR_DISPATCH,
+            OrderStatus.PARTIALLY_DISPATCHED,
+          ],
+        },
+        items: { some: { itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH } } },
         isSample: false,
       },
       orderBy: { updatedAt: 'desc' },
@@ -289,9 +308,22 @@ export class ProductionService {
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
     );
 
+    // Once an order has moved past normal production (e.g. one of its items
+    // was already submitted for dispatch approval, or booked, while a
+    // sibling item was still printing — see orders.service.ts's
+    // submitDispatchBatch), this rollup must NOT touch order.status anymore.
+    // Only recompute it while the order is still in its ordinary
+    // APPROVED/IN_PRODUCTION lifecycle; PENDING_DISPATCH_APPROVAL/
+    // READY_FOR_DISPATCH/PARTIALLY_DISPATCHED/DISPATCHED are owned by the
+    // accounts-approval/dispatch flow from that point on. Without this
+    // guard, a later item finishing production would silently overwrite an
+    // already-submitted order's status back to IN_PRODUCTION.
+    const stillInNormalProduction = item.order.status === OrderStatus.APPROVED || item.order.status === OrderStatus.IN_PRODUCTION;
     let newOrderStatus = item.order.status;
-    if (allReady) newOrderStatus = OrderStatus.READY_FOR_DISPATCH;
-    else if (anyInProgress || anyReady) newOrderStatus = OrderStatus.IN_PRODUCTION;
+    if (stillInNormalProduction) {
+      if (allReady) newOrderStatus = OrderStatus.READY_FOR_DISPATCH;
+      else if (anyInProgress || anyReady) newOrderStatus = OrderStatus.IN_PRODUCTION;
+    }
 
     if (newOrderStatus !== item.order.status) {
       await this.prisma.order.update({

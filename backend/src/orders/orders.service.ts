@@ -1195,30 +1195,31 @@ export class OrdersService {
       });
       if (!order) continue;
 
-      // The order can only be submitted once EVERY item has finished
-      // production (order.status === READY_FOR_DISPATCH). This used to also
-      // allow submission mid-production (order.status === IN_PRODUCTION) as
-      // soon as just one item was ready, but that forced the WHOLE order's
-      // status straight to PENDING_DISPATCH_APPROVAL even while other items
-      // were still printing — and Production's queue only shows orders with
-      // status APPROVED/IN_PRODUCTION, so the still-unfinished item silently
-      // vanished from the print team's view with no way to complete it. That
-      // broke production tracking for any order submitted early, so it was
-      // reverted. Submitting a subset of an order's items (to book them
-      // separately or combine with another order) is still fully supported
-      // via itemIdsByOrder below — just only once the whole order is ready.
-      if (order.status !== OrderStatus.READY_FOR_DISPATCH) {
-        skipped.push({
-          orderId,
-          orderNumber: order.orderNumber,
-          reason: order.items.some((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH)
-            ? 'Not fully ready yet — some items are still in production. All items must finish before the order can be submitted for dispatch.'
-            : 'No items are ready for dispatch yet.',
-        });
+      // Any item that's finished production (itemProductionStage ===
+      // READY_FOR_DISPATCH) can be submitted for dispatch on its own, even if
+      // the rest of the order is still mid-production — you don't have to
+      // wait for every item to finish. Earlier this required the WHOLE
+      // order's status to already be READY_FOR_DISPATCH, which blocked
+      // booking a single ready item on an otherwise-unfinished order.
+      //
+      // Submitting early does flip this order's status forward (to
+      // PENDING_DISPATCH_APPROVAL) even while sibling items are still
+      // printing. That alone used to hide the order from Production's queue
+      // (which only showed status APPROVED/IN_PRODUCTION) — that's fixed by
+      // making listInProduction() key off "still has an unfinished item"
+      // instead of order.status, and by having the production stage-update
+      // rollup leave order.status alone once it's moved past IN_PRODUCTION.
+      // See production.service.ts.
+      const allowedStatuses: OrderStatus[] = [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION, OrderStatus.READY_FOR_DISPATCH];
+      if (!allowedStatuses.includes(order.status)) {
+        skipped.push({ orderId, orderNumber: order.orderNumber, reason: `Order status (${order.status}) isn't eligible for dispatch submission.` });
         continue;
       }
       const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
-      if (readyItems.length === 0) continue; // shouldn't happen once order.status is READY_FOR_DISPATCH, but stay safe
+      if (readyItems.length === 0) {
+        skipped.push({ orderId, orderNumber: order.orderNumber, reason: 'No items are ready for dispatch yet.' });
+        continue;
+      }
 
       // Optional per-item selection from the booking modal (agent can hold a
       // specific ready item back even when it's ready, e.g. to combine with a
