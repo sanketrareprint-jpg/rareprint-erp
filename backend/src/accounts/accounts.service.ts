@@ -698,7 +698,7 @@ export class AccountsService {
     return updated;
   }
 
-  async rejectDispatch(orderId: string, reason: string) {
+  async rejectDispatch(orderId: string, reason: string, userId?: string) {
     if (!reason?.trim()) {
       throw new BadRequestException('A reason is required to reject this dispatch');
     }
@@ -728,7 +728,13 @@ export class AccountsService {
           orderId,
           fromStatus: order.status,
           toStatus: OrderStatus.APPROVED,
-          changedById: 'system',
+          // Was the literal string 'system' before -- StatusLog.changedById
+          // has an FK to User, and there's no User row with id 'system', so
+          // every single call to this endpoint failed with a P2003 foreign
+          // key violation. Now uses the real logged-in user's id (threaded
+          // through from the controller), falling back to null (the column
+          // is nullable) if it's ever missing.
+          changedById: userId ?? null,
           reason: `Dispatch rejected: ${reason.trim()}`,
         },
       });
@@ -1766,7 +1772,7 @@ export class AccountsService {
     return { ...updated, samplePaymentType: paymentType };
   }
 
-  async rejectSampleOrder(orderId: string, reason: string) {
+  async rejectSampleOrder(orderId: string, reason: string, userId?: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
     if (order.status !== OrderStatus.PENDING_APPROVAL) {
@@ -1782,7 +1788,10 @@ export class AccountsService {
           orderId,
           fromStatus: OrderStatus.PENDING_APPROVAL,
           toStatus: OrderStatus.CANCELLED,
-          changedById: 'system',
+          // Same bug as rejectDispatch above: 'system' isn't a real User.id
+          // and changedById has an FK to User, so this always failed with a
+          // P2003 violation. Uses the real logged-in user now.
+          changedById: userId ?? null,
           reason: reason || 'Sample order rejected by accounts',
         },
       });

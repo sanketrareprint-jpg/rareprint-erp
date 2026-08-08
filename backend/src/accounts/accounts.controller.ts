@@ -186,8 +186,9 @@ export class AccountsController {
   rejectSampleOrder(
     @Param('id') id: string,
     @Body('reason') reason: string,
+    @Req() req: Request & { user: JwtUser },
   ) {
-    return this.accountsService.rejectSampleOrder(id, reason);
+    return this.accountsService.rejectSampleOrder(id, reason, req.user?.id);
   }
 
   @Patch(':id/dispatch-sample')
@@ -200,8 +201,12 @@ export class AccountsController {
   }
 
   @Patch(':id/reject-dispatch')
-  rejectDispatch(@Param('id') id: string, @Body('reason') reason: string) {
-    return this.accountsService.rejectDispatch(id, reason);
+  rejectDispatch(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.rejectDispatch(id, reason, req.user?.id);
   }
 
   @Patch('payments/:id/verify')

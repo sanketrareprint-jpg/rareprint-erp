@@ -512,7 +512,11 @@ export default function OrdersPage() {
     setRatesLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/dispatch/rates/${firstOrderId}`, { headers: getAuthHeaders() });
-      if (!res.ok) { alert("Could not fetch rates"); return; }
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        alert(Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Could not fetch rates"));
+        return;
+      }
       const data = await res.json();
       setRates(data.rates ?? []);
       if (data.rates?.length) setBookingForm(p => ({ ...p, courierCharges: data.rates[0].amount.toString() }));
