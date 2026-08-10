@@ -520,16 +520,43 @@ export class DispatchService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    // Rate fetching only needs a valid dispatchable status — skip the approval
-    // log check here (that's enforced on actual booking in bookItems).
-    const dispatchableStatuses: OrderStatus[] = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
-    if (!dispatchableStatuses.includes(order.status)) {
-      throw new BadRequestException('Order must be in a dispatchable status to fetch rates');
-    }
 
     const readyItems = order.items.filter(
       (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
     );
+    // Rate fetching only needs a valid dispatchable status — skip the approval
+    // log check here (that's enforced on actual booking in bookItems via
+    // assertCanDispatch).
+    //
+    // This used to require order.status itself to already be
+    // READY_FOR_DISPATCH/PARTIALLY_DISPATCHED. That's wrong for partial
+    // dispatch booking: an order can have some items ready
+    // (itemProductionStage READY_FOR_DISPATCH) while order.status is still
+    // APPROVED/IN_PRODUCTION, because the rest of production isn't done yet
+    // — that's the normal state the Orders page's "book what's ready" flow
+    // operates in (see hasReadyItem/readyItemsCount on the frontend, and
+    // getOrdersWithReadyItems on the backend, which both key off item
+    // readiness, not order.status). This function was stricter than the
+    // list it's called from, so any order with partial-but-not-all items
+    // ready always failed here with "Order must be in a dispatchable status
+    // to fetch rates" — confirmed via a real order, 2026-08-10.
+    //
+    // Now: allowed whenever there's at least one ready item, as long as the
+    // order isn't already submitted/approved/finished (those states aren't
+    // reachable from this pre-submission helper anyway, but guarded for
+    // safety/correctness if hit directly).
+    const blockedStatuses: OrderStatus[] = [
+      OrderStatus.PENDING_DISPATCH_APPROVAL,
+      OrderStatus.DISPATCHED,
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
+    ];
+    const dispatchableStatuses: OrderStatus[] = [OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED];
+    const canFetchRates = !blockedStatuses.includes(order.status)
+      && (readyItems.length > 0 || dispatchableStatuses.includes(order.status));
+    if (!canFetchRates) {
+      throw new BadRequestException('Order must be in a dispatchable status to fetch rates');
+    }
     const normalizedBoxes = normalizeDispatchPackageBoxes(packageBoxes);
     const packageWeightKg = normalizedBoxes?.reduce((sum, box) => sum + box.noOfBoxes * box.weight, 0);
     const weightKg = weightKgOverride && weightKgOverride > 0
