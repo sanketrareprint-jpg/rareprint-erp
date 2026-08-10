@@ -26,6 +26,31 @@ function upper(value?: string | null): string | null | undefined {
   return typeof value === 'string' ? value.toUpperCase() : value;
 }
 
+// pendingDispatchItemIds only started being recorded on 2026-08-10 — any
+// order that reached PENDING_DISPATCH_APPROVAL before that has an empty/
+// null list even though it genuinely was submitted (the old, whole-order-
+// at-once way, before per-item tracking existed). Treating an empty list as
+// "nothing locked" made those older orders' ready items look like plain
+// free/unsubmitted items everywhere this gets used — leaking back into the
+// Ready-for-Dispatch tab, showing a wrong "FREE" badge, and letting an
+// already-submitted item be re-offered in the booking modal's checklist.
+// PENDING_DISPATCH_APPROVAL only ever gets set by submitDispatchBatch, so
+// it's an unambiguous signal to fall back on: accounts.service.ts's
+// getPendingDispatchOrders already does the same thing the other way
+// (empty list = show every item); this is the matching exclusion-side
+// fallback, shared by every place in this file that reads
+// pendingDispatchItemIds.
+function resolveLockedItemIds(order: {
+  status: string;
+  items: Array<{ id: string }>;
+  pendingDispatchItemIds?: string[] | null;
+}): Set<string> {
+  const submittedIds = order.pendingDispatchItemIds ?? [];
+  if (submittedIds.length > 0) return new Set(submittedIds);
+  if (order.status === 'PENDING_DISPATCH_APPROVAL') return new Set(order.items.map((i) => i.id));
+  return new Set<string>();
+}
+
 function buildItemDetails(
   items: Array<{ id: string; product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string; dispatchedAt?: Date | null }>,
   dispatchContext?: { lockedIds: Set<string>; orderStatus: string },
@@ -449,7 +474,7 @@ export class OrdersService {
         samplePaymentType: (o as any).samplePaymentType ?? null,
         date: o.orderDate.toISOString(),
         itemDetails: buildItemDetails(o.items as any, {
-          lockedIds: new Set((o as any).pendingDispatchItemIds ?? []),
+          lockedIds: resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds }),
           orderStatus: o.status,
         }),
         items: o.items.map((i) => ({
@@ -1211,7 +1236,7 @@ export class OrdersService {
     // queue) shouldn't be offered again in the booking modal's checklist --
     // otherwise the same item could be submitted a second time on top of
     // its existing pending/approved submission.
-    const lockedIds = new Set((order as any).pendingDispatchItemIds ?? []);
+    const lockedIds = resolveLockedItemIds({ status: order.status, items: order.items, pendingDispatchItemIds: (order as any).pendingDispatchItemIds });
 
     return order.items.map((i) => ({
       id: i.id,
@@ -1505,8 +1530,14 @@ export class OrdersService {
     // Dispatch's queue) — only orders with at least one FREE ready item
     // belong here. See the big comment above `where` for why this replaced
     // the old order-wide status/history check.
+    //
+    // See resolveLockedItemIds (top of file) for why an empty/null
+    // pendingDispatchItemIds still needs to lock every ready item when the
+    // order is already PENDING_DISPATCH_APPROVAL — otherwise older orders
+    // (submitted before that column existed) leak back into this tab even
+    // though they're already sitting in Accounts' Dispatch Approval queue.
     const readyOrders = orders.filter((o) => {
-      const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
+      const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds });
       return o.items.some((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt);
     });
     const slabsByProductId = (includeMargin || includeCommission)
@@ -1532,9 +1563,9 @@ export class OrdersService {
       const balanceDue = total - advancePaid;
       // Only count/show items that are actually free to submit — items
       // already locked into an active submission are excluded (see
-      // readyOrders above); this keeps the tab's "Ready" count and the
-      // booking checklist in sync with each other.
-      const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
+      // readyOrders/resolveLockedItemIds above); this keeps the tab's
+      // "Ready" count and the booking checklist in sync with each other.
+      const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds });
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt).length;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
       const commission = includeCommission ? this.calculateOrderCommission(o) : null;
@@ -1565,7 +1596,7 @@ export class OrdersService {
         readyItemsCount: readyCount,
         totalItemsCount: o.items.length,
         itemDetails: buildItemDetails(o.items as any, {
-          lockedIds: new Set((o as any).pendingDispatchItemIds ?? []),
+          lockedIds: resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds }),
           orderStatus: o.status,
         }),
         items: o.items.map((i) => ({
