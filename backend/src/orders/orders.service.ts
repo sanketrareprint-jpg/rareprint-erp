@@ -412,15 +412,18 @@ export class OrdersService {
             // the time it compiles there. A `...({ dispatchedAt: true } as
             // any)` spread WAS used here instead and broke Railway's build
             // outright (TS2367/TS2345/TS2339 on 2026-08-10) -- spreading an
-            // `any` into a NESTED select's object literal corrupts
-            // TypeScript's inferred type for the whole `items` field, unlike
-            // the same pattern at the top level of a select (which is fine —
-            // see pendingDispatchItemIds below).
+            // `any` into a select object literal corrupts TypeScript's
+            // inferred return type for the whole query. Turns out this
+            // isn't limited to a NESTED select (as originally thought) --
+            // the identical spread pattern at the TOP level of this same
+            // select (pendingDispatchItemIds, right below) broke the build
+            // the same way (TS2322 on 2026-08-10, o.status inferred as some
+            // unrelated giant union). Plain keys are safe in both places.
             dispatchedAt: true,
           }
         },
         payments: true,
-        ...({ pendingDispatchItemIds: true } as any),
+        pendingDispatchItemIds: true,
       },
     });
     const slabsByProductId = (includeMargin || includeCommission)
@@ -1273,9 +1276,11 @@ export class OrdersService {
         // sandbox that wrote this code can't run `prisma generate` to
         // verify locally) -- TS inferred a garbled union type mixing in
         // unrelated relations like ItemStageLog, failing the build outright
-        // with TS2367/TS2345/TS2339. The same spread pattern is fine at the
-        // top level of a select (see pendingDispatchItemIds elsewhere in
-        // this file) but not safe nested inside one.
+        // with TS2367/TS2345/TS2339. Turns out the same spread pattern ALSO
+        // breaks the build at the top level of a select, not just nested
+        // (see the pendingDispatchItemIds fix elsewhere in this file,
+        // 2026-08-10) -- plain keys only, never `...({...} as any)`, in any
+        // select in this file.
         include: {
           items: {
             include: {
@@ -1517,12 +1522,10 @@ export class OrdersService {
           }
         },
         payments: true,
-        // Cast: this column exists in schema.prisma/the real DB, but the
-        // sandbox that wrote this code can't run `prisma generate`, so the
-        // local client types don't know about it yet — same workaround used
-        // in submitDispatchBatch. Safe once deployed (Railway's build step
-        // regenerates the client against the current schema).
-        ...({ pendingDispatchItemIds: true } as any),
+        // Plain key, not a spread -- see the matching comment in
+        // findAllForTable above; the same spread pattern here broke
+        // Railway's build too (TS2322 on 2026-08-10).
+        pendingDispatchItemIds: true,
       },
     });
     // Drop orders where every ready item is already locked into an active
