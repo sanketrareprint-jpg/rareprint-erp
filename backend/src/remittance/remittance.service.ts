@@ -241,7 +241,18 @@ export class RemittanceService {
             .update(`${row.awbNumber}|${row.remittanceDate?.toISOString() ?? ''}|${row.netPayableAmount.toFixed(2)}`)
             .digest('hex');
 
-      if (seenInFile.has(importKey)) continue;
+      // Two distinct ways a row can be a duplicate: it repeats within THIS
+      // file (seenInFile), or it was already imported in a past session
+      // (existing, looked up by importKey in the DB). Both used to only
+      // count the second kind — a file that was entirely re-uploaded (every
+      // row a repeat of itself or an earlier import) silently produced
+      // rowsFound > 0 with matched/needReview/duplicate all landing at 0,
+      // making a working safety net (never double-post the same COD
+      // receipt) look like a data-loss bug in Import History. Counting both
+      // kinds here means rowsFound == matched + needReview + duplicate
+      // always holds, so the Duplicate column (see listSessions/frontend)
+      // fully explains any 0/0 result instead of leaving it a mystery.
+      if (seenInFile.has(importKey)) { duplicate++; continue; }
       seenInFile.add(importKey);
 
       const existing = await this.prisma.remittanceRecord.findUnique({ where: { importKey } });
@@ -698,7 +709,7 @@ export class RemittanceService {
       data: { verificationStatus: 'VERIFIED', verifiedById: userId, verifiedAt: new Date() },
     });
 
-    return this.prisma.remittanceRecord.update({
+    const updated = await this.prisma.remittanceRecord.update({
       where: { id: recordId },
       data: {
         matchStatus: RemittanceMatchStatus.POSTED,
@@ -707,6 +718,19 @@ export class RemittanceService {
         postedById: userId,
       },
     });
+
+    // Import History's "Posted" column reads session.rowsPosted, which was
+    // only ever set to its (always-0) default at import time and never
+    // touched again — every session showed 0 posted there forever, even
+    // ones with everything actually posted, because posting happens later
+    // as a separate per-record action that didn't know to update the
+    // session it came from. Keep it in sync here instead.
+    await this.prisma.remittanceImportSession.update({
+      where: { id: record.sessionId },
+      data: { rowsPosted: { increment: 1 } },
+    }).catch(() => undefined);
+
+    return updated;
   }
 
   async postBatch(recordIds: string[], userId: string) {

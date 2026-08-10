@@ -492,6 +492,7 @@ export default function RemittanceImportPage() {
                   <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Rows</th>
                   <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Matched</th>
                   <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Review</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500" title="Rows skipped because they were already imported before (same file re-uploaded, or overlap with an earlier report) — not lost, just protected against double-posting.">Duplicate</th>
                   <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Posted</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">By</th>
                 </tr>
@@ -506,12 +507,13 @@ export default function RemittanceImportPage() {
                     <td className="px-4 py-2.5 text-right">{s.rowsFound}</td>
                     <td className="px-4 py-2.5 text-right text-blue-600">{s.rowsMatched}</td>
                     <td className="px-4 py-2.5 text-right text-yellow-600">{s.rowsNeedReview}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-400">{s.rowsDuplicate}</td>
                     <td className="px-4 py-2.5 text-right text-green-600">{s.rowsPosted}</td>
                     <td className="px-4 py-2.5 text-gray-500">{s.importedBy?.fullName || "—"}</td>
                   </tr>
                 ))}
                 {sessions.length === 0 && (
-                  <tr><td colSpan={8} className="text-center py-12 text-gray-400">No imports yet</td></tr>
+                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">No imports yet</td></tr>
                 )}
               </tbody>
             </table>
