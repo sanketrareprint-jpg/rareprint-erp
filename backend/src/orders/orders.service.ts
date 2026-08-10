@@ -26,7 +26,10 @@ function upper(value?: string | null): string | null | undefined {
   return typeof value === 'string' ? value.toUpperCase() : value;
 }
 
-function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string }>) {
+function buildItemDetails(
+  items: Array<{ id: string; product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string; dispatchedAt?: Date | null }>,
+  dispatchContext?: { lockedIds: Set<string>; orderStatus: string },
+) {
   return items.map((i) => {
     // Try to read from productionNotes first
     let size = (i.productionNotes?.match(/Size[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
@@ -47,6 +50,26 @@ function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: s
     // Convert sides to label
     const sidesLabel = sidesRaw === 'SINGLE_SIDE' ? 'Single' : sidesRaw === 'DOUBLE_SIDE' ? 'Double' : (sidesRaw ?? null);
 
+    // Tells apart a genuinely free "Ready" item from one that's already
+    // mid-submission (pending accounts approval, or approved and waiting on
+    // Dispatch's queue) or already physically shipped. itemProductionStage
+    // alone can't say this: it never changes away from READY_FOR_DISPATCH
+    // even after real dispatch (see OrderItem.dispatchedAt in schema.prisma)
+    // and doesn't know about pendingDispatchItemIds either — before this,
+    // an already-submitted or already-shipped item still showed a plain
+    // "Ready" badge forever, indistinguishable from one that's genuinely
+    // free to submit. Confirmed via a real order (1473), 2026-08-10.
+    let dispatchStatus: 'FREE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPATCHED' | null = null;
+    if (i.itemProductionStage === 'READY_FOR_DISPATCH') {
+      if (i.dispatchedAt) {
+        dispatchStatus = 'DISPATCHED';
+      } else if (dispatchContext?.lockedIds.has(i.id)) {
+        dispatchStatus = dispatchContext.orderStatus === 'PENDING_DISPATCH_APPROVAL' ? 'PENDING_APPROVAL' : 'APPROVED';
+      } else {
+        dispatchStatus = 'FREE';
+      }
+    }
+
     return {
       productName: i.product.name,
       productionNotes: i.productionNotes ?? null,
@@ -54,6 +77,7 @@ function buildItemDetails(items: Array<{ product: { name: string; sizeInches?: s
       unitPrice: i.unitPrice,
       lineTotal: i.lineTotal,
       itemProductionStage: i.itemProductionStage,
+      dispatchStatus,
       size,
       gsm,
       sides: sidesLabel,
@@ -356,10 +380,15 @@ export class OrdersService {
                 sides: true,
                 category: true,
               }
-            }
+            },
+            // Cast: this column exists in schema.prisma/the real DB, but the
+            // sandbox that wrote this code can't run `prisma generate`, so
+            // the local client types don't know about it yet.
+            ...({ dispatchedAt: true } as any),
           }
         },
         payments: true,
+        ...({ pendingDispatchItemIds: true } as any),
       },
     });
     const slabsByProductId = (includeMargin || includeCommission)
@@ -412,7 +441,10 @@ export class OrdersService {
         isSample: (o as any).isSample ?? false,
         samplePaymentType: (o as any).samplePaymentType ?? null,
         date: o.orderDate.toISOString(),
-        itemDetails: buildItemDetails(o.items as any),
+        itemDetails: buildItemDetails(o.items as any, {
+          lockedIds: new Set((o as any).pendingDispatchItemIds ?? []),
+          orderStatus: o.status,
+        }),
         items: o.items.map((i) => ({
           id: i.id,
           productName: i.product.name,
@@ -1184,7 +1216,9 @@ export class OrdersService {
       productionNotes: i.productionNotes,
       itemProductionStage: i.itemProductionStage,
       designFiles: summarizeDesignFiles(designFilesMap[i.id]),
-      dispatchLocked: lockedIds.has(i.id),
+      // Also true once actually physically dispatched — an already-shipped
+      // item must never be offered for a new submission either.
+      dispatchLocked: lockedIds.has(i.id) || !!(i as any).dispatchedAt,
     }));
   }
 
@@ -1199,7 +1233,16 @@ export class OrdersService {
     for (const orderId of orderIds) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { items: { select: { id: true, itemProductionStage: true, product: { select: { name: true } } } } },
+        include: {
+          items: {
+            select: {
+              id: true,
+              itemProductionStage: true,
+              product: { select: { name: true } },
+              ...({ dispatchedAt: true } as any),
+            },
+          },
+        },
       });
       if (!order) continue;
 
@@ -1241,7 +1284,14 @@ export class OrdersService {
         }
       }
 
-      const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
+      // Defense in depth, same reasoning as the approval check above: the
+      // booking modal already excludes already-dispatched items via
+      // dispatchLocked (getOrderItems), but guard here too against a stale
+      // frontend list or a direct API call re-submitting an item that's
+      // already been physically shipped.
+      const readyItems = order.items.filter(
+        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt,
+      );
       if (readyItems.length === 0) {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: 'No items are ready for dispatch yet.' });
         continue;
@@ -1349,16 +1399,22 @@ export class OrdersService {
     // "already handled"). Root-caused via a real order (1469) on 2026-08-10.
     //
     // Now this is decided per item, below, using pendingDispatchItemIds
-    // (which items are actually part of an active submit/approve cycle) —
-    // an order shows here whenever it has at least one ready item NOT
-    // already locked into a submission, regardless of what its OTHER items
-    // or its overall status are doing. This also still prevents the
-    // AMAN PHARMACY / SHRI VIJAY NURSING HOME resubmission-loop bug: once
-    // ALL of an order's ready items are locked (submitted, or submitted+
-    // approved), none remain free, so the order correctly drops out here
-    // until rejectDispatch frees them again (see accounts.service.ts).
+    // (which items are actually part of an active submit/approve cycle) and
+    // dispatchedAt (which items have actually been physically shipped) — an
+    // order shows here whenever it has at least one ready item that's
+    // neither locked into a submission nor already dispatched, regardless
+    // of what its OTHER items or its overall status are doing. This also
+    // still prevents the AMAN PHARMACY / SHRI VIJAY NURSING HOME
+    // resubmission-loop bug: once ALL of an order's ready items are locked
+    // or dispatched, none remain free, so the order correctly drops out
+    // here until rejectDispatch frees them again (see accounts.service.ts).
+    //
+    // PARTIALLY_DISPATCHED is no longer hard-excluded: before dispatchedAt
+    // existed, there was no reliable way to tell "already shipped in an
+    // earlier partial batch" apart from "still genuinely ready," so
+    // including these orders risked re-showing already-shipped items as
+    // free again. Now that dispatchedAt exists, that risk is gone.
     const EXCLUDED_STATUSES = [
-      OrderStatus.PARTIALLY_DISPATCHED,
       OrderStatus.DISPATCHED,
       OrderStatus.DELIVERED,
       OrderStatus.CANCELLED,
@@ -1414,7 +1470,8 @@ export class OrdersService {
                 sides: true,
                 category: true,
               }
-            }
+            },
+            ...({ dispatchedAt: true } as any),
           }
         },
         payments: true,
@@ -1433,7 +1490,7 @@ export class OrdersService {
     // the old order-wide status/history check.
     const readyOrders = orders.filter((o) => {
       const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
-      return o.items.some((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id));
+      return o.items.some((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt);
     });
     const slabsByProductId = (includeMargin || includeCommission)
       ? await this.getSlabsByProductId(readyOrders.flatMap((o) => o.items.map((i) => i.productId)))
@@ -1461,7 +1518,7 @@ export class OrdersService {
       // readyOrders above); this keeps the tab's "Ready" count and the
       // booking checklist in sync with each other.
       const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
-      const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id)).length;
+      const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt).length;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
       const commission = includeCommission ? this.calculateOrderCommission(o) : null;
 
@@ -1490,7 +1547,10 @@ export class OrdersService {
         date: o.orderDate.toISOString(),
         readyItemsCount: readyCount,
         totalItemsCount: o.items.length,
-        itemDetails: buildItemDetails(o.items as any),
+        itemDetails: buildItemDetails(o.items as any, {
+          lockedIds: new Set((o as any).pendingDispatchItemIds ?? []),
+          orderStatus: o.status,
+        }),
         items: o.items.map((i) => ({
           id: i.id,
           productName: i.product.name,

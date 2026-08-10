@@ -16,6 +16,11 @@ type ItemDetail = {
   productName: string; size: string | null; gsm: string | null;
   sides: string | null; quantity: number; unitPrice: number;
   lineTotal: number; itemProductionStage: string;
+  // Only meaningful when itemProductionStage is READY_FOR_DISPATCH -- tells
+  // apart a genuinely free item from one that's already mid-submission or
+  // already physically shipped, so the badge doesn't just say "Ready"
+  // forever even after the item has left the building.
+  dispatchStatus?: 'FREE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPATCHED' | null;
 };
 
 type OrderItemRef = {
@@ -76,6 +81,19 @@ const itemStageColors: Record<string, string> = {
 const itemStageLabels: Record<string, string> = {
   NOT_PRINTED: "Not Printed", PRINTING: "Printing",
   PROCESSING: "Processing", READY_FOR_DISPATCH: "Ready",
+};
+// Overrides the plain "Ready" badge once an item is no longer actually free
+// to submit -- distinguishes "still sitting there ready" from "already
+// submitted, already approved, or already physically shipped."
+const dispatchStatusColors: Record<string, string> = {
+  PENDING_APPROVAL: "bg-amber-100 text-amber-700",
+  APPROVED: "bg-sky-100 text-sky-700",
+  DISPATCHED: "bg-slate-200 text-slate-700",
+};
+const dispatchStatusLabels: Record<string, string> = {
+  PENDING_APPROVAL: "Submitted",
+  APPROVED: "Approved, awaiting booking",
+  DISPATCHED: "Dispatched",
 };
 
 const IN_PROGRESS_STATUSES = ["APPROVED", "IN_PRODUCTION"];
@@ -649,8 +667,10 @@ export default function OrdersPage() {
                 <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.sides ?? "—"}</span>
                 <span className="text-slate-500" style={{ minWidth: "16px" }}>{item.quantity}</span>
                 <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "50px" }}>{fmt(item.lineTotal)}</span>
-                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>
-                  {itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
+                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${
+                  (item.dispatchStatus && dispatchStatusColors[item.dispatchStatus]) ?? itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"
+                }`}>
+                  {(item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
                 </span>
               </div>
             ))}

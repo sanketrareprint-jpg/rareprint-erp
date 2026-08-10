@@ -184,6 +184,21 @@ async function main() {
       console.log('[ensure-all-columns] Order.pendingDispatchItemIds: added.');
     });
 
+    // ── OrderItem.dispatchedAt column ─────────────────────────────────────
+    await safely('OrderItem.dispatchedAt', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'OrderItem' AND column_name = 'dispatchedAt'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] OrderItem.dispatchedAt: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] OrderItem.dispatchedAt: missing, adding.');
+      await client.query(`ALTER TABLE "OrderItem" ADD COLUMN IF NOT EXISTS "dispatchedAt" TIMESTAMP(3);`);
+      console.log('[ensure-all-columns] OrderItem.dispatchedAt: added.');
+    });
+
     // ── CompanyHoliday table ──────────────────────────────────────────────
     await safely('CompanyHoliday', async () => {
       const { rows } = await client.query(`SELECT to_regclass('public."CompanyHoliday"') AS reg`);

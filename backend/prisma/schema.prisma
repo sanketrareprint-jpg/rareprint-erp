@@ -441,6 +441,15 @@ model OrderItem {
   designFiles         Json                 @default("[]")
   productionCategory  ProductionCategory? // INHOUSE | CLUBBING | SHEET_PRODUCTION
   itemProductionStage OrderProductionStage @default(NOT_PRINTED)
+  // Set once this specific item is actually physically booked with a
+  // courier (dispatch.service.ts's bookItems). itemProductionStage never
+  // changes away from READY_FOR_DISPATCH even after real dispatch -- it
+  // tracks PRODUCTION readiness, not shipment status -- so without this,
+  // an already-shipped item kept looking identical to a still-awaiting-
+  // dispatch one everywhere (Dispatch's own queue, Orders' Ready for
+  // Dispatch tab), and persisted in Dispatch's queue forever even after it
+  // showed up as shipped in Bigship. Confirmed via a real order, 2026-08-10.
+  dispatchedAt        DateTime?
   processingFollowUpDate DateTime?
   offerCodeId         String?
   createdAt           DateTime             @default(now())

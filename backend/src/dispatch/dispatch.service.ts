@@ -349,12 +349,18 @@ export class DispatchService {
     return Math.max(0.5, grams / 1000);
   }
 
-  private nextOrderStatusAfterDispatch(order: { items: Array<{ id: string; itemProductionStage: OrderProductionStage }> }, itemIds: string[]): OrderStatus {
+  private nextOrderStatusAfterDispatch(order: { items: Array<{ id: string; itemProductionStage: OrderProductionStage; dispatchedAt?: Date | null }> }, itemIds: string[]): OrderStatus {
     const selected = new Set(itemIds);
     const readyItems = order.items.filter((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
-    const allReadyItemsSelected = readyItems.length > 0 && readyItems.every((i) => selected.has(i.id));
+    // An item counts as "handled" once it's either part of THIS dispatch
+    // batch, or was already physically dispatched in an earlier batch —
+    // without the dispatchedAt check, a second partial-dispatch round on
+    // the same order always came back PARTIALLY_DISPATCHED even once every
+    // ready item had genuinely shipped, because only the current
+    // selection was considered, not earlier ones.
+    const allReadyItemsHandled = readyItems.length > 0 && readyItems.every((i) => selected.has(i.id) || !!i.dispatchedAt);
     const everyOrderItemWasReady = order.items.every((i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH);
-    return allReadyItemsSelected && everyOrderItemWasReady
+    return allReadyItemsHandled && everyOrderItemWasReady
       ? OrderStatus.DISPATCHED
       : OrderStatus.PARTIALLY_DISPATCHED;
   }
@@ -477,6 +483,12 @@ export class DispatchService {
       const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
       const readyItems = o.items.filter((i) => {
         if (i.itemProductionStage !== OrderProductionStage.READY_FOR_DISPATCH) return false;
+        // itemProductionStage never changes away from READY_FOR_DISPATCH
+        // even after the item is actually shipped -- without this check, an
+        // already-dispatched item (e.g. one half of a PARTIALLY_DISPATCHED
+        // order) kept showing up here forever, even after it appeared as
+        // shipped in Bigship. Confirmed via a real order, 2026-08-10.
+        if ((i as any).dispatchedAt) return false;
         return isSample || lockedIds.has(i.id);
       });
       if (readyItems.length === 0) continue;
@@ -533,8 +545,12 @@ export class DispatchService {
     });
     if (!order) throw new NotFoundException('Order not found');
 
+    // Excludes items already physically dispatched (e.g. the other half of
+    // a PARTIALLY_DISPATCHED order) -- itemProductionStage alone doesn't
+    // change after real dispatch, so without this check a rate quote could
+    // include an item that's already been shipped.
     const readyItems = order.items.filter(
-      (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+      (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt,
     );
     // Rate fetching only needs a valid dispatchable status — skip the approval
     // log check here (that's enforced on actual booking in bookItems via
@@ -587,6 +603,16 @@ export class DispatchService {
     const paymentInfo = this.dispatchPaymentInfo(order);
     const orderIsCod = paymentInfo.isCod;
     const orderCodAmt = paymentInfo.codAmount ?? undefined;
+    // Declared shipment value: was order.grandTotal (the WHOLE order's
+    // total) even when only some of the order's items are actually ready to
+    // ship — a 4-item, ₹22,000 order with only ₹20,000 of it actually ready
+    // would still declare ₹22,000 to the courier. This is a pre-submission
+    // estimate (no specific item selection is known yet at this point, only
+    // which items are production-ready), so it uses the ready items' total;
+    // the real, precise per-selection value is set at actual booking time,
+    // in bookItems below. Confirmed via a real order (1473), 2026-08-10.
+    const readyItemsValue = readyItems.reduce((sum, i) => sum + Number(i.lineTotal), 0);
+    const dispatchInvoiceAmount = readyItemsValue > 0 ? readyItemsValue : Number(order.grandTotal);
 
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
@@ -605,7 +631,7 @@ export class DispatchService {
               deliveryPostcode: delivery,
               weightKg,
               orderNumber: order.orderNumber,
-              invoiceAmount: Number(order.grandTotal),
+              invoiceAmount: dispatchInvoiceAmount,
               shippingName: order.customer.businessName,
               shippingMobile: order.customer.phone ?? undefined,
               shippingEmail: order.customer.email ?? undefined,
@@ -718,11 +744,20 @@ export class DispatchService {
 
     const itemsToDispatch = order.items.filter(
       (i) => itemIds.includes(i.id) &&
-        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH &&
+        !(i as any).dispatchedAt,
     );
     if (itemsToDispatch.length === 0) {
       throw new BadRequestException('No ready items selected for dispatch');
     }
+    // Declared shipment value for the courier: was order.grandTotal (the
+    // WHOLE order's total), regardless of how many of the order's items
+    // were actually in THIS shipment — e.g. a 4-item, ₹22,000 order where
+    // only 1 item (worth much less) was booked still declared ₹22,000 to
+    // Bigship/Shiprocket. itemsToDispatch is exactly the item(s) selected
+    // for this specific booking, so use their real combined value instead.
+    // Confirmed via a real order (1473), 2026-08-10.
+    const dispatchItemsValue = itemsToDispatch.reduce((sum, i) => sum + Number(i.lineTotal), 0);
 
     const bigshipRate = parseBigshipRateId(rateId);
     let picked: LocalRateQuote | undefined | null;
@@ -808,7 +843,7 @@ export class DispatchService {
           customerEmail: order.customer.email ?? 'noreply@example.com',
           billingAddress: addr.line, billingCity: addr.city,
           billingPincode: addr.pincode, billingState: addr.state,
-          weightKg, subTotal: Number(order.grandTotal),
+          weightKg, subTotal: dispatchItemsValue,
           courierId,
           isCod: orderIsCod,
           codAmount: orderCodAmt,
@@ -851,7 +886,7 @@ export class DispatchService {
           customerEmail: order.customer.email ?? 'noreply@example.com',
           billingAddress: addr.line, billingCity: addr.city,
           billingPincode: addr.pincode, billingState: addr.state,
-          weightKg, subTotal: Number(order.grandTotal),
+          weightKg, subTotal: dispatchItemsValue,
           courierCompanyId,
           isCod: orderIsCod,
           codAmount: orderCodAmt,
@@ -896,6 +931,18 @@ export class DispatchService {
         await tx.order.update({
           where: { id: orderId },
           data: { status: newStatus, shippingCharge: new Prisma.Decimal(picked.amount) },
+        });
+
+        // Mark exactly these items as physically dispatched. itemProductionStage
+        // deliberately stays READY_FOR_DISPATCH (it tracks production, not
+        // shipment) -- without this separate marker, an already-shipped item
+        // looked identical to a still-awaiting-dispatch one everywhere
+        // (Dispatch's own queue, Orders' Ready for Dispatch tab/badges), and
+        // persisted in Dispatch's queue forever even after Bigship showed it
+        // as shipped. Confirmed via a real order, 2026-08-10.
+        await tx.orderItem.updateMany({
+          where: { id: { in: itemsToDispatch.map((i) => i.id) } },
+          data: ({ dispatchedAt: new Date() } as any),
         });
 
         await tx.statusLog.create({
@@ -954,7 +1001,8 @@ export class DispatchService {
 
     const itemsToDispatch = order.items.filter(
       (i) => input.itemIds.includes(i.id) &&
-        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH &&
+        !(i as any).dispatchedAt,
     );
     if (itemsToDispatch.length === 0) throw new BadRequestException('No ready items selected for dispatch');
     if (!input.transportName?.trim()) throw new BadRequestException('Transport name is required');
@@ -997,6 +1045,10 @@ export class DispatchService {
         where: { id: input.orderId },
         data: { status: newStatus, shippingCharge: new Prisma.Decimal(netCharge) },
       });
+      await tx.orderItem.updateMany({
+        where: { id: { in: itemsToDispatch.map((i) => i.id) } },
+        data: ({ dispatchedAt: new Date() } as any),
+      });
       await tx.statusLog.create({
         data: {
           orderId: input.orderId,
@@ -1038,7 +1090,8 @@ export class DispatchService {
     await this.assertCanDispatch(order);
     const itemsToDispatch = order.items.filter(
       (i) => input.itemIds.includes(i.id) &&
-        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
+        i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH &&
+        !(i as any).dispatchedAt,
     );
     if (itemsToDispatch.length === 0) throw new BadRequestException('No ready items selected for dispatch');
 
@@ -1069,6 +1122,10 @@ export class DispatchService {
       });
       const newStatus = this.nextOrderStatusAfterDispatch(order, input.itemIds);
       await tx.order.update({ where: { id: input.orderId }, data: { status: newStatus, shippingCharge: new Prisma.Decimal(0) } });
+      await tx.orderItem.updateMany({
+        where: { id: { in: itemsToDispatch.map((i) => i.id) } },
+        data: ({ dispatchedAt: new Date() } as any),
+      });
       await tx.statusLog.create({
         data: {
           orderId: input.orderId,
