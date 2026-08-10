@@ -87,6 +87,11 @@ export class DispatchController {
       pickupPincode?: string;
       pickupLocation?: string;
       packageBoxes?: DispatchPackageBox[];
+      // Dispatcher-typed city name, sent only on a retry after Bigship
+      // rejected the automatically-guessed city — see bigship.service.ts's
+      // tryCreateAdhocOrder for why the ERP can't reliably guess this on
+      // its own (Bigship has no pincode→city lookup API at all).
+      manualShippingCity?: string;
     },
     @Req() req: Request & { user: JwtUser },
   ) {
@@ -106,6 +111,7 @@ export class DispatchController {
       },
       body.selectedQuote,
       body.packageBoxes,
+      body.manualShippingCity,
     );
   }
 

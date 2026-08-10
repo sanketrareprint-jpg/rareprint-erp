@@ -375,7 +375,7 @@ export default function DispatchPage() {
     } finally { setRatesLoading(null); }
   }
 
-  async function book(orderId: string) {
+  async function book(orderId: string, manualShippingCity?: string) {
     const itemIds = Array.from(selectedItems[orderId] ?? []);
     if (itemIds.length === 0) { alert("Select at least one item"); return; }
     const rateId = selectedRate[orderId];
@@ -405,12 +405,29 @@ export default function DispatchPage() {
           pickupPincode: wid === "CUSTOM" ? pickup?.pincode.trim() : warehouse?.pincode,
           weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
           packageBoxes: sanitizedBoxes.length > 0 ? sanitizedBoxes : undefined,
+          manualShippingCity: manualShippingCity || undefined,
         }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
-        alert(Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Booking failed"));
+        const message = Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Booking failed");
+        // Bigship has no pincode->city lookup API at all, so the ERP can only
+        // guess the city name it wants — when the guess is wrong, the ERP
+        // used to be a dead end (the only way out was to book directly on
+        // Bigship's own dashboard). Recognize this specific failure and let
+        // the dispatcher type the correct city themselves, then retry with
+        // it instead of just showing the raw error.
+        if (!manualShippingCity && /shipping city/i.test(message)) {
+          const typed = window.prompt(
+            `Bigship couldn't automatically match the shipping city for this address.\n\n${message}\n\nEnter the city name Bigship should use (e.g. the nearest major city/district HQ), and we'll retry the booking with it:`,
+          );
+          if (typed && typed.trim()) {
+            await book(orderId, typed.trim());
+            return;
+          }
+        }
+        alert(message);
         return;
       }
       const result = await res.json();

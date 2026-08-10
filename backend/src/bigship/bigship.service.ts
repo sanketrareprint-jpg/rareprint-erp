@@ -993,6 +993,15 @@ export class BigshipService {
     codAmount?: number;
     pickupWarehouseId?: number;  // override; falls back to env var if omitted
     packageBoxes?: BigshipPackageBox[];
+    // Dispatcher-supplied city name, used when the automatic pincode-based
+    // cascade below can't find any name Bigship's master data recognizes
+    // (its API has no pincode→city lookup at all, so this is pure guessing —
+    // see cityStateAttemptsFromPincode). Previously a failure here was a
+    // dead end: the only way to actually get the order out was to leave the
+    // ERP and book it directly on Bigship's own dashboard. Tried FIRST when
+    // given, but the normal cascade still runs after as a fallback in case
+    // this value also doesn't match (e.g. a typo).
+    manualShippingCity?: string;
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return {};
 
@@ -1036,7 +1045,15 @@ export class BigshipService {
     // Use the same city+state cascade as fetchCourierRates — BigShip validates city
     // and may require a specific casing or alternate name. cityStateAttemptsFromPincode
     // generates titleCase + UPPERCASE variants with state-capital fallback.
-    const cityStateAttempts = cityStateAttemptsFromPincode(input.billingPincode);
+    const autoAttempts = cityStateAttemptsFromPincode(input.billingPincode);
+    const manualCity = input.manualShippingCity?.trim();
+    const cityStateAttempts = manualCity
+      ? [
+          { city: titleCase(manualCity), state: autoAttempts[0]?.state ?? stateFromPincode(input.billingPincode) },
+          { city: manualCity.toUpperCase(), state: autoAttempts[0]?.state ?? stateFromPincode(input.billingPincode) },
+          ...autoAttempts,
+        ]
+      : autoAttempts;
 
     try {
       // ── Step 1: Create draft order (city cascade + invoice fallback) ──────
