@@ -254,6 +254,26 @@ async function main() {
       console.log('[ensure-all-columns] Order dispatch photo columns: added.');
     });
 
+    // ── RemittanceImportSession date-range columns ────────────────────────
+    await safely('RemittanceImportSession date-range columns', async () => {
+      const COLUMNS = ['remittanceDateFrom', 'remittanceDateTo'];
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'RemittanceImportSession' AND column_name = ANY($1::text[])
+      `, [COLUMNS]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      const missing = COLUMNS.filter((c) => !existing.has(c));
+      if (missing.length === 0) {
+        console.log('[ensure-all-columns] RemittanceImportSession date-range columns: all exist.');
+        return;
+      }
+      for (const col of missing) {
+        console.log(`[ensure-all-columns] RemittanceImportSession.${col}: missing, adding.`);
+        await client.query(`ALTER TABLE "RemittanceImportSession" ADD COLUMN IF NOT EXISTS "${col}" TIMESTAMP(3);`);
+      }
+      console.log('[ensure-all-columns] RemittanceImportSession date-range columns: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

@@ -222,12 +222,21 @@ export class RemittanceService {
     }
     const deliveredMap = deliveredBuffer ? this.parseDeliveredOrdersXlsx(deliveredBuffer) : new Map<string, ParsedDeliveredRow>();
 
+    // Captured from every PARSED row, before dedup — not from the records
+    // that end up actually created. A file where every row turns out to be
+    // a duplicate still has a real remittance date in it; deriving this
+    // only from newly-created records made such a session show "—" even
+    // though rowsFound was clearly non-zero (see listSessions).
+    const parsedDates = remittanceRows.map((r) => r.remittanceDate).filter((d): d is Date => d != null).sort((a, b) => a.getTime() - b.getTime());
+
     const session = await this.prisma.remittanceImportSession.create({
       data: {
         fileName: remittanceFileName,
         deliveredFileName: deliveredFileName ?? undefined,
         importedById,
         rowsFound: remittanceRows.length,
+        remittanceDateFrom: parsedDates[0] ?? undefined,
+        remittanceDateTo: parsedDates[parsedDates.length - 1] ?? undefined,
       },
     });
 
@@ -480,12 +489,17 @@ export class RemittanceService {
       },
     });
 
-    // The remittance date comes from the courier's report content (when the courier actually
-    // remitted the money), which is distinct from `createdAt` (when the file was uploaded into
-    // the ERP — often the next day or later). Rows within one imported report normally all share
-    // the same remittance date, but derive a range defensively in case a report spans more than
-    // one date.
+    // remittanceDateFrom/To are now captured directly at import time from
+    // every parsed row (see importReports), so they're correct even for a
+    // session where every row turned out to be a duplicate and zero
+    // RemittanceRecord rows got created. Sessions imported before that
+    // column existed have it as null — for those only, fall back to
+    // deriving from whatever records the session actually has (the
+    // original approach), so old history rows don't regress to "—".
     return sessions.map(({ records, ...session }) => {
+      if (session.remittanceDateFrom || session.remittanceDateTo) {
+        return session;
+      }
       const dates = records
         .map((r) => r.remittanceDate)
         .filter((d): d is Date => d != null)

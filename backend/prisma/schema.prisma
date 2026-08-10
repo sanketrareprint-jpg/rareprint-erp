@@ -2276,6 +2276,14 @@ model RemittanceImportSession {
   rowsNeedReview     Int                @default(0)
   rowsDuplicate      Int                @default(0)
   rowsPosted         Int                @default(0)
+  // Min/max RemittanceDate across every row PARSED from the file, captured
+  // at import time regardless of whether a row turned out to be a
+  // duplicate. Previously this was derived after the fact from the
+  // session's own RemittanceRecord rows — which meant a session where
+  // every row was a duplicate (so zero records got created) always showed
+  // "—" here, even though the file plainly had a remittance date in it.
+  remittanceDateFrom DateTime?
+  remittanceDateTo   DateTime?
   createdAt          DateTime           @default(now())
   importedBy         User               @relation("RemittanceImports", fields: [importedById], references: [id])
   records            RemittanceRecord[]
