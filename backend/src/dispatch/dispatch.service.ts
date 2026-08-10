@@ -480,7 +480,24 @@ export class DispatchService {
       // dispatchSampleOrder in accounts.service.ts), so
       // pendingDispatchItemIds is never populated for them — keep showing
       // all their ready items.
-      const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
+      //
+      // pendingDispatchItemIds only started being recorded on 2026-08-10
+      // (see resolveLockedItemIds in orders.service.ts) — any order that
+      // was already approved to READY_FOR_DISPATCH/PARTIALLY_DISPATCHED
+      // before that has an empty list forever, even though it genuinely
+      // went through accounts approval the old whole-order way. Unlike
+      // orders.service.ts's fallback (which only fires while status is
+      // still PENDING_DISPATCH_APPROVAL), by the time an order is in THIS
+      // list its status has already moved past that, so that fallback
+      // never applies here — every item silently failed lockedIds.has()
+      // and the whole order disappeared from the Dispatch tab, approved or
+      // not. The `where` clause above already proves approval (isSample OR
+      // a PENDING_DISPATCH_APPROVAL→READY_FOR_DISPATCH statusLog exists),
+      // so an empty pendingDispatchItemIds here is unambiguous: treat it as
+      // "no per-item record kept, show every ready item" instead of "zero
+      // items approved."
+      const submittedIds: string[] = (o as any).pendingDispatchItemIds ?? [];
+      const lockedIds = submittedIds.length > 0 ? new Set(submittedIds) : null;
       const readyItems = o.items.filter((i) => {
         if (i.itemProductionStage !== OrderProductionStage.READY_FOR_DISPATCH) return false;
         // itemProductionStage never changes away from READY_FOR_DISPATCH
@@ -489,7 +506,8 @@ export class DispatchService {
         // order) kept showing up here forever, even after it appeared as
         // shipped in Bigship. Confirmed via a real order, 2026-08-10.
         if ((i as any).dispatchedAt) return false;
-        return isSample || lockedIds.has(i.id);
+        if (isSample || lockedIds === null) return true;
+        return lockedIds.has(i.id);
       });
       if (readyItems.length === 0) continue;
 
