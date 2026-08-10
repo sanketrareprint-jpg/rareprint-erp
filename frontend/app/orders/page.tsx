@@ -263,6 +263,8 @@ export default function OrdersPage() {
     return () => clearTimeout(t);
   }, [search]);
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [agentFilter, setAgentFilter] = useState("ALL");
+  const [agentOptions, setAgentOptions] = useState<{ id: string; fullName: string }[]>([]);
   const [marginMode, setMarginMode] = useState<"" | "below" | "above">("");
   const [marginThreshold, setMarginThreshold] = useState("15");
   const currentUser = useMemo(() => {
@@ -339,6 +341,7 @@ export default function OrdersPage() {
       status: statusFilter,
     });
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (agentFilter !== "ALL") params.set("salesAgentId", agentFilter);
     if (canViewMargin && marginMode && marginThreshold) {
       params.set("marginMode", marginMode);
       params.set("marginThreshold", marginThreshold);
@@ -381,9 +384,21 @@ export default function OrdersPage() {
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
     append ? setLoadingMore(false) : setLoading(false);
-  }, [router, debouncedSearch, statusFilter, canViewMargin, marginMode, marginThreshold]);
+  }, [router, debouncedSearch, statusFilter, agentFilter, canViewMargin, marginMode, marginThreshold]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Agent filter dropdown — admin-only (SALES_AGENT accounts are already
+  // server-side locked to their own orders regardless, so the filter would
+  // have no effect for them). Sourced from every user who's ever been a
+  // sales agent on an order, same list cost-table's Commission page uses.
+  useEffect(() => {
+    if (currentUser?.role !== "ADMIN") return;
+    fetch(`${API_BASE_URL}/cost-table/sales-agents`, { headers: getAuthHeaders() })
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setAgentOptions(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [currentUser?.role]);
 
   async function loadPayments(orderId: string) {
     const res = await fetch(`${API_BASE_URL}/orders/${orderId}/payments`, { headers: getAuthHeaders() });
@@ -740,6 +755,15 @@ export default function OrdersPage() {
                   <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
                 ))}
               </select>
+              {currentUser?.role === "ADMIN" && agentOptions.length > 0 && (
+                <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
+                  <option value="ALL">All Agents</option>
+                  {agentOptions.map(a => (
+                    <option key={a.id} value={a.id}>{a.fullName}</option>
+                  ))}
+                </select>
+              )}
               {canViewMargin && (
                 <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1">
                   <select
@@ -780,8 +804,8 @@ export default function OrdersPage() {
                   <span className="text-xs text-slate-400">%</span>
                 </div>
               )}
-              {(search || statusFilter !== "ALL" || (canViewMargin && marginMode)) && (
-                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setMarginMode(""); setMarginThreshold("15"); }}
+              {(search || statusFilter !== "ALL" || agentFilter !== "ALL" || (canViewMargin && marginMode)) && (
+                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setAgentFilter("ALL"); setMarginMode(""); setMarginThreshold("15"); }}
                   className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
                   <X className="h-3 w-3" /> Clear
                 </button>

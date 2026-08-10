@@ -53,6 +53,7 @@ export class OrdersController {
     @Query('search') search?: string,
     @Query('marginMode') marginMode?: string,
     @Query('marginThreshold') marginThreshold?: string,
+    @Query('salesAgentId') salesAgentIdParam?: string,
   ) {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
@@ -67,8 +68,11 @@ export class OrdersController {
         // SALES_AGENT accounts only ever see their own orders — scoped
         // server-side from the JWT's role/id, not something the client can
         // influence. See OrdersService.findAllForTable for why this used to
-        // be broken when done as a client-side filter instead.
-        const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : undefined;
+        // be broken when done as a client-side filter instead. Non-agent
+        // roles (ADMIN etc.) may optionally filter down to one specific
+        // agent via ?salesAgentId= — this is a display filter only, not a
+        // security boundary, so it's fine to trust for those roles.
+        const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : (salesAgentIdParam || undefined);
         return this.ordersService.findAllForTable({
           page,
           limit,
@@ -92,6 +96,7 @@ export class OrdersController {
     @Query('search') search?: string,
     @Query('marginMode') marginMode?: string,
     @Query('marginThreshold') marginThreshold?: string,
+    @Query('salesAgentId') salesAgentIdParam?: string,
   ) {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
@@ -99,7 +104,7 @@ export class OrdersController {
         const includeCommission = includeMargin
           || req.user.role === 'ADMIN'
           || req.user.role === 'SALES_AGENT';
-        const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : undefined;
+        const salesAgentId = req.user.role === 'SALES_AGENT' ? req.user.id : (salesAgentIdParam || undefined);
         return this.ordersService.getOrdersWithReadyItems({
           page,
           limit,
