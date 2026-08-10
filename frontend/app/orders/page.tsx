@@ -38,6 +38,13 @@ type OrderItem = {
   id: string; productName: string; sku: string; quantity: number;
   unitPrice: number; lineTotal: number; productionNotes?: string;
   itemProductionStage: string;
+  // True when this item is already part of an active dispatch submission
+  // (awaiting accounts approval, or already approved and waiting on
+  // Dispatch's own queue to book it). Ready items get excluded from a NEW
+  // booking-modal selection while locked -- otherwise the same item could
+  // be resubmitted a second time on top of its existing pending/approved
+  // submission.
+  dispatchLocked?: boolean;
 };
 type PaymentAccount = { id: string; name: string; accountType: string; bankName?: string; };
 type Payment = {
@@ -487,7 +494,7 @@ export default function OrdersPage() {
       for (const orderId of selectedOrderIds) {
         const res = await fetch(`${API_BASE_URL}/orders/${orderId}/items`, { headers: getAuthHeaders() });
         const items = await res.json();
-        const ready = items.filter((i: OrderItem) => i.itemProductionStage === "READY_FOR_DISPATCH");
+        const ready = items.filter((i: OrderItem) => i.itemProductionStage === "READY_FOR_DISPATCH" && !i.dispatchLocked);
         itemsMap[orderId] = ready;
         // Default: everything ready is selected — matches the previous
         // "submit the whole order" behavior unless the agent unchecks something.

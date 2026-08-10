@@ -1167,6 +1167,13 @@ export class OrdersService {
       designFilesMap = Object.fromEntries(results.map((r) => [r.id, Array.isArray(r.designFiles) ? r.designFiles : []]));
     }
 
+    // Items already covered by an active dispatch submission (pending
+    // accounts approval, or already approved and waiting on Dispatch's own
+    // queue) shouldn't be offered again in the booking modal's checklist --
+    // otherwise the same item could be submitted a second time on top of
+    // its existing pending/approved submission.
+    const lockedIds = new Set((order as any).pendingDispatchItemIds ?? []);
+
     return order.items.map((i) => ({
       id: i.id,
       productName: i.product.name,
@@ -1177,6 +1184,7 @@ export class OrdersService {
       productionNotes: i.productionNotes,
       itemProductionStage: i.itemProductionStage,
       designFiles: summarizeDesignFiles(designFilesMap[i.id]),
+      dispatchLocked: lockedIds.has(i.id),
     }));
   }
 
@@ -1328,8 +1336,28 @@ export class OrdersService {
     const mf = marginFilter(query);
     const includeMargin = query.includeMargin === true || mf.active;
     const includeCommission = includeMargin || query.includeCommission === true;
+    // Only truly terminal/handled-elsewhere statuses are excluded up front.
+    // PENDING_DISPATCH_APPROVAL and READY_FOR_DISPATCH (which is overloaded:
+    // it means both "production just finished, not yet submitted" AND
+    // "accounts already approved this for dispatch", since approveDispatch
+    // deliberately returns the order to this same status so Dispatch's own
+    // queue picks it up) used to be decided by order-wide status/history
+    // checks here. That meant submitting even ONE item out of a multi-item
+    // order hid the WHOLE order — including any other still-untouched ready
+    // items — until the submitted item's approval cycle finished, and even
+    // then those other items never came back (the order just looked
+    // "already handled"). Root-caused via a real order (1469) on 2026-08-10.
+    //
+    // Now this is decided per item, below, using pendingDispatchItemIds
+    // (which items are actually part of an active submit/approve cycle) —
+    // an order shows here whenever it has at least one ready item NOT
+    // already locked into a submission, regardless of what its OTHER items
+    // or its overall status are doing. This also still prevents the
+    // AMAN PHARMACY / SHRI VIJAY NURSING HOME resubmission-loop bug: once
+    // ALL of an order's ready items are locked (submitted, or submitted+
+    // approved), none remain free, so the order correctly drops out here
+    // until rejectDispatch frees them again (see accounts.service.ts).
     const EXCLUDED_STATUSES = [
-      OrderStatus.PENDING_DISPATCH_APPROVAL,
       OrderStatus.PARTIALLY_DISPATCHED,
       OrderStatus.DISPATCHED,
       OrderStatus.DELIVERED,
@@ -1339,41 +1367,6 @@ export class OrdersService {
     const where: Prisma.OrderWhereInput = {
       status: { notIn: EXCLUDED_STATUSES },
       items: { some: { itemProductionStage: 'READY_FOR_DISPATCH' } },
-      // READY_FOR_DISPATCH is overloaded: it means both "production just
-      // finished, not yet submitted" AND "accounts already approved this for
-      // dispatch" (approveDispatch deliberately returns the order to this
-      // same status so Dispatch's own queue picks it up). Without telling
-      // these apart, an already-approved order kept reappearing here looking
-      // exactly like a fresh one, and re-submitting it just re-created the
-      // same PENDING_DISPATCH_APPROVAL → (re-approved) → READY_FOR_DISPATCH
-      // cycle forever without ever reaching Dispatch's booking queue — the
-      // root cause of orders like AMAN PHARMACY / SHRI VIJAY NURSING HOME
-      // looping and never actually dispatching.
-      //
-      // The exclusion below is deliberately scoped to ONLY apply while
-      // status is READY_FOR_DISPATCH (the ambiguous case) — an order sitting
-      // at APPROVED or IN_PRODUCTION is unambiguous regardless of whether it
-      // has an OLD approval log somewhere in its history (e.g. after
-      // rejectDispatch sends it back to APPROVED, or if it's ever
-      // legitimately reset for a reprint/re-dispatch cycle) and must still
-      // show up here normally. Scoping by current status, not "has this log
-      // ever existed", is what makes this safe against that case.
-      AND: [
-        {
-          OR: [
-            { status: { not: OrderStatus.READY_FOR_DISPATCH } },
-            {
-              status: OrderStatus.READY_FOR_DISPATCH,
-              statusLogs: {
-                none: {
-                  fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
-                  toStatus: OrderStatus.READY_FOR_DISPATCH,
-                },
-              },
-            },
-          ],
-        },
-      ],
     };
     // Same server-side scoping as findAllForTable — see comment there.
     if (query.salesAgentId) where.salesAgentId = query.salesAgentId;
@@ -1425,12 +1418,27 @@ export class OrdersService {
           }
         },
         payments: true,
+        // Cast: this column exists in schema.prisma/the real DB, but the
+        // sandbox that wrote this code can't run `prisma generate`, so the
+        // local client types don't know about it yet — same workaround used
+        // in submitDispatchBatch. Safe once deployed (Railway's build step
+        // regenerates the client against the current schema).
+        ...({ pendingDispatchItemIds: true } as any),
       },
     });
+    // Drop orders where every ready item is already locked into an active
+    // dispatch submission (pending approval, or approved and waiting on
+    // Dispatch's queue) — only orders with at least one FREE ready item
+    // belong here. See the big comment above `where` for why this replaced
+    // the old order-wide status/history check.
+    const readyOrders = orders.filter((o) => {
+      const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
+      return o.items.some((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id));
+    });
     const slabsByProductId = (includeMargin || includeCommission)
-      ? await this.getSlabsByProductId(orders.flatMap((o) => o.items.map((i) => i.productId)))
+      ? await this.getSlabsByProductId(readyOrders.flatMap((o) => o.items.map((i) => i.productId)))
       : new Map<string, any[]>();
-    const ordersWithSlabs = (includeMargin || includeCommission) ? this.attachCostSlabs(orders as any[], slabsByProductId) : orders;
+    const ordersWithSlabs = (includeMargin || includeCommission) ? this.attachCostSlabs(readyOrders as any[], slabsByProductId) : readyOrders;
     const marginFiltered = mf.active
       ? ordersWithSlabs.filter((o) => {
           const marginPct = this.calculateOrderMargin(o).marginPct;
@@ -1448,7 +1456,12 @@ export class OrdersService {
       const total = Number(o.grandTotal);
       const advancePaid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balanceDue = total - advancePaid;
-      const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH').length;
+      // Only count/show items that are actually free to submit — items
+      // already locked into an active submission are excluded (see
+      // readyOrders above); this keeps the tab's "Ready" count and the
+      // booking checklist in sync with each other.
+      const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
+      const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id)).length;
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
       const commission = includeCommission ? this.calculateOrderCommission(o) : null;
 

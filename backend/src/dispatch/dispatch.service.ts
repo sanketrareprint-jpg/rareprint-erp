@@ -463,13 +463,25 @@ export class DispatchService {
     }> = [];
 
     for (const o of orders) {
-      const readyItems = o.items.filter(
-        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH,
-      );
+      const isSample = (o as any).isSample ?? false;
+      // Only show items that were actually submitted (and, for real orders,
+      // approved by accounts) in the CURRENT batch — not every item on the
+      // order that happens to be production-ready. Before this fix, an
+      // order with e.g. 3 ready items where only 1 was submitted+approved
+      // showed all 3 here, letting Dispatch book items nobody from Accounts
+      // had actually signed off on. Confirmed via a real order, 2026-08-10.
+      // Sample orders skip the submit/approve flow entirely (see
+      // dispatchSampleOrder in accounts.service.ts), so
+      // pendingDispatchItemIds is never populated for them — keep showing
+      // all their ready items.
+      const lockedIds = new Set((o as any).pendingDispatchItemIds ?? []);
+      const readyItems = o.items.filter((i) => {
+        if (i.itemProductionStage !== OrderProductionStage.READY_FOR_DISPATCH) return false;
+        return isSample || lockedIds.has(i.id);
+      });
       if (readyItems.length === 0) continue;
 
       const paymentInfo = this.dispatchPaymentInfo(o);
-      const isSample = (o as any).isSample ?? false;
       const samplePaymentType = (o as any).samplePaymentType ?? null;
       // For sample orders, COD/PREPAID is decided by accounts; override notes-based detection
       const effectiveIsCod = isSample ? samplePaymentType === 'COD' : paymentInfo.isCod;

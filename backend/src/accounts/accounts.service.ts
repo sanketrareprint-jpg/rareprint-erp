@@ -708,12 +708,8 @@ export class AccountsService {
     });
     if (!order) throw new NotFoundException('Order not found');
     // This must only ever apply to a fresh dispatch submission still
-    // awaiting approval. Without this guard, calling it on an order that's
-    // already past this stage (e.g. already approved and sitting at
-    // READY_FOR_DISPATCH) would reset it to APPROVED while it still carries
-    // its old approval StatusLog — orders.service.ts's getOrdersWithReadyItems
-    // relies on current status + that log to tell "needs resubmission" apart
-    // from "already approved", so this guard is what keeps that logic sound.
+    // awaiting approval — calling it on an order that's already past this
+    // stage would incorrectly reset an approved order back to APPROVED.
     if (order.status !== OrderStatus.PENDING_DISPATCH_APPROVAL) {
       throw new BadRequestException(`Only PENDING_DISPATCH_APPROVAL orders can be rejected (current status: ${order.status})`);
     }
@@ -721,7 +717,17 @@ export class AccountsService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.APPROVED },
+        data: {
+          status: OrderStatus.APPROVED,
+          // Free up the rejected items so they can be resubmitted. Approving
+          // deliberately leaves pendingDispatchItemIds populated (that's
+          // what correctly keeps an approved order out of the agent's
+          // resubmission list in orders.service.ts's getOrdersWithReadyItems
+          // — see the big comment there) — but rejection is the opposite:
+          // the whole point is to let the agent fix something and resubmit,
+          // so the lock must be cleared here specifically.
+          ...({ pendingDispatchItemIds: [] } as any),
+        },
       });
       await tx.statusLog.create({
         data: {
