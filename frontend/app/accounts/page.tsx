@@ -50,6 +50,8 @@ type DispatchPendingOrder = {
   orderDate: string; notes?: string; payments: Payment[];
   courierCharge?: number; courierCreditApplied?: number; netCourierCharge?: number;
   paymentType?: string; codAmount?: number;
+  dispatchProductPhoto?: string | null;
+  dispatchBillPhoto?: string | null;
 };
 
 type PendingPayment = {
@@ -2628,6 +2630,27 @@ export default function AccountsPage() {
                           ))}
                         </tbody>
                       </table>
+                      {/* Photos uploaded by sales in Book Shipment */}
+                      {(order.dispatchProductPhoto || order.dispatchBillPhoto) && (
+                        <div className="flex gap-3">
+                          {order.dispatchProductPhoto && (
+                            <a href={order.dispatchProductPhoto} target="_blank" rel="noreferrer" className="group">
+                              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Product Photo</p>
+                              <img src={order.dispatchProductPhoto} alt="Product" className="h-20 w-20 rounded-lg border border-slate-200 object-cover group-hover:ring-2 group-hover:ring-brand-400" />
+                            </a>
+                          )}
+                          {order.dispatchBillPhoto && (
+                            <a href={order.dispatchBillPhoto} target="_blank" rel="noreferrer" className="group">
+                              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Bill</p>
+                              {order.dispatchBillPhoto.startsWith("data:application/pdf") ? (
+                                <div className="h-20 w-20 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-[9px] text-slate-500 font-semibold group-hover:ring-2 group-hover:ring-brand-400">PDF</div>
+                              ) : (
+                                <img src={order.dispatchBillPhoto} alt="Bill" className="h-20 w-20 rounded-lg border border-slate-200 object-cover group-hover:ring-2 group-hover:ring-brand-400" />
+                              )}
+                            </a>
+                          )}
+                        </div>
+                      )}
                       {/* Agent Notes */}
                       {order.notes && (
                         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs">

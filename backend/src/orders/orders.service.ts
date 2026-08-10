@@ -1260,7 +1260,7 @@ export class OrdersService {
   async submitDispatchBatch(
     orderIds: string[],
     agentId: string,
-    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string; itemIdsByOrder?: Record<string, string[]> },
+    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string; itemIdsByOrder?: Record<string, string[]>; productPhoto?: string; billPhoto?: string },
   ) {
     const results: string[] = [];
     const skipped: { orderId: string; orderNumber: string; reason: string }[] = [];
@@ -1389,6 +1389,14 @@ export class OrdersService {
             // so the locally-generated client type doesn't know about this
             // field yet (it will on the real build).
             ...({ pendingDispatchItemIds: submittedItems.map((i) => i.id) } as any),
+            // Packing/bill photos captured in the Book Shipment modal, kept
+            // as base64 data URLs (same as design file uploads elsewhere in
+            // this app) so Accounts can see exactly what was packed/billed
+            // on the Dispatch Approval card. Only overwrite when a new one
+            // was actually provided — omit undefined so an order resubmitted
+            // without a fresh photo doesn't wipe out an existing one.
+            ...(data.productPhoto ? ({ dispatchProductPhoto: data.productPhoto } as any) : {}),
+            ...(data.billPhoto ? ({ dispatchBillPhoto: data.billPhoto } as any) : {}),
           },
         });
 

@@ -391,6 +391,12 @@ model Order {
   // PENDING_DISPATCH_APPROVAL; gets overwritten on the next submission and
   // ignored (empty = "show everything") otherwise.
   pendingDispatchItemIds String[]           @default([])
+  // Base64 data URLs captured in the Book Shipment modal when a dispatch
+  // submission goes to Accounts — a packing photo (proof of what's actually
+  // being shipped) and, optionally, a bill/invoice photo. Overwritten on
+  // each new submission; shown to Accounts on the Dispatch Approval card.
+  dispatchProductPhoto String?             @db.Text
+  dispatchBillPhoto    String?             @db.Text
   leadSource       String? // e.g. "WALK_IN", "FB_AD_Jan_2025"
   isTest           Boolean                 @default(false)
   isSample         Boolean                 @default(false)

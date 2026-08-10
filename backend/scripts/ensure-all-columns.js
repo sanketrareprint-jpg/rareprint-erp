@@ -234,6 +234,26 @@ async function main() {
       console.log('[ensure-all-columns] CompanyHoliday: created.');
     });
 
+    // ── Order dispatch photo columns ──────────────────────────────────────
+    await safely('Order dispatch photo columns', async () => {
+      const COLUMNS = ['dispatchProductPhoto', 'dispatchBillPhoto'];
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = ANY($1::text[])
+      `, [COLUMNS]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      const missing = COLUMNS.filter((c) => !existing.has(c));
+      if (missing.length === 0) {
+        console.log('[ensure-all-columns] Order dispatch photo columns: all exist.');
+        return;
+      }
+      for (const col of missing) {
+        console.log(`[ensure-all-columns] Order.${col}: missing, adding.`);
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "${col}" TEXT;`);
+      }
+      console.log('[ensure-all-columns] Order dispatch photo columns: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

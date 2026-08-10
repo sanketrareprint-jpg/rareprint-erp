@@ -438,6 +438,8 @@ export class AccountsService {
         netCourierCharge,
         paymentType:   paymentTypeMatch ? paymentTypeMatch[1].toUpperCase() : null,
         codAmount:     codAmountMatch ? parseFloat(codAmountMatch[1]) : null,
+        dispatchProductPhoto: (order as any).dispatchProductPhoto ?? null,
+        dispatchBillPhoto:    (order as any).dispatchBillPhoto ?? null,
         payments: order.payments.map((p) => ({
           id: p.id,
           date: p.paymentDate.toISOString(),

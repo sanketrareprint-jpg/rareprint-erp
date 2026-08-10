@@ -314,6 +314,7 @@ export default function OrdersPage() {
     awbNumber: "", courierBy: "", deliveryBoyName: "",
     collectedByName: "", collectedByPhone: "",
     productPhoto: "" as string, // base64 data URL
+    billPhoto: "" as string, // base64 data URL
   });
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [printReceiptData, setPrintReceiptData] = useState<null | {
@@ -520,7 +521,7 @@ export default function OrdersPage() {
   async function openBookingModal() {
     if (selectedOrderIds.size === 0) { alert("Select at least one order"); return; }
     setBookingModal(true); setRates([]); setItemsLoading(true);
-    setBookingForm(p => ({ ...p, productPhoto: "" }));
+    setBookingForm(p => ({ ...p, productPhoto: "", billPhoto: "" }));
     try {
       const itemsMap: Record<string, OrderItem[]> = {};
       const selectionMap: Record<string, Set<string>> = {};
@@ -601,6 +602,8 @@ export default function OrdersPage() {
           deliveryBoyName: bookingForm.deliveryBoyName || undefined,
           collectedByName: bookingForm.collectedByName || undefined,
           collectedByPhone: bookingForm.collectedByPhone || undefined,
+          productPhoto: bookingForm.productPhoto || undefined,
+          billPhoto: bookingForm.billPhoto || undefined,
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
@@ -1686,37 +1689,76 @@ export default function OrdersPage() {
                     </div>
                   )}
                 </div>
-                {/* Product Photo for Receipt/Label */}
-                <div className="rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Product Photo <span className="text-slate-400 font-normal normal-case">(for receipt &amp; label)</span></p>
-                  {bookingForm.productPhoto ? (
-                    <div className="flex items-center gap-3">
-                      <img src={bookingForm.productPhoto} alt="Product" className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10px] text-emerald-600 font-semibold">✓ Photo added</span>
-                        <button onClick={() => setBookingForm(p => ({ ...p, productPhoto: "" }))}
-                          className="text-[10px] text-red-500 hover:text-red-700 flex items-center gap-1">
-                          <X className="h-3 w-3" /> Remove
-                        </button>
+                {/* Product Photo + Bill — both saved to the order and shown to
+                    Accounts on the Dispatch Approval card, not just used for
+                    the local print receipt. */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-slate-200 px-3 py-2">
+                    <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Product Photo <span className="text-slate-400 font-normal normal-case">(receipt, label &amp; accounts)</span></p>
+                    {bookingForm.productPhoto ? (
+                      <div className="flex items-center gap-3">
+                        <img src={bookingForm.productPhoto} alt="Product" className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-emerald-600 font-semibold">✓ Photo added</span>
+                          <button onClick={() => setBookingForm(p => ({ ...p, productPhoto: "" }))}
+                            className="text-[10px] text-red-500 hover:text-red-700 flex items-center gap-1">
+                            <X className="h-3 w-3" /> Remove
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <label className="flex items-center gap-2 cursor-pointer w-fit">
-                      <div className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-[10px] text-slate-500 font-medium transition">
-                        <Upload className="h-3.5 w-3.5" />
-                        Upload product photo
+                    ) : (
+                      <label className="flex items-center gap-2 cursor-pointer w-fit">
+                        <div className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-[10px] text-slate-500 font-medium transition">
+                          <Upload className="h-3.5 w-3.5" />
+                          Upload product photo
+                        </div>
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = ev => setBookingForm(p => ({ ...p, productPhoto: ev.target?.result as string }));
+                            reader.readAsDataURL(file);
+                            e.target.value = "";
+                          }} />
+                      </label>
+                    )}
+                  </div>
+                  <div className="rounded-lg border border-slate-200 px-3 py-2">
+                    <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Bill <span className="text-slate-400 font-normal normal-case">(visible to accounts)</span></p>
+                    {bookingForm.billPhoto ? (
+                      <div className="flex items-center gap-3">
+                        {bookingForm.billPhoto.startsWith("data:application/pdf") ? (
+                          <div className="h-16 w-16 rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-[9px] text-slate-500 font-semibold">PDF</div>
+                        ) : (
+                          <img src={bookingForm.billPhoto} alt="Bill" className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
+                        )}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-emerald-600 font-semibold">✓ Bill added</span>
+                          <button onClick={() => setBookingForm(p => ({ ...p, billPhoto: "" }))}
+                            className="text-[10px] text-red-500 hover:text-red-700 flex items-center gap-1">
+                            <X className="h-3 w-3" /> Remove
+                          </button>
+                        </div>
                       </div>
-                      <input type="file" accept="image/*" className="hidden"
-                        onChange={e => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = ev => setBookingForm(p => ({ ...p, productPhoto: ev.target?.result as string }));
-                          reader.readAsDataURL(file);
-                          e.target.value = "";
-                        }} />
-                    </label>
-                  )}
+                    ) : (
+                      <label className="flex items-center gap-2 cursor-pointer w-fit">
+                        <div className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-[10px] text-slate-500 font-medium transition">
+                          <Upload className="h-3.5 w-3.5" />
+                          Upload bill
+                        </div>
+                        <input type="file" accept="image/*,application/pdf" className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = ev => setBookingForm(p => ({ ...p, billPhoto: ev.target?.result as string }));
+                            reader.readAsDataURL(file);
+                            e.target.value = "";
+                          }} />
+                      </label>
+                    )}
+                  </div>
                 </div>
 
                 {/* Courier Rates + COD — side by side when both visible */}

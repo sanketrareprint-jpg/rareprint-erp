@@ -164,6 +164,11 @@ export class OrdersController {
       // orderId -> item ids. Omitted (or an order missing from the map) means
       // "every ready item on that order" — unchanged default behavior.
       itemIdsByOrder?: Record<string, string[]>;
+      // Base64 data URLs from the Book Shipment modal's photo uploads —
+      // saved onto the order so Accounts can see them on the Dispatch
+      // Approval card (see dispatchProductPhoto/dispatchBillPhoto on Order).
+      productPhoto?: string;
+      billPhoto?: string;
     },
   ) {
     return this.ordersService.submitDispatchBatch(body.orderIds, req.user.id, body);
