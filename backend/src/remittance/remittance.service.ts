@@ -490,6 +490,7 @@ export class RemittanceService {
   async listRecords(filters: {
     sessionId?: string;
     matchStatus?: RemittanceMatchStatus;
+    search?: string;
     page?: number;
     limit?: number;
   }) {
@@ -500,6 +501,30 @@ export class RemittanceService {
     const where: Prisma.RemittanceRecordWhereInput = {};
     if (filters.sessionId) where.sessionId = filters.sessionId;
     if (filters.matchStatus) where.matchStatus = filters.matchStatus;
+
+    // Free-text search across everything a user might have in hand while
+    // reconciling a remittance report: the AWB, the courier's receiver
+    // name/mobile, the channel order id, our own remittance reference, and
+    // — for rows that already have a matched or suggested order — that
+    // order's number and customer name/phone. Search-server-side (not
+    // client-side filtering of the current page) since Needs Review alone
+    // can run into the hundreds of rows across many pages.
+    const q = filters.search?.trim();
+    if (q) {
+      where.OR = [
+        { awbNumber: { contains: q, mode: 'insensitive' } },
+        { receiverName: { contains: q, mode: 'insensitive' } },
+        { receiverMobile: { contains: q, mode: 'insensitive' } },
+        { channelOrderId: { contains: q, mode: 'insensitive' } },
+        { remittanceRef: { contains: q, mode: 'insensitive' } },
+        { matchedOrder: { orderNumber: { contains: q, mode: 'insensitive' } } },
+        { matchedOrder: { customer: { businessName: { contains: q, mode: 'insensitive' } } } },
+        { matchedOrder: { customer: { phone: { contains: q, mode: 'insensitive' } } } },
+        { suggestedOrder: { orderNumber: { contains: q, mode: 'insensitive' } } },
+        { suggestedOrder: { customer: { businessName: { contains: q, mode: 'insensitive' } } } },
+        { suggestedOrder: { customer: { phone: { contains: q, mode: 'insensitive' } } } },
+      ];
+    }
 
     const [total, data] = await Promise.all([
       this.prisma.remittanceRecord.count({ where }),

@@ -130,6 +130,8 @@ export default function RemittanceImportPage() {
   const [recordsTotal, setRecordsTotal] = useState(0);
   const [recordsPage, setRecordsPage] = useState(1);
   const [loadingRecords, setLoadingRecords] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [summary, setSummary] = useState<{ byStatus: Array<{ matchStatus: MatchStatus; _count: number; _sum: { collectableAmount: string | null; netPayableAmount: string | null } }> } | null>(null);
 
@@ -181,10 +183,18 @@ export default function RemittanceImportPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50", matchStatus: status });
       if (selectedSessionId) params.set("sessionId", selectedSessionId);
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       const data = await apiFetch(`/remittance/records?${params}`);
       if (data) { setRecords(data.data); setRecordsTotal(data.total); setRecordsPage(page); }
     } finally { setLoadingRecords(false); }
-  }, [apiFetch, activeTab, selectedSessionId]);
+  }, [apiFetch, activeTab, selectedSessionId, debouncedSearch]);
+
+  // Debounce the search box so we're not firing a request on every keystroke —
+  // matches the pattern used on the Orders page's search field.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
   useEffect(() => { loadSummary(); }, [loadSummary]);
@@ -192,7 +202,7 @@ export default function RemittanceImportPage() {
     setSelectedIds(new Set());
     setExpandedRecord(null);
     if (activeTab !== "sessions") loadRecords(1);
-  }, [activeTab, selectedSessionId, loadRecords]);
+  }, [activeTab, selectedSessionId, debouncedSearch, loadRecords]);
 
   const countFor = (status: MatchStatus) => summary?.byStatus.find((s) => s.matchStatus === status)?._count ?? 0;
 
@@ -444,6 +454,31 @@ export default function RemittanceImportPage() {
           ))}
         </div>
 
+        {/* ── Search — filters the current tab server-side across AWB, receiver
+             name/mobile, channel order id, remittance ref, and matched/suggested
+             order number + customer name/phone. Doesn't apply to Import History. ── */}
+        {activeTab !== "sessions" && (
+          <div className="relative max-w-sm">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search AWB, mobile, name, order #..."
+              className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                title="Clear"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ════════════════ SESSIONS TAB ════════════════ */}
         {activeTab === "sessions" && (
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -556,7 +591,7 @@ export default function RemittanceImportPage() {
                       );
                     })}
                     {records.length === 0 && (
-                      <tr><td colSpan={9} className="text-center py-12 text-gray-400">Nothing ready to post</td></tr>
+                      <tr><td colSpan={9} className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "Nothing ready to post"}</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -571,7 +606,7 @@ export default function RemittanceImportPage() {
             {loadingRecords ? (
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
             ) : records.length === 0 ? (
-              <p className="text-center py-12 text-gray-400">Nothing needs review 🎉</p>
+              <p className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "Nothing needs review 🎉"}</p>
             ) : records.map((r) => {
               const isExpanded = expandedRecord === r.id;
               return (
@@ -696,7 +731,7 @@ export default function RemittanceImportPage() {
                     </tr>
                   ))}
                   {records.length === 0 && (
-                    <tr><td colSpan={6} className="text-center py-12 text-gray-400">No receipts posted yet</td></tr>
+                    <tr><td colSpan={6} className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "No receipts posted yet"}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -710,7 +745,7 @@ export default function RemittanceImportPage() {
             {loadingRecords ? (
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
             ) : records.length === 0 ? (
-              <p className="text-center py-12 text-gray-400">No rejected rows</p>
+              <p className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "No rejected rows"}</p>
             ) : records.map((r) => (
               <div key={r.id} className="flex items-center gap-3 px-4 py-3">
                 <span className="font-mono text-xs text-gray-500 w-36">{r.awbNumber}</span>

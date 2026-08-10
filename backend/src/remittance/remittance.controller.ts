@@ -57,12 +57,14 @@ export class RemittanceController {
   listRecords(
     @Query('sessionId') sessionId?: string,
     @Query('matchStatus') matchStatus?: RemittanceMatchStatus,
+    @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.svc.listRecords({
       sessionId,
       matchStatus,
+      search,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
