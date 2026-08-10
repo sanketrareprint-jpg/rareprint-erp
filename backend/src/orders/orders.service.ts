@@ -381,10 +381,17 @@ export class OrdersService {
                 category: true,
               }
             },
-            // Cast: this column exists in schema.prisma/the real DB, but the
-            // sandbox that wrote this code can't run `prisma generate`, so
-            // the local client types don't know about it yet.
-            ...({ dispatchedAt: true } as any),
+            // Plain key, not a spread -- Railway's build runs `prisma
+            // generate` before `nest build`, so this column (already in
+            // schema.prisma) is a normal, correctly-typed select field by
+            // the time it compiles there. A `...({ dispatchedAt: true } as
+            // any)` spread WAS used here instead and broke Railway's build
+            // outright (TS2367/TS2345/TS2339 on 2026-08-10) -- spreading an
+            // `any` into a NESTED select's object literal corrupts
+            // TypeScript's inferred type for the whole `items` field, unlike
+            // the same pattern at the top level of a select (which is fine —
+            // see pendingDispatchItemIds below).
+            dispatchedAt: true,
           }
         },
         payments: true,
@@ -1233,13 +1240,21 @@ export class OrdersService {
     for (const orderId of orderIds) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
+        // Was a `select` listing only id/itemProductionStage/product.name --
+        // switched to `include` (pulls every OrderItem scalar column,
+        // including dispatchedAt) because spreading a `...({ dispatchedAt:
+        // true } as any)` INTO that nested select broke Prisma's type
+        // inference for the whole `items` field on Railway's build (the
+        // sandbox that wrote this code can't run `prisma generate` to
+        // verify locally) -- TS inferred a garbled union type mixing in
+        // unrelated relations like ItemStageLog, failing the build outright
+        // with TS2367/TS2345/TS2339. The same spread pattern is fine at the
+        // top level of a select (see pendingDispatchItemIds elsewhere in
+        // this file) but not safe nested inside one.
         include: {
           items: {
-            select: {
-              id: true,
-              itemProductionStage: true,
+            include: {
               product: { select: { name: true } },
-              ...({ dispatchedAt: true } as any),
             },
           },
         },
@@ -1471,7 +1486,9 @@ export class OrdersService {
                 category: true,
               }
             },
-            ...({ dispatchedAt: true } as any),
+            // Plain key, not a spread -- see the matching comment in
+            // findAllForTable above; a spread here broke Railway's build.
+            dispatchedAt: true,
           }
         },
         payments: true,
