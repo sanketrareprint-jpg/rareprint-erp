@@ -233,7 +233,15 @@ export default function RemittanceImportPage() {
       setSelectedSessionId(result.sessionId);
       setActiveTab(result.needsReview > 0 ? "review" : "matched");
       loadSessions();
-      loadSummary();
+      // Not calling loadSummary() here: it would still close over the OLD
+      // selectedSessionId (React state updates aren't synchronous), firing
+      // an unscoped/stale-session summary request that races the correctly-
+      // scoped one the effect below triggers once selectedSessionId actually
+      // changes. Whichever response landed last used to win, so the top
+      // tiles and tab badges could show the wrong (often global, inflated)
+      // counts while the list below them — driven by the same-effect
+      // loadRecords, which has no such premature call — was already
+      // correctly scoped and empty. Confirmed via a real import, 2026-08-10.
     } catch (err: any) {
       setImportError(err.message);
     } finally {
