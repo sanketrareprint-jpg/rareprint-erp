@@ -376,6 +376,7 @@ export class RemittanceService {
           receiverName: delivered.receiverName,
           receiverMobile: delivered.receiverMobile,
           productDetails: delivered.productDetails,
+          pickupDate: delivered.awbDate ?? undefined,
           matchStatus: match.matchStatus,
           matchMethod: match.matchMethod,
           matchedOrderId: match.matchedOrderId,
