@@ -310,6 +310,17 @@ export class RemittanceService {
       data: { rowsMatched: matched, rowsNeedReview: needReview, rowsDuplicate: duplicate },
     });
 
+    // Automatically fix old backlog too — a Delivered Orders Report export
+    // isn't scoped to any one remittance batch, so an AWB in TODAY's file may
+    // well belong to a row from a PAST import that got stuck as "Unknown
+    // receiver / no mobile" because the report wasn't available (or didn't
+    // cover that AWB) back when it was originally imported. Every normal
+    // import now sweeps that backlog automatically — the shop should never
+    // need to remember to go fix an old session by hand.
+    const retro = deliveredMap.size > 0
+      ? await this.sweepPendingWithDeliveredMap(deliveredMap, { sessionId: { not: session.id } })
+      : { newlyMatched: 0, recordsConsidered: 0 };
+
     return {
       sessionId: session.id,
       totalInFile: remittanceRows.length,
@@ -317,37 +328,27 @@ export class RemittanceService {
       needsReview: needReview,
       duplicate,
       deliveredOrdersJoined: deliveredMap.size,
+      retroactivelyMatched: retro.newlyMatched,
     };
   }
 
-  // ── 2b. Attach a Delivered Orders Report to an already-imported session ────
+  // ── 2b. Sweep NEEDS_REVIEW rows with a Delivered Orders Report ─────────────
   //
-  // The Remittance Report and Delivered Orders Report are meant to be uploaded
-  // together (see importReports), but in practice the shop sometimes only had
-  // the Remittance Report on hand, or the Delivered Orders Report export was
-  // pulled for the wrong date range / didn't cover every AWB in the batch —
-  // either way, some rows end up NEEDS_REVIEW with no receiver name/mobile at
-  // all ("Unknown receiver · no mobile"). This lets the shop upload (or
-  // re-upload) a Delivered Orders Report against an existing session at any
-  // later point and re-run matching for just the rows still stuck in review,
-  // joining by AWB exactly like the original import does. Rows already
-  // MATCHED/POSTED/REJECTED are left untouched.
-  async attachDeliveredOrders(sessionId: string, deliveredBuffer: Buffer, deliveredFileName: string, _userId: string) {
-    const session = await this.prisma.remittanceImportSession.findUnique({ where: { id: sessionId } });
-    if (!session) throw new NotFoundException('Import session not found');
-
-    const deliveredMap = this.parseDeliveredOrdersXlsx(deliveredBuffer);
-    if (deliveredMap.size === 0) {
-      throw new BadRequestException(
-        "Could not read any rows from that file — check it's the Delivered Orders Report export (needs an AWB No. column) and try again.",
-      );
-    }
-
+  // Shared by importReports (auto-sweeps the rest of the backlog every time a
+  // Delivered Orders Report comes in) and attachDeliveredOrders /
+  // attachDeliveredOrdersGlobal (an explicit "fix past rows" upload). Joins
+  // by AWB and re-runs the same resolveMatch() used at import time. Rows
+  // already MATCHED/POSTED/REJECTED are left untouched.
+  private async sweepPendingWithDeliveredMap(
+    deliveredMap: Map<string, ParsedDeliveredRow>,
+    where: Prisma.RemittanceRecordWhereInput,
+  ) {
     const pending = await this.prisma.remittanceRecord.findMany({
-      where: { sessionId, matchStatus: RemittanceMatchStatus.NEEDS_REVIEW },
+      where: { ...where, matchStatus: RemittanceMatchStatus.NEEDS_REVIEW },
     });
 
     let newlyMatched = 0, stillNeedsReview = 0, notInDeliveredFile = 0;
+    const sessionDeltas = new Map<string, number>();
 
     for (const record of pending) {
       const delivered = deliveredMap.get(record.awbNumber) ?? null;
@@ -358,8 +359,12 @@ export class RemittanceService {
         delivered,
       );
 
-      if (match.matchStatus === RemittanceMatchStatus.MATCHED) newlyMatched++;
-      else stillNeedsReview++;
+      if (match.matchStatus === RemittanceMatchStatus.MATCHED) {
+        newlyMatched++;
+        sessionDeltas.set(record.sessionId, (sessionDeltas.get(record.sessionId) ?? 0) + 1);
+      } else {
+        stillNeedsReview++;
+      }
 
       await this.prisma.remittanceRecord.update({
         where: { id: record.id },
@@ -378,25 +383,55 @@ export class RemittanceService {
       });
     }
 
+    for (const [sessionId, delta] of sessionDeltas) {
+      await this.prisma.remittanceImportSession.update({
+        where: { id: sessionId },
+        data: { rowsMatched: { increment: delta }, rowsNeedReview: { decrement: delta } },
+      }).catch(() => undefined);
+    }
+
+    return { recordsConsidered: pending.length, newlyMatched, stillNeedsReview, notInDeliveredFile };
+  }
+
+  /** Upload a Delivered Orders Report against one specific already-imported session
+   *  (used from the Sessions/Import History tab, scoped to that session's own rows). */
+  async attachDeliveredOrders(sessionId: string, deliveredBuffer: Buffer, deliveredFileName: string, _userId: string) {
+    const session = await this.prisma.remittanceImportSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Import session not found');
+
+    const deliveredMap = this.parseDeliveredOrdersXlsx(deliveredBuffer);
+    if (deliveredMap.size === 0) {
+      throw new BadRequestException(
+        "Could not read any rows from that file — check it's the Delivered Orders Report export (needs an AWB No. column) and try again.",
+      );
+    }
+
+    const result = await this.sweepPendingWithDeliveredMap(deliveredMap, { sessionId });
+
     await this.prisma.remittanceImportSession.update({
       where: { id: sessionId },
       data: {
         deliveredFileName: session.deliveredFileName
           ? `${session.deliveredFileName} + ${deliveredFileName}`
           : deliveredFileName,
-        rowsMatched: { increment: newlyMatched },
-        rowsNeedReview: { decrement: newlyMatched },
       },
     });
 
-    return {
-      sessionId,
-      deliveredRowsParsed: deliveredMap.size,
-      recordsConsidered: pending.length,
-      newlyMatched,
-      stillNeedsReview,
-      notInDeliveredFile,
-    };
+    return { sessionId, deliveredRowsParsed: deliveredMap.size, ...result };
+  }
+
+  /** Upload a Delivered Orders Report to fix "Unknown receiver / no mobile" rows across
+   *  EVERY import, not just one — the normal, no-need-to-hunt-for-a-session way to catch up
+   *  a backlog. (Also runs automatically as part of every regular importReports() call.) */
+  async attachDeliveredOrdersGlobal(deliveredBuffer: Buffer, _deliveredFileName: string, _userId: string) {
+    const deliveredMap = this.parseDeliveredOrdersXlsx(deliveredBuffer);
+    if (deliveredMap.size === 0) {
+      throw new BadRequestException(
+        "Could not read any rows from that file — check it's the Delivered Orders Report export (needs an AWB No. column) and try again.",
+      );
+    }
+    const result = await this.sweepPendingWithDeliveredMap(deliveredMap, {});
+    return { deliveredRowsParsed: deliveredMap.size, ...result };
   }
 
   // ── 3. Matching ────────────────────────────────────────────────────────────

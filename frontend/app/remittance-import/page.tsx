@@ -260,6 +260,8 @@ export default function RemittanceImportPage() {
   // the rows still stuck in Needs Review, without re-importing/duplicating
   // the remittance data itself.
 
+  const GLOBAL_ATTACH = "__GLOBAL__";
+
   const triggerAttach = (sessionId: string) => {
     setAttachTargetSessionId(sessionId);
     attachFileRef.current?.click();
@@ -274,11 +276,10 @@ export default function RemittanceImportPage() {
       const formData = new FormData();
       formData.append("deliveredOrdersFile", file);
       const { "Content-Type": _ct, ...uploadHeaders } = getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/remittance/sessions/${sessionId}/attach-delivered`, {
-        method: "POST",
-        headers: uploadHeaders,
-        body: formData,
-      });
+      const url = sessionId === GLOBAL_ATTACH
+        ? `${API_BASE_URL}/remittance/attach-delivered`
+        : `${API_BASE_URL}/remittance/sessions/${sessionId}/attach-delivered`;
+      const res = await fetch(url, { method: "POST", headers: uploadHeaders, body: formData });
       if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || "Attach failed"); }
       const result = await res.json();
       alert(
@@ -386,7 +387,8 @@ export default function RemittanceImportPage() {
     <DashboardShell>
       <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
 
-        {/* Hidden input used by the "Attach delivered file" action on the Sessions tab —
+        {/* Hidden input shared by the header's "Fix Unmatched Rows" button (global sweep,
+            GLOBAL_ATTACH) and the per-session "Attach"/"Re-attach" button on the Sessions tab —
             triggered programmatically via triggerAttach(sessionId), see handleAttachFileChange. */}
         <input
           ref={attachFileRef}
@@ -416,6 +418,15 @@ export default function RemittanceImportPage() {
                 <option key={s.id} value={s.id}>{s.fileName} · {fmtDate(s.createdAt)}</option>
               ))}
             </select>
+            <button
+              onClick={() => triggerAttach(GLOBAL_ATTACH)}
+              disabled={attaching}
+              title="Upload a Delivered Orders Report to automatically fill in receiver name/mobile and re-match every 'Unknown receiver / no mobile' row across all imports — every regular import now does this automatically too, this is just for catching up a backlog on demand."
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              {attaching && attachTargetSessionId === GLOBAL_ATTACH ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+              Fix Unmatched Rows
+            </button>
             <button
               onClick={() => setShowImportPanel((v) => !v)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
@@ -474,6 +485,11 @@ export default function RemittanceImportPage() {
               <p className="text-sm text-green-700 mt-0.5">
                 Matched (ready to post): {importResult.matched} · Needs review: {importResult.needsReview} · Already imported: {importResult.duplicate}
               </p>
+              {importResult.retroactivelyMatched > 0 && (
+                <p className="text-sm text-green-700 mt-0.5">
+                  Also fixed {importResult.retroactivelyMatched} previously "Unknown receiver / no mobile" row{importResult.retroactivelyMatched > 1 ? "s" : ""} from earlier imports, using this file's data.
+                </p>
+              )}
             </div>
             <button onClick={() => setImportResult(null)} className="ml-auto text-green-600 hover:text-green-800"><XCircle className="w-4 h-4" /></button>
           </div>

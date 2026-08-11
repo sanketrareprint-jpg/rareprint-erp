@@ -71,6 +71,26 @@ export class RemittanceController {
     return this.svc.attachDeliveredOrders(id, file.buffer, file.originalname, req.user.id);
   }
 
+  /** POST /remittance/attach-delivered  (multipart field: "deliveredOrdersFile")
+   *  Same as above but sweeps EVERY import's Needs Review rows, not just one — this is
+   *  the normal "fix Unknown receiver / no mobile rows" action, no session-picking needed.
+   *  (Every regular /remittance/import call also runs this sweep automatically.) */
+  @Post('attach-delivered')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'deliveredOrdersFile', maxCount: 1 }],
+      { limits: { fileSize: 20 * 1024 * 1024 } },
+    ),
+  )
+  async attachDeliveredGlobal(
+    @UploadedFiles() files: { deliveredOrdersFile?: Express.Multer.File[] },
+    @Request() req: { user: JwtUser },
+  ) {
+    const file = files?.deliveredOrdersFile?.[0];
+    if (!file) throw new Error('Delivered Orders Report file is required (field: deliveredOrdersFile)');
+    return this.svc.attachDeliveredOrdersGlobal(file.buffer, file.originalname, req.user.id);
+  }
+
   // ── Records ────────────────────────────────────────────────────────────────
 
   @Get('records')
