@@ -146,6 +146,7 @@ interface ParsedDeliveredRow {
   receiverName: string | null;
   receiverMobile: string | null;
   productDetails: string | null;
+  awbDate: Date | null;
 }
 
 @Injectable()
@@ -202,6 +203,7 @@ export class RemittanceService {
         receiverName: r['Receiver Name'] ? String(r['Receiver Name']).trim() : null,
         receiverMobile,
         productDetails: r['Product Details'] ? String(r['Product Details']).trim() : null,
+        awbDate: parseFlexibleDate(r['AWB Date']),
       });
     }
     return map;
@@ -284,6 +286,7 @@ export class RemittanceService {
           awbNumber: row.awbNumber,
           courierName: row.courierName,
           lrNumber: row.lrNumber,
+          pickupDate: delivered?.awbDate ?? null,
           deliveryDate: row.deliveryDate,
           remittanceDate: row.remittanceDate,
           collectableAmount: new Prisma.Decimal(row.collectableAmount),

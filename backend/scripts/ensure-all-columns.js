@@ -274,6 +274,21 @@ async function main() {
       console.log('[ensure-all-columns] RemittanceImportSession date-range columns: added.');
     });
 
+    // ── RemittanceRecord.pickupDate column ────────────────────────────────
+    await safely('RemittanceRecord.pickupDate', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'RemittanceRecord' AND column_name = 'pickupDate'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] RemittanceRecord.pickupDate: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] RemittanceRecord.pickupDate: missing, adding.');
+      await client.query(`ALTER TABLE "RemittanceRecord" ADD COLUMN IF NOT EXISTS "pickupDate" TIMESTAMP(3);`);
+      console.log('[ensure-all-columns] RemittanceRecord.pickupDate: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

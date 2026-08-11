@@ -2301,6 +2301,10 @@ model RemittanceRecord {
   awbNumber         String
   courierName       String?
   lrNumber          String?
+  // "AWB Date" from the Delivered Orders Report — when the shipment was
+  // booked/picked up. Closest thing either report has to a true pickup
+  // date; the Remittance Report itself doesn't carry one.
+  pickupDate        DateTime?
   deliveryDate      DateTime?
   remittanceDate    DateTime?
   collectableAmount Decimal               @db.Decimal(14, 2)

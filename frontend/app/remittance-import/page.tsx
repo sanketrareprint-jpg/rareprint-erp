@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -29,6 +30,7 @@ interface RemittanceRecord {
   remittanceRef?: string | null;
   awbNumber: string;
   courierName?: string | null;
+  pickupDate?: string | null;
   deliveryDate?: string | null;
   remittanceDate?: string | null;
   collectableAmount: string;
@@ -408,16 +410,12 @@ export default function RemittanceImportPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <MobileSelect
               value={selectedSessionId}
-              onChange={(e) => setSelectedSessionId(e.target.value)}
+              onChange={setSelectedSessionId}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none focus:border-blue-400 max-w-64"
-            >
-              <option value="">All imports</option>
-              {sessions.map((s) => (
-                <option key={s.id} value={s.id}>{s.fileName} · {fmtDate(s.createdAt)}</option>
-              ))}
-            </select>
+              options={[{ value: "", label: "All imports" }, ...sessions.map((s) => ({ value: s.id, label: `${s.fileName} · ${fmtDate(s.createdAt)}` }))]}
+            />
             <button
               onClick={() => triggerAttach(GLOBAL_ATTACH)}
               disabled={attaching}
@@ -645,6 +643,7 @@ export default function RemittanceImportPage() {
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Order</th>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Matched via</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Pickup / Delivered</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Customer balance due</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Receipt amount</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Net to bank</th>
@@ -665,6 +664,7 @@ export default function RemittanceImportPage() {
                         <td className="px-4 py-2.5 text-gray-800">#{r.matchedOrder?.orderNumber}</td>
                         <td className="px-4 py-2.5 text-gray-600">{r.matchedOrder?.customer.businessName}</td>
                         <td className="px-4 py-2.5 text-xs text-gray-400">{MATCH_METHOD_LABEL[r.matchMethod ?? ""] ?? r.matchMethod}</td>
+                        <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.pickupDate)} → {fmtDate(r.deliveryDate)}</td>
                         <td className={`px-4 py-2.5 text-right text-xs ${mismatch ? "text-amber-600 font-semibold" : "text-gray-500"}`}>
                           {balanceDue != null ? fmt(balanceDue) : "—"}
                         </td>
@@ -690,7 +690,7 @@ export default function RemittanceImportPage() {
                       );
                     })}
                     {records.length === 0 && (
-                      <tr><td colSpan={9} className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "Nothing ready to post"}</td></tr>
+                      <tr><td colSpan={10} className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "Nothing ready to post"}</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -718,6 +718,7 @@ export default function RemittanceImportPage() {
                         {r.mobileMismatch && <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">Mobile mismatch</span>}
                       </div>
                       <p className="text-sm text-gray-800 mt-1">{r.receiverName || "Unknown receiver"} · {r.receiverMobile || "no mobile"}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Picked up: {fmtDate(r.pickupDate)} · Delivered: {fmtDate(r.deliveryDate)}</p>
                       {r.reviewNote && <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-100 rounded px-2 py-1 mt-1.5">{r.reviewNote}</p>}
                       {r.suggestedOrder && (
                         <p className="text-xs text-gray-500 mt-1.5">
@@ -813,6 +814,7 @@ export default function RemittanceImportPage() {
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">AWB</th>
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Order</th>
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Pickup / Delivered</th>
                     <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Receipt Amount</th>
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Posted</th>
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">By</th>
@@ -824,13 +826,14 @@ export default function RemittanceImportPage() {
                       <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{r.awbNumber}</td>
                       <td className="px-4 py-2.5 text-gray-800">#{r.matchedOrder?.orderNumber}</td>
                       <td className="px-4 py-2.5 text-gray-600">{r.matchedOrder?.customer.businessName}</td>
+                      <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(r.pickupDate)} → {fmtDate(r.deliveryDate)}</td>
                       <td className="px-4 py-2.5 text-right text-green-600 font-medium">{fmt(r.postedPayment?.amount)}</td>
                       <td className="px-4 py-2.5 text-gray-500">{fmtDate(r.postedPayment?.paymentDate)}</td>
                       <td className="px-4 py-2.5 text-gray-500">{r.postedBy?.fullName || "—"}</td>
                     </tr>
                   ))}
                   {records.length === 0 && (
-                    <tr><td colSpan={6} className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "No receipts posted yet"}</td></tr>
+                    <tr><td colSpan={7} className="text-center py-12 text-gray-400">{debouncedSearch ? "No matches for your search" : "No receipts posted yet"}</td></tr>
                   )}
                 </tbody>
               </table>
