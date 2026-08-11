@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes } from "lucide-react";
+import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
@@ -116,7 +116,7 @@ function ageColor(dateStr: string): string {
 
 export default function DispatchPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<"queue" | "history">("queue");
+  const [tab, setTab] = useState<"queue" | "history" | "delivered">("queue");
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [markModal, setMarkModal] = useState<{ orderId: string; orderNo: string; isCod: boolean } | null>(null);
   const [markForm, setMarkForm] = useState({ awbNumber: "", carrierName: "", notes: "", codAmount: "" });
@@ -342,7 +342,7 @@ export default function DispatchPage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (tab === "history") void loadHistory(); }, [tab, loadHistory]);
+  useEffect(() => { if (tab === "history" || tab === "delivered") void loadHistory(); }, [tab, loadHistory]);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/dispatch/warehouses`, { headers: getAuthHeaders() })
@@ -633,6 +633,17 @@ export default function DispatchPage() {
     );
   }, [history, historySearch]);
 
+  // History tab = everything not yet delivered (Packed/In Transit/Cancelled).
+  // Delivered parcels get their own tab so the active-shipment list doesn't
+  // keep growing forever with parcels there's nothing left to do on.
+  const historyActiveCount = useMemo(() => history.filter(h => h.status !== "DELIVERED").length, [history]);
+  const historyDeliveredCount = useMemo(() => history.filter(h => h.status === "DELIVERED").length, [history]);
+  const displayedHistory = useMemo(() => {
+    return tab === "delivered"
+      ? filteredHistory.filter(h => h.status === "DELIVERED")
+      : filteredHistory.filter(h => h.status !== "DELIVERED");
+  }, [filteredHistory, tab]);
+
   return (
     <DashboardShell>
       <div className="p-6 lg:p-8">
@@ -650,13 +661,17 @@ export default function DispatchPage() {
               </button>
               <button onClick={() => setTab("history")}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "history" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
-                <History className="h-3.5 w-3.5" /> History
+                <History className="h-3.5 w-3.5" /> History ({historyActiveCount})
+              </button>
+              <button onClick={() => setTab("delivered")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "delivered" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <PackageCheck className="h-3.5 w-3.5" /> Delivered ({historyDeliveredCount})
               </button>
             </div>
           </div>
 
-          {/* ── HISTORY TAB ── */}
-          {tab === "history" && (
+          {/* ── HISTORY / DELIVERED TABS (share one table, filtered by status) ── */}
+          {(tab === "history" || tab === "delivered") && (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2 items-center">
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -685,14 +700,14 @@ export default function DispatchPage() {
                 >
                   <Loader2 className={`h-3 w-3 ${reportUploading ? "animate-spin" : ""}`} /> {reportUploading ? "Reading…" : "📥 Upload Delivered Report"}
                 </button>
-                <span className="text-xs text-slate-400">{filteredHistory.length} shipment{filteredHistory.length !== 1 ? "s" : ""}</span>
+                <span className="text-xs text-slate-400">{displayedHistory.length} shipment{displayedHistory.length !== 1 ? "s" : ""}</span>
               </div>
               {historyLoading ? (
                 <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
-              ) : filteredHistory.length === 0 ? (
+              ) : displayedHistory.length === 0 ? (
                 <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
-                  <History className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>No shipment history found.</p>
+                  {tab === "delivered" ? <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" /> : <History className="h-10 w-10 mx-auto mb-2 opacity-30" />}
+                  <p>{tab === "delivered" ? "No delivered shipments found." : "No shipment history found."}</p>
                 </div>
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
@@ -711,7 +726,7 @@ export default function DispatchPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredHistory.map(h => (
+                      {displayedHistory.map(h => (
                         <tr key={h.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{new Date(h.dispatchDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}</td>
                           <td className="px-4 py-2.5 font-bold text-blue-700">{h.orderNo}</td>
