@@ -24,8 +24,21 @@
  *   node scripts/find-missing-cost-slab-commission-gaps.js --month=2026-08   (optional filter)
  */
 
+const path = require('path');
+// Without this, DATABASE_URL is undefined when run manually outside Railway's
+// own env (Railway injects it directly; a local/manual run only has it in
+// .env) — the script would then fail to connect instead of quietly no-op'ing,
+// since PrismaPg below requires a real connection string up front.
+try { require('dotenv').config({ path: path.join(__dirname, '..', '.env') }); } catch {}
+
+// Prisma ORM v7 removed the `url` field from schema.prisma's datasource block —
+// PrismaClient now needs a driver adapter passed explicitly instead of reading
+// a connection string implicitly. Same pattern as prisma.service.ts /
+// diagnose-stuck-dispatch-orders.js. See https://pris.ly/d/prisma7-client-config
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { PrismaPg } = require('@prisma/adapter-pg');
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
 
 const monthArg = process.argv.find((a) => a.startsWith('--month='));
 const monthFilter = monthArg ? monthArg.split('=')[1] : null; // "YYYY-MM"

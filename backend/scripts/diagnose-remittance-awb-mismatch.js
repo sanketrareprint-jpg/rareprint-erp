@@ -29,8 +29,15 @@ try { require('dotenv').config({ path: path.join(__dirname, '..', '.env') }); } 
 
 const fs = require('fs');
 const XLSX = require('xlsx');
+
+// Prisma ORM v7 removed the `url` field from schema.prisma's datasource block —
+// PrismaClient now needs a driver adapter passed explicitly instead of reading
+// a connection string implicitly. Same pattern as prisma.service.ts /
+// diagnose-stuck-dispatch-orders.js. See https://pris.ly/d/prisma7-client-config
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { PrismaPg } = require('@prisma/adapter-pg');
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
 
 function arg(name) {
   const a = process.argv.find((x) => x.startsWith(`--${name}=`));
