@@ -11,6 +11,12 @@ import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/
 import { BigshipService, bigshipTotalBoxCount, type BigshipPackageBox } from '../bigship/bigship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+// Reuse the already-proven Bigship "Delivered Orders Report" parsing/matching
+// helpers from the remittance importer instead of re-deriving them — same
+// file format (see remittance.service.ts header comment), same courier
+// quirks (RP-prefixed channel ids, stray leading zeros, .0 suffix on
+// numeric-looking AWBs pulled from Excel, etc.).
+import { sheetToObjects, normalizeAwb, deriveOrderNumberCandidates, normalizeMobile, parseFlexibleDate } from '../remittance/remittance.service';
 
 type LocalRateQuote = {
   rateId: string;
@@ -1590,7 +1596,7 @@ export class DispatchService {
   /** Mark a shipment (and its order) DELIVERED from the Dispatch > History list, and
    *  fire the "rate us / review / testimonial" WhatsApp utility template to the customer —
    *  see WhatsAppService.sendDeliveryReviewRequest for the template copy/points breakdown. */
-  async markDelivered(shipmentId: string, userId: string) {
+  async markDelivered(shipmentId: string, userId: string, reason = 'Marked delivered from Dispatch history') {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
       include: {
@@ -1621,7 +1627,7 @@ export class DispatchService {
           fromStatus: shipment.order.status,
           toStatus: OrderStatus.DELIVERED,
           changedById: userId,
-          reason: 'Marked delivered from Dispatch history',
+          reason,
           metadata: { shipmentNumber: shipment.shipmentNumber },
         },
       });
@@ -1638,6 +1644,185 @@ export class DispatchService {
     }
 
     return updated;
+  }
+
+  // ── Bigship "Delivered Orders Report" bulk import ─────────────────────────
+  //
+  // Daily workflow: download the Delivered Orders Report from Bigship's
+  // dashboard and drop it in here (Dispatch > History). Every row is matched
+  // against shipments that are still open (not already DELIVERED) using the
+  // same three signals as the Remittance importer, in order of confidence:
+  //   1. AWB number — exact match against Shipment.awbNumber (unambiguous;
+  //      it's the courier's own tracking number, set when we book the
+  //      shipment or sync from Bigship).
+  //   2. Channel Order Id / Invoice Number — resolved to Order.orderNumber
+  //      via deriveOrderNumberCandidates (handles the RP-prefix / stray
+  //      leading zeros Bigship round-trips through).
+  //   3. Receiver mobile — matched against Customer.phone; only used when
+  //      AWB/order-number found nothing, and only trusted outright if it
+  //      resolves to exactly one open shipment for that customer.
+  // A row that resolves to more than one open shipment (e.g. same phone
+  // number on two live orders) is never auto-picked — it's surfaced for the
+  // admin to choose from, per how this was scoped. Rows that don't resolve
+  // to anything are still returned (as UNMATCHED) so nothing silently
+  // disappears; the admin can always fall back to marking those by hand.
+  //
+  // This only reads — nothing is written until confirmDeliveredFromReport is
+  // called with the specific shipmentIds the admin approved.
+
+  private parseDeliveredOrdersReport(buffer: Buffer) {
+    const rows = sheetToObjects(buffer, [
+      'AWB No.', 'Channel Order Id / Invoice Number', 'Receiver Mobile1', 'Order Status',
+    ]);
+    return rows
+      .map((r, idx) => ({
+        rowNumber: idx + 2, // +1 for 0-index, +1 for the header row itself
+        orderStatus: r['Order Status'] ? String(r['Order Status']).trim() : null,
+        awb: normalizeAwb(r['AWB No.']),
+        channelOrderId: r['Channel Order Id / Invoice Number'] ?? null,
+        receiverName: r['Receiver Name'] ? String(r['Receiver Name']).trim() : null,
+        receiverMobile:
+          (r['Receiver Mobile1'] && String(r['Receiver Mobile1']).trim()) ||
+          (r['Receiver Mobile2'] && String(r['Receiver Mobile2']).trim()) ||
+          null,
+        orderDate: parseFlexibleDate(r['Order Date']),
+        courierName: r['Courier Name'] ? String(r['Courier Name']).trim() : null,
+        productDetails: r['Product Details'] ? String(r['Product Details']).trim() : null,
+      }))
+      // Bigship's "Delivered Orders Report" is pre-filtered to delivered rows, but
+      // don't trust the filename — only act on rows the sheet itself marks Delivered,
+      // in case someone exports a broader report by mistake.
+      .filter((r) => r.awb && (r.orderStatus ?? '').toLowerCase() === 'delivered');
+  }
+
+  async previewDeliveredReportMatch(buffer: Buffer) {
+    const rows = this.parseDeliveredOrdersReport(buffer);
+    if (rows.length === 0) {
+      throw new BadRequestException(
+        'No delivered rows found in this file — make sure it\'s the Bigship "Delivered Orders Report" export.',
+      );
+    }
+
+    // Candidate pool: every shipment still open (not already DELIVERED/CANCELLED),
+    // scoped to real orders only. Kept in memory and matched per-row below rather
+    // than N+1 querying — this pool is always small (only what's currently out
+    // for delivery), never the full shipment history.
+    const openShipments = await this.prisma.shipment.findMany({
+      where: {
+        status: { notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.CANCELLED] },
+        order: { isTest: false },
+      },
+      include: { order: { include: { customer: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const byAwb = new Map<string, typeof openShipments>();
+    const byOrderNumber = new Map<string, typeof openShipments>();
+    const byPhone = new Map<string, typeof openShipments>();
+    for (const s of openShipments) {
+      const awb = normalizeAwb(s.awbNumber);
+      if (awb) byAwb.set(awb, [...(byAwb.get(awb) ?? []), s]);
+      byOrderNumber.set(s.order.orderNumber, [...(byOrderNumber.get(s.order.orderNumber) ?? []), s]);
+      const phone = normalizeMobile(s.order.customer.phone);
+      if (phone) byPhone.set(phone, [...(byPhone.get(phone) ?? []), s]);
+    }
+
+    const toCandidate = (s: (typeof openShipments)[number]) => ({
+      shipmentId: s.id,
+      orderId: s.orderId,
+      orderNo: s.order.orderNumber,
+      customerName: s.order.customer.businessName,
+      customerPhone: s.order.customer.phone,
+      shipmentStatus: s.status,
+      awbNumber: s.awbNumber,
+    });
+
+    const results = rows.map((row) => {
+      const orderNumberCandidates = deriveOrderNumberCandidates(row.channelOrderId);
+      const receiverMobile = normalizeMobile(row.receiverMobile);
+
+      const awbMatches = row.awb ? (byAwb.get(row.awb) ?? []) : [];
+      const orderNoMatches = orderNumberCandidates.flatMap((c) => byOrderNumber.get(c) ?? []);
+      const phoneMatches = receiverMobile ? (byPhone.get(receiverMobile) ?? []) : [];
+
+      // Dedup across signals (a shipment can legitimately show up via more than one).
+      const uniqueBy = <T extends { id: string }>(list: T[]) => Array.from(new Map(list.map((s) => [s.id, s])).values());
+
+      let matchStatus: 'MATCHED' | 'AMBIGUOUS' | 'UNMATCHED';
+      let matchMethod: string | null = null;
+      let matched: (typeof openShipments)[number] | null = null;
+      let candidates: (typeof openShipments)[number][] = [];
+
+      if (awbMatches.length === 1) {
+        matchStatus = 'MATCHED'; matchMethod = 'AWB'; matched = awbMatches[0];
+      } else if (awbMatches.length > 1) {
+        matchStatus = 'AMBIGUOUS'; matchMethod = 'AWB'; candidates = uniqueBy(awbMatches);
+      } else if (orderNoMatches.length === 1) {
+        matchStatus = 'MATCHED'; matchMethod = 'ORDER_NUMBER'; matched = orderNoMatches[0];
+      } else if (orderNoMatches.length > 1) {
+        matchStatus = 'AMBIGUOUS'; matchMethod = 'ORDER_NUMBER'; candidates = uniqueBy(orderNoMatches);
+      } else if (phoneMatches.length === 1) {
+        matchStatus = 'MATCHED'; matchMethod = 'MOBILE'; matched = phoneMatches[0];
+      } else if (phoneMatches.length > 1) {
+        matchStatus = 'AMBIGUOUS'; matchMethod = 'MOBILE'; candidates = uniqueBy(phoneMatches);
+      } else {
+        matchStatus = 'UNMATCHED';
+      }
+
+      // A confident AWB/order-number match whose receiver mobile doesn't agree with
+      // the matched order's customer phone is still returned as MATCHED (AWB and
+      // order-number are stronger signals than phone), but flagged so the admin can
+      // eyeball it rather than it looking identical to a fully-agreeing row.
+      const phoneMismatch =
+        !!matched && !!receiverMobile && !!normalizeMobile(matched.order.customer.phone) &&
+        normalizeMobile(matched.order.customer.phone) !== receiverMobile;
+
+      return {
+        rowNumber: row.rowNumber,
+        awb: row.awb,
+        channelOrderId: row.channelOrderId != null ? String(row.channelOrderId) : null,
+        receiverName: row.receiverName,
+        receiverMobile: row.receiverMobile,
+        orderDate: row.orderDate?.toISOString() ?? null,
+        courierName: row.courierName,
+        productDetails: row.productDetails,
+        matchStatus,
+        matchMethod,
+        phoneMismatch,
+        matched: matched ? toCandidate(matched) : null,
+        candidates: candidates.map(toCandidate),
+      };
+    });
+
+    return {
+      totalRows: rows.length,
+      matched: results.filter((r) => r.matchStatus === 'MATCHED').length,
+      ambiguous: results.filter((r) => r.matchStatus === 'AMBIGUOUS').length,
+      unmatched: results.filter((r) => r.matchStatus === 'UNMATCHED').length,
+      rows: results,
+    };
+  }
+
+  /** Bulk-applies markDelivered to every shipmentId the admin approved from the
+   *  preview above. Runs one at a time (not a single transaction) so one bad
+   *  row can't roll back the rest of a large daily batch — failures are
+   *  collected and returned instead of thrown. */
+  async confirmDeliveredFromReport(shipmentIds: string[], userId: string) {
+    const results: { shipmentId: string; success: boolean; error?: string }[] = [];
+    for (const shipmentId of shipmentIds) {
+      try {
+        await this.markDelivered(shipmentId, userId, 'Marked delivered via Bigship Delivered Orders Report import');
+        results.push({ shipmentId, success: true });
+      } catch (err: any) {
+        results.push({ shipmentId, success: false, error: err?.message ?? 'Unknown error' });
+      }
+    }
+    return {
+      success: true,
+      total: results.length,
+      succeeded: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success),
+    };
   }
 
 }

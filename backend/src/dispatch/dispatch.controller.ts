@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { DispatchService } from './dispatch.service';
@@ -183,6 +184,33 @@ export class DispatchController {
   @Post('shipments/:shipmentId/sync-bigship')
   syncBigship(@Param('shipmentId') shipmentId: string) {
     return this.dispatchService.syncShipmentFromBigship(shipmentId);
+  }
+
+  // ── Bigship "Delivered Orders Report" bulk import (Dispatch > History) ────
+
+  /** POST /dispatch/delivered-report/preview  (multipart field: "file")
+   *  Parses + matches only — no DB writes. Frontend shows the result grouped
+   *  by match confidence and lets the admin confirm/adjust before anything
+   *  is actually marked delivered. */
+  @Post('delivered-report/preview')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  previewDeliveredReport(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new Error('Delivered Orders Report file is required (field: file)');
+    return this.dispatchService.previewDeliveredReportMatch(file.buffer);
+  }
+
+  /** POST /dispatch/delivered-report/confirm  { shipmentIds: string[] }
+   *  Marks each shipment delivered (same effect as the per-row "Mark
+   *  Delivered" button) and fires the feedback WhatsApp to each customer. */
+  @Post('delivered-report/confirm')
+  confirmDeliveredReport(
+    @Body('shipmentIds') shipmentIds: string[],
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    if (!Array.isArray(shipmentIds) || shipmentIds.length === 0) {
+      throw new Error('shipmentIds must be a non-empty array');
+    }
+    return this.dispatchService.confirmDeliveredFromReport(shipmentIds, req.user.id);
   }
 
   @Post('shipments/sync-bigship-all')

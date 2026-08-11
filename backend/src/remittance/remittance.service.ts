@@ -35,7 +35,7 @@ const BIGSHIP_ACCOUNT_NAME = 'Bigship COD Remittance';
 
 /** Reads the first sheet of an xlsx buffer into an array of plain objects keyed by header text.
  *  Scans the first few rows to find the real header row (defensive against banner/title rows). */
-function sheetToObjects(buffer: Buffer, headerHints: string[]): Record<string, unknown>[] {
+export function sheetToObjects(buffer: Buffer, headerHints: string[]): Record<string, unknown>[] {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   if (!sheet) return [];
@@ -75,7 +75,7 @@ function parseAmount(raw: unknown): number {
   return 0;
 }
 
-function parseFlexibleDate(raw: unknown): Date | null {
+export function parseFlexibleDate(raw: unknown): Date | null {
   if (raw == null || raw === '') return null;
   if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
   const s = String(raw).trim();
@@ -84,11 +84,11 @@ function parseFlexibleDate(raw: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-function normalizeAwb(raw: unknown): string {
+export function normalizeAwb(raw: unknown): string {
   return String(raw ?? '').trim().replace(/\.0+$/, '');
 }
 
-function cleanChannelId(raw: unknown): string | null {
+export function cleanChannelId(raw: unknown): string | null {
   const s = String(raw ?? '').trim().replace(/\.0+$/, '');
   if (!s || s.length > 20) return null;
   return s;
@@ -104,7 +104,7 @@ function cleanChannelId(raw: unknown): string | null {
  * generic numeric channel id here instead, which won't match anything — that's expected and
  * such rows fall through to the AWB/phone matching below.
  */
-function deriveOrderNumberCandidates(raw: unknown): string[] {
+export function deriveOrderNumberCandidates(raw: unknown): string[] {
   const s = cleanChannelId(raw);
   if (!s) return [];
   const candidates = new Set<string>([s]);
@@ -118,7 +118,7 @@ function deriveOrderNumberCandidates(raw: unknown): string[] {
 }
 
 /** Normalizes an Indian mobile number to a bare 10-digit string, or null if not usable. */
-function normalizeMobile(raw: unknown): string | null {
+export function normalizeMobile(raw: unknown): string | null {
   const digits = String(raw ?? '').replace(/\D/g, '');
   const stripped = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
   const ten = stripped.slice(-10);

@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes } from "lucide-react";
@@ -18,6 +19,25 @@ type ShipmentHistory = {
   customerName: string; customerPhone: string | null;
   shippingAddress: string | null; salesAgentName: string | null; notes: string | null;
   bigshipOrderId: string | null; bigshipStatus: string | null; bigshipSyncedAt: string | null;
+};
+
+type DeliveredReportCandidate = {
+  shipmentId: string; orderId: string; orderNo: string;
+  customerName: string; customerPhone: string | null;
+  shipmentStatus: string; awbNumber: string | null;
+};
+type DeliveredReportRow = {
+  rowNumber: number; awb: string; channelOrderId: string | null;
+  receiverName: string | null; receiverMobile: string | null;
+  orderDate: string | null; courierName: string | null; productDetails: string | null;
+  matchStatus: "MATCHED" | "AMBIGUOUS" | "UNMATCHED";
+  matchMethod: string | null; phoneMismatch: boolean;
+  matched: DeliveredReportCandidate | null;
+  candidates: DeliveredReportCandidate[];
+};
+type DeliveredReportPreview = {
+  totalRows: number; matched: number; ambiguous: number; unmatched: number;
+  rows: DeliveredReportRow[];
 };
 
 type DispatchOrder = {
@@ -129,6 +149,75 @@ export default function DispatchPage() {
 
   const [settingAwbId, setSettingAwbId] = useState<string | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
+
+  // ── Bigship "Delivered Orders Report" bulk import ────────────────────────
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportUploading, setReportUploading] = useState(false);
+  const [reportPreview, setReportPreview] = useState<DeliveredReportPreview | null>(null);
+  const [reportChecked, setReportChecked] = useState<Record<number, boolean>>({});
+  const [reportPicks, setReportPicks] = useState<Record<number, string>>({});
+  const [reportConfirming, setReportConfirming] = useState(false);
+  const reportFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    setReportUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const headers = getAuthHeaders() as Record<string, string>;
+      delete headers["Content-Type"]; // let the browser set the multipart boundary
+      const res = await fetch(`${API_BASE_URL}/dispatch/delivered-report/preview`, {
+        method: "POST", headers, body: formData,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Could not read this file");
+      const preview: DeliveredReportPreview = body;
+      setReportPreview(preview);
+      // Pre-check every confidently MATCHED row; ambiguous/unmatched rows start
+      // unchecked until the admin picks a candidate or decides to skip them.
+      const checked: Record<number, boolean> = {};
+      for (const row of preview.rows) checked[row.rowNumber] = row.matchStatus === "MATCHED";
+      setReportChecked(checked);
+      setReportPicks({});
+      setReportModalOpen(true);
+    } catch (err) {
+      alert("Failed to read report: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setReportUploading(false);
+    }
+  };
+
+  const confirmDeliveredReport = async () => {
+    if (!reportPreview) return;
+    const shipmentIds: string[] = [];
+    for (const row of reportPreview.rows) {
+      if (!reportChecked[row.rowNumber]) continue;
+      if (row.matched) shipmentIds.push(row.matched.shipmentId);
+      else if (reportPicks[row.rowNumber]) shipmentIds.push(reportPicks[row.rowNumber]);
+    }
+    if (shipmentIds.length === 0) { alert("No rows selected."); return; }
+    if (!confirm(`Mark ${shipmentIds.length} shipment${shipmentIds.length === 1 ? "" : "s"} as delivered and send each customer the feedback WhatsApp message?`)) return;
+    setReportConfirming(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/delivered-report/confirm`, {
+        method: "POST", headers: getAuthHeaders(),
+        body: JSON.stringify({ shipmentIds }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed");
+      await loadHistory();
+      setReportModalOpen(false);
+      setReportPreview(null);
+      alert(`Done — ${body.succeeded}/${body.total} marked delivered.${body.failed?.length ? ` ${body.failed.length} failed (already delivered or removed since upload).` : ""}`);
+    } catch (err) {
+      alert("Failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setReportConfirming(false);
+    }
+  };
 
   const syncAllBigship = async () => {
     setSyncingAll(true);
@@ -587,6 +676,15 @@ export default function DispatchPage() {
                 >
                   <Loader2 className={`h-3 w-3 ${syncingAll ? "animate-spin" : ""}`} /> {syncingAll ? "Syncing…" : "🔄 Sync All Bigship"}
                 </button>
+                <input ref={reportFileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => void handleReportFileChange(e)} />
+                <button
+                  onClick={() => reportFileInputRef.current?.click()}
+                  disabled={reportUploading}
+                  title="Upload the Delivered Orders Report exported from Bigship — matches rows against open shipments by AWB / order number / phone, then bulk-marks the matches delivered and sends the feedback WhatsApp"
+                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Loader2 className={`h-3 w-3 ${reportUploading ? "animate-spin" : ""}`} /> {reportUploading ? "Reading…" : "📥 Upload Delivered Report"}
+                </button>
                 <span className="text-xs text-slate-400">{filteredHistory.length} shipment{filteredHistory.length !== 1 ? "s" : ""}</span>
               </div>
               {historyLoading ? (
@@ -709,11 +807,9 @@ export default function DispatchPage() {
                 className="w-full rounded-md border border-slate-200 pl-7 pr-3 py-1 text-xs outline-none focus:border-blue-400" />
             </div>
             {allCarriers.length > 0 && (
-              <select value={courierFilter} onChange={e => setCourierFilter(e.target.value)}
-                className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
-                <option value="ALL">All Couriers</option>
-                {allCarriers.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <MobileSelect value={courierFilter} onChange={setCourierFilter}
+                className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
+                options={[{ value: "ALL", label: "All Couriers" }, ...allCarriers.map(c => ({ value: c, label: c }))]} />
             )}
             {search && (
               <button onClick={() => setSearch("")} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
@@ -862,12 +958,10 @@ export default function DispatchPage() {
                     {method === "COURIER" && (
                     <div className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <select value={selectedPickupId}
-                          onChange={e => { setSelectedWarehouse(prev => ({ ...prev, [o.id]: e.target.value })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
-                          className="flex-1 min-w-[160px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
-                          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({w.pincode})</option>)}
-                          <option value="CUSTOM">Edit pickup…</option>
-                        </select>
+                        <MobileSelect value={selectedPickupId}
+                          onChange={v => { setSelectedWarehouse(prev => ({ ...prev, [o.id]: v })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
+                          className="flex-1 min-w-[160px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
+                          options={[...warehouses.map(w => ({ value: w.id, label: `${w.name} (${w.pincode})` })), { value: "CUSTOM", label: "Edit pickup…" }]} />
                         {selectedPickupId === "CUSTOM" && (
                           <div className="flex gap-1.5 w-full">
                             <input type="text" placeholder="Pickup name" value={pickupDraft.name}
@@ -988,10 +1082,11 @@ export default function DispatchPage() {
                         <div className="grid gap-1.5 sm:grid-cols-4">
                           <input value={transport.transportName} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportName: e.target.value } }))} placeholder="Transport name" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
                           <input value={transport.lrNumber} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, lrNumber: e.target.value } }))} placeholder="LR number" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
-                          <select value={transport.transportChargesType} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportChargesType: e.target.value as "TOPAY" | "PREPAID" } }))} className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white">
-                            <option value="TOPAY">To Pay</option>
-                            <option value="PREPAID">Prepaid</option>
-                          </select>
+                          <MobileSelect value={transport.transportChargesType} onChange={v => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportChargesType: v as "TOPAY" | "PREPAID" } }))} className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
+                            options={[
+                              { value: "TOPAY", label: "To Pay" },
+                              { value: "PREPAID", label: "Prepaid" },
+                            ]} />
                           <input value={transport.transportBy} onChange={e => setTransportForm(prev => ({ ...prev, [o.id]: { ...transport, transportBy: e.target.value } }))} placeholder="Booked by" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
                         </div>
                         {transport.transportChargesType === "PREPAID" && (
@@ -1034,6 +1129,107 @@ export default function DispatchPage() {
           </>}
         </div>
       </div>
+
+      {/* ── Bigship Delivered Orders Report — preview & confirm ── */}
+      {reportModalOpen && reportPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="p-5 pb-3 border-b border-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Delivered Orders Report</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {reportPreview.totalRows} delivered row{reportPreview.totalRows === 1 ? "" : "s"} in file ·{" "}
+                    <span className="text-emerald-700 font-semibold">{reportPreview.matched} matched</span> ·{" "}
+                    <span className="text-amber-700 font-semibold">{reportPreview.ambiguous} need a pick</span> ·{" "}
+                    <span className="text-slate-500 font-semibold">{reportPreview.unmatched} no match</span>
+                  </p>
+                </div>
+                <button onClick={() => { setReportModalOpen(false); setReportPreview(null); }} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {reportPreview.rows.filter(r => r.matchStatus === "MATCHED").length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-emerald-700 mb-2">✅ Matched — will be marked Delivered</p>
+                  <div className="space-y-1.5">
+                    {reportPreview.rows.filter(r => r.matchStatus === "MATCHED").map(row => (
+                      <label key={row.rowNumber} className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-xs cursor-pointer">
+                        <input type="checkbox" className="mt-0.5" checked={!!reportChecked[row.rowNumber]}
+                          onChange={e => setReportChecked(p => ({ ...p, [row.rowNumber]: e.target.checked }))} />
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-blue-700">{row.matched!.orderNo}</span>
+                            <span className="text-slate-600">{row.matched!.customerName}</span>
+                            <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[10px] font-semibold">via {row.matchMethod}</span>
+                            {row.phoneMismatch && (
+                              <span className="rounded-full bg-red-100 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold" title={`Report mobile ${row.receiverMobile} doesn't match this order's customer phone ${row.matched!.customerPhone ?? "—"}`}>⚠ phone mismatch</span>
+                            )}
+                          </div>
+                          <p className="text-slate-400 mt-0.5">AWB {row.awb} · {row.receiverName} · {row.receiverMobile ?? "—"}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {reportPreview.rows.filter(r => r.matchStatus === "AMBIGUOUS").length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-amber-700 mb-2">⚠ Multiple possible matches — pick the right one</p>
+                  <div className="space-y-1.5">
+                    {reportPreview.rows.filter(r => r.matchStatus === "AMBIGUOUS").map(row => (
+                      <div key={row.rowNumber} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs">
+                        <input type="checkbox" className="mt-0.5" checked={!!reportChecked[row.rowNumber]}
+                          onChange={e => setReportChecked(p => ({ ...p, [row.rowNumber]: e.target.checked }))} />
+                        <div className="flex-1 space-y-1.5">
+                          <p className="text-slate-600">AWB {row.awb} · {row.receiverName} · {row.receiverMobile ?? "—"} <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[10px] font-semibold">via {row.matchMethod}</span></p>
+                          <select
+                            value={reportPicks[row.rowNumber] ?? ""}
+                            onChange={e => setReportPicks(p => ({ ...p, [row.rowNumber]: e.target.value }))}
+                            className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs outline-none"
+                          >
+                            <option value="">Select the right order…</option>
+                            {row.candidates.map(c => (
+                              <option key={c.shipmentId} value={c.shipmentId}>{c.orderNo} — {c.customerName} ({c.customerPhone ?? "no phone"})</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {reportPreview.rows.filter(r => r.matchStatus === "UNMATCHED").length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-slate-500 mb-2">No match found — mark these delivered by hand if needed</p>
+                  <div className="space-y-1.5">
+                    {reportPreview.rows.filter(r => r.matchStatus === "UNMATCHED").map(row => (
+                      <div key={row.rowNumber} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                        AWB {row.awb} · {row.receiverName ?? "—"} · {row.receiverMobile ?? "—"} · Channel Order Id: {row.channelOrderId ?? "—"}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button onClick={() => { setReportModalOpen(false); setReportPreview(null); }} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button
+                onClick={() => void confirmDeliveredReport()}
+                disabled={reportConfirming}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Loader2 className={`h-3.5 w-3.5 ${reportConfirming ? "animate-spin" : ""}`} />
+                {reportConfirming ? "Marking delivered…" : "Mark Delivered & Send Feedback"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Mark Dispatched Modal ── */}
       {markModal && (
