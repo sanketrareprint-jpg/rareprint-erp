@@ -51,6 +51,26 @@ export class RemittanceController {
     return this.svc.listSessions();
   }
 
+  /** POST /remittance/sessions/:id/attach-delivered  (multipart field: "deliveredOrdersFile")
+   *  Joins a Delivered Orders Report against an already-imported session's rows that are
+   *  still NEEDS_REVIEW, by AWB number — for when the report wasn't available at import time. */
+  @Post('sessions/:id/attach-delivered')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'deliveredOrdersFile', maxCount: 1 }],
+      { limits: { fileSize: 20 * 1024 * 1024 } },
+    ),
+  )
+  async attachDelivered(
+    @Param('id') id: string,
+    @UploadedFiles() files: { deliveredOrdersFile?: Express.Multer.File[] },
+    @Request() req: { user: JwtUser },
+  ) {
+    const file = files?.deliveredOrdersFile?.[0];
+    if (!file) throw new Error('Delivered Orders Report file is required (field: deliveredOrdersFile)');
+    return this.svc.attachDeliveredOrders(id, file.buffer, file.originalname, req.user.id);
+  }
+
   // ── Records ────────────────────────────────────────────────────────────────
 
   @Get('records')

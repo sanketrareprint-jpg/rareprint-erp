@@ -320,6 +320,85 @@ export class RemittanceService {
     };
   }
 
+  // ── 2b. Attach a Delivered Orders Report to an already-imported session ────
+  //
+  // The Remittance Report and Delivered Orders Report are meant to be uploaded
+  // together (see importReports), but in practice the shop sometimes only had
+  // the Remittance Report on hand, or the Delivered Orders Report export was
+  // pulled for the wrong date range / didn't cover every AWB in the batch —
+  // either way, some rows end up NEEDS_REVIEW with no receiver name/mobile at
+  // all ("Unknown receiver · no mobile"). This lets the shop upload (or
+  // re-upload) a Delivered Orders Report against an existing session at any
+  // later point and re-run matching for just the rows still stuck in review,
+  // joining by AWB exactly like the original import does. Rows already
+  // MATCHED/POSTED/REJECTED are left untouched.
+  async attachDeliveredOrders(sessionId: string, deliveredBuffer: Buffer, deliveredFileName: string, _userId: string) {
+    const session = await this.prisma.remittanceImportSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Import session not found');
+
+    const deliveredMap = this.parseDeliveredOrdersXlsx(deliveredBuffer);
+    if (deliveredMap.size === 0) {
+      throw new BadRequestException(
+        "Could not read any rows from that file — check it's the Delivered Orders Report export (needs an AWB No. column) and try again.",
+      );
+    }
+
+    const pending = await this.prisma.remittanceRecord.findMany({
+      where: { sessionId, matchStatus: RemittanceMatchStatus.NEEDS_REVIEW },
+    });
+
+    let newlyMatched = 0, stillNeedsReview = 0, notInDeliveredFile = 0;
+
+    for (const record of pending) {
+      const delivered = deliveredMap.get(record.awbNumber) ?? null;
+      if (!delivered) { notInDeliveredFile++; continue; }
+
+      const match = await this.resolveMatch(
+        { awbNumber: record.awbNumber, collectableAmount: Number(record.collectableAmount) },
+        delivered,
+      );
+
+      if (match.matchStatus === RemittanceMatchStatus.MATCHED) newlyMatched++;
+      else stillNeedsReview++;
+
+      await this.prisma.remittanceRecord.update({
+        where: { id: record.id },
+        data: {
+          channelOrderId: delivered.channelOrderId,
+          receiverName: delivered.receiverName,
+          receiverMobile: delivered.receiverMobile,
+          productDetails: delivered.productDetails,
+          matchStatus: match.matchStatus,
+          matchMethod: match.matchMethod,
+          matchedOrderId: match.matchedOrderId,
+          suggestedOrderId: match.suggestedOrderId,
+          mobileMismatch: match.mobileMismatch,
+          reviewNote: match.reviewNote,
+        },
+      });
+    }
+
+    await this.prisma.remittanceImportSession.update({
+      where: { id: sessionId },
+      data: {
+        deliveredFileName: session.deliveredFileName
+          ? `${session.deliveredFileName} + ${deliveredFileName}`
+          : deliveredFileName,
+        rowsMatched: { increment: newlyMatched },
+        rowsNeedReview: { decrement: newlyMatched },
+      },
+    });
+
+    return {
+      sessionId,
+      deliveredRowsParsed: deliveredMap.size,
+      recordsConsidered: pending.length,
+      newlyMatched,
+      stillNeedsReview,
+      notInDeliveredFile,
+    };
+  }
+
   // ── 3. Matching ────────────────────────────────────────────────────────────
   //
   // Receiver mobile number is the FIRST priority signal (per shop's instruction) — it is
@@ -330,7 +409,7 @@ export class RemittanceService {
   // with more than one plausible order, or where the signals disagree, goes to manual review.
 
   private async resolveMatch(
-    row: ParsedRemittanceRow,
+    row: Pick<ParsedRemittanceRow, 'awbNumber' | 'collectableAmount'>,
     delivered: ParsedDeliveredRow | null,
   ): Promise<{
     matchStatus: RemittanceMatchStatus;

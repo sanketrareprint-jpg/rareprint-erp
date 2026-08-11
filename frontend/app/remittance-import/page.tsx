@@ -114,6 +114,7 @@ export default function RemittanceImportPage() {
   const router = useRouter();
   const remittanceFileRef = useRef<HTMLInputElement>(null);
   const deliveredFileRef = useRef<HTMLInputElement>(null);
+  const attachFileRef = useRef<HTMLInputElement>(null);
 
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [remittanceFile, setRemittanceFile] = useState<File | null>(null);
@@ -121,6 +122,9 @@ export default function RemittanceImportPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const [importError, setImportError] = useState("");
+
+  const [attachTargetSessionId, setAttachTargetSessionId] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
 
   const [sessions, setSessions] = useState<ImportSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
@@ -249,6 +253,50 @@ export default function RemittanceImportPage() {
     }
   };
 
+  // ─── Attach Delivered Orders Report to an existing session ──────────────────
+  // For rows that came in as "Unknown receiver · no mobile" because the
+  // Delivered Orders Report wasn't uploaded (or didn't cover those AWBs) at
+  // import time — lets the shop upload it now and re-run matching just for
+  // the rows still stuck in Needs Review, without re-importing/duplicating
+  // the remittance data itself.
+
+  const triggerAttach = (sessionId: string) => {
+    setAttachTargetSessionId(sessionId);
+    attachFileRef.current?.click();
+  };
+
+  const handleAttachFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const sessionId = attachTargetSessionId;
+    if (!file || !sessionId) return;
+    setAttaching(true);
+    try {
+      const formData = new FormData();
+      formData.append("deliveredOrdersFile", file);
+      const { "Content-Type": _ct, ...uploadHeaders } = getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/remittance/sessions/${sessionId}/attach-delivered`, {
+        method: "POST",
+        headers: uploadHeaders,
+        body: formData,
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || "Attach failed"); }
+      const result = await res.json();
+      alert(
+        `Parsed ${result.deliveredRowsParsed} rows from that file.\n` +
+        `Newly matched: ${result.newlyMatched}\n` +
+        `Still needs review: ${result.stillNeedsReview}` +
+        (result.notInDeliveredFile > 0 ? `\nAWB not found in that file: ${result.notInDeliveredFile}` : ""),
+      );
+      await Promise.all([loadSessions(), loadSummary(), loadRecords(recordsPage)]);
+    } catch (err: any) {
+      alert(err.message || "Failed to attach file");
+    } finally {
+      setAttaching(false);
+      setAttachTargetSessionId(null);
+      if (attachFileRef.current) attachFileRef.current.value = "";
+    }
+  };
+
   // ─── Posting ────────────────────────────────────────────────────────────────
 
   const toggleSelected = (id: string) => {
@@ -337,6 +385,16 @@ export default function RemittanceImportPage() {
   return (
     <DashboardShell>
       <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
+
+        {/* Hidden input used by the "Attach delivered file" action on the Sessions tab —
+            triggered programmatically via triggerAttach(sessionId), see handleAttachFileChange. */}
+        <input
+          ref={attachFileRef}
+          type="file"
+          accept=".xls,.xlsx,.csv"
+          className="hidden"
+          onChange={handleAttachFileChange}
+        />
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -511,7 +569,22 @@ export default function RemittanceImportPage() {
                     <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(s.createdAt)}</td>
                     <td className="px-4 py-2.5 text-gray-800 whitespace-nowrap">{fmtRemittanceDateRange(s.remittanceDateFrom, s.remittanceDateTo)}</td>
                     <td className="px-4 py-2.5 text-gray-800">{s.fileName}</td>
-                    <td className="px-4 py-2.5 text-gray-500">{s.deliveredFileName || "—"}</td>
+                    <td className="px-4 py-2.5 text-gray-500">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate max-w-40" title={s.deliveredFileName || undefined}>{s.deliveredFileName || "—"}</span>
+                        {s.rowsNeedReview > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); triggerAttach(s.id); }}
+                            disabled={attaching}
+                            title="Upload a Delivered Orders Report to fill in receiver name/mobile and re-match the rows still Needs Review for this import"
+                            className="flex items-center gap-1 px-1.5 py-0.5 bg-white border border-gray-200 text-[11px] font-medium text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                          >
+                            {attaching && attachTargetSessionId === s.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                            {s.deliveredFileName ? "Re-attach" : "Attach"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5 text-right">{s.rowsFound}</td>
                     <td className="px-4 py-2.5 text-right text-blue-600">{s.rowsMatched}</td>
                     <td className="px-4 py-2.5 text-right text-yellow-600">{s.rowsNeedReview}</td>
