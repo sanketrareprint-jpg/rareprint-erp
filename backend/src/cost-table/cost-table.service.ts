@@ -1003,7 +1003,7 @@ export class CostTableService {
     const from = new Date(year, month - 1, 1);
     const to   = new Date(year, month, 1);
 
-    const [orders, verification, agentUser] = await Promise.all([
+    const [orders, verification, agentUser, employeeSalaryLookup] = await Promise.all([
       (this.prisma as any).order.findMany({
         where: {
           salesAgentId: userId,
@@ -1034,11 +1034,20 @@ export class CostTableService {
       }).catch(() => null),
       (this.prisma as any).user.findUnique({
         where: { id: userId },
-        select: { fullName: true, salesAgentCategory: true, baseSalary: true },
+        select: { fullName: true, salesAgentCategory: true, baseSalary: true, email: true },
       }).catch(() => null),
+      // Same HR-Employee-first resolution as getSalesAgents()/getUserSalaryInfo()
+      // — without this, this sheet fell back straight to User.baseSalary (almost
+      // always unset) and showed ₹0 fixed salary for agents whose real salary
+      // only lives on their HR Employee record, disagreeing with the Sales
+      // Employee Profit dashboard card which already resolves it correctly.
+      this.buildEmployeeSalaryLookup(),
     ]);
 
-    const baseSalary = agentUser?.baseSalary != null ? Number(agentUser.baseSalary) : 0;
+    const baseSalary = this.resolveAgentBaseSalary(
+      { id: userId, email: agentUser?.email, fullName: agentUser?.fullName, baseSalary: agentUser?.baseSalary },
+      employeeSalaryLookup,
+    ) ?? 0;
 
     if (!orders.length) {
       return {
