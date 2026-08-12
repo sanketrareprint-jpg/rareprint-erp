@@ -289,6 +289,70 @@ async function main() {
       console.log('[ensure-all-columns] RemittanceRecord.pickupDate: added.');
     });
 
+    // ── ShippingChargeRecord table ────────────────────────────────────────
+    await safely('ShippingChargeRecord', async () => {
+      const { rows } = await client.query(`SELECT to_regclass('public."ShippingChargeRecord"') AS reg`);
+      if (rows[0]?.reg) {
+        console.log('[ensure-all-columns] ShippingChargeRecord: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] ShippingChargeRecord: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "ShippingChargeRecord" (
+          "id"               TEXT NOT NULL,
+          "awbNumber"        TEXT NOT NULL,
+          "bigshipOrderId"   TEXT,
+          "courierName"      TEXT,
+          "orderStatus"      TEXT,
+          "courierCreatedAt" TIMESTAMP(3),
+          "manifestedWeight" DECIMAL(10,2),
+          "appliedWeight"    DECIMAL(10,2),
+          "weightParameter"  TEXT,
+          "freightCharges"   DECIMAL(12,2),
+          "totalCharges"     DECIMAL(12,2) NOT NULL,
+          "orderValue"       DECIMAL(12,2),
+          "productsRaw"      TEXT,
+          "sourceFileName"   TEXT,
+          "importedById"     TEXT,
+          "createdAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt"        TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "ShippingChargeRecord_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "ShippingChargeRecord_awbNumber_key" ON "ShippingChargeRecord"("awbNumber");`);
+      await client.query(`CREATE INDEX IF NOT EXISTS "ShippingChargeRecord_awbNumber_idx" ON "ShippingChargeRecord"("awbNumber");`);
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE "ShippingChargeRecord" ADD CONSTRAINT "ShippingChargeRecord_importedById_fkey"
+          FOREIGN KEY ("importedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+      `);
+      console.log('[ensure-all-columns] ShippingChargeRecord: created.');
+    });
+
+    // ── Shipment courier-charge-collected columns ─────────────────────────
+    await safely('Shipment courier charge columns', async () => {
+      const COLUMNS = [
+        { name: 'courierChargeCollected', ddl: 'DECIMAL(12,2)' },
+        { name: 'courierChargeUpdatedAt', ddl: 'TIMESTAMP(3)' },
+      ];
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Shipment' AND column_name = ANY($1::text[])
+      `, [COLUMNS.map((c) => c.name)]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      const missing = COLUMNS.filter((c) => !existing.has(c.name));
+      if (missing.length === 0) {
+        console.log('[ensure-all-columns] Shipment courier charge columns: all exist.');
+        return;
+      }
+      for (const col of missing) {
+        console.log(`[ensure-all-columns] Shipment.${col.name}: missing, adding.`);
+        await client.query(`ALTER TABLE "Shipment" ADD COLUMN IF NOT EXISTS "${col.name}" ${col.ddl};`);
+      }
+      console.log('[ensure-all-columns] Shipment courier charge columns: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

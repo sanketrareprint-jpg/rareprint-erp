@@ -2,9 +2,10 @@
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck } from "lucide-react";
+import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck, IndianRupee } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
@@ -35,6 +36,16 @@ type DeliveredReportRow = {
   matched: DeliveredReportCandidate | null;
   candidates: DeliveredReportCandidate[];
 };
+type CourierChargeRow = {
+  shipmentId: string; orderId: string; orderNo: string;
+  customerName: string; salesAgentName: string | null;
+  dispatchDate: string; dispatchType: string | null;
+  awbNumber: string | null; carrierName: string | null;
+  courierOrderStatus: string | null;
+  actual: number | null; taken: number | null; net: number | null;
+  hasReportData: boolean;
+};
+type CourierChargeTotals = { actual: number; taken: number; net: number };
 type DeliveredReportPreview = {
   totalRows: number; matched: number; ambiguous: number; unmatched: number;
   rows: DeliveredReportRow[];
@@ -116,7 +127,9 @@ function ageColor(dateStr: string): string {
 
 export default function DispatchPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<"queue" | "history" | "delivered">("queue");
+  const isNativeApp = useIsNativeApp();
+  const [historyCompact, setHistoryCompact] = useState(true);
+  const [tab, setTab] = useState<"queue" | "history" | "delivered" | "courier_charges">("queue");
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [markModal, setMarkModal] = useState<{ orderId: string; orderNo: string; isCod: boolean } | null>(null);
   const [markForm, setMarkForm] = useState({ awbNumber: "", carrierName: "", notes: "", codAmount: "" });
@@ -233,6 +246,88 @@ export default function DispatchPage() {
       alert("Failed: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setSyncingAll(false);
+    }
+  };
+
+  // ── Courier Charges (Dispatch > Courier Charges) ──────────────────────────
+  // Keeps courier/shipping money entirely separate from the order's own
+  // balance — Bigship's COD remittance sometimes bundles freight into
+  // "collected", which used to inflate the customer's paid amount and get
+  // wrongly adjusted against their next order. Actual cost is auto-fetched
+  // from the uploaded monthly Shipping Charges report (matched by AWB);
+  // "Taken from customer" is entered by hand here and never touches
+  // Order.grandTotal/payments.
+  const [courierCharges, setCourierCharges] = useState<CourierChargeRow[]>([]);
+  const [courierChargesTotals, setCourierChargesTotals] = useState<CourierChargeTotals>({ actual: 0, taken: 0, net: 0 });
+  const [courierChargesLoading, setCourierChargesLoading] = useState(false);
+  const [courierChargesMonth, setCourierChargesMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [courierReportUploading, setCourierReportUploading] = useState(false);
+  const [savingTakenId, setSavingTakenId] = useState<string | null>(null);
+  const [takenDrafts, setTakenDrafts] = useState<Record<string, string>>({});
+  const courierReportFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const loadCourierCharges = useCallback(async () => {
+    setCourierChargesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/courier-charges?month=${courierChargesMonth}`, { headers: getAuthHeaders() });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed to load");
+      setCourierCharges(body.rows ?? []);
+      setCourierChargesTotals(body.totals ?? { actual: 0, taken: 0, net: 0 });
+      setTakenDrafts({});
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCourierChargesLoading(false);
+    }
+  }, [courierChargesMonth]);
+
+  useEffect(() => { if (tab === "courier_charges") void loadCourierCharges(); }, [tab, loadCourierCharges]);
+
+  const handleCourierReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCourierReportUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const headers = getAuthHeaders() as Record<string, string>;
+      delete headers["Content-Type"];
+      const res = await fetch(`${API_BASE_URL}/dispatch/courier-charges/import`, { method: "POST", headers, body: formData });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Could not read this file");
+      alert(`Shipping Charges report imported — ${body.rowsProcessed} row(s) matched by AWB.`);
+      await loadCourierCharges();
+    } catch (err) {
+      alert("Failed to import report: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setCourierReportUploading(false);
+    }
+  };
+
+  const saveTakenAmount = async (shipmentId: string, rawValue: string) => {
+    const amount = Number(rawValue);
+    if (rawValue.trim() === "" || Number.isNaN(amount) || amount < 0) {
+      alert("Enter a valid, non-negative amount.");
+      return;
+    }
+    setSavingTakenId(shipmentId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/courier-charges/${shipmentId}/collected`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ amount }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed to save");
+      await loadCourierCharges();
+    } catch (err) {
+      alert("Failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSavingTakenId(null);
     }
   };
 
@@ -667,6 +762,10 @@ export default function DispatchPage() {
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "delivered" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <PackageCheck className="h-3.5 w-3.5" /> Delivered ({historyDeliveredCount})
               </button>
+              <button onClick={() => setTab("courier_charges")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "courier_charges" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <IndianRupee className="h-3.5 w-3.5" /> Courier Charges
+              </button>
             </div>
           </div>
 
@@ -702,12 +801,104 @@ export default function DispatchPage() {
                 </button>
                 <span className="text-xs text-slate-400">{displayedHistory.length} shipment{displayedHistory.length !== 1 ? "s" : ""}</span>
               </div>
+              {isNativeApp && displayedHistory.length > 0 && (
+                <div className="flex items-center justify-end gap-1.5">
+                  <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                    <button onClick={() => setHistoryCompact(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${historyCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Compact
+                    </button>
+                    <button onClick={() => setHistoryCompact(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!historyCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Table
+                    </button>
+                  </div>
+                </div>
+              )}
               {historyLoading ? (
                 <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
               ) : displayedHistory.length === 0 ? (
                 <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
                   {tab === "delivered" ? <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" /> : <History className="h-10 w-10 mx-auto mb-2 opacity-30" />}
                   <p>{tab === "delivered" ? "No delivered shipments found." : "No shipment history found."}</p>
+                </div>
+              ) : isNativeApp && historyCompact ? (
+                <div className="space-y-2">
+                  {filteredHistory.map(h => (
+                    <div key={h.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-blue-700">{h.orderNo}</p>
+                          <p className="text-xs text-slate-800 font-medium truncate">{h.customerName}</p>
+                          {h.customerPhone && <p className="text-[10px] text-slate-400">{h.customerPhone}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[10px] text-slate-400">{new Date(h.dispatchDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}</p>
+                          <p className="text-sm font-bold text-slate-800">{h.amount != null ? fmt(h.amount) : "—"}</p>
+                        </div>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          h.status === "DELIVERED" ? "bg-green-100 text-green-700" :
+                          h.status === "IN_TRANSIT" ? "bg-blue-100 text-blue-700" :
+                          h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
+                          "bg-slate-100 text-slate-600"
+                        }`}>{h.status}</span>
+                        {h.isCod && (
+                          <span className="rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-[10px] font-bold">
+                            💰 {h.codAmount ? fmt(h.codAmount) : "COD"}
+                          </span>
+                        )}
+                        {(h.carrierName || h.transportName) && (
+                          <span className="text-slate-500">{h.carrierName || h.transportName}{h.lrNumber ? ` · LR: ${h.lrNumber}` : ""}</span>
+                        )}
+                      </div>
+                      {(h.trackingNumber || h.awbNumber) && (
+                        <p className="mt-1 text-[11px] font-mono text-blue-700">{h.trackingNumber ? h.trackingNumber : `AWB: ${h.awbNumber}`}</p>
+                      )}
+                      {h.shippingAddress && <p className="mt-1 text-[11px] text-slate-400 truncate" title={h.shippingAddress}>{h.shippingAddress}</p>}
+                      {h.bigshipStatus && (
+                        <p className="mt-0.5 text-[10px] text-slate-500" title="Live status as reported by Bigship">{h.bigshipStatus}</p>
+                      )}
+                      {((h.status === "PACKED" || h.status === "IN_TRANSIT" || h.status === "CANCELLED") ||
+                        (h.bigshipOrderId && (h.status === "PACKED" || h.status === "IN_TRANSIT"))) && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(h.status === "PACKED" || h.status === "IN_TRANSIT" || h.status === "CANCELLED") && (
+                            <button
+                              onClick={() => void returnToQueue(h.orderId)}
+                              disabled={returningId === h.orderId}
+                              title="Reset this order back to Ready for Dispatch — use this if the shipment was cancelled or stuck in Bigship and needs to be rebooked"
+                              className="flex-1 rounded-lg border border-orange-300 bg-orange-50 px-2 py-1.5 text-[11px] font-semibold text-orange-700 disabled:opacity-50"
+                            >↩ Queue</button>
+                          )}
+                          {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                            <button
+                              onClick={() => void markDelivered(h.id)}
+                              disabled={markingDeliveredId === h.id}
+                              title="Mark delivered and send the customer a WhatsApp review/testimonial request"
+                              className="flex-1 rounded-lg border border-green-300 bg-green-50 px-2 py-1.5 text-[11px] font-semibold text-green-700 disabled:opacity-50"
+                            >{markingDeliveredId === h.id ? "…" : "✅ Delivered"}</button>
+                          )}
+                          {h.bigshipOrderId && (h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                            <button
+                              onClick={() => void syncBigship(h.id)}
+                              disabled={syncingId === h.id}
+                              title={h.bigshipSyncedAt ? `Last synced ${new Date(h.bigshipSyncedAt).toLocaleString("en-IN")}${h.bigshipStatus ? ` — ${h.bigshipStatus}` : ""}` : "Pull the real AWB and status from Bigship"}
+                              className="flex-1 rounded-lg border border-blue-300 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 disabled:opacity-50"
+                            >{syncingId === h.id ? "…" : "🔄 Sync"}</button>
+                          )}
+                          {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                            <button
+                              onClick={() => void setManualAwb(h.id, h.trackingNumber)}
+                              disabled={settingAwbId === h.id}
+                              title="Manually enter the real AWB number (e.g. after shipping it directly from Bigship's dashboard)"
+                              className="flex-1 rounded-lg border border-gray-300 bg-gray-50 px-2 py-1.5 text-[11px] font-semibold text-gray-700 disabled:opacity-50"
+                            >{settingAwbId === h.id ? "…" : "✏️ AWB"}</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
@@ -800,6 +991,122 @@ export default function DispatchPage() {
                                 title="Manually enter the real AWB number (e.g. after shipping it directly from Bigship's dashboard)"
                                 className="mt-1 block w-full rounded border border-gray-300 bg-gray-50 px-1 py-0.5 text-[10px] font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                               >{settingAwbId === h.id ? "…" : "✏️ Add AWB"}</button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── COURIER CHARGES TAB ── */}
+          {tab === "courier_charges" && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2 items-center">
+                <input type="month" value={courierChargesMonth} onChange={e => setCourierChargesMonth(e.target.value)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                <button onClick={() => void loadCourierCharges()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                  <Loader2 className={`h-3 w-3 ${courierChargesLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <input ref={courierReportFileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => void handleCourierReportFileChange(e)} />
+                <button
+                  onClick={() => courierReportFileInputRef.current?.click()}
+                  disabled={courierReportUploading}
+                  title="Upload Bigship's monthly 'Shipping Charges' export — matches rows to shipments by AWB and fills in the Actual column"
+                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Loader2 className={`h-3 w-3 ${courierReportUploading ? "animate-spin" : ""}`} /> {courierReportUploading ? "Reading…" : "📥 Upload Shipping Charges Report"}
+                </button>
+                <span className="text-xs text-slate-400 ml-auto">{courierCharges.length} shipment{courierCharges.length !== 1 ? "s" : ""}</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-semibold text-slate-500">Actual (courier cost)</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">₹{courierChargesTotals.actual.toLocaleString("en-IN")}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-semibold text-slate-500">Taken from customer</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">₹{courierChargesTotals.taken.toLocaleString("en-IN")}</p>
+                </div>
+                <div className={`rounded-xl border p-3 ${courierChargesTotals.net >= 0 ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                  <p className="text-xs font-semibold text-slate-500">Net (profit/loss)</p>
+                  <p className={`mt-1 text-lg font-bold ${courierChargesTotals.net >= 0 ? "text-green-700" : "text-red-700"}`}>
+                    {courierChargesTotals.net >= 0 ? "+" : ""}₹{courierChargesTotals.net.toLocaleString("en-IN")}
+                  </p>
+                </div>
+              </div>
+
+              {courierChargesLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+              ) : courierCharges.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
+                  <IndianRupee className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                  <p>No dispatched shipments found for this month.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                  <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="px-3 py-2 font-semibold text-slate-600">Order</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Dispatched</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">AWB / Mode</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Actual</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Taken from Customer</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Net</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {courierCharges.map(row => (
+                        <tr key={row.shipmentId} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <p className="font-bold text-blue-700">{row.orderNo}</p>
+                            {row.salesAgentName && <p className="text-slate-400">{row.salesAgentName}</p>}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{row.customerName}</td>
+                          <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{new Date(row.dispatchDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {row.dispatchType === "COURIER" ? (
+                              <div>
+                                <p className="font-mono text-slate-800">{row.awbNumber ?? "—"}</p>
+                                {row.courierOrderStatus && <p className="text-slate-400">{row.courierOrderStatus}</p>}
+                              </div>
+                            ) : (
+                              <span className="rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 font-semibold">
+                                {row.dispatchType === "TRANSPORT" ? "Transport" : row.dispatchType === "BY_HAND" ? "By Hand" : row.dispatchType === "SELF_COLLECTED" ? "Self Collected" : row.dispatchType ?? "—"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">
+                            {row.actual != null ? `₹${row.actual.toLocaleString("en-IN")}` : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number" min={0} step="0.01"
+                                placeholder="0"
+                                defaultValue={row.taken ?? ""}
+                                onBlur={e => {
+                                  const v = e.target.value;
+                                  if (v.trim() === "" || Number(v) === row.taken) return;
+                                  void saveTakenAmount(row.shipmentId, v);
+                                }}
+                                disabled={savingTakenId === row.shipmentId}
+                                className="w-24 rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold outline-none focus:border-blue-400 disabled:opacity-60"
+                              />
+                              {savingTakenId === row.shipmentId && <Loader2 className="h-3 w-3 animate-spin text-blue-600" />}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 font-bold">
+                            {row.net != null ? (
+                              <span className={row.net >= 0 ? "text-green-700" : "text-red-700"}>{row.net >= 0 ? "+" : ""}₹{row.net.toLocaleString("en-IN")}</span>
+                            ) : (
+                              <span className="text-slate-300">—</span>
                             )}
                           </td>
                         </tr>

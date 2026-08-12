@@ -1825,4 +1825,200 @@ export class DispatchService {
     };
   }
 
+  // ── Courier Charges (Dispatch > Courier Charges) ──────────────────────────
+  // Bigship's COD remittance sometimes bundles freight into "collected
+  // amount", and posting that straight onto the order (see remittance.service.ts)
+  // used to inflate the customer's paid amount and later get silently
+  // "adjusted" against their next order. This section keeps courier money in
+  // its own ledger, entirely separate from Order.grandTotal/payments:
+  //   - "Actual" cost is auto-fetched from Bigship's monthly Shipping Charges
+  //     report (Total Charges — already includes freight + any
+  //     overweight/RTO surcharge, see Order Status on RTO/Cancelled rows
+  //     where Total > Freight), matched by AWB against Shipment.awbNumber
+  //     (which the ERP itself set at dispatch time — no fuzzy matching
+  //     needed, unlike remittance's order-number/phone fallback).
+  //   - "Taken from customer" is entered by hand by dispatch/sales staff on
+  //     Shipment.courierChargeCollected — never negative.
+  //   - "Net" = Taken − Actual = courier profit/loss on that shipment.
+
+  private parseShippingChargesReport(buffer: Buffer) {
+    const rows = sheetToObjects(buffer, ['AWBNumber', 'Order Id', 'Total Charges', 'Freight Charges']);
+    const num = (v: unknown): number | null => {
+      if (v == null || v === '') return null;
+      const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[₹,\s]/g, ''));
+      return Number.isFinite(n) ? n : null;
+    };
+    return rows
+      .map((r) => ({
+        awb: normalizeAwb(r['AWBNumber']),
+        bigshipOrderId: r['Order Id'] != null ? String(r['Order Id']).trim() : null,
+        courierName: r['Courier'] ? String(r['Courier']).trim() : null,
+        orderStatus: r['Order Status'] ? String(r['Order Status']).trim() : null,
+        courierCreatedAt: parseFlexibleDate(r['Created At']),
+        manifestedWeight: num(r['Manifested Weight (kg)']),
+        appliedWeight: num(r['Applied Weight (kg)']),
+        weightParameter: r['Weight Parameter'] ? String(r['Weight Parameter']).trim() : null,
+        freightCharges: num(r['Freight Charges']),
+        totalCharges: num(r['Total Charges']) ?? 0,
+        orderValue: num(r['Order Value']),
+        productsRaw: r['Products'] ? String(r['Products']) : null,
+      }))
+      .filter((r) => r.awb);
+  }
+
+  async importShippingChargesReport(buffer: Buffer, fileName: string, userId: string) {
+    const rows = this.parseShippingChargesReport(buffer);
+    if (rows.length === 0) {
+      throw new BadRequestException(
+        'No valid rows found — make sure this is the Bigship "Shipping Charges" monthly export (needs an AWBNumber column).',
+      );
+    }
+    for (const row of rows) {
+      const data = {
+        bigshipOrderId: row.bigshipOrderId,
+        courierName: row.courierName,
+        orderStatus: row.orderStatus,
+        courierCreatedAt: row.courierCreatedAt,
+        manifestedWeight: row.manifestedWeight != null ? new Prisma.Decimal(row.manifestedWeight) : null,
+        appliedWeight: row.appliedWeight != null ? new Prisma.Decimal(row.appliedWeight) : null,
+        weightParameter: row.weightParameter,
+        freightCharges: row.freightCharges != null ? new Prisma.Decimal(row.freightCharges) : null,
+        totalCharges: new Prisma.Decimal(row.totalCharges),
+        orderValue: row.orderValue != null ? new Prisma.Decimal(row.orderValue) : null,
+        productsRaw: row.productsRaw,
+        sourceFileName: fileName,
+        importedById: userId,
+      };
+      await (this.prisma as any).shippingChargeRecord.upsert({
+        where: { awbNumber: row.awb },
+        create: { awbNumber: row.awb, ...data },
+        update: data,
+      });
+    }
+    return { success: true, rowsProcessed: rows.length };
+  }
+
+  async listCourierCharges(query: { month?: string } = {}) {
+    const where: any = {
+      status: { not: ShipmentStatus.CANCELLED },
+      order: { isTest: false },
+    };
+    if (query.month) {
+      const [y, m] = query.month.split('-').map((n) => Number(n));
+      if (y && m) where.dispatchDate = { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) };
+    }
+
+    const shipments = await this.prisma.shipment.findMany({
+      where,
+      orderBy: { dispatchDate: 'desc' },
+      include: {
+        order: {
+          include: {
+            customer: { select: { businessName: true, phone: true } },
+            salesAgent: { select: { fullName: true } },
+          },
+        },
+      },
+    });
+
+    const awbs = shipments
+      .map((s) => (s.dispatchType === 'COURIER' && s.awbNumber ? normalizeAwb(s.awbNumber) : null))
+      .filter((a): a is string => !!a);
+    const chargeRecords = awbs.length
+      ? await (this.prisma as any).shippingChargeRecord.findMany({ where: { awbNumber: { in: awbs } } })
+      : [];
+    const byAwb = new Map<string, any>(chargeRecords.map((r: any) => [r.awbNumber, r]));
+
+    const rows = shipments.map((s) => {
+      const isCourier = s.dispatchType === 'COURIER';
+      const awb = isCourier && s.awbNumber ? normalizeAwb(s.awbNumber) : null;
+      const chargeRecord = awb ? byAwb.get(awb) : undefined;
+      const actual = chargeRecord ? Number(chargeRecord.totalCharges) : null;
+      const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
+      const net = actual != null && taken != null ? taken - actual : null;
+      return {
+        shipmentId: s.id,
+        orderId: s.orderId,
+        orderNo: s.order.orderNumber,
+        customerName: s.order.customer.businessName,
+        salesAgentName: s.order.salesAgent?.fullName ?? null,
+        dispatchDate: s.dispatchDate?.toISOString() ?? s.createdAt.toISOString(),
+        dispatchType: s.dispatchType,
+        awbNumber: awb,
+        carrierName: s.carrierName,
+        courierOrderStatus: chargeRecord?.orderStatus ?? null,
+        actual,
+        taken,
+        net,
+        hasReportData: !!chargeRecord,
+      };
+    });
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        if (r.actual != null) acc.actual += r.actual;
+        if (r.taken != null) acc.taken += r.taken;
+        if (r.net != null) acc.net += r.net;
+        return acc;
+      },
+      { actual: 0, taken: 0, net: 0 },
+    );
+
+    return { rows, totals, count: rows.length };
+  }
+
+  async updateCourierChargeCollected(shipmentId: string, amount: number) {
+    if (amount == null || Number.isNaN(amount) || amount < 0) {
+      throw new BadRequestException('Courier charge collected must be a non-negative amount');
+    }
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    const updated = await (this.prisma.shipment as any).update({
+      where: { id: shipmentId },
+      data: { courierChargeCollected: new Prisma.Decimal(amount), courierChargeUpdatedAt: new Date() },
+    });
+    return { shipmentId: updated.id, courierChargeCollected: Number(updated.courierChargeCollected) };
+  }
+
+  // Owner-facing Dashboard summary — monthly totals across every courier
+  // shipment (Actual from the Shipping Charges report, Taken from what
+  // agents entered, Net = profit/loss). Grouped by dispatch month.
+  async getMonthlyCourierProfitSummary(monthsBack = 12) {
+    const shipments = await this.prisma.shipment.findMany({
+      where: {
+        dispatchType: 'COURIER',
+        status: { not: ShipmentStatus.CANCELLED },
+        dispatchDate: { not: null },
+        order: { isTest: false },
+      },
+      select: { dispatchDate: true, awbNumber: true, courierChargeCollected: true } as any,
+    });
+
+    const awbs = shipments.map((s) => (s.awbNumber ? normalizeAwb(s.awbNumber) : null)).filter((a): a is string => !!a);
+    const chargeRecords = awbs.length
+      ? await (this.prisma as any).shippingChargeRecord.findMany({ where: { awbNumber: { in: awbs } }, select: { awbNumber: true, totalCharges: true } })
+      : [];
+    const byAwb = new Map<string, number>(chargeRecords.map((r: any) => [r.awbNumber, Number(r.totalCharges)]));
+
+    const byMonth = new Map<string, { actual: number; taken: number; net: number; shipments: number }>();
+    for (const s of shipments) {
+      if (!s.dispatchDate) continue;
+      const monthKey = `${s.dispatchDate.getFullYear()}-${String(s.dispatchDate.getMonth() + 1).padStart(2, '0')}`;
+      const awb = s.awbNumber ? normalizeAwb(s.awbNumber) : null;
+      const actual = awb ? byAwb.get(awb) ?? null : null;
+      const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
+      const bucket = byMonth.get(monthKey) ?? { actual: 0, taken: 0, net: 0, shipments: 0 };
+      bucket.shipments += 1;
+      if (actual != null) bucket.actual += actual;
+      if (taken != null) bucket.taken += taken;
+      if (actual != null && taken != null) bucket.net += taken - actual;
+      byMonth.set(monthKey, bucket);
+    }
+
+    return Array.from(byMonth.entries())
+      .map(([month, v]) => ({ month, ...v }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-monthsBack);
+  }
+
 }

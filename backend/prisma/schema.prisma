@@ -55,6 +55,7 @@ model User {
   commissionOverridesSet      CommissionOverride[]      @relation("CommOverrideSetBy")
   remittanceImports           RemittanceImportSession[] @relation("RemittanceImports")
   remittancePosted            RemittanceRecord[]        @relation("RemittancePostedBy")
+  shippingChargeImports        ShippingChargeRecord[]    @relation("ShippingChargeImports")
   employeeProfile              Employee?                 @relation("EmployeeUser")
   employeeLeavesRecorded       EmployeeLeaveEntry[]      @relation("LeaveRecordedBy")
   attendanceRecordsEdited      AttendanceRecord[]        @relation("AttendanceEditedBy")
@@ -1022,6 +1023,15 @@ model Shipment {
   bigshipOrderId       String?
   bigshipStatus        String?
   bigshipSyncedAt      DateTime?
+  // Amount the sales/dispatch agent actually collected from the customer for
+  // courier/shipping — entered by hand in Dispatch > Courier Charges.
+  // Deliberately NOT part of Order.grandTotal/payments: Bigship's COD
+  // remittance sometimes bundles freight into what it calls "collected",
+  // and posting that straight onto the order used to inflate the customer's
+  // paid amount and silently get "adjusted" against their next order. This
+  // field keeps courier money in its own ledger so that can't happen again.
+  courierChargeCollected Decimal?     @db.Decimal(12, 2)
+  courierChargeUpdatedAt DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
   godown               Godown?        @relation(fields: [godownId], references: [id])
@@ -2352,6 +2362,37 @@ enum RemittanceMatchStatus {
   POSTED
   DUPLICATE
   REJECTED
+}
+
+// Bigship's monthly "Shipping Charges" report — one row per AWB, giving the
+// FINAL actual courier cost for that shipment ("Total Charges" already bakes
+// in freight plus any overweight/RTO adjustment; see Order Status for
+// RTO/Cancelled rows where Total > Freight). Upserted by AWB number on every
+// upload. Unlike RemittanceRecord, this needs no fuzzy order-matching/review
+// workflow — the AWB ties straight back to Shipment.awbNumber, which the ERP
+// itself set at dispatch time — so Dispatch > Courier Charges just joins on
+// awbNumber directly at read time.
+model ShippingChargeRecord {
+  id               String    @id @default(cuid())
+  awbNumber        String    @unique
+  bigshipOrderId   String? // Bigship's own "Order Id" (not the ERP order number)
+  courierName      String?
+  orderStatus      String? // Delivered | Undelivered | Cancelled | RTO In Transit | RTO Delivered | ...
+  courierCreatedAt DateTime?
+  manifestedWeight Decimal?  @db.Decimal(10, 2)
+  appliedWeight    Decimal?  @db.Decimal(10, 2)
+  weightParameter  String?
+  freightCharges   Decimal?  @db.Decimal(12, 2)
+  totalCharges     Decimal   @db.Decimal(12, 2) // the real actual cost — freight + any weight/RTO surcharge
+  orderValue       Decimal?  @db.Decimal(12, 2)
+  productsRaw      String?   @db.Text
+  sourceFileName   String?
+  importedById     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  importedBy       User?     @relation("ShippingChargeImports", fields: [importedById], references: [id])
+
+  @@index([awbNumber])
 }
 
 model VendorKeyword {

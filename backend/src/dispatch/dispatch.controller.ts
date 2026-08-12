@@ -4,7 +4,9 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { DispatchService } from './dispatch.service';
 
-type JwtUser = { id: string };
+type JwtUser = { id: string; email?: string };
+
+const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 type DispatchPackageBox = {
   noOfBoxes?: number;
   length?: number;
@@ -211,6 +213,48 @@ export class DispatchController {
       throw new Error('shipmentIds must be a non-empty array');
     }
     return this.dispatchService.confirmDeliveredFromReport(shipmentIds, req.user.id);
+  }
+
+  // ── Courier Charges (Dispatch > Courier Charges) ──────────────────────────
+
+  /** GET /dispatch/courier-charges?month=YYYY-MM
+   *  Every dispatched shipment with Actual (auto-fetched from the uploaded
+   *  Shipping Charges report by AWB), Taken from customer (agent-entered),
+   *  and Net = Taken − Actual. */
+  @Get('courier-charges')
+  listCourierCharges(@Query('month') month?: string) {
+    return this.dispatchService.listCourierCharges({ month });
+  }
+
+  /** POST /dispatch/courier-charges/import  (multipart field: "file")
+   *  Bigship's monthly "Shipping Charges" report — upserted by AWB. */
+  @Post('courier-charges/import')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  importShippingChargesReport(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    if (!file) throw new Error('Shipping Charges report file is required (field: file)');
+    return this.dispatchService.importShippingChargesReport(file.buffer, file.originalname, req.user.id);
+  }
+
+  /** PATCH /dispatch/courier-charges/:shipmentId  { amount: number }
+   *  Agent-entered "taken from customer" figure for that shipment. */
+  @Post('courier-charges/:shipmentId/collected')
+  updateCourierChargeCollected(
+    @Param('shipmentId') shipmentId: string,
+    @Body('amount') amount: number,
+  ) {
+    return this.dispatchService.updateCourierChargeCollected(shipmentId, Number(amount));
+  }
+
+  /** GET /dispatch/courier-charges/summary
+   *  Monthly Actual/Taken/Net rollup for the Dashboard's Courier Profit
+   *  section — owner-only, same gating as Marketing ROI. */
+  @Get('courier-charges/summary')
+  getCourierChargesSummary(@Req() req: Request & { user: JwtUser }) {
+    if (req.user?.email !== SUPER_ADMIN_EMAIL) return [];
+    return this.dispatchService.getMonthlyCourierProfitSummary();
   }
 
   @Post('shipments/sync-bigship-all')

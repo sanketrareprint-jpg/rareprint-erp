@@ -60,6 +60,13 @@ type MarketingRoiMonth = {
   roiVsSaleX: number | null; roiVsProfitX: number | null; costPerConversion: number | null;
 };
 
+// Courier Profit — monthly rollup of Dispatch > Courier Charges (owner
+// only). Actual = real cost from Bigship's uploaded Shipping Charges
+// report; Taken = what agents recorded as collected from customers; Net =
+// Taken − Actual. Kept fully separate from order billing on purpose — see
+// dispatch.service.ts's Courier Charges section for why.
+type CourierProfitMonth = { month: string; actual: number; taken: number; net: number; shipments: number };
+
 // Super Admin Tasks — an extensible list of "only Sanket/owner can act on
 // this" items (see backend DashboardService.getSuperAdminTasks). New task
 // types just show up here automatically; nothing on the frontend needs to
@@ -155,6 +162,8 @@ export default function DashboardPage() {
   const [agentProfitLoading, setAgentProfitLoading] = useState(false);
   const [marketingRoiMonths, setMarketingRoiMonths] = useState<MarketingRoiMonth[]>([]);
   const [marketingRoiLoading, setMarketingRoiLoading] = useState(false);
+  const [courierProfitMonths, setCourierProfitMonths] = useState<CourierProfitMonth[]>([]);
+  const [courierProfitLoading, setCourierProfitLoading] = useState(false);
   const [complaintsOverview, setComplaintsOverview] = useState<ComplaintsOverview | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
@@ -309,6 +318,20 @@ export default function DashboardPage() {
       .then(d => { if (!cancelled) setMarketingRoiMonths(d.months ?? []); })
       .catch(() => { if (!cancelled) setMarketingRoiMonths([]); })
       .finally(() => { if (!cancelled) setMarketingRoiLoading(false); });
+    return () => { cancelled = true; };
+  }, [currentUser]);
+
+  // Courier Profit (owner only) — same client-side gate pattern as
+  // marketing-roi/agent-profit above; the backend enforces it regardless.
+  useEffect(() => {
+    if (currentUser?.email !== "sanket.rareprint@gmail.com") return;
+    let cancelled = false;
+    setCourierProfitLoading(true);
+    fetch(`${API_BASE_URL}/dispatch/courier-charges/summary`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { if (!cancelled) setCourierProfitMonths(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setCourierProfitMonths([]); })
+      .finally(() => { if (!cancelled) setCourierProfitLoading(false); });
     return () => { cancelled = true; };
   }, [currentUser]);
 
@@ -533,6 +556,49 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Courier Profit — owner only. Monthly rollup of Dispatch > Courier
+            Charges: Actual (real Bigship cost, from the uploaded Shipping
+            Charges report), Taken (what agents recorded as collected from
+            customers), Net (profit/loss). Deliberately separate from order
+            billing — see Dispatch > Courier Charges for the per-shipment
+            detail and to enter Taken amounts. */}
+        {isOwner && (
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-xs font-semibold text-slate-700">Courier Profit <span className="opacity-60 font-normal">(owner only)</span></p>
+              {courierProfitLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+            </div>
+            {!courierProfitLoading && courierProfitMonths.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">No courier charges data yet — upload a Shipping Charges report in Dispatch &gt; Courier Charges.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-slate-100">
+                      <th className="text-left font-medium py-1 pr-2">Month</th>
+                      <th className="text-right font-medium py-1 px-2">Shipments</th>
+                      <th className="text-right font-medium py-1 px-2">Actual</th>
+                      <th className="text-right font-medium py-1 px-2">Taken</th>
+                      <th className="text-right font-medium py-1 pl-2">Net</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courierProfitMonths.map((m) => (
+                      <tr key={m.month} className="border-b border-slate-50 last:border-0">
+                        <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">{m.month}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{m.shipments}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(m.actual)}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(m.taken)}</td>
+                        <td className={`py-1 pl-2 text-right font-semibold ${m.net >= 0 ? "text-emerald-600" : "text-red-600"}`}>{m.net >= 0 ? "+" : ""}{fmt(m.net)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
