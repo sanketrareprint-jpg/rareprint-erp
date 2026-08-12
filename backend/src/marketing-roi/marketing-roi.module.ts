@@ -8,5 +8,6 @@ import { MarketingRoiService } from './marketing-roi.service';
   imports: [PrismaModule, CallComplianceModule],
   controllers: [MarketingRoiController],
   providers: [MarketingRoiService],
+  exports: [MarketingRoiService],
 })
 export class MarketingRoiModule {}

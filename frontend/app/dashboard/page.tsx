@@ -47,6 +47,19 @@ type AgentProfitRow = {
 type AgentProfitTotals = { saleTotal: number; grossProfit: number; commissionTotal: number; bonus: number; baseSalary: number; profitAfterDeductions: number };
 type AgentProfitBreakdown = { year: number; month: number; agents: AgentProfitRow[]; totals: AgentProfitTotals };
 
+// Marketing/Ad ROI (owner only) — one row per month starting May 2026. Each
+// month is a cohort: "contacts created that month" vs. ALL orders those
+// contacts have ever placed, so totalSale/totalProfit/convertedCustomers for
+// e.g. May keep growing as May-created leads convert in June, July, etc. —
+// this recomputes live on every dashboard load, nothing is frozen.
+type MarketingRoiMonth = {
+  monthKey: string; label: string;
+  metaAdSpend: number; aisensySpend: number; totalSpend: number;
+  contactsCreated: number; convertedCustomers: number; conversionRatioPct: number;
+  totalSale: number; totalProfit: number;
+  roiVsSaleX: number | null; roiVsProfitX: number | null; costPerConversion: number | null;
+};
+
 // Super Admin Tasks — an extensible list of "only Sanket/owner can act on
 // this" items (see backend DashboardService.getSuperAdminTasks). New task
 // types just show up here automatically; nothing on the frontend needs to
@@ -140,6 +153,8 @@ export default function DashboardPage() {
   const [agentProfitMonth, setAgentProfitMonth] = useState(""); // "" = this month
   const [agentProfit, setAgentProfit] = useState<AgentProfitBreakdown | null>(null);
   const [agentProfitLoading, setAgentProfitLoading] = useState(false);
+  const [marketingRoiMonths, setMarketingRoiMonths] = useState<MarketingRoiMonth[]>([]);
+  const [marketingRoiLoading, setMarketingRoiLoading] = useState(false);
   const [complaintsOverview, setComplaintsOverview] = useState<ComplaintsOverview | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
@@ -282,6 +297,21 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, [agentProfitMonth, currentUser]);
 
+  // Marketing/Ad ROI (owner only) — same client-side gate as agent-profit
+  // above; the backend enforces it regardless, this just avoids a pointless
+  // request for everyone else.
+  useEffect(() => {
+    if (currentUser?.email !== "sanket.rareprint@gmail.com") return;
+    let cancelled = false;
+    setMarketingRoiLoading(true);
+    fetch(`${API_BASE_URL}/dashboard/marketing-roi`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : { months: [] })
+      .then(d => { if (!cancelled) setMarketingRoiMonths(d.months ?? []); })
+      .catch(() => { if (!cancelled) setMarketingRoiMonths([]); })
+      .finally(() => { if (!cancelled) setMarketingRoiLoading(false); });
+    return () => { cancelled = true; };
+  }, [currentUser]);
+
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return (
@@ -330,7 +360,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ── KPI Cards ── */}
-        <div className="grid grid-cols-7 gap-2">
+        <div className="dash-kpi-grid grid grid-cols-7 gap-2">
           {[
             { label: "Today's Sale",      value: fmt(stats.revenue.today ?? 0),            sub: "Order value today",                   color: "text-emerald-600" },
             { label: "This Month Sale",   value: fmt(stats.revenue.thisMonth),              sub: `${stats.orders.thisMonth} orders this month`, color: "text-slate-900" },
@@ -490,6 +520,58 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* ── Marketing / Ad ROI — owner only, May 2026 onwards. Each row is
+             a monthly lead cohort: contacts created that month vs. ALL orders
+             those contacts have ever placed since — so a May lead that
+             converts in August shows up in May's Converted/Sale/Profit the
+             next time this loads. Full detail (spend entry, contacts CSV
+             upload, per-contact drill-down) stays on Marketing > Ad ROI;
+             this is a read-only summary. ── */}
+        {isOwner && (
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-xs font-semibold text-slate-700">Marketing / Ad ROI <span className="opacity-60 font-normal">(owner only, since May 2026)</span></p>
+              {marketingRoiLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+            </div>
+            {!marketingRoiLoading && marketingRoiMonths.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">No Marketing ROI data yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-slate-100">
+                      <th className="text-left font-medium py-1 pr-2">Month</th>
+                      <th className="text-right font-medium py-1 px-2">Total Spend</th>
+                      <th className="text-right font-medium py-1 px-2">Contacts</th>
+                      <th className="text-right font-medium py-1 px-2">Converted</th>
+                      <th className="text-right font-medium py-1 px-2">Conv %</th>
+                      <th className="text-right font-medium py-1 px-2">Total Sale</th>
+                      <th className="text-right font-medium py-1 px-2">Total Profit</th>
+                      <th className="text-right font-medium py-1 px-2">ROI (Sale)</th>
+                      <th className="text-right font-medium py-1 pl-2">ROI (Profit)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {marketingRoiMonths.map((m) => (
+                      <tr key={m.monthKey} className="border-b border-slate-50 last:border-0">
+                        <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">{m.label}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(m.totalSpend)}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{m.contactsCreated}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{m.convertedCustomers}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{m.conversionRatioPct}%</td>
+                        <td className="py-1 px-2 text-right text-slate-700">{fmt(m.totalSale)}</td>
+                        <td className="py-1 px-2 text-right text-blue-600">{fmt(m.totalProfit)}</td>
+                        <td className="py-1 px-2 text-right font-semibold text-emerald-600">{m.roiVsSaleX != null ? `${m.roiVsSaleX}x` : "—"}</td>
+                        <td className="py-1 pl-2 text-right font-semibold text-emerald-600">{m.roiVsProfitX != null ? `${m.roiVsProfitX}x` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Super Admin Tasks — owner only. Extensible: each group in
              superAdminTasks.groups renders generically, so new task types
              added on the backend (see DashboardService.getSuperAdminTasks)
@@ -531,7 +613,7 @@ export default function DashboardPage() {
         {/* ── Sales by Month + Sales by Week (side by side) ── */}
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
-            <p className="text-xs font-semibold text-slate-700 mb-1">Sales — Last {salesByMonth.length || 6} Months</p>
+            <p className="dash-chart-title text-xs font-semibold text-slate-700 mb-1">Sales — Last {salesByMonth.length || 6} Months</p>
             {salesByMonth.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-6">No sales data yet</p>
             ) : (
@@ -553,7 +635,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
-            <p className="text-xs font-semibold text-slate-700 mb-1">Sales — Last 7 Days</p>
+            <p className="dash-chart-title text-xs font-semibold text-slate-700 mb-1">Sales — Last 7 Days</p>
             <div className="flex items-end gap-1" style={{ height: "70px" }}>
               {stats.orders.last7Days.map((d, i) => {
                 const barH = d.revenue > 0 ? Math.max(Math.round((d.revenue / maxDayRevenue) * 52), 8) : 2;
@@ -581,7 +663,7 @@ export default function DashboardPage() {
           {!productionKpis || productionKpis.metrics.length === 0 ? (
             <p className="text-xs text-slate-400 text-center py-4">No production timing data yet</p>
           ) : (
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="dash-prodkpi-grid grid grid-cols-5 gap-1.5">
               {productionKpis.metrics.map((metric) => (
                 <div key={metric.key} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1 min-w-0">
                   <p className="text-slate-500 font-medium truncate mb-0.5" style={{ fontSize: "10px" }}>{metric.label}</p>
@@ -673,7 +755,7 @@ export default function DashboardPage() {
               <p className="text-xs text-emerald-600 text-center py-3">No open complaints ✓</p>
             ) : (
               <>
-                <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+                <div className="dash-complaints-grid grid grid-cols-3 gap-1.5 mb-1.5">
                   <div className="rounded-md bg-red-50 px-1.5 py-1 text-center">
                     <p className="text-xs font-bold text-red-600 leading-tight">{complaintsOverview.overdueCount}</p>
                     <p className="text-slate-400" style={{ fontSize: "9px" }}>Overdue</p>
@@ -715,14 +797,13 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1 mb-1">
               <Trophy className="h-3 w-3 text-amber-500" />
               <p className="text-xs font-semibold text-slate-700">Sales Leaderboard</p>
-              <select
+              <MobileSelect
                 value={leaderboardMonth}
-                onChange={(e) => setLeaderboardMonth(e.target.value)}
+                onChange={setLeaderboardMonth}
                 className="text-slate-600 bg-white border border-slate-200 rounded outline-none"
                 style={{ fontSize: "10px", padding: "1px 3px" }}
-              >
-                {leaderboardMonthOptions.map(o => <option key={o.value || "current"} value={o.value}>{o.label}</option>)}
-              </select>
+                options={leaderboardMonthOptions.map(o => ({ value: o.value, label: o.label }))}
+              />
               {leaderboardLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
               <span className="text-xs text-slate-400 ml-auto">{activeAgents.length} agents</span>
             </div>
@@ -798,7 +879,7 @@ export default function DashboardPage() {
               <Factory className="h-3 w-3 text-rose-500" />
               <p className="text-xs font-semibold text-slate-700">Category Cycle Times</p>
             </div>
-            <div className="grid grid-cols-3 mb-1 px-1">
+            <div className="cycle-row grid grid-cols-3 mb-1 px-1">
               <span className="text-xs text-slate-400 font-medium">Category</span>
               <span className="text-xs text-slate-500 font-semibold text-center">All</span>
               <span className="text-xs text-slate-400 text-right">
@@ -810,8 +891,8 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-1.5">
                 {productionKpis.categoryCycleTimes.map((row) => (
-                  <div key={row.category} className="grid grid-cols-3 items-center px-1 py-0.5 border-b border-slate-50 last:border-0">
-                    <span className="text-xs font-medium text-slate-700 truncate">{row.category}</span>
+                  <div key={row.category} className="cycle-row grid grid-cols-3 items-start px-1 py-0.5 border-b border-slate-50 last:border-0">
+                    <span className="text-xs font-medium text-slate-700 min-w-0 leading-tight break-words">{row.category}</span>
                     <span className="text-sm font-bold text-rose-600 text-center tabular-nums">
                       {row.avgDays != null ? row.avgDays+"d" : "—"}
                     </span>
@@ -835,14 +916,13 @@ export default function DashboardPage() {
         {(compliance || myStats || teamStats) && availableMonths.length > 0 && (
           <div className="flex items-center justify-end gap-1.5 -mb-1">
             <span className="text-xs text-slate-400">Call compliance for:</span>
-            <select
+            <MobileSelect
               value={complianceMonth}
-              onChange={(e) => setComplianceMonth(e.target.value)}
+              onChange={setComplianceMonth}
               className="border border-slate-200 rounded-md px-2 py-1 text-xs bg-white"
-            >
-              <option value="">All time</option>
-              {availableMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
-            </select>
+              placeholder="All time"
+              options={[{ value: "", label: "All time" }, ...availableMonths.map((m) => ({ value: m.month, label: m.label }))]}
+            />
           </div>
         )}
 

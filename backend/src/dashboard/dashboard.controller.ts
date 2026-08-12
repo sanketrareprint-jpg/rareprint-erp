@@ -60,4 +60,12 @@ export class DashboardController {
     }
     return this.dashboardService.getAgentProfitBreakdown(month);
   }
+
+  // Owner-only — Marketing/Ad ROI by month (May 2026 onwards), same cohort
+  // data as Marketing > Ad ROI but trimmed to the dashboard's own summary
+  // view. Own endpoint, same reasoning as agent-profit above.
+  @Get('marketing-roi')
+  getMarketingRoi(@Req() req: Request & { user: JwtUser }) {
+    return this.dashboardService.getMarketingRoiSummary(req.user?.email);
+  }
 }
