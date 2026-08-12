@@ -752,8 +752,13 @@ export class OrdersService {
         const sidesLabel = sides === 'SINGLE_SIDE' ? 'Single' : sides === 'DOUBLE_SIDE' ? 'Double' : sides;
         const rate = Number(i.unitPrice).toFixed(0);
         const total = Number(i.lineTotal).toFixed(0);
-        return `• ${i.product.name} ${size} ${gsm}gsm ${sidesLabel} x${i.quantity} @₹${rate} = ₹${total}`;
-      }).join('\n');
+        return `${i.product.name} ${size} ${gsm}gsm ${sidesLabel} x${i.quantity} @₹${rate} = ₹${total}`;
+      }).join(' | ');
+      // AiSensy/WhatsApp template params reject newlines, tabs, and runs of
+      // 4+ spaces ("Param text cannot have new-line/tab characters or more
+      // than 4 consecutive spaces"). The previous "• line\n• line" format
+      // silently failed delivery for every order with 2+ items (i.e. most
+      // orders) — only single-item orders (no join needed) ever got through.
 
       void this.whatsapp.sendOrderCreated({
         customerName: fullOrder.customer.businessName,
