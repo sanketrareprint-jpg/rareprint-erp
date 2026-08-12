@@ -412,72 +412,127 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Sales Employee Profit — owner only. Per sales agent: gross
-             profit from their orders (sale − material cost), minus their
-             commission and fixed base salary for the selected month. Reuses
-             the same commission calc as Accounts > Commission, so the numbers
-             always agree with what agents are actually paid. ── */}
+        {/* ── Sales Employee Profit + Marketing/Ad ROI — owner only, side by
+             side (each is a wide table, so pairing them saves vertical space
+             the same way Sales-by-Month/Sales-by-Week are paired below). ── */}
         {isOwner && (
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
-            <div className="flex items-center gap-1 mb-1">
-              <p className="text-xs font-semibold text-slate-700">Sales Employee Profit <span className="opacity-60 font-normal">(owner only)</span></p>
-              <MobileSelect
-                value={agentProfitMonth}
-                onChange={setAgentProfitMonth}
-                className="text-slate-600 bg-white border border-slate-200 rounded outline-none"
-                style={{ fontSize: "10px", padding: "1px 3px" }}
-                options={leaderboardMonthOptions.map(o => ({ value: o.value, label: o.label }))}
-              />
-              {agentProfitLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
-            </div>
-            {!agentProfit || agentProfit.agents.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">{agentProfitLoading ? "Loading…" : "No sales-agent orders in this period."}</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-slate-500 border-b border-slate-100">
-                      <th className="text-left font-medium py-1 pr-2">Agent</th>
-                      <th className="text-right font-medium py-1 px-2">Sale</th>
-                      <th className="text-right font-medium py-1 px-2">Gross Profit</th>
-                      <th className="text-right font-medium py-1 px-2">Commission</th>
-                      <th className="text-right font-medium py-1 px-2">Bonus</th>
-                      <th className="text-right font-medium py-1 px-2">Fixed Salary</th>
-                      <th className="text-right font-medium py-1 pl-2">Profit After Deductions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agentProfit.agents.map((a) => (
-                      <tr key={a.id} className="border-b border-slate-50 last:border-0">
-                        <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">
-                          {a.name}
-                          {a.missingCostItems > 0 && (
-                            <span title={`${a.missingCostItems} item(s) missing cost data — gross profit may be understated`} className="ml-1 text-amber-500">⚠</span>
-                          )}
-                        </td>
-                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.saleTotal)}</td>
-                        <td className="py-1 px-2 text-right text-blue-600">{fmt(a.grossProfit)}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.commissionTotal)}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.bonus)}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.baseSalary)}</td>
-                        <td className={`py-1 pl-2 text-right font-bold ${a.profitAfterDeductions >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(a.profitAfterDeductions)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-slate-200 font-bold">
-                      <td className="py-1 pr-2 text-slate-700">Total</td>
-                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.saleTotal)}</td>
-                      <td className="py-1 px-2 text-right text-blue-700">{fmt(agentProfit.totals.grossProfit)}</td>
-                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.commissionTotal)}</td>
-                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.bonus)}</td>
-                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.baseSalary)}</td>
-                      <td className={`py-1 pl-2 text-right ${agentProfit.totals.profitAfterDeductions >= 0 ? "text-emerald-700" : "text-red-700"}`}>{fmt(agentProfit.totals.profitAfterDeductions)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+          <div className="grid grid-cols-2 gap-2">
+            {/* Sales Employee Profit — per sales agent: gross profit from
+                their orders (sale − material cost), minus their commission
+                and fixed base salary for the selected month. Reuses the same
+                commission calc as Accounts > Commission, so the numbers
+                always agree with what agents are actually paid. */}
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1 mb-1">
+                <p className="text-xs font-semibold text-slate-700">Sales Employee Profit <span className="opacity-60 font-normal">(owner only)</span></p>
+                <MobileSelect
+                  value={agentProfitMonth}
+                  onChange={setAgentProfitMonth}
+                  className="text-slate-600 bg-white border border-slate-200 rounded outline-none"
+                  style={{ fontSize: "10px", padding: "1px 3px" }}
+                  options={leaderboardMonthOptions.map(o => ({ value: o.value, label: o.label }))}
+                />
+                {agentProfitLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
               </div>
-            )}
+              {!agentProfit || agentProfit.agents.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-3">{agentProfitLoading ? "Loading…" : "No sales-agent orders in this period."}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-slate-100">
+                        <th className="text-left font-medium py-1 pr-2">Agent</th>
+                        <th className="text-right font-medium py-1 px-2">Sale</th>
+                        <th className="text-right font-medium py-1 px-2">Gross Profit</th>
+                        <th className="text-right font-medium py-1 px-2">Commission</th>
+                        <th className="text-right font-medium py-1 px-2">Bonus</th>
+                        <th className="text-right font-medium py-1 px-2">Fixed Salary</th>
+                        <th className="text-right font-medium py-1 pl-2">Profit After Deductions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agentProfit.agents.map((a) => (
+                        <tr key={a.id} className="border-b border-slate-50 last:border-0">
+                          <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">
+                            {a.name}
+                            {a.missingCostItems > 0 && (
+                              <span title={`${a.missingCostItems} item(s) missing cost data — gross profit may be understated`} className="ml-1 text-amber-500">⚠</span>
+                            )}
+                          </td>
+                          <td className="py-1 px-2 text-right text-slate-600">{fmt(a.saleTotal)}</td>
+                          <td className="py-1 px-2 text-right text-blue-600">{fmt(a.grossProfit)}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{fmt(a.commissionTotal)}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{fmt(a.bonus)}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{fmt(a.baseSalary)}</td>
+                          <td className={`py-1 pl-2 text-right font-bold ${a.profitAfterDeductions >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(a.profitAfterDeductions)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-slate-200 font-bold">
+                        <td className="py-1 pr-2 text-slate-700">Total</td>
+                        <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.saleTotal)}</td>
+                        <td className="py-1 px-2 text-right text-blue-700">{fmt(agentProfit.totals.grossProfit)}</td>
+                        <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.commissionTotal)}</td>
+                        <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.bonus)}</td>
+                        <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.baseSalary)}</td>
+                        <td className={`py-1 pl-2 text-right ${agentProfit.totals.profitAfterDeductions >= 0 ? "text-emerald-700" : "text-red-700"}`}>{fmt(agentProfit.totals.profitAfterDeductions)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Marketing / Ad ROI — May 2026 onwards. Each row is a monthly
+                lead cohort: contacts created that month vs. ALL orders those
+                contacts have ever placed since — so a May lead that converts
+                in August shows up in May's Converted/Sale/Profit the next
+                time this loads. Full detail (spend entry, contacts CSV
+                upload, per-contact drill-down) stays on Marketing > Ad ROI;
+                this is a read-only summary. */}
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1.5 mb-1">
+                <p className="text-xs font-semibold text-slate-700">Marketing / Ad ROI <span className="opacity-60 font-normal">(owner only, since May 2026)</span></p>
+                {marketingRoiLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+              </div>
+              {!marketingRoiLoading && marketingRoiMonths.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-3">No Marketing ROI data yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-slate-100">
+                        <th className="text-left font-medium py-1 pr-2">Month</th>
+                        <th className="text-right font-medium py-1 px-2">Total Spend</th>
+                        <th className="text-right font-medium py-1 px-2">Contacts</th>
+                        <th className="text-right font-medium py-1 px-2">Converted</th>
+                        <th className="text-right font-medium py-1 px-2">Conv %</th>
+                        <th className="text-right font-medium py-1 px-2">Total Sale</th>
+                        <th className="text-right font-medium py-1 px-2">Total Profit</th>
+                        <th className="text-right font-medium py-1 px-2">ROI (Sale)</th>
+                        <th className="text-right font-medium py-1 pl-2">ROI (Profit)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {marketingRoiMonths.map((m) => (
+                        <tr key={m.monthKey} className="border-b border-slate-50 last:border-0">
+                          <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">{m.label}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{fmt(m.totalSpend)}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{m.contactsCreated}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{m.convertedCustomers}</td>
+                          <td className="py-1 px-2 text-right text-slate-600">{m.conversionRatioPct}%</td>
+                          <td className="py-1 px-2 text-right text-slate-700">{fmt(m.totalSale)}</td>
+                          <td className="py-1 px-2 text-right text-blue-600">{fmt(m.totalProfit)}</td>
+                          <td className="py-1 px-2 text-right font-semibold text-emerald-600">{m.roiVsSaleX != null ? `${m.roiVsSaleX}x` : "—"}</td>
+                          <td className="py-1 pl-2 text-right font-semibold text-emerald-600">{m.roiVsProfitX != null ? `${m.roiVsProfitX}x` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -517,58 +572,6 @@ export default function DashboardPage() {
                 <p className="text-xs text-slate-400 mt-0.5">{cashflow.deltaVsLastMonth >= 0 ? "Better than last month" : "Worse than last month"}</p>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* ── Marketing / Ad ROI — owner only, May 2026 onwards. Each row is
-             a monthly lead cohort: contacts created that month vs. ALL orders
-             those contacts have ever placed since — so a May lead that
-             converts in August shows up in May's Converted/Sale/Profit the
-             next time this loads. Full detail (spend entry, contacts CSV
-             upload, per-contact drill-down) stays on Marketing > Ad ROI;
-             this is a read-only summary. ── */}
-        {isOwner && (
-          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
-            <div className="flex items-center gap-1.5 mb-1">
-              <p className="text-xs font-semibold text-slate-700">Marketing / Ad ROI <span className="opacity-60 font-normal">(owner only, since May 2026)</span></p>
-              {marketingRoiLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
-            </div>
-            {!marketingRoiLoading && marketingRoiMonths.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-3">No Marketing ROI data yet.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-slate-500 border-b border-slate-100">
-                      <th className="text-left font-medium py-1 pr-2">Month</th>
-                      <th className="text-right font-medium py-1 px-2">Total Spend</th>
-                      <th className="text-right font-medium py-1 px-2">Contacts</th>
-                      <th className="text-right font-medium py-1 px-2">Converted</th>
-                      <th className="text-right font-medium py-1 px-2">Conv %</th>
-                      <th className="text-right font-medium py-1 px-2">Total Sale</th>
-                      <th className="text-right font-medium py-1 px-2">Total Profit</th>
-                      <th className="text-right font-medium py-1 px-2">ROI (Sale)</th>
-                      <th className="text-right font-medium py-1 pl-2">ROI (Profit)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {marketingRoiMonths.map((m) => (
-                      <tr key={m.monthKey} className="border-b border-slate-50 last:border-0">
-                        <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">{m.label}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{fmt(m.totalSpend)}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{m.contactsCreated}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{m.convertedCustomers}</td>
-                        <td className="py-1 px-2 text-right text-slate-600">{m.conversionRatioPct}%</td>
-                        <td className="py-1 px-2 text-right text-slate-700">{fmt(m.totalSale)}</td>
-                        <td className="py-1 px-2 text-right text-blue-600">{fmt(m.totalProfit)}</td>
-                        <td className="py-1 px-2 text-right font-semibold text-emerald-600">{m.roiVsSaleX != null ? `${m.roiVsSaleX}x` : "—"}</td>
-                        <td className="py-1 pl-2 text-right font-semibold text-emerald-600">{m.roiVsProfitX != null ? `${m.roiVsProfitX}x` : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         )}
 
