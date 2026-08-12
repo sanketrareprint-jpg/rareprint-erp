@@ -37,7 +37,9 @@ export class ReportsService {
 
   private async orderRows(dateFilter?: { gte?: Date; lte?: Date }): Promise<ReportRow[]> {
     const orders = await this.prisma.order.findMany({
-      where: dateFilter ? { orderDate: dateFilter } : undefined,
+      // isTest: false — this report is exported/shared as real business data,
+      // so QA dummy orders must never appear in it.
+      where: { ...(dateFilter ? { orderDate: dateFilter } : {}), isTest: false },
       orderBy: { orderDate: 'desc' },
       include: { customer: true, salesAgent: { select: { fullName: true } }, items: { include: { product: true } }, payments: true },
     });

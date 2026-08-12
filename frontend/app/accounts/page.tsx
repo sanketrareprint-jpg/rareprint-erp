@@ -7,6 +7,8 @@ import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiFetch";
 import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign, Download, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { MobileSelect } from "@/components/MobileSelect";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -39,6 +41,7 @@ type PendingOrder = {
   orderDate: string; notes?: string; payments: (Payment & { verificationStatus?: string })[];
   hasPendingPayments?: boolean;
   advancePct?: number;
+  isTest?: boolean;
 };
 
 type DispatchPendingOrder = {
@@ -50,6 +53,7 @@ type DispatchPendingOrder = {
   orderDate: string; notes?: string; payments: Payment[];
   courierCharge?: number; courierCreditApplied?: number; netCourierCharge?: number;
   paymentType?: string; codAmount?: number;
+  isTest?: boolean;
   dispatchProductPhoto?: string | null;
   dispatchBillPhoto?: string | null;
 };
@@ -380,6 +384,10 @@ const VALID_TABS: Tab[] = ["pending", "accounting", "outstanding", "dispatch", "
 
 export default function AccountsPage() {
   const router = useRouter();
+  const isNativeApp = useIsNativeApp();
+  // Website keeps its original (desktop-table-style) layout; the Android app
+  // gets a compact, horizontally-wrapping layout instead — see useIsNativeApp.
+  const cx = (web: string, native: string) => (isNativeApp ? native : web);
   // Deep-links from elsewhere (e.g. the dashboard's Super Admin Tasks
   // section) pass ?tab=payment_verification — a fresh navigation onto this
   // page mounts it, so reading window.location.search once here is enough
@@ -454,6 +462,15 @@ export default function AccountsPage() {
   const [outstandingOrderStatus, setOutstandingOrderStatus] = useState("READY_DELIVERED");
   const [outstandingSeller, setOutstandingSeller] = useState("");
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
+  // Android app only: compact card view instead of the wide table, so this
+  // tab doesn't need horizontal scrolling. Defaults on for native.
+  const [outstandingCompact, setOutstandingCompact] = useState(true);
+  const [receiptsCompact, setReceiptsCompact] = useState(true);
+  const [receiptHistoryCompact, setReceiptHistoryCompact] = useState(true);
+  const [paymentVerificationCompact, setPaymentVerificationCompact] = useState(true);
+  const [paymentHistoryCompact, setPaymentHistoryCompact] = useState(true);
+  const [commissionCompact, setCommissionCompact] = useState(true);
+  const [expenseTrackerCompact, setExpenseTrackerCompact] = useState(true);
 
   // COD tracking
   const [orderCourierMap, setOrderCourierMap] = useState<Record<string, OrderCourierInfo>>({});
@@ -1959,9 +1976,10 @@ export default function AccountsPage() {
                 </div>
               ) : orders.map(order => (
                 <div key={order.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
+                  <div className={cx("flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100", "flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 bg-slate-50 border-b border-slate-100")}>
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-bold text-blue-700">{order.orderNo}</span>
+                      {order.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST — approving/rejecting this has no billing impact</span>}
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
                       <span className="font-semibold text-slate-800">{order.customerName}</span>
                       {order.customerPhone && <span className="text-slate-400 text-xs">{order.customerPhone}</span>}
@@ -1971,7 +1989,8 @@ export default function AccountsPage() {
                     <span className="text-sm font-bold text-slate-800">{fmt(order.totalAmount)}</span>
                   </div>
 
-                  <div className="p-4 space-y-3">
+                  <div className={cx("p-4 space-y-3", "p-3 space-y-2")}>
+                    {!isNativeApp && (
                     <table className="w-full text-sm">
                       <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
                         <th className="pb-1 text-left">Product</th>
@@ -2033,13 +2052,59 @@ export default function AccountsPage() {
                         })}
                       </tbody>
                     </table>
+                    )}
+                    {isNativeApp && (
+                      <div className="space-y-1.5">
+                        {order.items.map((item, i) => {
+                          const n = parseNotes(item.productionNotes);
+                          const size = item.sizeInches || n.size || "—";
+                          const gsm = item.gsm ?? n.gsm ?? "—";
+                          const sides = String(item.sides || n.sides || "—").replace(/_/g, " ");
+                          return (
+                            <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2">
+                              <p className="truncate text-sm font-semibold text-slate-800">{item.productName}</p>
+                              {item.productDescription && (
+                                <p className="truncate text-[11px] font-normal text-slate-500">{item.productDescription}</p>
+                              )}
+                              <p className="text-[11px] font-mono text-blue-600">{item.sku}</p>
+                              {item.offerCode && (
+                                <div className={`inline-flex items-center gap-1 mt-0.5 text-[11px] font-semibold rounded px-1.5 py-0.5 ${item.offerCode.offerType === "COMBO_DISCOUNT" ? "bg-amber-50 text-amber-700" : "bg-purple-50 text-purple-700"}`}>
+                                  {item.offerCode.offerType === "COMBO_DISCOUNT" ? "🎯" : "🎁"} {item.offerCode.code}
+                                  {item.offerCode.discountAmount && <span className="font-normal"> −₹{Number(item.offerCode.discountAmount).toLocaleString("en-IN")} combo</span>}
+                                </div>
+                              )}
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                <span><span className="text-slate-400">Size</span> <strong className="text-slate-700">{size}</strong></span>
+                                <span><span className="text-slate-400">GSM</span> <strong className="text-slate-700">{gsm}</strong></span>
+                                <span><span className="text-slate-400">Sides</span> <strong className="text-slate-700">{sides}</strong></span>
+                                <span><span className="text-slate-400">Qty</span> <strong className="text-slate-700">{item.quantity}</strong></span>
+                                <span><span className="text-slate-400">Rate</span> <strong className="text-slate-700">{fmt(item.unitPrice)}</strong></span>
+                                <span>
+                                  <span className="text-slate-400">Cost</span>{" "}
+                                  {item.costTotal == null ? (
+                                    <strong className="rounded-full bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-600">No cost</strong>
+                                  ) : (
+                                    <strong className="text-slate-700">{fmt(item.costTotal)}</strong>
+                                  )}
+                                </span>
+                                <span><span className="text-slate-400">Margin</span> <strong className={marginClass(item.marginPct)}>{item.marginPct == null ? "—" : `${item.marginPct.toFixed(1)}%`}</strong></span>
+                                <span className="ml-auto"><span className="text-slate-400">Amount</span> <strong className="text-slate-900">{fmt(item.lineTotal)}</strong></span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     {/* Payment rows */}
                     {order.payments.length > 0 && (
                       <div className="rounded-lg border border-slate-100 bg-slate-50 divide-y divide-slate-100">
                         <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Payments</div>
                         {order.payments.map(payment => (
-                          <div key={payment.id} className={`flex items-center justify-between px-3 py-1.5 ${payment.verificationStatus === "PENDING_VERIFICATION" ? "bg-orange-50" : ""}`}>
-                            <div className="flex items-center gap-3 text-xs text-slate-600">
+                          <div key={payment.id} className={cx(
+                            `flex items-center justify-between px-3 py-1.5 ${payment.verificationStatus === "PENDING_VERIFICATION" ? "bg-orange-50" : ""}`,
+                            `flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5 ${payment.verificationStatus === "PENDING_VERIFICATION" ? "bg-orange-50" : ""}`
+                          )}>
+                            <div className={cx("flex items-center gap-3 text-xs text-slate-600", "flex flex-wrap items-center gap-2 text-xs text-slate-600")}>
                               <span className="font-mono text-slate-400">{new Date(payment.date).toLocaleDateString("en-IN")}</span>
                               <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{payment.method}</span>
                               <span className="text-slate-500">{payment.accountName}</span>
@@ -2068,9 +2133,14 @@ export default function AccountsPage() {
                       const hasPendingPay  = order.hasPendingPayments ?? false;
                       const advancePct     = order.advancePct ?? (order.totalAmount > 0 ? (order.totalPaid / order.totalAmount) * 100 : 100);
                       const belowMinAdv    = advancePct < 40;
-                      // Hard block: unverified payments (all users). Soft block: advance < 40% (only non-super-admin, but frontend can't know role, so show warning and let backend reject).
+                      // Hard block: unverified payments (all users, no exceptions — matches
+                      // backend's "hard block, all users" rule). Missing cost slabs is a
+                      // soft block that the backend already bypasses for the super-admin
+                      // (accounts.service.ts's approveOrder: `if (!isSuperAdmin && !isOverride)`)
+                      // — this page already computes isSuperAdmin (see above), so mirror that
+                      // here instead of disabling a button the backend would actually accept.
                       const hardBlocked    = hasPendingPay;
-                      const canApprove     = !hardBlocked && !hasMissingCost;
+                      const canApprove     = !hardBlocked && (isSuperAdmin || !hasMissingCost);
                       return (
                         <>
                           {hasPendingPay && (
@@ -2093,20 +2163,23 @@ export default function AccountsPage() {
                                 <a href="/cost-table" className="underline font-semibold hover:text-red-900">
                                   Add cost slabs in Cost Table → Orders Without Cost
                                 </a>{" "}
-                                before approving.
+                                {isSuperAdmin ? "— you can still approve as super-admin, but margin/profit reporting will be incomplete for this order." : "before approving."}
                               </span>
                             </div>
                           )}
-                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                            <div className="text-xs text-slate-500 space-x-4">
+                          <div className={cx(
+                            "flex items-center justify-between pt-2 border-t border-slate-100",
+                            "flex flex-col gap-2 pt-2 border-t border-slate-100"
+                          )}>
+                            <div className={cx("text-xs text-slate-500 space-x-4", "flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500")}>
                               <span>Total: <strong>{fmt(order.totalAmount)}</strong></span>
                               <span>Paid: <strong className={order.totalPaid > 0 ? "text-green-600" : ""}>{fmt(order.totalPaid)}</strong></span>
                               <span>Balance: <strong className="text-red-500">{fmt(order.balanceDue)}</strong></span>
                               <span className={`font-semibold ${advancePct >= 40 ? "text-green-600" : "text-red-500"}`}>{advancePct.toFixed(0)}% advance</span>
                             </div>
-                            <div className="flex gap-2">
+                            <div className={cx("flex gap-2", "flex gap-2")}>
                               <button onClick={() => setRejectId(order.id)}
-                                className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50">
+                                className={cx("px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50", "flex-1 px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50")}>
                                 Reject
                               </button>
                               <button
@@ -2114,11 +2187,11 @@ export default function AccountsPage() {
                                 disabled={processing === order.id || !canApprove}
                                 title={
                                   hasPendingPay ? "Verify all receipts first" :
-                                  hasMissingCost ? "Add cost slabs for all products first" :
+                                  (hasMissingCost && !isSuperAdmin) ? "Add cost slabs for all products first" :
                                   belowMinAdv ? "Below 40% advance — only super-admin can approve" :
                                   undefined
                                 }
-                                className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg ${
+                                className={`${cx("inline-flex items-center gap-1", "flex-1 inline-flex items-center justify-center gap-1")} px-3 py-1.5 text-xs rounded-lg ${
                                   !canApprove
                                     ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                                     : "bg-green-600 text-white hover:bg-green-700"
@@ -2171,21 +2244,20 @@ export default function AccountsPage() {
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                       <h2 className="text-sm font-bold text-slate-800">Add Purchase Bill</h2>
                       <div className="mt-3 space-y-2">
-                        <select value={purchaseForm.vendorId} onChange={e => setPurchaseForm(f => ({ ...f, vendorId: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          <option value="">Vendor</option>
-                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                        </select>
+                        <MobileSelect value={purchaseForm.vendorId} onChange={v => setPurchaseForm(f => ({ ...f, vendorId: v }))}
+                          placeholder="Vendor"
+                          options={[{ value: "", label: "Vendor" }, ...vendors.map(v => ({ value: v.id, label: v.name }))]}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                         <div className="grid grid-cols-2 gap-2">
                           <input value={purchaseForm.billNumber} onChange={e => setPurchaseForm(f => ({ ...f, billNumber: e.target.value }))} placeholder="Bill no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <input type="number" value={purchaseForm.subtotal} onChange={e => setPurchaseForm(f => ({ ...f, subtotal: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <DateInput value={purchaseForm.billDate} onChange={e => setPurchaseForm(f => ({ ...f, billDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <DateInput value={purchaseForm.dueDate} onChange={e => setPurchaseForm(f => ({ ...f, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                           <input type="number" value={purchaseForm.gstRatePct} onChange={e => setPurchaseForm(f => ({ ...f, gstRatePct: e.target.value }))} placeholder="GST %" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                          <select value={purchaseForm.gstTreatment} onChange={e => setPurchaseForm(f => ({ ...f, gstTreatment: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            <option value="INTRA_STATE">CGST + SGST</option>
-                            <option value="INTER_STATE">IGST</option>
-                          </select>
+                          <MobileSelect value={purchaseForm.gstTreatment} onChange={v => setPurchaseForm(f => ({ ...f, gstTreatment: v }))}
+                            placeholder="GST Treatment"
+                            options={[{ value: "INTRA_STATE", label: "CGST + SGST" }, { value: "INTER_STATE", label: "IGST" }]}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                         </div>
                         <button onClick={createPurchaseBill} disabled={savingAccounting === "purchase"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
                           {savingAccounting === "purchase" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Add Bill
@@ -2196,25 +2268,24 @@ export default function AccountsPage() {
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                       <h2 className="text-sm font-bold text-slate-800">Vendor Payment Out</h2>
                       <div className="mt-3 space-y-2">
-                        <select value={vendorPaymentForm.vendorId} onChange={e => setVendorPaymentForm(f => ({ ...f, vendorId: e.target.value, purchaseBillId: "" }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          <option value="">Vendor</option>
-                          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                        </select>
-                        <select value={vendorPaymentForm.purchaseBillId} onChange={e => setVendorPaymentForm(f => ({ ...f, purchaseBillId: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                          <option value="">Against bill optional</option>
-                          {purchaseBills.filter(b => !vendorPaymentForm.vendorId || b.vendorId === vendorPaymentForm.vendorId).map(b => <option key={b.id} value={b.id}>{b.billNumber} · {fmt(b.balanceAmount)}</option>)}
-                        </select>
+                        <MobileSelect value={vendorPaymentForm.vendorId} onChange={v => setVendorPaymentForm(f => ({ ...f, vendorId: v, purchaseBillId: "" }))}
+                          placeholder="Vendor"
+                          options={[{ value: "", label: "Vendor" }, ...vendors.map(v => ({ value: v.id, label: v.name }))]}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                        <MobileSelect value={vendorPaymentForm.purchaseBillId} onChange={v => setVendorPaymentForm(f => ({ ...f, purchaseBillId: v }))}
+                          placeholder="Against bill"
+                          options={[{ value: "", label: "Against bill optional" }, ...purchaseBills.filter(b => !vendorPaymentForm.vendorId || b.vendorId === vendorPaymentForm.vendorId).map(b => ({ value: b.id, label: `${b.billNumber} · ${fmt(b.balanceAmount)}` }))]}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                         <div className="grid grid-cols-2 gap-2">
-                          <select value={vendorPaymentForm.paymentAccountId} onChange={e => setVendorPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            <option value="">Account</option>
-                            {paymentAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                          </select>
+                          <MobileSelect value={vendorPaymentForm.paymentAccountId} onChange={v => setVendorPaymentForm(f => ({ ...f, paymentAccountId: v }))}
+                            placeholder="Account"
+                            options={[{ value: "", label: "Account" }, ...paymentAccounts.map(a => ({ value: a.id, label: a.name }))]}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                           <input type="number" value={vendorPaymentForm.amount} onChange={e => setVendorPaymentForm(f => ({ ...f, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                          <select value={vendorPaymentForm.method} onChange={e => setVendorPaymentForm(f => ({ ...f, method: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            {paymentMethods.map(m => <option key={m} value={m}>{m.replace("_", " ")}</option>)}
-                          </select>
+                          <MobileSelect value={vendorPaymentForm.method} onChange={v => setVendorPaymentForm(f => ({ ...f, method: v }))}
+                            placeholder="Method"
+                            options={paymentMethods.map(m => ({ value: m, label: m.replace("_", " ") }))}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                           <input value={vendorPaymentForm.referenceNumber} onChange={e => setVendorPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))} placeholder="Ref no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                         </div>
                         <button onClick={createVendorPayment} disabled={savingAccounting === "vendor-payment"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
@@ -2227,25 +2298,25 @@ export default function AccountsPage() {
                       <h2 className="text-sm font-bold text-slate-800">Credit / Debit Note</h2>
                       <div className="mt-3 space-y-2">
                         <div className="grid grid-cols-2 gap-2">
-                          <select value={noteForm.noteType} onChange={e => setNoteForm(f => ({ ...f, noteType: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            <option value="CREDIT_NOTE">Credit Note</option>
-                            <option value="DEBIT_NOTE">Debit Note</option>
-                          </select>
-                          <select value={noteForm.partyType} onChange={e => setNoteForm(f => ({ ...f, partyType: e.target.value, invoiceId: "", purchaseBillId: "" }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            <option value="CUSTOMER">Customer</option>
-                            <option value="VENDOR">Vendor</option>
-                          </select>
+                          <MobileSelect value={noteForm.noteType} onChange={v => setNoteForm(f => ({ ...f, noteType: v }))}
+                            placeholder="Note Type"
+                            options={[{ value: "CREDIT_NOTE", label: "Credit Note" }, { value: "DEBIT_NOTE", label: "Debit Note" }]}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                          <MobileSelect value={noteForm.partyType} onChange={v => setNoteForm(f => ({ ...f, partyType: v, invoiceId: "", purchaseBillId: "" }))}
+                            placeholder="Party Type"
+                            options={[{ value: "CUSTOMER", label: "Customer" }, { value: "VENDOR", label: "Vendor" }]}
+                            className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                         </div>
                         {noteForm.partyType === "CUSTOMER" ? (
-                          <select value={noteForm.invoiceId} onChange={e => setNoteForm(f => ({ ...f, invoiceId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            <option value="">Invoice reference</option>
-                            {salesInvoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoiceNumber} · {inv.customerName}</option>)}
-                          </select>
+                          <MobileSelect value={noteForm.invoiceId} onChange={v => setNoteForm(f => ({ ...f, invoiceId: v }))}
+                            placeholder="Invoice reference"
+                            options={[{ value: "", label: "Invoice reference" }, ...salesInvoices.map(inv => ({ value: inv.id, label: `${inv.invoiceNumber} · ${inv.customerName}` }))]}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                         ) : (
-                          <select value={noteForm.purchaseBillId} onChange={e => setNoteForm(f => ({ ...f, purchaseBillId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
-                            <option value="">Purchase bill reference</option>
-                            {purchaseBills.map(b => <option key={b.id} value={b.id}>{b.billNumber} · {b.vendorName}</option>)}
-                          </select>
+                          <MobileSelect value={noteForm.purchaseBillId} onChange={v => setNoteForm(f => ({ ...f, purchaseBillId: v }))}
+                            placeholder="Purchase bill reference"
+                            options={[{ value: "", label: "Purchase bill reference" }, ...purchaseBills.map(b => ({ value: b.id, label: `${b.billNumber} · ${b.vendorName}` }))]}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
                         )}
                         <input value={noteForm.reason} onChange={e => setNoteForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                         <div className="grid grid-cols-2 gap-2">
@@ -2343,39 +2414,45 @@ export default function AccountsPage() {
                       className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-sm outline-none focus:border-blue-400"
                     />
                   </div>
-                  <select
+                  <MobileSelect
                     value={outstandingStatus}
-                    onChange={e => setOutstandingStatus(e.target.value)}
+                    onChange={setOutstandingStatus}
+                    placeholder="All Product Status"
+                    options={[{ value: "", label: "All Product Status" }, ...outstandingStatuses.map(status => ({ value: status, label: productStatusLabels[status] ?? status.replace(/_/g, " ") }))]}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400"
-                  >
-                    <option value="">All Product Status</option>
-                    {outstandingStatuses.map(status => (
-                      <option key={status} value={status}>{productStatusLabels[status] ?? status.replace(/_/g, " ")}</option>
-                    ))}
-                  </select>
-                  <select
+                  />
+                  <MobileSelect
                     value={outstandingOrderStatus}
-                    onChange={e => setOutstandingOrderStatus(e.target.value)}
+                    onChange={setOutstandingOrderStatus}
+                    placeholder="Order Status"
+                    options={[{ value: "READY_DELIVERED", label: "Ready / Delivered" }, { value: "", label: "All Order Status" }, ...outstandingOrderStatuses.map(status => ({ value: status, label: orderStatusLabels[status] ?? status.replace(/_/g, " ") }))]}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400"
-                  >
-                    <option value="READY_DELIVERED">Ready / Delivered</option>
-                    <option value="">All Order Status</option>
-                    {outstandingOrderStatuses.map(status => (
-                      <option key={status} value={status}>{orderStatusLabels[status] ?? status.replace(/_/g, " ")}</option>
-                    ))}
-                  </select>
-                  <select
+                  />
+                  <MobileSelect
                     value={outstandingSeller}
-                    onChange={e => setOutstandingSeller(e.target.value)}
+                    onChange={setOutstandingSeller}
+                    placeholder="All Sellers"
+                    options={[{ value: "", label: "All Sellers" }, ...outstandingSellers.map(seller => ({ value: seller, label: seller }))]}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400"
-                  >
-                    <option value="">All Sellers</option>
-                    {outstandingSellers.map(seller => (
-                      <option key={seller} value={seller}>{seller}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
               </div>
+
+              {isNativeApp && (
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-[11px] text-slate-400">{filteredOutstanding.length} customers</span>
+                  <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                    <button onClick={() => setOutstandingCompact(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${outstandingCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Compact
+                    </button>
+                    <button onClick={() => setOutstandingCompact(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!outstandingCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Table
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {outstandingLoading ? (
                 <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
@@ -2384,9 +2461,143 @@ export default function AccountsPage() {
                   <Check className="mx-auto mb-2 h-8 w-8 opacity-30" />
                   <p className="text-sm">No customer outstanding found</p>
                 </div>
+              ) : isNativeApp && outstandingCompact ? (
+                <div className="space-y-2">
+                  {filteredOutstanding.map(row => {
+                    const customerOrderNos = row.orderNumbers.split(", ").filter(Boolean);
+                    const customerCourierEntries = Object.values(orderCourierMap).filter(c => c.customerId === row.customerId);
+                    const isExpanded = expandedOutstandingId === row.customerId;
+                    const bookedCount = customerCourierEntries.filter(c => c.isCourierBooked).length;
+                    return (
+                      <div key={row.customerId} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-900 truncate">{row.customerName}</p>
+                              <p className="text-xs text-slate-400 truncate">{row.customerPhone || row.customerEmail || "No contact"}</p>
+                              {bookedCount > 0 && (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <PackageCheck className="h-3 w-3 text-orange-500" />
+                                  <span className="text-[10px] text-orange-600 font-semibold">{bookedCount} COD booked</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-[10px] text-slate-400">Outstanding</p>
+                              <p className="text-sm font-bold text-red-600">{fmt(row.outstandingAmount)}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                            <span className="text-slate-500">Seller <strong className="text-slate-700">{row.sellerNames || "—"}</strong></span>
+                            <span className="text-slate-500">Orders <strong className="text-slate-700">{row.orderCount}</strong></span>
+                            <span className="text-slate-500">Total <strong className="text-slate-700">{fmt(row.totalAmount)}</strong></span>
+                            <span className="text-slate-500">Paid <strong className="text-green-700">{fmt(row.paidAmount)}</strong></span>
+                            <span className="text-slate-500">Last <strong className="text-slate-700">{new Date(row.lastOrderDate).toLocaleDateString("en-IN")}</strong></span>
+                          </div>
+
+                          {((row.orderStatuses ?? "").length > 0 || (row.productStatuses ?? "").length > 0) && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {(row.orderStatuses ?? "").split(", ").filter(Boolean).map(status => (
+                                <span key={`o-${status}`} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${orderStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
+                                  {orderStatusLabels[status] ?? status.replace(/_/g, " ")}
+                                </span>
+                              ))}
+                              {(row.productStatuses ?? "").split(", ").filter(Boolean).map(status => (
+                                <span key={`p-${status}`} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${productStatusClass[status] ?? "bg-slate-100 text-slate-700"}`}>
+                                  {productStatusLabels[status] ?? status.replace(/_/g, " ")}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          <p className="mt-1.5 truncate text-[10px] font-mono text-slate-400">{row.orderNumbers}</p>
+
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() => setExpandedOutstandingId(isExpanded ? null : row.customerId)}
+                              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600"
+                            >
+                              Courier / COD {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            </button>
+                            <button
+                              onClick={() => sendBalanceReminder(row)}
+                              disabled={!row.canSendReminder || sendingReminderId === row.customerId}
+                              title={row.canSendReminder ? `Send for ${row.reminderOrderNumbers}` : "Needs phone and Ready/Delivered balance"}
+                              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-green-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400"
+                            >
+                              {sendingReminderId === row.customerId ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
+                              {row.reminderAmount > 0 ? fmt(row.reminderAmount) : "Send"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="px-3 pb-3 bg-orange-50 border-t border-orange-100 pt-2">
+                            <div className="text-[11px] font-semibold text-orange-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                              <Truck className="h-3.5 w-3.5" />
+                              Courier / COD Status per Order
+                              {courierMapLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+                            </div>
+                            <div className="space-y-1.5">
+                              {customerOrderNos.length === 0 ? (
+                                <p className="text-[11px] text-slate-400">No orders found</p>
+                              ) : customerOrderNos.map(orderNo => {
+                                const info = customerCourierEntries.find(c => c.orderNo === orderNo);
+                                return (
+                                  <div key={orderNo} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white border border-orange-100 px-2.5 py-2">
+                                    <span className="font-mono font-bold text-blue-700 text-xs w-20 shrink-0">{orderNo}</span>
+                                    {!info ? (
+                                      <span className="text-[11px] text-slate-400 italic">Loading...</span>
+                                    ) : info.isCourierBooked ? (
+                                      <>
+                                        <PackageCheck className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                                        <span className="rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-[11px] font-bold">COD</span>
+                                        {info.courierPlatform && (
+                                          <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-semibold">{info.courierPlatform}</span>
+                                        )}
+                                        {info.awbNumber && (
+                                          <span className="text-[11px] text-slate-600">AWB: <span className="font-mono font-bold text-slate-800">{info.awbNumber}</span></span>
+                                        )}
+                                        {info.courierOrderId && (
+                                          <span className="text-[11px] text-slate-600">Order ID: <span className="font-mono font-bold text-slate-800">{info.courierOrderId}</span></span>
+                                        )}
+                                        {info.trackingNumber && !info.awbNumber && (
+                                          <span className="text-[11px] text-slate-600">Tracking: <span className="font-mono font-bold text-slate-800">{info.trackingNumber}</span></span>
+                                        )}
+                                        <button
+                                          onClick={() => info && openCodModal(info.orderId, orderNo)}
+                                          className="ml-auto shrink-0 text-[10px] text-slate-400 hover:text-blue-600 underline"
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Package className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                        <span className="text-[11px] text-slate-500">No courier booked</span>
+                                        <button
+                                          onClick={() => info && openCodModal(info.orderId, orderNo)}
+                                          className="ml-auto shrink-0 inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-orange-600"
+                                        >
+                                          <Truck className="h-3 w-3" />
+                                          Mark as COD
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <table className="w-full text-xs">
+                <div className={cx("overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm", "overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm")}>
+                  <table className={cx("w-full text-xs", "w-full text-xs min-w-[900px]")}>
                     <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600 w-6"></th>
@@ -2488,7 +2699,10 @@ export default function AccountsPage() {
                                         // Find by orderNo in the map
                                         const info = customerCourierEntries.find(c => c.orderNo === orderNo);
                                         return (
-                                          <div key={orderNo} className="flex items-center gap-3 rounded-lg bg-white border border-orange-100 px-3 py-2">
+                                          <div key={orderNo} className={cx(
+                                            "flex items-center gap-3 rounded-lg bg-white border border-orange-100 px-3 py-2",
+                                            "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white border border-orange-100 px-2.5 py-2"
+                                          )}>
                                             <span className="font-mono font-bold text-blue-700 text-xs w-20 shrink-0">{orderNo}</span>
 
                                             {!info ? (
@@ -2511,7 +2725,7 @@ export default function AccountsPage() {
                                                 )}
                                                 <button
                                                   onClick={() => info && openCodModal(info.orderId, orderNo)}
-                                                  className="ml-auto text-[10px] text-slate-400 hover:text-blue-600 underline"
+                                                  className={cx("ml-auto text-[10px] text-slate-400 hover:text-blue-600 underline", "ml-auto shrink-0 text-[10px] text-slate-400 hover:text-blue-600 underline")}
                                                 >
                                                   Edit
                                                 </button>
@@ -2522,7 +2736,7 @@ export default function AccountsPage() {
                                                 <span className="text-[11px] text-slate-500">No courier booked</span>
                                                 <button
                                                   onClick={() => info && openCodModal(info.orderId, orderNo)}
-                                                  className="ml-auto inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-orange-600"
+                                                  className={cx("ml-auto inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-orange-600", "ml-auto shrink-0 inline-flex items-center gap-1 rounded-lg bg-orange-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-orange-600")}
                                                 >
                                                   <Truck className="h-3 w-3" />
                                                   Mark as COD
@@ -2566,18 +2780,22 @@ export default function AccountsPage() {
                 </div>
               ) : dispatchOrders.map(order => (
                 <div key={order.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
+                  <div className={cx(
+                    "flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100",
+                    "flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 bg-slate-50 border-b border-slate-100"
+                  )}>
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-bold text-blue-700">{order.orderNo}</span>
+                      {order.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST</span>}
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
                       <span className="font-semibold text-slate-800">{order.customerName}</span>
                       {order.salesAgentName && <span className="rounded-full bg-purple-50 text-purple-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                       {order.paymentType && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.paymentType === "COD" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>{order.paymentType}</span>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold ${moneyColor(order.balanceDue)}`}>Balance: {fmt(order.balanceDue)}</span>
+                    <div className="flex items-center gap-2 shrink-0 ml-auto">
+                      <span className={`text-xs font-bold whitespace-nowrap ${moneyColor(order.balanceDue)}`}>Balance: {fmt(order.balanceDue)}</span>
                       <button onClick={() => setDispatchExpanded(dispatchExpanded === order.id ? null : order.id)}
-                        className="p-1 rounded hover:bg-slate-200">
+                        className="p-1 rounded hover:bg-slate-200 shrink-0">
                         {dispatchExpanded === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
                     </div>
@@ -2879,6 +3097,21 @@ export default function AccountsPage() {
           {/* ── RECEIPTS PENDING TAB ── */}
           {tab === "receipts" && (
             <div className="space-y-3">
+              {isNativeApp && pendingPayments.length > 0 && (
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-[11px] text-slate-400">{pendingPayments.length} receipts</span>
+                  <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                    <button onClick={() => setReceiptsCompact(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${receiptsCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Compact
+                    </button>
+                    <button onClick={() => setReceiptsCompact(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!receiptsCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Table
+                    </button>
+                  </div>
+                </div>
+              )}
               {receiptsLoading ? (
                 <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
               ) : pendingPayments.length === 0 ? (
@@ -2886,9 +3119,60 @@ export default function AccountsPage() {
                   <Check className="h-8 w-8 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No receipts pending verification</p>
                 </div>
+              ) : isNativeApp && receiptsCompact ? (
+                <div className="space-y-2">
+                  {pendingPayments.map(p => (
+                    <div key={p.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-blue-700 truncate">{p.orderNo}</p>
+                          <p className="text-xs text-slate-600 truncate">{p.customerName}</p>
+                          {p.customerPhone && <p className="text-[10px] text-slate-400 truncate">{p.customerPhone}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[10px] text-slate-400">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</p>
+                          <p className="text-sm font-bold text-green-700">{fmt(p.amount)}</p>
+                        </div>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{p.method}</span>
+                        <span className="text-slate-500">{p.paymentAccountName}</span>
+                        {p.salesAgentName && <span className="text-slate-400">· {p.salesAgentName}</span>}
+                      </div>
+                      <input value={p.id === verifyUtrId ? verifyUtrValue : (utrDraft[p.id] ?? p.referenceNumber ?? "")}
+                        onChange={e => {
+                          setVerifyUtrValue(e.target.value);
+                          setUtrDraft(d => ({ ...d, [p.id]: e.target.value }));
+                        }}
+                        onFocus={() => { setVerifyUtrId(p.id); setVerifyUtrValue(utrDraft[p.id] ?? p.referenceNumber ?? ""); }}
+                        placeholder="UTR / Ref No"
+                        className="mt-2 w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-blue-400 bg-white" />
+                      <div className="mt-2 flex gap-1.5">
+                        <button onClick={() => startEditPayment(p)} disabled={verifyingId === p.id || savingPaymentId === p.id}
+                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-700 font-semibold disabled:opacity-60">
+                          <Pencil className="h-3 w-3" />
+                          Edit
+                        </button>
+                        <button onClick={() => openBankMatch(p)} disabled={verifyingId === p.id}
+                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-green-600 text-white rounded-lg disabled:opacity-60 font-semibold">
+                          {verifyingId === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          Match & Verify
+                        </button>
+                        <button onClick={() => setRejectPaymentId(p.id)}
+                          className="px-2.5 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 font-semibold">
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                    <span>Total Pending ({pendingPayments.length} receipts)</span>
+                    <span className="text-green-700 font-bold">{fmt(pendingPayments.reduce((s, p) => s + p.amount, 0))}</span>
+                  </div>
+                </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <table className="w-full text-xs">
+                <div className={cx("rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden", "rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto")}>
+                  <table className={cx("w-full text-xs", "w-full text-xs min-w-[900px]")}>
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
@@ -2965,13 +3249,63 @@ export default function AccountsPage() {
 
           {/* ── VENDOR STATEMENTS TAB ── */}
           {tab === "receipt_history" && (
-                <div className="overflow-x-auto">
+                <div className="space-y-3">
+                  {isNativeApp && receiptHistory.length > 0 && (
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span className="text-[11px] text-slate-400">{receiptHistory.length} receipts</span>
+                      <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                        <button onClick={() => setReceiptHistoryCompact(true)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${receiptHistoryCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                          Compact
+                        </button>
+                        <button onClick={() => setReceiptHistoryCompact(false)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!receiptHistoryCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                          Table
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {historyLoading ? (
                     <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
                   ) : receiptHistory.length === 0 ? (
                     <div className="text-center py-8 text-slate-400 text-sm">No verified receipts yet.</div>
+                  ) : isNativeApp && receiptHistoryCompact ? (
+                    <div className="space-y-2">
+                      {receiptHistory.map(p => (
+                        <div key={p.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-blue-700 truncate">{p.orderNo}</p>
+                              <p className="text-xs text-slate-600 truncate">{p.customerName}</p>
+                              {p.customerPhone && <p className="text-[10px] text-slate-400 truncate">{p.customerPhone}</p>}
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-[10px] text-slate-400">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</p>
+                              <p className="text-sm font-bold text-green-700">{fmt(p.amount)}</p>
+                            </div>
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                            <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 font-semibold">{p.method}</span>
+                            <span className={`rounded-full px-2 py-0.5 font-semibold ${p.verificationStatus === "VERIFIED" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                              {p.verificationStatus}
+                            </span>
+                            <span className="text-slate-500">{p.paymentAccountName}</span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+                            {p.salesAgentName && <span>Agent {p.salesAgentName}</span>}
+                            {p.referenceNumber && <span className="font-mono">Ref {p.referenceNumber}</span>}
+                            {p.verifiedByName && <span>By {p.verifiedByName}</span>}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span>Total Verified ({receiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</span>
+                        <span className="text-green-700 font-bold">{fmt(receiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</span>
+                      </div>
+                    </div>
                   ) : (
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto">
+                    <table className={cx("w-full text-sm", "w-full text-sm min-w-[1000px]")}>
                       <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
@@ -3019,6 +3353,7 @@ export default function AccountsPage() {
                         </tr>
                       </tfoot>
                     </table>
+                    </div>
                   )}
                 </div>
               )}
@@ -3052,17 +3387,18 @@ export default function AccountsPage() {
                     placeholder="Search vendor, product, order..."
                     className="pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-md outline-none focus:border-blue-400 w-48" />
                 </div>
-                <select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white">
-                  <option value="">All Vendors</option>
-                  {uniqueVendors.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-                <select value={paidFilter} onChange={e => setPaidFilter(e.target.value as "all" | "paid" | "unpaid")}
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white">
-                  <option value="all">All Status</option>
-                  <option value="unpaid">Unpaid</option>
-                  <option value="paid">Paid</option>
-                </select>
+                <MobileSelect value={vendorFilter} onChange={setVendorFilter}
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white"
+                  placeholder="All Vendors"
+                  options={[{ value: "", label: "All Vendors" }, ...uniqueVendors.map(v => ({ value: v, label: v }))]} />
+                <MobileSelect value={paidFilter} onChange={v => setPaidFilter(v as "all" | "paid" | "unpaid")}
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-md outline-none bg-white"
+                  placeholder="All Status"
+                  options={[
+                    { value: "all", label: "All Status" },
+                    { value: "unpaid", label: "Unpaid" },
+                    { value: "paid", label: "Paid" },
+                  ]} />
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-slate-500">From:</span>
                   <DateInput value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -3794,12 +4130,157 @@ export default function AccountsPage() {
                   </button>
                 </div>
               )}
+              {isNativeApp && pvQueue.length > 0 && (
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-[11px] text-slate-400">{pvQueue.length} entries</span>
+                  <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                    <button onClick={() => setPaymentVerificationCompact(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${paymentVerificationCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Compact
+                    </button>
+                    <button onClick={() => setPaymentVerificationCompact(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!paymentVerificationCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Table
+                    </button>
+                  </div>
+                </div>
+              )}
+              {pvQueueLoading ? (
+                <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+              ) : pvQueue.length === 0 ? (
+                <div className="rounded-xl border border-slate-300 p-10 text-center text-slate-400">Nothing waiting on verification right now.</div>
+              ) : isNativeApp && paymentVerificationCompact ? (
+                <div className="space-y-2">
+                  {pvQueue.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE).map(entry => (
+                    <div key={entry.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={pvSelectedIds.has(entry.id)}
+                          disabled={!pvIsSelectable(entry)}
+                          title={!pvIsSelectable(entry) ? "Add a Vendor/Expense before selecting this entry" : undefined}
+                          onChange={() => togglePvSelect(entry.id)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs text-slate-700 truncate">{entry.description}</p>
+                            <span className="shrink-0 text-sm font-bold text-red-600">-{fmt(entry.amount)}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400">{new Date(entry.txnDate).toLocaleDateString("en-IN")}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-2">
+                        <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Vendor / Expense</label>
+                        {entry.checkedAt ? (
+                          <p className="text-xs text-slate-700">
+                            {entry.vendorOrExpenseName || "—"}
+                            {entry.commissionInfo && <span className="ml-1 text-blue-600">({entry.commissionInfo.label})</span>}
+                          </p>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              list="vendor-expense-options"
+                              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              placeholder="Pick or type vendor/expense..."
+                              value={pvVendorExpenseDrafts[entry.id] ?? ""}
+                              onChange={e => setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
+                              onBlur={() => {
+                                if ((pvVendorExpenseDrafts[entry.id] ?? "") !== (entry.vendorOrExpenseName ?? "")) saveVendorExpense(entry.id);
+                              }}
+                            />
+                            {pvSavingVendorExpenseId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Expense Month</label>
+                          {entry.checkedAt ? (
+                            <p className="text-xs text-slate-600">{entry.expensePeriodLabel || "—"}</p>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="month"
+                                className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                value={pvExpenseMonthDrafts[entry.id] ?? ""}
+                                onChange={e => saveExpenseMonth(entry.id, e.target.value)}
+                              />
+                              {pvSavingExpenseMonthId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Note</label>
+                          {entry.checkedAt ? (
+                            <p className="text-xs text-slate-600">{entry.accountantNote || "—"}</p>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                placeholder="Add note..."
+                                value={pvNoteDrafts[entry.id] ?? ""}
+                                onChange={e => setPvNoteDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
+                                onBlur={() => {
+                                  if ((pvNoteDrafts[entry.id] ?? "") !== (entry.accountantNote ?? "")) saveVerificationNote(entry.id);
+                                }}
+                              />
+                              {pvSavingNoteId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+                        {entry.checkedAt ? (
+                          <div className="flex flex-1 items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                              <Check className="h-3.5 w-3.5 flex-none" /> <span className="truncate">{entry.checkedByName || "Checked"}</span>
+                            </span>
+                            {canCheckPayments && (
+                              <button
+                                onClick={() => handleUndoCheck(entry)}
+                                disabled={pvCheckingId === entry.id}
+                                title="Undo Checked — reopens the row for editing"
+                                className="ml-auto px-2 py-1 rounded border border-red-300 bg-red-50 text-red-700 text-[11px] font-semibold disabled:opacity-50">
+                                Undo
+                              </button>
+                            )}
+                          </div>
+                        ) : canCheckPayments ? (
+                          <button
+                            onClick={() => handleCheckVerification(entry)}
+                            disabled={pvCheckingId === entry.id || !pvIsSelectable(entry)}
+                            title={!pvIsSelectable(entry) ? "Add a Vendor/Expense first" : undefined}
+                            className="flex-1 px-2.5 py-1.5 rounded-md bg-green-600 text-white text-xs font-semibold disabled:opacity-50">
+                            {pvCheckingId === entry.id ? "..." : "Checked"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">Pending</span>
+                        )}
+
+                        {entry.recheckedAt ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
+                            <ShieldCheck className="h-3.5 w-3.5 flex-none" /> Verified by {entry.recheckedByName || "Sanket"}
+                          </span>
+                        ) : isSuperAdmin && entry.checkedAt ? (
+                          <button
+                            onClick={() => handleRecheckVerification(entry)}
+                            disabled={pvRecheckingId === entry.id}
+                            className="flex-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold disabled:opacity-50">
+                            {pvRecheckingId === entry.id ? "..." : "Verify"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-300">
-                {pvQueueLoading ? (
-                  <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
-                ) : pvQueue.length === 0 ? (
-                  <div className="p-10 text-center text-slate-400">Nothing waiting on verification right now.</div>
-                ) : (
                   <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
                     <colgroup>
                       <col className="w-[36px]" />
@@ -3970,8 +4451,8 @@ export default function AccountsPage() {
                       ))}
                     </tbody>
                   </table>
-                )}
               </div>
+                )}
               {pvQueue.length > PV_PAGE_SIZE && (
                 <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                   <span>
@@ -3999,12 +4480,53 @@ export default function AccountsPage() {
           {/* ── PAYMENT HISTORY TAB ── */}
           {tab === "payment_history" && (
             <div className="space-y-2">
+              {isNativeApp && pvHistory.length > 0 && (
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-[11px] text-slate-400">{pvHistory.length} entries</span>
+                  <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                    <button onClick={() => setPaymentHistoryCompact(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${paymentHistoryCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Compact
+                    </button>
+                    <button onClick={() => setPaymentHistoryCompact(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!paymentHistoryCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                      Table
+                    </button>
+                  </div>
+                </div>
+              )}
+              {pvHistoryLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+              ) : pvHistory.length === 0 ? (
+                <div className="rounded-xl border border-slate-300 p-10 text-center text-slate-400">No rechecked entries yet.</div>
+              ) : isNativeApp && paymentHistoryCompact ? (
+                <div className="space-y-2">
+                  {pvHistory.slice((pvHistoryPage - 1) * PV_PAGE_SIZE, pvHistoryPage * PV_PAGE_SIZE).map(p => (
+                    <div key={p.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-slate-700 truncate flex-1">{p.description}</p>
+                        <span className="shrink-0 text-sm font-bold text-red-600">-{fmt(p.amount)}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400">{new Date(p.txnDate).toLocaleDateString("en-IN")}</p>
+                      <div className="mt-1.5 text-xs text-slate-700">
+                        {p.vendorOrExpenseName || "—"}
+                        {p.commissionInfo && <span className="ml-1 text-blue-600">({p.commissionInfo.label})</span>}
+                        {p.expensePeriodLabel && <span className="ml-1 text-slate-400">· {p.expensePeriodLabel}</span>}
+                      </div>
+                      {p.accountantNote && <p className="mt-0.5 text-[11px] text-slate-500">{p.accountantNote}</p>}
+                      <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                          <Check className="h-3.5 w-3.5 flex-none" /> {p.checkedByName || "—"}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
+                          <ShieldCheck className="h-3.5 w-3.5 flex-none" /> {p.recheckedByName || "—"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-300">
-                {pvHistoryLoading ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
-                ) : pvHistory.length === 0 ? (
-                  <div className="p-10 text-center text-slate-400">No rechecked entries yet.</div>
-                ) : (
                   <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
                     <colgroup>
                       <col className="w-[85px]" />
@@ -4054,8 +4576,8 @@ export default function AccountsPage() {
                       ))}
                     </tbody>
                   </table>
-                )}
               </div>
+                )}
               {pvHistory.length > PV_PAGE_SIZE && (
                 <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                   <span>
@@ -4250,17 +4772,19 @@ export default function AccountsPage() {
             <div className="space-y-3">
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Courier Platform</span>
-                <select value={codForm.courierPlatform} onChange={e => setCodForm(f => ({ ...f, courierPlatform: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white">
-                  <option value="BIGSHIP">BigShip</option>
-                  <option value="SHIPROCKET">Shiprocket</option>
-                  <option value="DELHIVERY">Delhivery</option>
-                  <option value="DTDC">DTDC</option>
-                  <option value="BLUEDART">BlueDart</option>
-                  <option value="ECOMEXPRESS">Ecom Express</option>
-                  <option value="XPRESSBEES">XpressBees</option>
-                  <option value="OTHER">Other</option>
-                </select>
+                <MobileSelect value={codForm.courierPlatform} onChange={v => setCodForm(f => ({ ...f, courierPlatform: v }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+                  placeholder="Courier Platform"
+                  options={[
+                    { value: "BIGSHIP", label: "BigShip" },
+                    { value: "SHIPROCKET", label: "Shiprocket" },
+                    { value: "DELHIVERY", label: "Delhivery" },
+                    { value: "DTDC", label: "DTDC" },
+                    { value: "BLUEDART", label: "BlueDart" },
+                    { value: "ECOMEXPRESS", label: "Ecom Express" },
+                    { value: "XPRESSBEES", label: "XpressBees" },
+                    { value: "OTHER", label: "Other" },
+                  ]} />
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">AWB Number</span>
@@ -4316,20 +4840,20 @@ export default function AccountsPage() {
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Method</span>
-                <select value={editPaymentForm.method} onChange={e => setEditPaymentForm(f => ({ ...f, method: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
-                  {paymentMethods.map(method => <option key={method} value={method}>{method.replace("_", " ")}</option>)}
-                </select>
+                <MobileSelect value={editPaymentForm.method} onChange={v => setEditPaymentForm(f => ({ ...f, method: v }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white"
+                  placeholder="Method"
+                  options={paymentMethods.map(method => ({ value: method, label: method.replace("_", " ") }))} />
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Received In</span>
-                <select value={editPaymentForm.paymentAccountId} onChange={e => setEditPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
-                  <option value="">Select account</option>
-                  {paymentAccounts.map(account => (
-                    <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` (${account.bankName})` : ""}</option>
-                  ))}
-                </select>
+                <MobileSelect value={editPaymentForm.paymentAccountId} onChange={v => setEditPaymentForm(f => ({ ...f, paymentAccountId: v }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white"
+                  placeholder="Select account"
+                  options={[
+                    { value: "", label: "Select account" },
+                    ...paymentAccounts.map(account => ({ value: account.id, label: `${account.name}${account.bankName ? ` (${account.bankName})` : ""}` })),
+                  ]} />
               </label>
               <label className="block sm:col-span-2">
                 <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>

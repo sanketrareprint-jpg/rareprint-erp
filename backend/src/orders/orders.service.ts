@@ -146,6 +146,11 @@ type OrderListQuery = {
   // Scopes results to one sales agent's own orders. Set by the controller
   // for SALES_AGENT-role callers — see findAllForTable/getOrdersWithReadyItems.
   salesAgentId?: string;
+  // Test-order visibility filter (see Order.isTest). Undefined = show
+  // everything (default, matches prior behaviour). 'true' = test orders
+  // only (the dedicated "Test Orders" view). 'false' = hide test orders
+  // (used by finance-facing screens that must never mix in dummy data).
+  isTest?: string;
 };
 
 function paging(query: OrderListQuery) {
@@ -361,6 +366,9 @@ export class OrdersService {
     // page by salesAgentName), which meant an agent's own orders that didn't
     // happen to fall on the current unfiltered page were invisible to them.
     if (query.salesAgentId) where.salesAgentId = query.salesAgentId;
+    // Test-order visibility (see OrderListQuery.isTest doc comment).
+    if (query.isTest === 'true') where.isTest = true;
+    else if (query.isTest === 'false') where.isTest = false;
     const search = query.search?.trim();
     if (search) {
       where.OR = [
@@ -859,6 +867,18 @@ export class OrdersService {
       await tx.payment.deleteMany({ where: { orderId } });
       await tx.orderItem.deleteMany({ where: { orderId } });
       await tx.order.delete({ where: { id: orderId } });
+
+      // Test orders each get their own disposable "TEST CUSTOMER (DELETE
+      // ME)" row (see createTestOrder) — clean it up too so deleting a test
+      // order doesn't leave junk customers behind in the Customer
+      // Directory. Guarded by a remaining-orders check even though this
+      // customer is always created 1:1 with its order.
+      if (order.isTest) {
+        const remaining = await tx.order.count({ where: { customerId: order.customerId } });
+        if (remaining === 0) {
+          await tx.customer.delete({ where: { id: order.customerId } }).catch(() => undefined);
+        }
+      }
     });
 
     return { success: true };
@@ -873,17 +893,23 @@ export class OrdersService {
     const testOrderNumber = `TEST-${ts}`;
     const customerCode = `TEST-CUST-${ts}`;
 
-    await this.prisma.$transaction(async (tx) => {
+    const orderId = await this.prisma.$transaction(async (tx) => {
+      // Deliberately no phone/email on the test customer. Every WhatsApp/SMS
+      // send helper (see whatsapp.service.ts) bails out early when
+      // customerPhone is falsy, so leaving this unset is what keeps the
+      // entire test-order lifecycle (approval, dispatch, invoicing) from
+      // ever placing a real outbound message to anyone — no per-call-site
+      // guards needed, and nothing to forget to update if a new
+      // notification is added later.
       const customer = await tx.customer.create({
         data: {
           customerCode,
           businessName: 'TEST CUSTOMER (DELETE ME)',
           contactPerson: 'Test',
-          phone: '0000000000',
         },
       });
 
-      await tx.order.create({
+      const order = await tx.order.create({
         data: {
           orderNumber: testOrderNumber,
           orderDate: new Date(),
@@ -897,7 +923,7 @@ export class OrdersService {
           discount: new Prisma.Decimal(0),
           taxAmount: new Prisma.Decimal(0),
           shippingCharge: new Prisma.Decimal(0),
-          notes: 'TEST ORDER — safe to delete',
+          notes: 'TEST ORDER — safe to delete. Excluded from billing, invoicing totals, commissions, payroll and all reports; behaves like a real order everywhere else so you can exercise the full approval → production → dispatch pipeline.',
           items: {
             create: [{
               productId: product.id,
@@ -912,9 +938,11 @@ export class OrdersService {
           },
         },
       });
+
+      return order.id;
     });
 
-    return { success: true, orderNumber: testOrderNumber };
+    return { success: true, orderNumber: testOrderNumber, id: orderId };
   }
 
   async addPayment(
@@ -1306,7 +1334,23 @@ export class OrdersService {
       // instead of order.status, and by having the production stage-update
       // rollup leave order.status alone once it's moved past IN_PRODUCTION.
       // See production.service.ts.
-      const allowedStatuses: OrderStatus[] = [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION, OrderStatus.READY_FOR_DISPATCH];
+      // PARTIALLY_DISPATCHED added 2026-08-10: once an order has had SOME
+      // items actually booked/shipped, its status moves to
+      // PARTIALLY_DISPATCHED — but that doesn't mean the order is "done."
+      // Any items that were never part of that batch (still genuinely
+      // ready, not in pendingDispatchItemIds, no dispatchedAt) must still
+      // be submittable. Before this, submitting a second, later batch of
+      // items from the same order was blocked outright with "Order status
+      // (PARTIALLY_DISPATCHED) isn't eligible for dispatch submission" —
+      // confirmed via a real order (1473), even though
+      // getOrdersWithReadyItems (the list this is submitted from) already
+      // correctly showed the order as having free ready items.
+      const allowedStatuses: OrderStatus[] = [
+        OrderStatus.APPROVED,
+        OrderStatus.IN_PRODUCTION,
+        OrderStatus.READY_FOR_DISPATCH,
+        OrderStatus.PARTIALLY_DISPATCHED,
+      ];
       if (!allowedStatuses.includes(order.status)) {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: `Order status (${order.status}) isn't eligible for dispatch submission.` });
         continue;

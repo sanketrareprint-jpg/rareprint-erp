@@ -287,6 +287,7 @@ export class AccountsService {
       return {
         id: order.id,
         orderNo: order.orderNumber,
+        isTest: order.isTest,
         customerName:  order.customer.businessName,
         customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
@@ -410,6 +411,7 @@ export class AccountsService {
       return {
         id: order.id,
         orderNo: order.orderNumber,
+        isTest: order.isTest,
         customerName:  order.customer.businessName,
         customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
@@ -912,7 +914,10 @@ export class AccountsService {
   async getAccountingSummary() {
     const [invoices, purchaseBills, notes, ledger] = await Promise.all([
       this.prisma.invoice.findMany({
-        where: { status: 'ISSUED' },
+        // order.isTest excludes dummy QA orders (see Orders > Test Order)
+        // from every accounting total — they must never touch real GST,
+        // receivable, or sales figures.
+        where: { status: 'ISSUED', order: { isTest: false } },
         select: { totalAmount: true, paidAmount: true, balanceAmount: true, taxAmount: true },
       }),
       this.prisma.purchaseBill.findMany({
@@ -966,6 +971,10 @@ export class AccountsService {
 
   async getInvoices() {
     const invoices = await this.prisma.invoice.findMany({
+      // Keep test-order invoices out of the accountant-facing Invoices list —
+      // they still exist in the DB (so the invoice-generation flow itself is
+      // testable) but must never show up here or count toward any total.
+      where: { order: { isTest: false } },
       include: {
         order: { include: { customer: true, salesAgent: { select: { fullName: true } } } },
         items: true,
@@ -1324,7 +1333,7 @@ export class AccountsService {
           GREATEST(o."grandTotal" - COALESCE(op."paidAmount", 0), 0) AS "balanceAmount"
         FROM "Order" o
         LEFT JOIN order_paid op ON op."orderId" = o.id
-        WHERE o.status NOT IN ('DRAFT', 'CANCELLED')
+        WHERE o.status NOT IN ('DRAFT', 'CANCELLED') AND COALESCE(o."isTest", false) = false
       ),
       order_item_statuses AS (
         SELECT
@@ -1465,7 +1474,7 @@ export class AccountsService {
       where: { id: customerId },
       include: {
         orders: {
-          where: { status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.DELIVERED] } },
+          where: { status: { in: [OrderStatus.READY_FOR_DISPATCH, OrderStatus.DELIVERED] }, isTest: false },
           include: {
             salesAgent: { select: { fullName: true } },
             payments: { where: { verificationStatus: 'VERIFIED' } },

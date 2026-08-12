@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { MobileSelect } from "@/components/MobileSelect";
 
 type ItemDetail = {
   productName: string; size: string | null; gsm: string | null;
@@ -264,6 +265,10 @@ export default function OrdersPage() {
   }, [search]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [agentFilter, setAgentFilter] = useState("ALL");
+  // "" = show everything (default). "true" = Test Orders only — the quick
+  // way to find/manage the dummy orders created via the Test Order button
+  // without them getting lost among real orders as the list grows.
+  const [testFilter, setTestFilter] = useState<"" | "true">("");
   const [agentOptions, setAgentOptions] = useState<{ id: string; fullName: string }[]>([]);
   const [marginMode, setMarginMode] = useState<"" | "below" | "above">("");
   const [marginThreshold, setMarginThreshold] = useState("15");
@@ -343,6 +348,7 @@ export default function OrdersPage() {
     });
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (agentFilter !== "ALL") params.set("salesAgentId", agentFilter);
+    if (testFilter) params.set("isTest", testFilter);
     if (canViewMargin && marginMode && marginThreshold) {
       params.set("marginMode", marginMode);
       params.set("marginThreshold", marginThreshold);
@@ -385,7 +391,7 @@ export default function OrdersPage() {
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
     append ? setLoadingMore(false) : setLoading(false);
-  }, [router, debouncedSearch, statusFilter, agentFilter, canViewMargin, marginMode, marginThreshold]);
+  }, [router, debouncedSearch, statusFilter, agentFilter, testFilter, canViewMargin, marginMode, marginThreshold]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -719,9 +725,16 @@ export default function OrdersPage() {
               <div className="flex items-center gap-2">
                 {currentUser?.role === "ADMIN" && (
                   <button onClick={async () => {
-                    if (!confirm("Create a dummy TEST order for feature testing?")) return;
+                    if (!confirm("Create a dummy TEST order for feature testing? It behaves like a real order (approval → production → dispatch) but is fully excluded from billing, invoicing, commissions, payroll and every report.")) return;
                     const res = await fetch(`${API_BASE_URL}/orders/test`, { method: "POST", headers: getAuthHeaders() });
-                    if (res.ok) { const d = await res.json(); alert(`Test order created: ${d.orderNumber}`); load(); }
+                    if (res.ok) {
+                      const d = await res.json();
+                      // Jump straight to the new order instead of leaving the
+                      // admin to hunt for it in the list — this was the
+                      // actual "can't access it" complaint with the old
+                      // alert()-then-hope-it's-on-page-1 flow.
+                      router.push(`/orders/edit?id=${d.id}`);
+                    }
                     else { alert("Failed to create test order"); }
                   }}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
@@ -752,49 +765,46 @@ export default function OrdersPage() {
                   placeholder="Search order, customer, phone, agent…"
                   className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
               </div>
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
-                {STATUS_OPTIONS.map(s => (
-                  <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
-                ))}
-              </select>
+              <MobileSelect value={statusFilter} onChange={setStatusFilter}
+                placeholder="All Statuses"
+                options={STATUS_OPTIONS.map(s => ({ value: s, label: s === "ALL" ? "All Statuses" : s.replace(/_/g, " ") }))}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white" />
               {currentUser?.role === "ADMIN" && agentOptions.length > 0 && (
-                <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white">
-                  <option value="ALL">All Agents</option>
-                  {agentOptions.map(a => (
-                    <option key={a.id} value={a.id}>{a.fullName}</option>
-                  ))}
-                </select>
+                <MobileSelect value={agentFilter} onChange={setAgentFilter}
+                  placeholder="All Agents"
+                  options={[{ value: "ALL", label: "All Agents" }, ...agentOptions.map(a => ({ value: a.id, label: a.fullName }))]}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-blue-400 bg-white" />
               )}
               {canViewMargin && (
                 <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1">
-                  <select
+                  <MobileSelect
                     value={marginMode ? `${marginMode}:${marginThreshold}` : ""}
-                    onChange={e => {
-                      const [mode, threshold] = e.target.value.split(":");
+                    onChange={v => {
+                      const [mode, threshold] = v.split(":");
                       setMarginMode((mode as "below" | "above") || "");
                       if (threshold) setMarginThreshold(threshold);
                     }}
                     className="bg-white text-xs outline-none"
-                  >
-                    <option value="">All margins</option>
-                    <option value="below:15">Below 15%</option>
-                    <option value="below:20">Below 20%</option>
-                    <option value="below:25">Below 25%</option>
-                    <option value="above:15">Above 15%</option>
-                    <option value="above:20">Above 20%</option>
-                    <option value="above:25">Above 25%</option>
-                  </select>
-                  <select
+                    options={[
+                      { value: "", label: "All margins" },
+                      { value: "below:15", label: "Below 15%" },
+                      { value: "below:20", label: "Below 20%" },
+                      { value: "below:25", label: "Below 25%" },
+                      { value: "above:15", label: "Above 15%" },
+                      { value: "above:20", label: "Above 20%" },
+                      { value: "above:25", label: "Above 25%" },
+                    ]}
+                  />
+                  <MobileSelect
                     value={marginMode}
-                    onChange={e => setMarginMode(e.target.value as "" | "below" | "above")}
+                    onChange={v => setMarginMode(v as "" | "below" | "above")}
                     className="bg-white text-xs outline-none"
-                  >
-                    <option value="">Mode</option>
-                    <option value="below">Below</option>
-                    <option value="above">Above</option>
-                  </select>
+                    options={[
+                      { value: "", label: "Mode" },
+                      { value: "below", label: "Below" },
+                      { value: "above", label: "Above" },
+                    ]}
+                  />
                   <input
                     type="number"
                     min="0"
@@ -807,8 +817,16 @@ export default function OrdersPage() {
                   <span className="text-xs text-slate-400">%</span>
                 </div>
               )}
-              {(search || statusFilter !== "ALL" || agentFilter !== "ALL" || (canViewMargin && marginMode)) && (
-                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setAgentFilter("ALL"); setMarginMode(""); setMarginThreshold("15"); }}
+              {currentUser?.role === "ADMIN" && (
+                <button
+                  onClick={() => setTestFilter(f => f === "true" ? "" : "true")}
+                  title="Show only Test Orders"
+                  className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${testFilter === "true" ? "border-amber-400 bg-amber-100 text-amber-800" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Test Orders Only
+                </button>
+              )}
+              {(search || statusFilter !== "ALL" || agentFilter !== "ALL" || testFilter || (canViewMargin && marginMode)) && (
+                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setAgentFilter("ALL"); setTestFilter(""); setMarginMode(""); setMarginThreshold("15"); }}
                   className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
                   <X className="h-3 w-3" /> Clear
                 </button>
@@ -839,7 +857,10 @@ export default function OrdersPage() {
             )}
 
             {activeTab === "dispatch" && selectedOrderIds.size > 0 && (
-              <div className="flex items-center justify-between rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
+              <div className={cx(
+                "flex items-center justify-between rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2",
+                "flex flex-col items-stretch gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2"
+              )}>
                 <div className="text-xs text-indigo-800">
                   <strong>{selectedOrderIds.size}</strong> order{selectedOrderIds.size > 1 ? "s" : ""} selected
                   {selectedOrders.length > 0 && <span className="ml-1.5">— {selectedOrders[0].customerName}</span>}
@@ -847,9 +868,9 @@ export default function OrdersPage() {
                 </div>
                 <div className="flex gap-1.5">
                   <button onClick={() => { setSelectedOrderIds(new Set()); setCustomerError(null); }}
-                    className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">Clear</button>
+                    className={cx("rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100", "flex-1 rounded-md border border-indigo-200 px-2 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100")}>Clear</button>
                   <button onClick={openBookingModal}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700">
+                    className={cx("inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700", "flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700")}>
                     <Truck className="h-3.5 w-3.5" />Book Shipment
                   </button>
                 </div>
@@ -905,7 +926,7 @@ export default function OrdersPage() {
                     </div>
                     {(!isNativeApp || nativeExpandedOrderId === o.id) && (
                     <>
-                    <div className={`grid ${canViewMargin ? "grid-cols-5" : canViewCommission ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
+                    <div className={`order-stats-grid grid ${canViewMargin ? "grid-cols-5" : canViewCommission ? "grid-cols-4" : "grid-cols-3"} divide-x divide-slate-100 border-b border-slate-100 text-center`}>
                       <div className={cx("px-2 py-1.5", "px-2 py-1")}>
                         <p className="text-[10px] font-semibold text-slate-400">Total</p>
                         <p className="text-xs font-bold text-slate-900">{fmt(o.totalAmount)}</p>
@@ -1573,16 +1594,17 @@ export default function OrdersPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method *</label>
-                <select value={newPayment.method} onChange={e => setNewPayment(p => ({ ...p, method: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                  {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+                <MobileSelect value={newPayment.method} onChange={v => setNewPayment(p => ({ ...p, method: v }))}
+                  placeholder="Payment Method"
+                  options={Object.entries(METHOD_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Received In Account *</label>
-                <select value={newPayment.paymentAccountId} onChange={e => setNewPayment(p => ({ ...p, paymentAccountId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                  <option value="">Select account...</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name} {a.bankName ? `(${a.bankName})` : ""}</option>)}
-                </select>
+                <MobileSelect value={newPayment.paymentAccountId} onChange={v => setNewPayment(p => ({ ...p, paymentAccountId: v }))}
+                  placeholder="Received In Account"
+                  options={[{ value: "", label: "Select account..." }, ...accounts.map(a => ({ value: a.id, label: `${a.name} ${a.bankName ? `(${a.bankName})` : ""}` }))]}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR</label>
@@ -1675,7 +1697,7 @@ export default function OrdersPage() {
                     <div className="grid grid-cols-4 gap-2">
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Transport Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Company" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">LR Number</label><input value={bookingForm.lrNumber} onChange={e => setBookingForm(p => ({ ...p, lrNumber: e.target.value }))} placeholder="LR No" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
-                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Charges</label><select value={bookingForm.transportChargesType} onChange={e => setBookingForm(p => ({ ...p, transportChargesType: e.target.value }))} className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white"><option value="TOPAY">To Pay</option><option value="PREPAID">Prepaid</option></select></div>
+                      <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Charges</label><MobileSelect value={bookingForm.transportChargesType} onChange={v => setBookingForm(p => ({ ...p, transportChargesType: v }))} placeholder="Charges" options={[{ value: "TOPAY", label: "To Pay" }, { value: "PREPAID", label: "Prepaid" }]} className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" /></div>
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">By</label><input value={bookingForm.transportBy} onChange={e => setBookingForm(p => ({ ...p, transportBy: e.target.value }))} placeholder="Staff" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                     </div>
                   )}
@@ -1817,15 +1839,14 @@ export default function OrdersPage() {
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                       <p className="text-[10px] font-semibold text-emerald-800 mb-1.5 uppercase tracking-wide">Payment Receipt (Prepaid)</p>
                       <div className="space-y-1.5">
-                        <select value={bookingForm.paymentMethod} onChange={e => setBookingForm(p => ({ ...p, paymentMethod: e.target.value }))}
-                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white">
-                          {Object.entries(METHOD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                        <select value={bookingForm.paymentAccountId} onChange={e => setBookingForm(p => ({ ...p, paymentAccountId: e.target.value }))}
-                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white">
-                          <option value="">Select account...</option>
-                          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
+                        <MobileSelect value={bookingForm.paymentMethod} onChange={v => setBookingForm(p => ({ ...p, paymentMethod: v }))}
+                          placeholder="Payment Method"
+                          options={Object.entries(METHOD_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" />
+                        <MobileSelect value={bookingForm.paymentAccountId} onChange={v => setBookingForm(p => ({ ...p, paymentAccountId: v }))}
+                          placeholder="Received In Account"
+                          options={[{ value: "", label: "Select account..." }, ...accounts.map(a => ({ value: a.id, label: a.name }))]}
+                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" />
                         <input type="text" placeholder="UTR / Reference Number" value={bookingForm.paymentReference}
                           onChange={e => setBookingForm(p => ({ ...p, paymentReference: e.target.value }))}
                           className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" />
@@ -1984,20 +2005,19 @@ export default function OrdersPage() {
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Method</span>
-                <select value={editPaymentForm.method}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, method: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
-                  {Object.entries(METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
+                <MobileSelect value={editPaymentForm.method}
+                  onChange={v => setEditPaymentForm(f => ({ ...f, method: v }))}
+                  placeholder="Method"
+                  options={Object.entries(METHOD_LABELS).map(([value, label]) => ({ value, label }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white" />
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold text-slate-600">Account</span>
-                <select value={editPaymentForm.paymentAccountId}
-                  onChange={e => setEditPaymentForm(f => ({ ...f, paymentAccountId: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white">
-                  <option value="">Select account</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}{a.bankName ? ` (${a.bankName})` : ""}</option>)}
-                </select>
+                <MobileSelect value={editPaymentForm.paymentAccountId}
+                  onChange={v => setEditPaymentForm(f => ({ ...f, paymentAccountId: v }))}
+                  placeholder="Account"
+                  options={[{ value: "", label: "Select account" }, ...accounts.map(a => ({ value: a.id, label: `${a.name}${a.bankName ? ` (${a.bankName})` : ""}` }))]}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white" />
               </label>
               <label className="block sm:col-span-2">
                 <span className="text-[11px] font-semibold text-slate-600">UTR / Reference No</span>

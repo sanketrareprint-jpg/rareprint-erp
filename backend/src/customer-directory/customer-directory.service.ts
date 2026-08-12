@@ -111,7 +111,12 @@ export class CustomerDirectoryService {
   }
 
   async search(query: { search?: string; city?: string; state?: string; product?: string; page?: string | number; limit?: string | number }) {
-    const where: any = {};
+    // Every "Test Order" (see Orders page) spins up a disposable throwaway
+    // customer named "TEST CUSTOMER (DELETE ME)" with a customerCode
+    // prefixed TEST-CUST-. Keep those out of the real Customer Directory —
+    // this is a reporting/CRM surface, not a workflow queue, so test data
+    // has no reason to ever appear here.
+    const where: any = { NOT: { customerCode: { startsWith: 'TEST-CUST-' } } };
     const search = clean(query.search);
     const city = clean(query.city);
     const state = clean(query.state);
@@ -164,7 +169,7 @@ export class CustomerDirectoryService {
     const revenueRows = pageCustomers.length
       ? await this.prisma.order.groupBy({
           by: ['customerId'],
-          where: { customerId: { in: pageCustomers.map((customer) => customer.id) } },
+          where: { customerId: { in: pageCustomers.map((customer) => customer.id) }, isTest: false },
           _sum: { grandTotal: true },
         })
       : [];

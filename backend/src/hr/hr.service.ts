@@ -525,7 +525,7 @@ export class HrService {
       // is simply 0 when there's no linked user.
       employee.userId
         ? this.prisma.order.aggregate({
-            where: { salesAgentId: employee.userId, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: monthStart, lt: monthEnd } },
+            where: { salesAgentId: employee.userId, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: monthStart, lt: monthEnd }, isTest: false },
             _sum: { grandTotal: true },
           })
         : Promise.resolve(null),
