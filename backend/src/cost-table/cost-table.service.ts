@@ -749,7 +749,19 @@ export class CostTableService {
       agents = await (this.prisma as any).user.findMany({
         where: { id: { in: ids }, isActive: true },
         orderBy: { fullName: 'asc' },
-        select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true },
+        // employeeProfile.baseSalary is the real source of truth once someone
+        // is onboarded in HR (Employee.baseSalary — "the salary engine" field,
+        // edited on the HR page). User.baseSalary only exists as a manual
+        // fallback for sales agents who were never added as a formal HR
+        // Employee (set via Cost Table > Sales Agents > salary). Previously
+        // this only ever read User.baseSalary, so anyone with a real HR
+        // record but no manual override here showed ₹0 on the Sales
+        // Employee Profit dashboard even though HR had their real salary —
+        // see resolution order below.
+        select: {
+          id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true,
+          employeeProfile: { select: { baseSalary: true } },
+        },
       });
     } catch {
       // baseSalary column may not have been migrated onto the DB yet — degrade gracefully
@@ -759,7 +771,13 @@ export class CostTableService {
         select: { id: true, fullName: true, email: true, salesAgentCategory: true },
       });
     }
-    return agents.map((a: any) => ({ ...a, baseSalary: a.baseSalary != null ? Number(a.baseSalary) : null }));
+    return agents.map((a: any) => {
+      const employeeSalary = a.employeeProfile?.baseSalary;
+      const userSalary = a.baseSalary;
+      const resolved = employeeSalary ?? userSalary;
+      const { employeeProfile, ...rest } = a;
+      return { ...rest, baseSalary: resolved != null ? Number(resolved) : null };
+    });
   }
 
   // Any single user's salary info — used by the self-service Salary & Commission
@@ -769,7 +787,12 @@ export class CostTableService {
     try {
       u = await (this.prisma as any).user.findUnique({
         where: { id: userId },
-        select: { id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true },
+        // Same employeeProfile-first resolution as getSalesAgents() above —
+        // keep the two in sync if this ever changes.
+        select: {
+          id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true,
+          employeeProfile: { select: { baseSalary: true } },
+        },
       });
     } catch {
       u = await (this.prisma as any).user.findUnique({
@@ -778,7 +801,10 @@ export class CostTableService {
       });
     }
     if (!u) throw new NotFoundException('User not found');
-    return { ...u, baseSalary: u.baseSalary != null ? Number(u.baseSalary) : 0 };
+    const employeeSalary = u.employeeProfile?.baseSalary;
+    const resolved = employeeSalary ?? u.baseSalary;
+    const { employeeProfile, ...rest } = u;
+    return { ...rest, baseSalary: resolved != null ? Number(resolved) : 0 };
   }
 
   async updateSalesAgentSalary(userId: string, baseSalary: number | null) {
