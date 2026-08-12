@@ -736,6 +736,50 @@ export class CostTableService {
     );
   }
 
+  // Normalize a name/email for loose matching between HR Employee records and
+  // login User records (trim, lowercase, collapse whitespace).
+  private normKey(s?: string | null): string {
+    return (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  // The HR page has no "link to login account" control, so Employee.userId
+  // is almost always null in practice — the direct Prisma relation
+  // (User.employeeProfile) resolves to nothing for real agents. Build a
+  // best-effort lookup keyed by userId first (if it ever does get set), then
+  // by normalized email, then by normalized full name, so HR's real
+  // Employee.baseSalary still reaches the dashboard for agents who were
+  // never explicitly linked. A key is dropped (left unmatched) if two
+  // different Employee records collide on it, rather than guessing wrong.
+  private async buildEmployeeSalaryLookup() {
+    const employees = await (this.prisma as any).employee.findMany({
+      select: { userId: true, fullName: true, email: true, baseSalary: true },
+    });
+    const byUserId = new Map<string, any>();
+    const byEmail = new Map<string, any | 'AMBIGUOUS'>();
+    const byName = new Map<string, any | 'AMBIGUOUS'>();
+    for (const e of employees) {
+      if (e.userId) byUserId.set(e.userId, e);
+      const emailKey = this.normKey(e.email);
+      if (emailKey) byEmail.set(emailKey, byEmail.has(emailKey) ? 'AMBIGUOUS' : e);
+      const nameKey = this.normKey(e.fullName);
+      if (nameKey) byName.set(nameKey, byName.has(nameKey) ? 'AMBIGUOUS' : e);
+    }
+    return { byUserId, byEmail, byName };
+  }
+
+  private resolveAgentBaseSalary(
+    u: { id: string; email?: string | null; fullName?: string | null; baseSalary?: any },
+    lookup: { byUserId: Map<string, any>; byEmail: Map<string, any>; byName: Map<string, any> },
+  ): number | null {
+    const emp =
+      lookup.byUserId.get(u.id) ??
+      (u.email ? lookup.byEmail.get(this.normKey(u.email)) : undefined) ??
+      lookup.byName.get(this.normKey(u.fullName));
+    const employeeSalary = emp && emp !== 'AMBIGUOUS' ? emp.baseSalary : undefined;
+    const resolved = employeeSalary ?? u.baseSalary;
+    return resolved != null ? Number(resolved) : null;
+  }
+
   async getSalesAgents() {
     // Return every user who has ever been a salesAgent on an order (any role)
     const agentOrders = await (this.prisma as any).order.findMany({
@@ -749,19 +793,15 @@ export class CostTableService {
       agents = await (this.prisma as any).user.findMany({
         where: { id: { in: ids }, isActive: true },
         orderBy: { fullName: 'asc' },
-        // employeeProfile.baseSalary is the real source of truth once someone
-        // is onboarded in HR (Employee.baseSalary — "the salary engine" field,
-        // edited on the HR page). User.baseSalary only exists as a manual
-        // fallback for sales agents who were never added as a formal HR
-        // Employee (set via Cost Table > Sales Agents > salary). Previously
-        // this only ever read User.baseSalary, so anyone with a real HR
-        // record but no manual override here showed ₹0 on the Sales
-        // Employee Profit dashboard even though HR had their real salary —
-        // see resolution order below.
-        select: {
-          id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true,
-          employeeProfile: { select: { baseSalary: true } },
-        },
+        // Employee.baseSalary (HR's real salary field) is the source of
+        // truth once someone is onboarded in HR. User.baseSalary only
+        // exists as a manual fallback for sales agents who were never added
+        // as a formal HR Employee (set via Cost Table > Sales Agents >
+        // salary). See buildEmployeeSalaryLookup()/resolveAgentBaseSalary()
+        // for how the two are reconciled — Employee.userId is essentially
+        // never populated (no HR UI sets it), so matching also falls back
+        // to normalized email/full-name.
+        select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true },
       });
     } catch {
       // baseSalary column may not have been migrated onto the DB yet — degrade gracefully
@@ -771,13 +811,8 @@ export class CostTableService {
         select: { id: true, fullName: true, email: true, salesAgentCategory: true },
       });
     }
-    return agents.map((a: any) => {
-      const employeeSalary = a.employeeProfile?.baseSalary;
-      const userSalary = a.baseSalary;
-      const resolved = employeeSalary ?? userSalary;
-      const { employeeProfile, ...rest } = a;
-      return { ...rest, baseSalary: resolved != null ? Number(resolved) : null };
-    });
+    const lookup = await this.buildEmployeeSalaryLookup();
+    return agents.map((a: any) => ({ ...a, baseSalary: this.resolveAgentBaseSalary(a, lookup) }));
   }
 
   // Any single user's salary info — used by the self-service Salary & Commission
@@ -787,12 +822,7 @@ export class CostTableService {
     try {
       u = await (this.prisma as any).user.findUnique({
         where: { id: userId },
-        // Same employeeProfile-first resolution as getSalesAgents() above —
-        // keep the two in sync if this ever changes.
-        select: {
-          id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true,
-          employeeProfile: { select: { baseSalary: true } },
-        },
+        select: { id: true, fullName: true, role: true, salesAgentCategory: true, baseSalary: true, email: true },
       });
     } catch {
       u = await (this.prisma as any).user.findUnique({
@@ -801,10 +831,9 @@ export class CostTableService {
       });
     }
     if (!u) throw new NotFoundException('User not found');
-    const employeeSalary = u.employeeProfile?.baseSalary;
-    const resolved = employeeSalary ?? u.baseSalary;
-    const { employeeProfile, ...rest } = u;
-    return { ...rest, baseSalary: resolved != null ? Number(resolved) : 0 };
+    const lookup = await this.buildEmployeeSalaryLookup();
+    const resolved = this.resolveAgentBaseSalary(u, lookup);
+    return { ...u, baseSalary: resolved != null ? resolved : 0 };
   }
 
   async updateSalesAgentSalary(userId: string, baseSalary: number | null) {
