@@ -48,4 +48,16 @@ export class DashboardController {
     }
     return this.dashboardService.getSuperAdminTasks();
   }
+
+  // Owner-only — sales employee-wise profit (gross profit minus commission
+  // and fixed salary), filterable by month. Its own endpoint (not bundled
+  // into /dashboard/summary) so switching the month dropdown doesn't have to
+  // reload the whole dashboard, same reasoning as agent-leaderboard above.
+  @Get('agent-profit')
+  getAgentProfit(@Query('month') month: string | undefined, @Req() req: Request & { user: JwtUser }) {
+    if (req.user?.email !== 'sanket.rareprint@gmail.com') {
+      return { year: null, month: null, agents: [], totals: null };
+    }
+    return this.dashboardService.getAgentProfitBreakdown(month);
+  }
 }

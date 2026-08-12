@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -35,6 +36,16 @@ type ProfitKpis = { today: ProfitPeriod; thisMonth: ProfitPeriod; lastMonth: Pro
 type SalesByMonthPoint = { month: string; total: number };
 type CashflowPeriod = { cashIn: number; cashOut: number; net: number; bankCashIn: number; bankCashOut: number; cashModeIn: number; cashModeOut: number };
 type Cashflow = { thisMonth: CashflowPeriod; lastMonth: CashflowPeriod; deltaVsLastMonth: number };
+
+// Sales employee-wise profit (owner only) — gross profit from each agent's
+// orders minus their commission and fixed base salary for the selected month.
+type AgentProfitRow = {
+  id: string; name: string; category: string | null;
+  saleTotal: number; grossProfit: number; missingCostItems: number; orderCount: number;
+  commissionTotal: number; bonus: number; baseSalary: number; profitAfterDeductions: number;
+};
+type AgentProfitTotals = { saleTotal: number; grossProfit: number; commissionTotal: number; bonus: number; baseSalary: number; profitAfterDeductions: number };
+type AgentProfitBreakdown = { year: number; month: number; agents: AgentProfitRow[]; totals: AgentProfitTotals };
 
 // Super Admin Tasks — an extensible list of "only Sanket/owner can act on
 // this" items (see backend DashboardService.getSuperAdminTasks). New task
@@ -126,6 +137,9 @@ export default function DashboardPage() {
   const [profit, setProfit] = useState<ProfitKpis | null>(null);
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
   const [superAdminTasks, setSuperAdminTasks] = useState<SuperAdminTasks | null>(null);
+  const [agentProfitMonth, setAgentProfitMonth] = useState(""); // "" = this month
+  const [agentProfit, setAgentProfit] = useState<AgentProfitBreakdown | null>(null);
+  const [agentProfitLoading, setAgentProfitLoading] = useState(false);
   const [complaintsOverview, setComplaintsOverview] = useState<ComplaintsOverview | null>(null);
   const [compliance, setCompliance] = useState<ComplianceDashboard | null>(null);
   const [myStats, setMyStats] = useState<MyComplianceStats | null>(null);
@@ -251,6 +265,23 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, [leaderboardMonth]);
 
+  // Sales Employee Profit (owner only) — its own fetch, keyed off the month
+  // dropdown, so switching months doesn't reload the whole dashboard. Gated
+  // client-side on the same owner email the backend actually enforces (defense
+  // in depth — the endpoint returns an empty payload for anyone else anyway).
+  useEffect(() => {
+    if (currentUser?.email !== "sanket.rareprint@gmail.com") return;
+    let cancelled = false;
+    setAgentProfitLoading(true);
+    const qs = agentProfitMonth ? `?month=${agentProfitMonth}` : "";
+    fetch(`${API_BASE_URL}/dashboard/agent-profit${qs}`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) setAgentProfit(d); })
+      .catch(() => { if (!cancelled) setAgentProfit(null); })
+      .finally(() => { if (!cancelled) setAgentProfitLoading(false); });
+    return () => { cancelled = true; };
+  }, [agentProfitMonth, currentUser]);
+
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return (
@@ -348,6 +379,75 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ── Sales Employee Profit — owner only. Per sales agent: gross
+             profit from their orders (sale − material cost), minus their
+             commission and fixed base salary for the selected month. Reuses
+             the same commission calc as Accounts > Commission, so the numbers
+             always agree with what agents are actually paid. ── */}
+        {isOwner && (
+          <div className="bg-white rounded-lg border border-slate-200 px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1 mb-1">
+              <p className="text-xs font-semibold text-slate-700">Sales Employee Profit <span className="opacity-60 font-normal">(owner only)</span></p>
+              <MobileSelect
+                value={agentProfitMonth}
+                onChange={setAgentProfitMonth}
+                className="text-slate-600 bg-white border border-slate-200 rounded outline-none"
+                style={{ fontSize: "10px", padding: "1px 3px" }}
+                options={leaderboardMonthOptions.map(o => ({ value: o.value, label: o.label }))}
+              />
+              {agentProfitLoading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+            </div>
+            {!agentProfit || agentProfit.agents.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-3">{agentProfitLoading ? "Loading…" : "No sales-agent orders in this period."}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-slate-100">
+                      <th className="text-left font-medium py-1 pr-2">Agent</th>
+                      <th className="text-right font-medium py-1 px-2">Sale</th>
+                      <th className="text-right font-medium py-1 px-2">Gross Profit</th>
+                      <th className="text-right font-medium py-1 px-2">Commission</th>
+                      <th className="text-right font-medium py-1 px-2">Bonus</th>
+                      <th className="text-right font-medium py-1 px-2">Fixed Salary</th>
+                      <th className="text-right font-medium py-1 pl-2">Profit After Deductions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentProfit.agents.map((a) => (
+                      <tr key={a.id} className="border-b border-slate-50 last:border-0">
+                        <td className="py-1 pr-2 font-medium text-slate-800 whitespace-nowrap">
+                          {a.name}
+                          {a.missingCostItems > 0 && (
+                            <span title={`${a.missingCostItems} item(s) missing cost data — gross profit may be understated`} className="ml-1 text-amber-500">⚠</span>
+                          )}
+                        </td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.saleTotal)}</td>
+                        <td className="py-1 px-2 text-right text-blue-600">{fmt(a.grossProfit)}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.commissionTotal)}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.bonus)}</td>
+                        <td className="py-1 px-2 text-right text-slate-600">{fmt(a.baseSalary)}</td>
+                        <td className={`py-1 pl-2 text-right font-bold ${a.profitAfterDeductions >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(a.profitAfterDeductions)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-slate-200 font-bold">
+                      <td className="py-1 pr-2 text-slate-700">Total</td>
+                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.saleTotal)}</td>
+                      <td className="py-1 px-2 text-right text-blue-700">{fmt(agentProfit.totals.grossProfit)}</td>
+                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.commissionTotal)}</td>
+                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.bonus)}</td>
+                      <td className="py-1 px-2 text-right text-slate-700">{fmt(agentProfit.totals.baseSalary)}</td>
+                      <td className={`py-1 pl-2 text-right ${agentProfit.totals.profitAfterDeductions >= 0 ? "text-emerald-700" : "text-red-700"}`}>{fmt(agentProfit.totals.profitAfterDeductions)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
