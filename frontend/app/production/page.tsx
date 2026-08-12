@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import DateInput from "@/components/DateInput";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Upload, X, FileText, Image, Download, Paperclip, Search, Plus, Trash2, ChevronDown, ChevronUp, Clock } from "lucide-react";
@@ -161,6 +162,7 @@ export default function ProductionPage() {
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
   const [expandedFileItemId, setExpandedFileItemId] = useState<string | null>(null);
+  const [sheetPickerValue, setSheetPickerValue] = useState<Record<string, string>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"unassigned"|"inhouse"|"clubbing"|"sheets"|"all">("unassigned");
@@ -1173,10 +1175,9 @@ export default function ProductionPage() {
                       </div>
                       <div className="mt-2 flex items-center gap-2">
                         {isUpdating && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
-                        <select value={item.itemProductionStage} disabled={isUpdating} onChange={e => updateItemStage(item.id, e.target.value as ProductionStage)}
-                          className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm font-bold outline-none disabled:opacity-60 ${stageColors[item.itemProductionStage]}`}>
-                          {PRODUCTION_STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
+                        <MobileSelect value={item.itemProductionStage} disabled={isUpdating} onChange={v => updateItemStage(item.id, v as ProductionStage)}
+                          className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm font-bold outline-none disabled:opacity-60 ${stageColors[item.itemProductionStage]}`}
+                          options={[...PRODUCTION_STAGES]} />
                         {userRole !== "INHOUSE" && (
                           <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-600">Undo</button>
                         )}
@@ -1229,11 +1230,12 @@ export default function ProductionPage() {
                     <th className="px-1.5 py-2 font-semibold text-slate-600">Sheets</th>
                     <th className="px-1.5 py-2 font-semibold text-slate-600">Files</th>
                     <th className="px-1.5 py-2 font-semibold text-slate-600">Upload</th>
+                    {activeTab === "inhouse" && userRole !== "INHOUSE" && <th className="px-1.5 py-2 font-semibold text-slate-600">Action</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {flatItems.length === 0 ? (
-                    <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
+                    <tr><td colSpan={activeTab === "inhouse" && userRole !== "INHOUSE" ? 14 : 13} className="px-4 py-10 text-center text-slate-400">No items.</td></tr>
                   ) : (() => {
                     let groupIdx = -1;
                     return flatItems.map(item => {
@@ -1267,10 +1269,9 @@ export default function ProductionPage() {
                           <td className="px-1.5 py-1.5">
                             <div className="flex items-center gap-1">
                               {isUpdating && <Loader2 className="h-3 w-3 animate-spin text-blue-600" />}
-                              <select value={item.itemProductionStage} disabled={isUpdating} onChange={e => updateItemStage(item.id, e.target.value as ProductionStage)}
-                                className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none disabled:opacity-60 cursor-pointer border-transparent ${stageColors[item.itemProductionStage]}`}>
-                                {PRODUCTION_STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                              </select>
+                              <MobileSelect value={item.itemProductionStage} disabled={isUpdating} onChange={v => updateItemStage(item.id, v as ProductionStage)}
+                                className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none disabled:opacity-60 cursor-pointer border-transparent ${stageColors[item.itemProductionStage]}`}
+                                options={[...PRODUCTION_STAGES]} />
                             </div>
                           </td>
                           <td className="px-1.5 py-1.5">
@@ -1304,9 +1305,14 @@ export default function ProductionPage() {
                               {isUploading ? "..." : "Upload"}
                             </button>
                           </td>
+                          {activeTab === "inhouse" && userRole !== "INHOUSE" && (
+                            <td className="px-1.5 py-1.5">
+                              <button onClick={async () => { if (!confirm("Unassign from Inhouse?")) return; await fetch(`${API_BASE_URL}/production/items/${item.id}/assign-category`, { method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ productionCategory: null }) }); await loadAll(true); }} className="inline-flex items-center rounded bg-red-100 border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-200">✕ Undo</button>
+                            </td>
+                          )}
                         </tr>
                         {isExpanded && designFiles.length > 0 && (
-                          <tr><td colSpan={13} className="bg-blue-50 border-t border-blue-100 px-4 py-3">
+                          <tr><td colSpan={activeTab === "inhouse" && userRole !== "INHOUSE" ? 14 : 13} className="bg-blue-50 border-t border-blue-100 px-4 py-3">
                             <div className="flex items-center justify-between mb-2">
                               <p className="text-xs font-semibold text-blue-800">Files for {item.productName}</p>
                               <button onClick={() => setExpandedFileItemId(null)}><X className="h-3.5 w-3.5 text-blue-400" /></button>
@@ -1633,10 +1639,9 @@ export default function ProductionPage() {
                         ] as const).map(([key, label, options]) => (
                           <label key={key} className="flex items-center gap-1 text-xs font-semibold text-slate-600">
                             {label}
-                            <select value={sheetFilters[key]} onChange={e => setSheetFilters(p => ({ ...p, [key]: e.target.value }))} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none">
-                              <option value="">All</option>
-                              {options.map(option => <option key={option} value={option}>{option}</option>)}
-                            </select>
+                            <MobileSelect value={sheetFilters[key]} onChange={v => setSheetFilters(p => ({ ...p, [key]: v }))} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none"
+                              placeholder="All"
+                              options={[{ value: "", label: "All" }, ...options.map(option => ({ value: option, label: option }))]} />
                           </label>
                         ))}
                         <button onClick={() => setSheetFilters({ product: "", size: "", gsm: "", sides: "" })} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50">
@@ -1708,15 +1713,14 @@ export default function ProductionPage() {
                                   </div>
                                 ) : (
                                   <div className="flex gap-2">
-                                    <select id={`mobile-sel-${item.id}`} defaultValue="" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none">
-                                      <option value="">Select sheet...</option>
-                                      {compatibleSheets.map(s => <option key={s.id} value={s.id}>{s.sheetNo} - {s.quantity} Qty</option>)}
-                                    </select>
+                                    <MobileSelect value={sheetPickerValue[item.id] ?? ""} onChange={v => setSheetPickerValue(p => ({ ...p, [item.id]: v }))} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none"
+                                      placeholder="Select sheet..."
+                                      options={[{ value: "", label: "Select sheet..." }, ...compatibleSheets.map(s => ({ value: s.id, label: `${s.sheetNo} - ${s.quantity} Qty` }))]} />
                                     <button onClick={() => {
-                                      const sel = document.getElementById(`mobile-sel-${item.id}`) as HTMLSelectElement;
-                                      if (!sel?.value) { alert("Select a sheet first"); return; }
+                                      const selValue = sheetPickerValue[item.id];
+                                      if (!selValue) { alert("Select a sheet first"); return; }
                                       const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
-                                      openMultipleDialog(sel.value, pi);
+                                      openMultipleDialog(selValue, pi);
                                     }} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white">Assign</button>
                                     <button
                                       type="button"
@@ -1795,18 +1799,14 @@ export default function ProductionPage() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-1">
-                                  <select id={`sel-${item.id}`} defaultValue="" className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
-                                    <option value="">Select sheet...</option>
-                                    {compatibleSheets.map(s => {
-                                      const used = Math.round((s.usedAreaSqInches / s.areaSqInches) * 100);
-                                      return <option key={s.id} value={s.id}>{s.sheetNo} - {s.quantity} Qty ({used}% used)</option>;
-                                    })}
-                                  </select>
+                                  <MobileSelect value={sheetPickerValue[item.id] ?? ""} onChange={v => setSheetPickerValue(p => ({ ...p, [item.id]: v }))} className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white"
+                                    placeholder="Select sheet..."
+                                    options={[{ value: "", label: "Select sheet..." }, ...compatibleSheets.map(s => { const used = Math.round((s.usedAreaSqInches / s.areaSqInches) * 100); return { value: s.id, label: `${s.sheetNo} - ${s.quantity} Qty (${used}% used)` }; })]} />
                                   <button onClick={() => {
-                                    const sel = document.getElementById(`sel-${item.id}`) as HTMLSelectElement;
-                                    if (!sel?.value) { alert("Select a sheet first"); return; }
+                                    const selValue = sheetPickerValue[item.id];
+                                    if (!selValue) { alert("Select a sheet first"); return; }
                                     const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
-                                    openMultipleDialog(sel.value, pi);
+                                    openMultipleDialog(selValue, pi);
                                   }} className="inline-flex items-center gap-0.5 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-700">
                                     <Plus className="h-3 w-3" /> Assign
                                   </button>
@@ -1873,9 +1873,8 @@ export default function ProductionPage() {
                                   Delete
                                 </button>
                               )}
-                              <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}>
-                                {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              <MobileSelect value={sheet.status} onClick={e => e.stopPropagation()} onChange={v => updateSheetStatus(sheet.id, v)} className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status]}`}
+                                options={getAllowedSheetStatuses(sheet.status).map(s => ({ value: s, label: s }))} />
                               {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                             </div>
                           </div>
@@ -1985,10 +1984,9 @@ export default function ProductionPage() {
                                   <span className="text-xs text-slate-500">{sheet.items.length} items</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <select value={sheet.status} onClick={e => e.stopPropagation()} onChange={e => updateSheetStatus(sheet.id, e.target.value)}
-                                    className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status] || "bg-gray-100"}`}>
-                                    {getAllowedSheetStatuses(sheet.status).map(s => <option key={s} value={s}>{s}</option>)}
-                                  </select>
+                                  <MobileSelect value={sheet.status} onClick={e => e.stopPropagation()} onChange={v => updateSheetStatus(sheet.id, v)}
+                                    className={`rounded-md border px-1.5 py-0.5 text-xs font-semibold outline-none border-transparent ${sheetStatusColors[sheet.status] || "bg-gray-100"}`}
+                                    options={getAllowedSheetStatuses(sheet.status).map(s => ({ value: s, label: s }))} />
                                   {isExp ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                                 </div>
                               </div>
@@ -2079,39 +2077,26 @@ export default function ProductionPage() {
                           </div>
                           {/* Row 2: Dropdowns */}
                           <div className="flex flex-wrap items-center gap-2">
-                            <select value={processingSheetFilter} onChange={e => setProcessingSheetFilter(e.target.value)}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
-                              <option value="">All Sheets</option>
-                              {Array.from(new Set(allItems.map(si => si.sheet.sheetNo))).sort((a, b) => Number(a) - Number(b)).map(no => (
-                                <option key={no} value={no}>Sheet {no}</option>
-                              ))}
-                            </select>
-                            <select value={processingProductFilter} onChange={e => setProcessingProductFilter(e.target.value)}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
-                              <option value="">All Products</option>
-                              {Array.from(new Set(allItems.map(si => si.orderItem.product.name))).sort().map(name => (
-                                <option key={name} value={name}>{name}</option>
-                              ))}
-                            </select>
-                            <select value={processingGsmFilter} onChange={e => setProcessingGsmFilter(e.target.value)}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
-                              <option value="">All GSM</option>
-                              {Array.from(new Set(allItems.map(si => String(si.sheet.gsm)))).sort((a, b) => Number(a) - Number(b)).map(g => (
-                                <option key={g} value={g}>{g} GSM</option>
-                              ))}
-                            </select>
-                            <select value={processingSizeFilter} onChange={e => setProcessingSizeFilter(e.target.value)}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
-                              <option value="">All Sizes</option>
-                              {Array.from(new Set(allItems.map(si => si.orderItem.product.sizeInches))).sort().map(s => (
-                                <option key={s} value={s}>{s}"</option>
-                              ))}
-                            </select>
-                            <select value={processingVendorFilter} onChange={e => setProcessingVendorFilter(e.target.value)}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium">
-                              <option value="">All Vendors</option>
-                              {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                            </select>
+                            <MobileSelect value={processingSheetFilter} onChange={setProcessingSheetFilter}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              placeholder="All Sheets"
+                              options={[{ value: "", label: "All Sheets" }, ...Array.from(new Set(allItems.map(si => si.sheet.sheetNo))).sort((a, b) => Number(a) - Number(b)).map(no => ({ value: no, label: `Sheet ${no}` }))]} />
+                            <MobileSelect value={processingProductFilter} onChange={setProcessingProductFilter}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              placeholder="All Products"
+                              options={[{ value: "", label: "All Products" }, ...Array.from(new Set(allItems.map(si => si.orderItem.product.name))).sort().map(name => ({ value: name, label: name }))]} />
+                            <MobileSelect value={processingGsmFilter} onChange={setProcessingGsmFilter}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              placeholder="All GSM"
+                              options={[{ value: "", label: "All GSM" }, ...Array.from(new Set(allItems.map(si => String(si.sheet.gsm)))).sort((a, b) => Number(a) - Number(b)).map(g => ({ value: g, label: `${g} GSM` }))]} />
+                            <MobileSelect value={processingSizeFilter} onChange={setProcessingSizeFilter}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              placeholder="All Sizes"
+                              options={[{ value: "", label: "All Sizes" }, ...Array.from(new Set(allItems.map(si => si.orderItem.product.sizeInches))).sort().map(s => ({ value: s, label: `${s}"` }))]} />
+                            <MobileSelect value={processingVendorFilter} onChange={setProcessingVendorFilter}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              placeholder="All Vendors"
+                              options={[{ value: "", label: "All Vendors" }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} />
                             {(processingSearch || processingVendorFilter || processingSheetFilter || processingProductFilter || processingSizeFilter || processingGsmFilter) && (
                               <button onClick={() => { setProcessingSearch(""); setProcessingVendorFilter(""); setProcessingSheetFilter(""); setProcessingProductFilter(""); setProcessingSizeFilter(""); setProcessingGsmFilter(""); }}
                                 className="text-xs font-semibold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-100 hover:bg-red-50 whitespace-nowrap">
@@ -2158,10 +2143,9 @@ export default function ProductionPage() {
                                   </div>
                                   <div className="mt-2">
                                     <label className="mb-1 block text-xs font-bold text-slate-500">Processing Vendor</label>
-                                    <select value={getItemVendor(si.orderItem.id)} onChange={e => saveItemVendor(si.orderItem.id, e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none">
-                                      <option value="">Select Vendor...</option>
-                                      {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                    </select>
+                                    <MobileSelect value={getItemVendor(si.orderItem.id)} onChange={v => saveItemVendor(si.orderItem.id, v)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none"
+                                      placeholder="Select Vendor..."
+                                      options={[{ value: "", label: "Select Vendor..." }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} />
                                   </div>
                                   <div className="mt-2">
                                     <label className="mb-1 block text-xs font-bold text-slate-500">Schedule Date</label>
@@ -2229,12 +2213,11 @@ export default function ProductionPage() {
                                     <td className="px-3 py-2 text-slate-500">{si.orderItem.product.sizeInches}"</td>
                                     <td className="px-3 py-2 font-semibold">{si.quantityOnSheet}</td>
                                     <td className="px-3 py-2">
-                                      <select value={getItemVendor(si.orderItem.id)}
-                                        onChange={e => saveItemVendor(si.orderItem.id, e.target.value)}
-                                        className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white">
-                                        <option value="">Select Vendor...</option>
-                                        {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                      </select>
+                                      <MobileSelect value={getItemVendor(si.orderItem.id)}
+                                        onChange={v => saveItemVendor(si.orderItem.id, v)}
+                                        className="rounded-md border border-slate-200 px-1.5 py-1 text-xs outline-none bg-white"
+                                        placeholder="Select Vendor..."
+                                        options={[{ value: "", label: "Select Vendor..." }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} />
                                     </td>
                                     <td className="px-3 py-2">
                                       <DateInput key={si.dueDate ?? "empty"} defaultValue={dateInputValue(si.dueDate)} onBlur={e => updateSheetItemDueDate(si.id, e.target.value)}
@@ -2272,7 +2255,31 @@ export default function ProductionPage() {
                     <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No sheet history found.</div>
                   ) : (
                     <>
-                      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                      <div className="space-y-2 md:hidden">
+                        {sheetHistory.logs.map((log: any) => {
+                          const meta = log.metadata as any || {};
+                          return (
+                            <div key={log.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="font-bold text-blue-700">{meta.sheetNo || "–"}</p>
+                                <p className="text-[10px] text-slate-400 shrink-0 text-right">
+                                  {new Date(log.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                              </div>
+                              <p className="text-xs text-slate-600 mt-0.5">
+                                {meta.sheetGsm ? `${meta.sheetGsm} GSM` : "–"}
+                                {meta.sheetSize ? ` · ${meta.sheetSize}"` : ""}
+                                {meta.sheetQuantity ? ` · Qty ${meta.sheetQuantity}` : ""}
+                              </p>
+                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                                <span className="text-slate-500">Items <strong className="text-slate-700">{(log as any)._itemCount || 1}</strong></span>
+                                <span className="text-slate-500">By <strong className="text-slate-700">{log.changedBy?.fullName || "System"}</strong></span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto md:block">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="border-b border-slate-100 bg-slate-50">
@@ -2346,10 +2353,9 @@ export default function ProductionPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Vendor <span className="text-red-500">*</span></label>
-                <select value={sendVendorId} onChange={e => setSendVendorId(e.target.value)} style={IS.input}>
-                  <option value="">Select vendor...</option>
-                  {vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                <MobileSelect value={sendVendorId} onChange={setSendVendorId} style={IS.input}
+                  placeholder="Select vendor..."
+                  options={[{ value: "", label: "Select vendor..." }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Description <span className="text-slate-400 font-normal">(optional)</span></label>
@@ -2483,9 +2489,9 @@ export default function ProductionPage() {
               <p className="text-xs font-bold text-slate-700 mb-2">Plate Making</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                  <select value={settingForm.plateVendorId} onChange={e => setSettingForm(p => ({ ...p, plateVendorId: e.target.value }))} style={IS.input}>
-                    <option value="">Select vendor...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select></div>
+                  <MobileSelect value={settingForm.plateVendorId} onChange={v => setSettingForm(p => ({ ...p, plateVendorId: v }))} style={IS.input}
+                    placeholder="Select vendor..."
+                    options={[{ value: "", label: "Select vendor..." }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} /></div>
                 <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Description</label>
                   <input value={settingForm.plateDesc} onChange={e => setSettingForm(p => ({ ...p, plateDesc: e.target.value }))} placeholder="Optional" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Rate (Rs) *</label>
@@ -2511,9 +2517,9 @@ export default function ProductionPage() {
               <p className="text-xs font-bold text-slate-700 mb-2">Printing</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Vendor *</label>
-                  <select value={settingForm.printVendorId} onChange={e => setSettingForm(p => ({ ...p, printVendorId: e.target.value }))} style={IS.input}>
-                    <option value="">Select vendor...</option>{vendorsData.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select></div>
+                  <MobileSelect value={settingForm.printVendorId} onChange={v => setSettingForm(p => ({ ...p, printVendorId: v }))} style={IS.input}
+                    placeholder="Select vendor..."
+                    options={[{ value: "", label: "Select vendor..." }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} /></div>
                 <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Description</label>
                   <input value={settingForm.printDesc} onChange={e => setSettingForm(p => ({ ...p, printDesc: e.target.value }))} placeholder="Optional" style={IS.input} /></div>
                 <div><label className="block text-xs text-slate-500 mb-1">Rate (Rs) *</label>
@@ -2619,9 +2625,8 @@ export default function ProductionPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
-                <select value={sheetForm.quality} onChange={e => setSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
-                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
-                </select>
+                <MobileSelect value={sheetForm.quality} onChange={v => setSheetForm(p => ({ ...p, quality: v }))} style={IS.input}
+                  options={SHEET_QUALITIES.map(q => ({ value: q, label: q.replace(/_/g, " ") }))} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
@@ -2637,10 +2642,11 @@ export default function ProductionPage() {
               </div>
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
-                <select value={sheetForm.printing} onChange={e => setSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
-                  <option value="SINGLE_SIDE">Single Side</option>
-                  <option value="DOUBLE_SIDE">Double Side</option>
-                </select>
+                <MobileSelect value={sheetForm.printing} onChange={v => setSheetForm(p => ({ ...p, printing: v }))} style={IS.input}
+                  options={[
+                    { value: "SINGLE_SIDE", label: "Single Side" },
+                    { value: "DOUBLE_SIDE", label: "Double Side" },
+                  ]} />
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
@@ -2676,9 +2682,8 @@ export default function ProductionPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quality *</label>
-                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.quality} onChange={e => setEditSheetForm(p => ({ ...p, quality: e.target.value }))} style={IS.input}>
-                  {SHEET_QUALITIES.map(q => <option key={q} value={q}>{q.replace(/_/g, " ")}</option>)}
-                </select>
+                <MobileSelect disabled={editSheetModal.status === "SETTING"} value={editSheetForm.quality} onChange={v => setEditSheetForm(p => ({ ...p, quality: v }))} style={IS.input}
+                  options={SHEET_QUALITIES.map(q => ({ value: q, label: q.replace(/_/g, " ") }))} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
@@ -2694,10 +2699,11 @@ export default function ProductionPage() {
               </div>
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">Printing</label>
-                <select disabled={editSheetModal.status === "SETTING"} value={editSheetForm.printing} onChange={e => setEditSheetForm(p => ({ ...p, printing: e.target.value }))} style={IS.input}>
-                  <option value="SINGLE_SIDE">Single Side</option>
-                  <option value="DOUBLE_SIDE">Double Side</option>
-                </select>
+                <MobileSelect disabled={editSheetModal.status === "SETTING"} value={editSheetForm.printing} onChange={v => setEditSheetForm(p => ({ ...p, printing: v }))} style={IS.input}
+                  options={[
+                    { value: "SINGLE_SIDE", label: "Single Side" },
+                    { value: "DOUBLE_SIDE", label: "Double Side" },
+                  ]} />
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
