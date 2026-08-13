@@ -1175,7 +1175,7 @@ export class BigshipService {
   async placeExistingOrder(input: {
     masterCustomOrderId: string;
     courierId: number;
-    invoiceData?: { orderNumber: string; customerName: string; amount: number };
+    invoiceData?: { orderNumber: string; customerName: string; amount: number; notes?: string };
     invoiceBuffer?: Buffer;
   }): Promise<{ bigshipOrderId?: string; awbNumber?: string; message?: string }> {
     if (!this.isConfigured()) return { message: 'Bigship API credentials are not configured' };
@@ -1200,6 +1200,7 @@ export class BigshipService {
             customerName: input.invoiceData?.customerName ?? 'Customer',
             amount: input.invoiceData?.amount ?? 0,
             date: bigshipDateNow().slice(0, 10),
+            notes: input.invoiceData?.notes,
           });
       this.logger.log(`Bigship place-order — invoice ${pdfBuffer.length}b user-uploaded=${!!(input.invoiceBuffer?.length)} orderId=${input.masterCustomOrderId}`);
       const { data: multipartData } = await this.postPlaceOrderMultipart({
@@ -1424,6 +1425,7 @@ async function generateInvoicePdf(params: {
   customerName: string;
   amount: number;
   date: string;
+  notes?: string;
 }): Promise<Buffer> {
   const amount = Number.isFinite(params.amount) ? params.amount : 0;
   const doc = new PDFDocument({ size: 'A4', margin: 50, compress: false });
@@ -1472,10 +1474,22 @@ async function generateInvoicePdf(params: {
     doc.text('TOTAL', 65, 300);
     doc.text(`INR ${amount.toFixed(2)}`, 390, 300);
 
+    // Notes (Order Notes from the ERP order, if any) — pushes the footer down
+    // when present instead of overlapping the fixed-position table above.
+    let footerY = 350;
+    const notesText = sanitizePdfText(params.notes ?? '');
+    if (notesText) {
+      const notesY = 330;
+      doc.rect(50, notesY, 495, 45).stroke('#cccccc');
+      doc.fillColor('black').font('Helvetica-Bold').fontSize(10).text('Notes:', 60, notesY + 8);
+      doc.font('Helvetica').fontSize(9).text(notesText.slice(0, 300), 60, notesY + 21, { width: 475, height: 20, ellipsis: true });
+      footerY = notesY + 55;
+    }
+
     // Footer
     doc.fillColor('#666666').font('Helvetica').fontSize(8);
-    doc.text('This is a system-generated invoice for courier dispatch purposes.', 50, 350, { align: 'center', width: 495 });
-    doc.text('RarePrint — Print Solutions', 50, 362, { align: 'center', width: 495 });
+    doc.text('This is a system-generated invoice for courier dispatch purposes.', 50, footerY, { align: 'center', width: 495 });
+    doc.text('RarePrint — Print Solutions', 50, footerY + 12, { align: 'center', width: 495 });
 
     doc.end();
   });

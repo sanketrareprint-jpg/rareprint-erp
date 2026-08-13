@@ -901,6 +901,7 @@ export class DispatchService {
           orderNumber: order.orderNumber,
           customerName: order.customer.businessName,
           amount: dispatchItemsValue,
+          notes: order.notes ?? undefined,
         },
       });
 
