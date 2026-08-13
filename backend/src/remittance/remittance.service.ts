@@ -824,14 +824,40 @@ export class RemittanceService {
     }
 
     const account = await this.getOrCreateBigshipAccount();
-    const amount = amountOverride ?? Number(record.collectableAmount);
+
+    // Bigship's CollectableAmount is meant to be pure product price collected
+    // at the doorstep (see comment above), but for COD orders where the
+    // customer also pays freight in cash ("freight to be collected"), it
+    // sometimes bundles that freight in too — which used to get posted
+    // straight onto the order, inflating the customer's paid amount and
+    // later getting wrongly auto-adjusted against their next order. If
+    // dispatch/sales staff have recorded what was actually collected for
+    // courier on this shipment (Dispatch > Courier Charges), net it out here
+    // so only the real product payment hits the order's balance. Only
+    // applies going forward — never touches already-POSTED records.
+    let courierChargeToExclude = 0;
+    if (amountOverride == null) {
+      const shipments = await (this.prisma.shipment as any).findMany({
+        where: { orderId: matchedOrderId, dispatchType: 'COURIER' },
+        select: { awbNumber: true, courierChargeCollected: true },
+      });
+      const matchingShipment = shipments.find(
+        (s: any) => s.awbNumber && normalizeAwb(s.awbNumber) === normalizeAwb(record.awbNumber),
+      );
+      if (matchingShipment?.courierChargeCollected != null) {
+        courierChargeToExclude = Number(matchingShipment.courierChargeCollected);
+      }
+    }
+
+    const rawAmount = amountOverride ?? Number(record.collectableAmount);
+    const amount = Math.max(0, rawAmount - courierChargeToExclude);
 
     const payment = await this.orders.addPayment(matchedOrderId, userId, {
       amount,
       method: 'BANK_TRANSFER',
       paymentAccountId: account.id,
       referenceNumber: record.awbNumber,
-      notes: `Bigship COD remittance — AWB ${record.awbNumber}${record.remittanceRef ? `, Remittance #${record.remittanceRef}` : ''}. Collected ₹${record.collectableAmount}, net payable to bank after courier charges ₹${record.netPayableAmount}.`,
+      notes: `Bigship COD remittance — AWB ${record.awbNumber}${record.remittanceRef ? `, Remittance #${record.remittanceRef}` : ''}. Collected ₹${record.collectableAmount}${courierChargeToExclude > 0 ? ` (of which ₹${courierChargeToExclude} was courier charge collected from customer, excluded from this payment — see Dispatch > Courier Charges)` : ''}, net payable to bank after courier charges ₹${record.netPayableAmount}.`,
       paymentDate: record.remittanceDate ? record.remittanceDate.toISOString() : undefined,
     });
 
