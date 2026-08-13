@@ -841,6 +841,8 @@ export class DispatchService {
     let shiprocketNote = '';
     let awbNumber: string | null = null;
     let bigshipOrderId: string | null = null;
+    let bigshipStatus: string | null = null;
+    let shipmentStatus: ShipmentStatus = ShipmentStatus.PACKED;
 
     const addr = splitAddressForShiprocket(order.customer);
     const paymentInfo = this.dispatchPaymentInfo(order);
@@ -882,23 +884,51 @@ export class DispatchService {
         throw new BadRequestException(`Bigship booking failed: ${message}`);
       }
 
-      // ── Do NOT auto-manifest ────────────────────────────────────────────
-      // By design (2026-08-04): the ERP only creates the draft order in Bigship
-      // and stops there — it deliberately does not call place-order to pick a
-      // courier and generate an AWB automatically. A human reviews the order in
-      // Bigship's own dashboard (it sits in the "Unshipped" tab) and manifests it
-      // manually via the "Ship Now" action in the row's Action dropdown, choosing
-      // the courier there. Sync Bigship (single row or "Sync All Bigship") will
-      // then pick up the AWB and flip the shipment to IN_TRANSIT automatically
-      // once that manual step happens — no separate ERP action needed after that.
-      //
-      // Previously this block auto-manifested immediately with a courier-fallback
-      // retry; that was reverted in favor of always leaving orders in Unshipped
-      // for manual review before shipping.
-      trackingRef    = '';
-      awbNumber      = null;
-      bigshipOrderId = bs.bigshipOrderId ?? null;
-      shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId} — created in Bigship, pending manual "Ship Now" (Unshipped tab).`;
+      // ── Auto-manifest (Place/Manifest API) ──────────────────────────────
+      // Reversal of the 2026-08-04 "manual Ship Now" decision that used to live
+      // here: the draft order is now placed/manifested immediately so the user
+      // never has to leave the ERP to click "Ship Now" in Bigship's dashboard.
+      // Order Rate Calculation (courier-wise-shipment-cost) already ran inside
+      // tryCreateAdhocOrder() just above, satisfying Bigship's precondition for
+      // place-order. If manifesting fails, fall back to the old "pending manual
+      // Ship Now" behavior rather than losing the dispatch — the draft already
+      // exists in Bigship either way, and we must not retry place-order on it.
+      bigshipOrderId = bs.bigshipOrderId;
+      const placeResult = await this.bigship.placeExistingOrder({
+        masterCustomOrderId: bs.bigshipOrderId,
+        courierId,
+        invoiceData: {
+          orderNumber: order.orderNumber,
+          customerName: order.customer.businessName,
+          amount: dispatchItemsValue,
+        },
+      });
+
+      if (!placeResult.bigshipOrderId) {
+        // Place/Manifest failed — do NOT retry it, and do NOT show a fake AWB.
+        // The draft still exists in Bigship for manual "Ship Now", same as the
+        // pre-existing fallback behavior.
+        trackingRef    = '';
+        awbNumber      = null;
+        shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId} — draft created but auto-manifest failed (${placeResult.message ?? 'unknown error'}); needs manual "Ship Now" in Bigship (Unshipped tab).`;
+      } else {
+        // Manifested. Place-order's own response doesn't reliably carry the real
+        // AWB ("awb_assigned" there is a count, not a tracking number) — pull the
+        // authoritative AWB/status via the same order-shipment-details lookup the
+        // manual "Sync Bigship" button already uses, instead of standing up a
+        // second, duplicate Bigship endpoint integration for Track Order.
+        const shipDetails = await this.bigship.getOrderShipmentDetails(bigshipOrderId);
+        awbNumber      = shipDetails.awbNumber ?? null;
+        trackingRef    = awbNumber ?? '';
+        bigshipStatus  = shipDetails.status ?? null;
+        // A successful manifest means the order left "draft" for Bigship's pickup
+        // workflow even if this immediate lookup hasn't caught up yet — reflect
+        // that now instead of leaving the shipment PACKED until the next sync.
+        shipmentStatus = mapBigshipStatusToShipmentStatus(shipDetails.status) ?? ShipmentStatus.IN_TRANSIT;
+        shiprocketNote = awbNumber
+          ? ` BigShip Order: ${bigshipOrderId} — manifested, AWB ${awbNumber}.`
+          : ` BigShip Order: ${bigshipOrderId} — manifested, AWB pending (use Sync Bigship to refresh).`;
+      }
     } else if (rateId.startsWith('sr-') && this.shiprocket.isConfigured()) {
       // ── Shiprocket booking ───────────────────────────────────────────────
       const courierCompanyId = parseInt(rateId.replace(/^sr-/, ''), 10);
@@ -932,7 +962,7 @@ export class DispatchService {
             handledById: userId,
             shipmentNumber,
             carrierName: picked.carrierName,
-            status: ShipmentStatus.PACKED,
+            status: shipmentStatus,
             dispatchDate: new Date(),
             trackingNumber: trackingRef || null,
             awbNumber,
@@ -942,6 +972,7 @@ export class DispatchService {
             // picks up the new schema column at deploy time (see feedback memory on this
             // repo's sandbox not regenerating the client locally) — cast to bypass that.
             ...(bigshipOrderId ? ({ bigshipOrderId } as any) : {}),
+            ...(bigshipStatus ? ({ bigshipStatus, bigshipSyncedAt: new Date() } as any) : {}),
             notes: [
               `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
               `Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`.trim(),
@@ -1366,7 +1397,11 @@ export class DispatchService {
       await tx.shipment.delete({ where: { id: shipmentId } });
       await tx.orderItem.updateMany({
         where: { orderId: order.id },
-        data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
+        // dispatchedAt must be cleared too, not just itemProductionStage —
+        // listReadyForDispatch's readyItems filter excludes any item with
+        // dispatchedAt set (see line ~514), so leaving it set here makes the
+        // order silently vanish from Dispatch > Queue after being returned.
+        data: ({ itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH, dispatchedAt: null } as any),
       });
       await tx.order.update({
         where: { id: order.id },
@@ -1573,7 +1608,9 @@ export class DispatchService {
       }
       await tx.orderItem.updateMany({
         where: { orderId },
-        data: { itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH },
+        // dispatchedAt must be cleared too — see identical comment in
+        // autoReturnToQueueOnCancellation above, same bug/fix.
+        data: ({ itemProductionStage: OrderProductionStage.READY_FOR_DISPATCH, dispatchedAt: null } as any),
       });
       await tx.order.update({
         where: { id: orderId },
