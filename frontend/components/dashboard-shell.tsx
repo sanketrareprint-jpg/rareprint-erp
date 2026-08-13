@@ -9,7 +9,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning,
-  ChevronLeft, ChevronRight, PhoneCall,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -34,6 +34,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Paper Stock", href: "/paper-inventory", icon: Archive },
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
     { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
+    { label: "Machine Readings", href: "/machine-readings", icon: Gauge },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Cost Table", href: "/cost-table",       icon: Table2 },
     { label: "Database",   href: "/admin/database",   icon: Database },
@@ -94,6 +95,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
     { label: "Cost Table", href: "/cost-table", icon: Table2 },
+    { label: "Machine Readings", href: "/machine-readings", icon: Gauge },
     { label: "Storefront", href: "/storefront", icon: Printer },
     { label: "COD Remittance", href: "/remittance-import", icon: PackageCheck },
     { label: "Bank Statement", href: "/bank-statement", icon: Landmark },

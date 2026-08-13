@@ -42,6 +42,7 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { CallComplianceModule } from './call-compliance/call-compliance.module';
 import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
+import { MachineReadingsModule } from './machine-readings/machine-readings.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
     ComplaintsModule,
     CallComplianceModule,
     MarketingRoiModule,
+    MachineReadingsModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

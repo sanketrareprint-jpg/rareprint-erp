@@ -353,6 +353,51 @@ async function main() {
       console.log('[ensure-all-columns] Shipment courier charge columns: added.');
     });
 
+    // ── MachineReading table (workshop machine readings + operator pay) ────
+    await safely('MachineReading', async () => {
+      const { rows } = await client.query(`SELECT to_regclass('public."MachineReading"') AS reg`);
+      if (rows[0]?.reg) {
+        console.log('[ensure-all-columns] MachineReading: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] MachineReading: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "MachineReading" (
+          "id"            TEXT NOT NULL,
+          "machineName"   TEXT NOT NULL DEFAULT 'Envelope Machine',
+          "readingDate"   TIMESTAMP(3) NOT NULL,
+          "readingValue"  INTEGER NOT NULL,
+          "wasReset"      BOOLEAN NOT NULL DEFAULT false,
+          "notes"         TEXT,
+          "isPaid"        BOOLEAN NOT NULL DEFAULT false,
+          "unitsProduced" INTEGER,
+          "paidAmount"    DECIMAL(10,2),
+          "paidAt"        TIMESTAMP(3),
+          "paidNote"      TEXT,
+          "paidById"      TEXT,
+          "recordedById"  TEXT,
+          "createdAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt"     TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "MachineReading_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS "MachineReading_machineName_readingDate_idx" ON "MachineReading"("machineName", "readingDate");`);
+      await client.query(`CREATE INDEX IF NOT EXISTS "MachineReading_isPaid_idx" ON "MachineReading"("isPaid");`);
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE "MachineReading" ADD CONSTRAINT "MachineReading_paidById_fkey"
+          FOREIGN KEY ("paidById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+      `);
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE "MachineReading" ADD CONSTRAINT "MachineReading_recordedById_fkey"
+          FOREIGN KEY ("recordedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+      `);
+      console.log('[ensure-all-columns] MachineReading: created.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

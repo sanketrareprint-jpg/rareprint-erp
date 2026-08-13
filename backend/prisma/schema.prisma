@@ -66,6 +66,8 @@ model User {
   complaintsRaised              Complaint[]               @relation("ComplaintRaisedBy")
   complaintsAssigned             Complaint[]               @relation("ComplaintAssignedTo")
   paymentKeywords                UserPaymentKeyword[]      @relation("UserPaymentKeywords")
+  machineReadingsRecorded        MachineReading[]          @relation("MachineReadingRecordedBy")
+  machineReadingsPaid            MachineReading[]          @relation("MachineReadingPaidBy")
 
   // ── Call Compliance (monthly call-log + AiSensy tag cross-check) ──────────
   aisensyTag           String?                 // this agent's tag name as used in AiSensy contact exports (e.g. "Vaishali")
@@ -2670,4 +2672,40 @@ model ComplaintStatusLog {
   complaint   Complaint        @relation(fields: [complaintId], references: [id], onDelete: Cascade)
 
   @@index([complaintId, createdAt])
+}
+
+// ── Workshop machine readings (envelope-making machine meter) ───────────────
+// One row per reading entry. The machine's counter rolls over — it gets reset
+// once it hits 1,000,000 — so `wasReset` marks a reading taken right after a
+// physical reset (the person recording it ticks this box), and the diff from
+// the previous reading is computed as (1,000,000 - previous) + this reading
+// instead of a plain subtraction. The operator pays ₹50 per 1000 units
+// produced, settled in batches: marking a reading "paid" freezes the units
+// produced and amount owed since the last paid reading (or the very first
+// reading, if none have been paid yet) as a permanent record, alongside an
+// optional description/bill number.
+model MachineReading {
+  id           String   @id @default(cuid())
+  machineName  String   @default("Envelope Machine")
+  readingDate  DateTime
+  readingValue Int
+  wasReset     Boolean  @default(false)
+  notes        String?  @db.Text
+
+  isPaid        Boolean   @default(false)
+  unitsProduced Int? // diff since the last paid reading, frozen at mark-paid time
+  paidAmount    Decimal?  @db.Decimal(10, 2)
+  paidAt        DateTime?
+  paidNote      String?   @db.Text // bill number / payment description
+  paidById      String?
+  paidBy        User?     @relation("MachineReadingPaidBy", fields: [paidById], references: [id])
+
+  recordedById String?
+  recordedBy   User?    @relation("MachineReadingRecordedBy", fields: [recordedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([machineName, readingDate])
+  @@index([isPaid])
 }
