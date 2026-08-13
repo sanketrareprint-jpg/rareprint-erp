@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Plus, Trash2, Gift } from "lucide-react";
@@ -98,6 +99,10 @@ export default function CreateOrderPage() {
   const [productSearch, setProductSearch] = useState<Record<number, string>>({});
   const [productDropdownOpen, setProductDropdownOpen] = useState<Record<number, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
+  // Tracks whether the agent has tried to submit at least once -- gates the
+  // "Phone number is required" inline error so it doesn't show on a blank,
+  // untouched form, only after a real submit attempt without a phone.
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "" });
   const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
@@ -374,10 +379,9 @@ export default function CreateOrderPage() {
   function renderCustomField(field: CustomField, value: string, onChange: (value: string) => void) {
     if (field.type === "select") {
       return (
-        <select value={value ?? ""} onChange={e => onChange(e.target.value)} style={S.input}>
-          <option value="">Select...</option>
-          {(field.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
-        </select>
+        <MobileSelect value={value ?? ""} onChange={onChange} style={S.input}
+          placeholder="Select..."
+          options={[{ value: "", label: "Select..." }, ...(field.options ?? []).map(option => ({ value: option, label: option }))]} />
       );
     }
     if (field.type === "textarea") {
@@ -394,8 +398,15 @@ export default function CreateOrderPage() {
   const redeemPoints = Math.max(0, Math.min(maxRedeemablePoints, Number(redeemPointsInput) || 0));
 
   async function submitOrder() {
+    setSubmitAttempted(true);
     if (!customer.name.trim()) { alert("Customer name is required"); return; }
-    if (customer.phone && customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
+    // Was `if (customer.phone && customer.phone.length !== 10)` -- only
+    // validated length when a phone WAS entered, so an empty phone silently
+    // passed through and the order got created with no phone number at all
+    // (confirmed via a real order, 1491, SURBHI MEDICAL STORE). Phone is
+    // required now, matching the inline error text below the field.
+    if (!customer.phone.trim()) { alert("Phone number is required"); return; }
+    if (customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
     if (customer.phone2 && customer.phone2.length !== 10) { alert("Phone 2 number must be exactly 10 digits"); return; }
     if (!leadSource) { alert("Lead source is required"); return; }
     const badLineIdx = lineItems.findIndex(i => !i.productId || i.quantity <= 0);
@@ -508,6 +519,9 @@ export default function CreateOrderPage() {
                 {customer.phone.length > 0 && customer.phone.length !== 10 && (
                   <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>Please enter a 10-digit phone number</p>
                 )}
+                {submitAttempted && customer.phone.length === 0 && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>*Phone number is required</p>
+                )}
               </div>
               <div>
                 <label style={S.label}>Phone 2</label>
@@ -555,10 +569,9 @@ export default function CreateOrderPage() {
               </div>
               <div>
                 <label style={S.label}>State</label>
-                <select value={customer.state} onChange={e => setCustomer(c => ({ ...c, state: e.target.value }))} style={S.input}>
-                  <option value="">Select state...</option>
-                  {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <MobileSelect value={customer.state} onChange={v => setCustomer(c => ({ ...c, state: v }))} style={S.input}
+                  placeholder="Select state..."
+                  options={[{ value: "", label: "Select state..." }, ...INDIAN_STATES.map(s => ({ value: s, label: s }))]} />
               </div>
               <div>
                 <label style={S.label}>Pincode</label>
@@ -627,23 +640,20 @@ export default function CreateOrderPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <div>
                   <label style={S.label}>Source *</label>
-                  <select value={leadSource} onChange={e => setLeadSource(e.target.value)} style={S.input}>
-                    {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
+                  <MobileSelect value={leadSource} onChange={setLeadSource} style={S.input}
+                    options={LEAD_SOURCES.map(s => ({ value: s.value, label: s.label }))} />
                 </div>
                 {needsDate && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
                     <div>
                       <label style={S.label}>Month</label>
-                      <select value={leadMonth} onChange={e => setLeadMonth(e.target.value)} style={S.input}>
-                        {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
-                      </select>
+                      <MobileSelect value={leadMonth} onChange={setLeadMonth} style={S.input}
+                        options={MONTHS.map((m, i) => ({ value: String(i + 1), label: m }))} />
                     </div>
                     <div>
                       <label style={S.label}>Year</label>
-                      <select value={leadYear} onChange={e => setLeadYear(e.target.value)} style={S.input}>
-                        {YEARS.map(y => <option key={y} value={String(y)}>{y}</option>)}
-                      </select>
+                      <MobileSelect value={leadYear} onChange={setLeadYear} style={S.input}
+                        options={YEARS.map(y => ({ value: String(y), label: String(y) }))} />
                     </div>
                   </div>
                 )}
@@ -732,10 +742,11 @@ export default function CreateOrderPage() {
                 <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
                   {item.paperType || "-"}
                 </div>
-                <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
-                  <option value="SINGLE_SIDE">Single</option>
-                  <option value="DOUBLE_SIDE">Double</option>
-                </select>
+                <MobileSelect value={item.sides} onChange={v => updateLine(idx, "sides", v)} style={S.input}
+                  options={[
+                    { value: "SINGLE_SIDE", label: "Single" },
+                    { value: "DOUBLE_SIDE", label: "Double" },
+                  ]} />
                 <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
                 <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} placeholder="0.00" style={S.input} />
                 <input type="number" min={0}
@@ -762,16 +773,12 @@ export default function CreateOrderPage() {
                   return (
                     <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
                       <span style={{ fontSize: "10px", fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>Offer Code</span>
-                      <select
+                      <MobileSelect
                         value={item.offerCodeId ?? ""}
-                        onChange={e => setLineItems(prev => prev.map((li, i) => i === idx ? { ...li, offerCodeId: e.target.value } : li))}
+                        onChange={v => setLineItems(prev => prev.map((li, i) => i === idx ? { ...li, offerCodeId: v } : li))}
                         style={{ ...S.input, width: "auto", minWidth: "130px", background: item.offerCodeId ? "#f5f3ff" : "white", borderColor: item.offerCodeId ? "#a78bfa" : "#e2e8f0", color: item.offerCodeId ? "#5b21b6" : "#334155", fontWeight: item.offerCodeId ? 700 : 400, fontSize: "11px" }}
-                      >
-                        <option value="">— None —</option>
-                        {applicable.map(oc => (
-                          <option key={oc.id} value={oc.id}>{oc.code}{oc.description ? ` — ${oc.description}` : ""}</option>
-                        ))}
-                      </select>
+                        options={[{ value: "", label: "— None —" }, ...applicable.map(oc => ({ value: oc.id, label: `${oc.code}${oc.description ? ` — ${oc.description}` : ""}` }))]}
+                      />
                     </div>
                   );
                 })()}

@@ -516,6 +516,18 @@ export class OrdersService {
     if (!dto.items?.length) {
       throw new BadRequestException('At least one line item is required');
     }
+    // Frontend already blocks this (see frontend/app/orders/create/page.tsx's
+    // submitOrder), but that alone let an order through with no phone number
+    // at all when bypassed -- confirmed via a real order (1491, SURBHI
+    // MEDICAL STORE), since the old frontend check only validated LENGTH
+    // when a phone was already entered, never that one was entered at all.
+    // Backend must be the actual source of truth for this, not just the UI.
+    if (!dto.customer.phone?.trim()) {
+      throw new BadRequestException('Phone number is required');
+    }
+    if (dto.customer.phone.trim().length !== 10) {
+      throw new BadRequestException('Phone number must be exactly 10 digits');
+    }
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     let products: any[];
