@@ -136,9 +136,27 @@ export class ErpConfigService {
       return { ...base, ...saved, fixed: base.fixed, enabled: base.fixed ? true : saved?.enabled ?? base.enabled };
     });
     const moduleKeys = new Set(modules.map((m) => m.key));
-    const roleAccess = { ...DEFAULT_ERP_CONFIG.roleAccess, ...(input.roleAccess ?? {}) };
+
+    // A module key that appears in NONE of the saved per-role lists was
+    // added to DEFAULT_MODULES after the Settings page was last saved (it
+    // saves every role's full list as one blob, so a module unknown at save
+    // time is simply absent everywhere) -- nobody has ever had the chance to
+    // grant or revoke it, so it isn't safe to treat that absence as an
+    // intentional removal. Restore it per role from the shipped defaults,
+    // same as a fresh install would have it. A module that DOES appear for
+    // at least one role but was deliberately left out of another is untouched.
+    const savedRoleAccess = input.roleAccess ?? {};
+    const keysPresentAnywhere = new Set(Object.values(savedRoleAccess).flat());
+    const orphanedKeys = new Set([...moduleKeys].filter((key) => !keysPresentAnywhere.has(key)));
+
+    const roleAccess = { ...DEFAULT_ERP_CONFIG.roleAccess, ...savedRoleAccess };
     for (const role of Object.keys(roleAccess)) {
-      roleAccess[role] = Array.from(new Set([...roleAccess[role].filter((key) => moduleKeys.has(key)), 'orders', 'accounts', 'production', 'dispatch']));
+      const restored = (DEFAULT_ERP_CONFIG.roleAccess[role] ?? []).filter((key) => orphanedKeys.has(key));
+      roleAccess[role] = Array.from(new Set([
+        ...roleAccess[role].filter((key) => moduleKeys.has(key)),
+        ...restored,
+        'orders', 'accounts', 'production', 'dispatch',
+      ]));
     }
     return {
       orderFields: input.orderFields ?? DEFAULT_ERP_CONFIG.orderFields,
