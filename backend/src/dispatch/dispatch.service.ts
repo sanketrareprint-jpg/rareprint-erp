@@ -1984,14 +1984,19 @@ export class DispatchService {
   // shipment (Actual from the Shipping Charges report, Taken from what
   // agents entered, Net = profit/loss). Grouped by dispatch month.
   async getMonthlyCourierProfitSummary(monthsBack = 12) {
-    const shipments = await this.prisma.shipment.findMany({
+    // Cast the model accessor (not the `select` object) to `any` here —
+    // casting `select` itself made Prisma's generic return-type inference
+    // collapse every selected field (including plain pre-existing ones like
+    // dispatchDate) down to `never`, which broke the build
+    // ("Property 'getFullYear' does not exist on type 'never'").
+    const shipments = await (this.prisma.shipment as any).findMany({
       where: {
         dispatchType: 'COURIER',
         status: { not: ShipmentStatus.CANCELLED },
         dispatchDate: { not: null },
         order: { isTest: false },
       },
-      select: { dispatchDate: true, awbNumber: true, courierChargeCollected: true } as any,
+      select: { dispatchDate: true, awbNumber: true, courierChargeCollected: true },
     });
 
     const awbs = shipments.map((s) => (s.awbNumber ? normalizeAwb(s.awbNumber) : null)).filter((a): a is string => !!a);
