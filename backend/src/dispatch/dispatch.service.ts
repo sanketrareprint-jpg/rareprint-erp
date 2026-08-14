@@ -974,6 +974,14 @@ export class DispatchService {
             // repo's sandbox not regenerating the client locally) — cast to bypass that.
             ...(bigshipOrderId ? ({ bigshipOrderId } as any) : {}),
             ...(bigshipStatus ? ({ bigshipStatus, bigshipSyncedAt: new Date() } as any) : {}),
+            // Dispatch > Courier Charges: Actual = the rate quote just picked
+            // above; Taken from Customer is pre-filled from what the seller
+            // entered in Book Shipment (Ready for Dispatch), still editable
+            // by hand afterwards in the Courier Charges tab.
+            courierChargeActual: new Prisma.Decimal(picked.amount),
+            ...(order.courierChargeQuoted != null
+              ? { courierChargeCollected: order.courierChargeQuoted, courierChargeUpdatedAt: new Date() }
+              : {}),
             notes: [
               `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
               `Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`.trim(),
@@ -1971,7 +1979,14 @@ export class DispatchService {
       const isCourier = s.dispatchType === 'COURIER';
       const awb = isCourier && s.awbNumber ? normalizeAwb(s.awbNumber) : null;
       const chargeRecord = awb ? byAwb.get(awb) : undefined;
-      const actual = chargeRecord ? Number(chargeRecord.totalCharges) : null;
+      // Prefer the reconciled real cost from the uploaded Shipping Charges
+      // report (accounts for weight/RTO surcharges); fall back to the rate
+      // quote captured at booking time so this is never blank in between.
+      const actual = chargeRecord
+        ? Number(chargeRecord.totalCharges)
+        : (s as any).courierChargeActual != null
+        ? Number((s as any).courierChargeActual)
+        : null;
       const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
       const net = actual != null && taken != null ? taken - actual : null;
       return {

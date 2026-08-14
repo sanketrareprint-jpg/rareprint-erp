@@ -1243,6 +1243,7 @@ export class OrdersService {
         data: {
           status: OrderStatus.PENDING_DISPATCH_APPROVAL,
           shippingCharge: new Prisma.Decimal(dispatchCharge),
+          courierChargeQuoted: dispatchCharge > 0 ? new Prisma.Decimal(dispatchCharge) : null,
           notes: dispatchNotes,
         },
       });
@@ -1442,6 +1443,7 @@ export class OrdersService {
           data: {
             status: OrderStatus.PENDING_DISPATCH_APPROVAL,
             shippingCharge: new Prisma.Decimal(dispatchCharge / orderIds.length),
+            courierChargeQuoted: dispatchCharge > 0 ? new Prisma.Decimal(dispatchCharge / orderIds.length) : null,
             notes: dispatchNotes,
             // Record exactly which item(s) this submission covers so the
             // accounts approval screen can show only those, not every item

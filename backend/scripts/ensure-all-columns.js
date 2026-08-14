@@ -398,6 +398,31 @@ async function main() {
       console.log('[ensure-all-columns] MachineReading: created.');
     });
 
+    // ── Courier charge actual/quoted columns ──────────────────────────────
+    await safely('Courier charge actual/quoted columns', async () => {
+      const { rows: shipmentRows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Shipment' AND column_name = 'courierChargeActual'
+      `);
+      if (shipmentRows.length === 0) {
+        console.log('[ensure-all-columns] Shipment.courierChargeActual: missing, adding.');
+        await client.query(`ALTER TABLE "Shipment" ADD COLUMN IF NOT EXISTS "courierChargeActual" DECIMAL(12,2);`);
+      } else {
+        console.log('[ensure-all-columns] Shipment.courierChargeActual: already exists.');
+      }
+
+      const { rows: orderRows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = 'courierChargeQuoted'
+      `);
+      if (orderRows.length === 0) {
+        console.log('[ensure-all-columns] Order.courierChargeQuoted: missing, adding.');
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "courierChargeQuoted" DECIMAL(12,2);`);
+      } else {
+        console.log('[ensure-all-columns] Order.courierChargeQuoted: already exists.');
+      }
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();
