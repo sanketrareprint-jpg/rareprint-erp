@@ -762,7 +762,11 @@ export class OrdersService {
         const gsm = (notes.match(/GSM[:\s]+(\S+)/i) ?? [])[1]?.trim() ?? '';
         const sides = (notes.match(/Sides[:\s]+(\S+)/i) ?? [])[1]?.trim() ?? '';
         const sidesLabel = sides === 'SINGLE_SIDE' ? 'Single' : sides === 'DOUBLE_SIDE' ? 'Double' : sides;
-        const rate = Number(i.unitPrice).toFixed(0);
+        // Exact rate/unit, not rounded to a whole rupee — this is the price the
+        // customer agreed to per unit (e.g. ₹10.5), and toFixed(0) was silently
+        // rounding it up to ₹11 in the WhatsApp message. Trim trailing zeros so
+        // whole rates still show as "10" rather than "10.00".
+        const rate = Number(i.unitPrice).toFixed(2).replace(/\.?0+$/, '');
         const total = Number(i.lineTotal).toFixed(0);
         return `${i.product.name} ${size} ${gsm}gsm ${sidesLabel} x${i.quantity} @₹${rate} = ₹${total}`;
       }).join(' | ');
