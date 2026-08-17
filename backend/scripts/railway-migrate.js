@@ -15,6 +15,7 @@ const RECOVERABLE_MIGRATIONS = [
   // stops `migrate deploy` from getting stuck retrying/failing on it if
   // _prisma_migrations ever drifts from reality again; ensure-all-columns.js
   // below is what actually guarantees the columns exist either way.
+  '20260728120000_add_user_payment_keywords',
   '20260814120000_add_courier_charge_actual_quoted',
 ];
 
