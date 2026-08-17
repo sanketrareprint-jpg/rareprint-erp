@@ -22,6 +22,7 @@ type CustomerSearchRow = {
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
+  gstNumber?: string | null;
   orderCount?: number;
 };
 
@@ -103,7 +104,7 @@ export default function CreateOrderPage() {
   // "Phone number is required" inline error so it doesn't show on a blank,
   // untouched form, only after a real submit attempt without a phone.
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "" });
+  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "", gstNumber: "" });
   const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
@@ -175,6 +176,7 @@ export default function CreateOrderPage() {
       city: row.city ?? "",
       state: row.state ?? "",
       pincode: row.pincode ?? "",
+      gstNumber: row.gstNumber ?? "",
     });
     setSelectedCustomerLabel(row.businessName);
     setCustomerMatches([]);
@@ -579,6 +581,12 @@ export default function CreateOrderPage() {
                   onChange={e => setCustomer(c => ({ ...c, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
                   inputMode="numeric" maxLength={6}
                   placeholder="6-digit pincode" style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>GST Number</label>
+                <input value={customer.gstNumber}
+                  onChange={e => setCustomer(c => ({ ...c, gstNumber: e.target.value.toUpperCase().slice(0, 15) }))}
+                  placeholder="15-digit GSTIN (optional)" style={S.input} />
               </div>
             </div>
           </div>

@@ -54,6 +54,10 @@ export class CreateOrderCustomerDto {
   @IsOptional()
   @IsString()
   pincode?: string;
+
+  @IsOptional()
+  @IsString()
+  gstNumber?: string;
 }
 
 export class CreateOrderItemDto {

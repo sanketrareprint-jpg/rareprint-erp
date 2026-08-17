@@ -291,6 +291,7 @@ export class AccountsService {
         customerName:  order.customer.businessName,
         customerPhone: order.customer.phone ?? '',
         customerEmail: order.customer.email,
+        customerGstNumber: order.customer.gstNumber ?? null,
         shippingAddress: order.customer.shippingAddress ?? order.customer.billingAddress ?? null,
         salesAgentName: order.salesAgent?.fullName ?? null,
         customerAddress: [

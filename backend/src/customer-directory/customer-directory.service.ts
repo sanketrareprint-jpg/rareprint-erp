@@ -186,6 +186,7 @@ export class CustomerDirectoryService {
         phone: customer.phone,
         phone2: customer.phone2,
         email: customer.email,
+        gstNumber: customer.gstNumber,
         address: customer.shippingAddress ?? customer.billingAddress,
         city: customer.city,
         state: customer.state,

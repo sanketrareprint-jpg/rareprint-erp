@@ -654,6 +654,7 @@ export class OrdersService {
               city: customerCityUpper,
               state: customerStateUpper,
               pincode: dto.customer.pincode,
+              ...(dto.customer.gstNumber ? { gstNumber: dto.customer.gstNumber } : {}),
             },
           })
         : await tx.customer.create({
@@ -668,6 +669,7 @@ export class OrdersService {
               city: customerCityUpper,
               state: customerStateUpper,
               pincode: dto.customer.pincode,
+              gstNumber: dto.customer.gstNumber,
             },
           });
 

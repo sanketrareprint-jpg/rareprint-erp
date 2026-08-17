@@ -35,7 +35,7 @@ type OrderItem = {
 
 type PendingOrder = {
   id: string; orderNo: string; customerName: string;
-  customerPhone?: string; customerEmail?: string; customerAddress?: string; salesAgentName?: string;
+  customerPhone?: string; customerEmail?: string; customerGstNumber?: string | null; customerAddress?: string; salesAgentName?: string;
   products: string; items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
   orderDate: string; notes?: string; payments: (Payment & { verificationStatus?: string })[];
@@ -1983,6 +1983,7 @@ export default function AccountsPage() {
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
                       <span className="font-semibold text-slate-800">{order.customerName}</span>
                       {order.customerPhone && <span className="text-slate-400 text-xs">{order.customerPhone}</span>}
+                      {order.customerGstNumber && <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-xs font-mono" title="Customer GSTIN">GST: {order.customerGstNumber}</span>}
                       {order.customerAddress && <span className="text-slate-500 text-xs">📍 {order.customerAddress}</span>}
                       {order.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                     </div>
@@ -2335,9 +2336,9 @@ export default function AccountsPage() {
                       <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Sales Invoices</div>
                       <div className="max-h-80 overflow-auto">
                         <table className="w-full text-xs">
-                          <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Invoice</th><th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2 text-center">WA</th></tr></thead>
+                          <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Invoice</th><th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">GSTIN</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2 text-center">WA</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
-                            {salesInvoices.map(inv => <tr key={inv.id}><td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}</td><td className="px-3 py-2">{inv.customerName}</td><td className="px-3 py-2 text-right">{fmt(inv.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(inv.totalAmount)}</td><td className="px-3 py-2 text-right text-red-600">{fmt(inv.balanceAmount)}</td><td className="px-3 py-2 text-center">{inv.whatsappStatus}</td></tr>)}
+                            {salesInvoices.map(inv => <tr key={inv.id}><td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}</td><td className="px-3 py-2">{inv.customerName}</td><td className="px-3 py-2 font-mono text-slate-500">{inv.gstNumber || "—"}</td><td className="px-3 py-2 text-right">{fmt(inv.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(inv.totalAmount)}</td><td className="px-3 py-2 text-right text-red-600">{fmt(inv.balanceAmount)}</td><td className="px-3 py-2 text-center">{inv.whatsappStatus}</td></tr>)}
                           </tbody>
                         </table>
                       </div>
@@ -3690,12 +3691,12 @@ export default function AccountsPage() {
 
                   {/* Verification status banner — visible to ADMIN and ACCOUNTS only */}
                   {canSeeDetails && commissionSheet && (
-                    <div className={`px-6 py-3 flex items-center justify-between gap-4 border-b ${
+                    <div className={`px-6 py-3 flex flex-wrap items-center justify-between gap-3 border-b ${
                       commissionSheet.verification
                         ? "bg-green-50 border-green-200"
                         : "bg-amber-50 border-amber-200"
                     }`}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {commissionSheet.verification ? (
                           <>
                             <span className="text-green-700 text-sm font-bold">✓ Verified</span>
@@ -3715,7 +3716,7 @@ export default function AccountsPage() {
                         <button
                           onClick={handleVerifyCommission}
                           disabled={verifying}
-                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                          className={`shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                             commissionSheet.verification
                               ? "border-red-300 text-red-700 hover:bg-red-50"
                               : "border-green-400 text-green-700 bg-white hover:bg-green-50"
@@ -3735,14 +3736,14 @@ export default function AccountsPage() {
 
                   {/* Paid status banner — only meaningful once verified */}
                   {canSeeDetails && commissionSheet && commissionSheet.verification && (
-                    <div className={`px-6 py-3 flex items-center justify-between gap-4 border-b ${
+                    <div className={`px-6 py-3 flex flex-wrap items-center justify-between gap-3 border-b ${
                       commissionSheet.verification.paid ? "bg-blue-50 border-blue-200" : "bg-slate-50 border-slate-200"
                     }`}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
                         {commissionSheet.verification.paid ? (
                           <>
-                            <span className="text-blue-700 text-sm font-bold flex items-center gap-1"><DollarSign className="h-3.5 w-3.5" /> Paid</span>
-                            <span className="text-blue-600 text-xs">
+                            <span className="shrink-0 text-blue-700 text-sm font-bold flex items-center gap-1"><DollarSign className="h-3.5 w-3.5" /> Paid</span>
+                            <span className="text-blue-600 text-xs break-words">
                               {commissionSheet.verification.paidTransactions.map(t => (
                                 <span key={t.id}>
                                   {t.description} · {fmt(t.amount)} · {new Date(t.txnDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
@@ -3758,7 +3759,7 @@ export default function AccountsPage() {
                         <button
                           onClick={commissionSheet.verification.paid ? handleUnmarkCommissionPaid : openCommissionBankMatch}
                           disabled={markingCommissionPaid}
-                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                          className={`shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                             commissionSheet.verification.paid
                               ? "border-red-300 text-red-700 hover:bg-red-50"
                               : "border-blue-400 text-blue-700 bg-white hover:bg-blue-50"
@@ -3828,10 +3829,199 @@ export default function AccountsPage() {
                         <span className="text-amber-500">(+₹1,000 per ₹1L above ₹1L)</span>
                       </div>
 
-                      {/* Commission table — table-layout:fixed + a matching <colgroup>
-                          makes the table strictly obey the card's width (never wider
-                          than the screen). Cell text wraps instead of forcing extra
-                          column width, so this fits without needing to scroll. */}
+                      {isNativeApp && (
+                        <div className="flex items-center justify-end gap-1.5 px-4 pt-2">
+                          <span className="text-[11px] text-slate-400">{commissionSheet.rows.length} items</span>
+                          <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                            <button onClick={() => setCommissionCompact(true)}
+                              className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${commissionCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                              Compact
+                            </button>
+                            <button onClick={() => setCommissionCompact(false)}
+                              className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!commissionCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                              Table
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isNativeApp && commissionCompact ? (
+                        <div className="space-y-2 p-3">
+                          {commissionSheet.rows.map((row, i) => (
+                            <div key={i} className={`rounded-xl border border-slate-200 bg-white p-3 ${!row.hasCost ? "opacity-60" : ""}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="break-words font-mono text-xs text-blue-700">{row.invoiceNo}</p>
+                                  <p className="text-sm font-bold text-slate-800">{row.partyName}</p>
+                                </div>
+                                <span className="shrink-0 text-[11px] text-slate-400">
+                                  {new Date(row.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
+                                </span>
+                              </div>
+
+                              <p className="mt-1 text-xs text-slate-600">{row.itemName}</p>
+
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                {row.sizeInches && (
+                                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">{row.sizeInches}"</span>
+                                )}
+                                {(row.gsm || row.sides) && (
+                                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                                    {row.gsm ? `${row.gsm}GSM` : ""}{row.gsm && row.sides ? " · " : ""}
+                                    {row.sides === "SINGLE_SIDE" ? "1S" : row.sides === "DOUBLE_SIDE" ? "2S" : ""}
+                                  </span>
+                                )}
+                                {canSeeDetails && row.orderStatus && (
+                                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                    row.orderStatus === "DELIVERED" ? "bg-green-50 text-green-700" :
+                                    row.orderStatus === "DISPATCHED" || row.orderStatus === "PARTIALLY_DISPATCHED" ? "bg-blue-50 text-blue-700" :
+                                    row.orderStatus === "IN_PRODUCTION" || row.orderStatus === "READY_FOR_DISPATCH" ? "bg-purple-50 text-purple-700" :
+                                    row.orderStatus === "PENDING_DISPATCH_APPROVAL" ? "bg-orange-50 text-orange-600" :
+                                    row.orderStatus === "CANCELLED" ? "bg-red-50 text-red-600" :
+                                    "bg-slate-50 text-slate-500"
+                                  }`}>
+                                    {row.orderStatus.replace(/_/g, " ")}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2 text-xs">
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">Qty</span>
+                                  <span className="font-mono font-semibold text-slate-700">{row.quantity.toLocaleString("en-IN")}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">Amount</span>
+                                  <span className="font-mono font-semibold text-slate-800">₹{row.amount.toLocaleString("en-IN")}</span>
+                                </div>
+                                {canSeeDetails && (
+                                  <>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Rate</span>
+                                      <span className="font-mono text-slate-600">
+                                        {row.ratePerUnit != null ? `₹${row.ratePerUnit.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Disc%</span>
+                                      {row.ratePerUnit != null ? (
+                                        row.discountPct > 0 ? (
+                                          <span className={`font-semibold ${row.discountPct > 5 ? "text-red-600" : "text-amber-600"}`}>-{row.discountPct.toFixed(1)}%</span>
+                                        ) : (
+                                          <span className="text-green-600">No disc</span>
+                                        )
+                                      ) : <span className="text-slate-300">—</span>}
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Cost</span>
+                                      <span className="font-mono text-slate-500">{row.cost != null ? `₹${row.cost.toLocaleString("en-IN")}` : "—"}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Gr. Profit</span>
+                                      {row.grossProfit != null ? (
+                                        <span className={`font-mono font-semibold ${row.grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>₹{row.grossProfit.toLocaleString("en-IN")}</span>
+                                      ) : <span className="text-slate-300">—</span>}
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Margin</span>
+                                      {row.marginPct != null ? (
+                                        <span className={`font-semibold ${row.marginPct >= 35 ? "text-green-700" : row.marginPct >= 25 ? "text-amber-600" : "text-red-600"}`}>{row.marginPct.toFixed(1)}%</span>
+                                      ) : <span className="text-slate-300">—</span>}
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Balance Due</span>
+                                      {row.balanceDue > 0 ? (
+                                        <span className="font-mono font-semibold text-red-600">₹{row.balanceDue.toLocaleString("en-IN")}</span>
+                                      ) : (
+                                        <span className="font-semibold text-green-600">✓ Paid</span>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+
+                              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
+                                <span className="text-xs font-semibold text-slate-500">
+                                  {row.hasCost ? <>Rate <span className="font-bold text-green-700">{row.commissionPct}%</span></> : "No cost slab"}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  {row.hasCost ? (
+                                    savingCommRow === i ? (
+                                      <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                                    ) : editingCommRow === i ? (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-slate-400">₹</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          className="w-20 rounded border border-blue-400 bg-white px-1 py-1 text-right font-mono text-sm text-blue-800 outline-none"
+                                          value={editCommValue}
+                                          onChange={e => setEditCommValue(e.target.value)}
+                                          autoFocus
+                                          onKeyDown={e => {
+                                            if (e.key === "Enter") {
+                                              const v = parseFloat(editCommValue);
+                                              if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
+                                              setEditingCommRow(null);
+                                            }
+                                            if (e.key === "Escape") { cancelledCommEditRef.current = true; setEditingCommRow(null); }
+                                          }}
+                                          onBlur={e => {
+                                            if (cancelledCommEditRef.current) { cancelledCommEditRef.current = false; return; }
+                                            const relatedTarget = e.relatedTarget as HTMLElement | null;
+                                            if (relatedTarget?.closest('[data-comm-edit-btn="true"]')) return;
+                                            const v = parseFloat(editCommValue);
+                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
+                                            setEditingCommRow(null);
+                                          }}
+                                        />
+                                        <button
+                                          data-comm-edit-btn="true"
+                                          onClick={() => {
+                                            const v = parseFloat(editCommValue);
+                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
+                                            setEditingCommRow(null);
+                                          }}
+                                          className="p-0.5 text-green-600" title="Save"
+                                        ><Check className="h-4 w-4" /></button>
+                                        <button
+                                          data-comm-edit-btn="true"
+                                          onClick={() => { cancelledCommEditRef.current = true; setEditingCommRow(null); }}
+                                          className="p-0.5 text-red-400" title="Cancel"
+                                        ><X className="h-4 w-4" /></button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1">
+                                        <span className={`font-mono text-sm font-bold ${row.isOverridden ? "text-purple-700" : "text-blue-700"}`}
+                                          title={row.isOverridden ? `Corrected by ${row.overriddenBy ?? "admin"}${row.overriddenAt ? " on " + new Date(row.overriddenAt).toLocaleDateString("en-IN") : ""} — was ₹${row.calculatedCommissionAmt.toLocaleString("en-IN")}` : undefined}>
+                                          ₹{row.commissionAmt.toLocaleString("en-IN")}
+                                          {row.isOverridden && <span className="ml-0.5 text-xs text-purple-400">✎</span>}
+                                        </span>
+                                        {isAdmin && (
+                                          <>
+                                            <button
+                                              onClick={() => { setEditingCommRow(i); setEditCommValue(String(row.commissionAmt)); }}
+                                              className="p-0.5 text-slate-300 hover:text-blue-500" title="Edit commission"
+                                            ><Pencil className="h-3.5 w-3.5" /></button>
+                                            {row.isOverridden && (
+                                              <button
+                                                onClick={() => void clearCommissionOverride(row, i)}
+                                                className="p-0.5 text-slate-300 hover:text-red-500"
+                                                title={`Revert to calculated (₹${row.calculatedCommissionAmt.toLocaleString("en-IN")})`}
+                                              ><X className="h-3.5 w-3.5" /></button>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    )
+                                  ) : <span className="text-sm text-slate-300">—</span>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
                       <div className="w-full overflow-hidden">
                         <table className="w-full" style={{ fontSize: "11px", borderCollapse: "collapse", tableLayout: "fixed" }}>
                           <colgroup>
@@ -4086,6 +4276,7 @@ export default function AccountsPage() {
                           </tfoot>
                         </table>
                       </div>
+                      )}
                       {commissionSheet.rows.some(r => !r.hasCost) && (
                         <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 text-xs text-amber-700">
                           Some line items show no cost slab — commission excluded for those rows.
@@ -4164,17 +4355,17 @@ export default function AccountsPage() {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs text-slate-700 truncate">{entry.description}</p>
+                            <p className="break-words text-sm text-slate-700">{entry.description}</p>
                             <span className="shrink-0 text-sm font-bold text-red-600">-{fmt(entry.amount)}</span>
                           </div>
-                          <p className="text-[10px] text-slate-400">{new Date(entry.txnDate).toLocaleDateString("en-IN")}</p>
+                          <p className="text-xs text-slate-400">{new Date(entry.txnDate).toLocaleDateString("en-IN")}</p>
                         </div>
                       </div>
 
                       <div className="mt-2">
                         <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Vendor / Expense</label>
                         {entry.checkedAt ? (
-                          <p className="text-xs text-slate-700">
+                          <p className="break-words text-sm text-slate-700">
                             {entry.vendorOrExpenseName || "—"}
                             {entry.commissionInfo && <span className="ml-1 text-blue-600">({entry.commissionInfo.label})</span>}
                           </p>
@@ -4183,7 +4374,7 @@ export default function AccountsPage() {
                             <input
                               type="text"
                               list="vendor-expense-options"
-                              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                              className="h-9 flex-1 min-w-0 border border-slate-300 rounded px-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
                               placeholder="Pick or type vendor/expense..."
                               value={pvVendorExpenseDrafts[entry.id] ?? ""}
                               onChange={e => setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
@@ -4200,12 +4391,12 @@ export default function AccountsPage() {
                         <div>
                           <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Expense Month</label>
                           {entry.checkedAt ? (
-                            <p className="text-xs text-slate-600">{entry.expensePeriodLabel || "—"}</p>
+                            <p className="text-sm text-slate-600">{entry.expensePeriodLabel || "—"}</p>
                           ) : (
                             <div className="flex items-center gap-1.5">
                               <input
                                 type="month"
-                                className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                className="h-9 flex-1 min-w-0 appearance-none border border-slate-300 rounded px-2 text-sm leading-none focus:outline-none focus:ring-1 focus:ring-blue-400"
                                 value={pvExpenseMonthDrafts[entry.id] ?? ""}
                                 onChange={e => saveExpenseMonth(entry.id, e.target.value)}
                               />
@@ -4216,12 +4407,12 @@ export default function AccountsPage() {
                         <div>
                           <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Note</label>
                           {entry.checkedAt ? (
-                            <p className="text-xs text-slate-600">{entry.accountantNote || "—"}</p>
+                            <p className="text-sm text-slate-600">{entry.accountantNote || "—"}</p>
                           ) : (
                             <div className="flex items-center gap-1.5">
                               <input
                                 type="text"
-                                className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                className="h-9 flex-1 min-w-0 border border-slate-300 rounded px-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
                                 placeholder="Add note..."
                                 value={pvNoteDrafts[entry.id] ?? ""}
                                 onChange={e => setPvNoteDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
@@ -4235,28 +4426,17 @@ export default function AccountsPage() {
                         </div>
                       </div>
 
-                      <div className="mt-2.5 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5">
                         {entry.checkedAt ? (
-                          <div className="flex flex-1 items-center gap-2">
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                              <Check className="h-3.5 w-3.5 flex-none" /> <span className="truncate">{entry.checkedByName || "Checked"}</span>
-                            </span>
-                            {canCheckPayments && (
-                              <button
-                                onClick={() => handleUndoCheck(entry)}
-                                disabled={pvCheckingId === entry.id}
-                                title="Undo Checked — reopens the row for editing"
-                                className="ml-auto px-2 py-1 rounded border border-red-300 bg-red-50 text-red-700 text-[11px] font-semibold disabled:opacity-50">
-                                Undo
-                              </button>
-                            )}
-                          </div>
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                            <Check className="h-3.5 w-3.5 flex-none" /> <span className="truncate">{entry.checkedByName || "Checked"}</span>
+                          </span>
                         ) : canCheckPayments ? (
                           <button
                             onClick={() => handleCheckVerification(entry)}
                             disabled={pvCheckingId === entry.id || !pvIsSelectable(entry)}
                             title={!pvIsSelectable(entry) ? "Add a Vendor/Expense first" : undefined}
-                            className="flex-1 px-2.5 py-1.5 rounded-md bg-green-600 text-white text-xs font-semibold disabled:opacity-50">
+                            className="flex-1 min-w-[90px] px-2.5 py-1.5 rounded-md bg-green-600 text-white text-xs font-semibold disabled:opacity-50">
                             {pvCheckingId === entry.id ? "..." : "Checked"}
                           </button>
                         ) : (
@@ -4271,10 +4451,20 @@ export default function AccountsPage() {
                           <button
                             onClick={() => handleRecheckVerification(entry)}
                             disabled={pvRecheckingId === entry.id}
-                            className="flex-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold disabled:opacity-50">
+                            className="flex-1 min-w-[80px] px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold disabled:opacity-50">
                             {pvRecheckingId === entry.id ? "..." : "Verify"}
                           </button>
                         ) : null}
+
+                        {entry.checkedAt && canCheckPayments && (
+                          <button
+                            onClick={() => handleUndoCheck(entry)}
+                            disabled={pvCheckingId === entry.id}
+                            title="Undo Checked — reopens the row for editing"
+                            className="ml-auto shrink-0 px-2 py-1 rounded border border-red-300 bg-red-50 text-red-700 text-[11px] font-semibold disabled:opacity-50">
+                            Undo
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -4604,7 +4794,7 @@ export default function AccountsPage() {
 
           {tab === "expense_tracker" && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-slate-500">
                   Shows what expense <strong>belongs to</strong> this month — e.g. June salary paid in July still counts as June's expense — split into what's actually been paid vs still owed.
                 </p>
@@ -4632,9 +4822,24 @@ export default function AccountsPage() {
                     ))}
                   </div>
 
+                  {isNativeApp && (
+                    <div className="flex items-center justify-end gap-1.5">
+                      <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                        <button onClick={() => setExpenseTrackerCompact(true)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${expenseTrackerCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                          Compact
+                        </button>
+                        <button onClick={() => setExpenseTrackerCompact(false)}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!expenseTrackerCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                          Table
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Vendor / Expense */}
                   <div className="rounded-xl border border-slate-300 bg-white overflow-hidden">
-                    <div className="flex items-center justify-between bg-slate-100 px-4 py-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 px-4 py-2">
                       <p className="text-sm font-bold text-slate-800">Vendor / Expense <span className="font-normal text-slate-500">(from Payment Verification)</span></p>
                       <p className="text-xs text-slate-600">
                         Accrued <strong>{fmt(expenseTracker.vendorExpense.accrued)}</strong> · Paid <strong className="text-green-700">{fmt(expenseTracker.vendorExpense.paid)}</strong> · Balance <strong className="text-red-700">{fmt(expenseTracker.vendorExpense.balance)}</strong>
@@ -4647,30 +4852,37 @@ export default function AccountsPage() {
 
                   {/* Salary */}
                   <div className="rounded-xl border border-slate-300 bg-white overflow-hidden">
-                    <div className="flex items-center justify-between bg-slate-100 px-4 py-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 px-4 py-2">
                       <p className="text-sm font-bold text-slate-800">Salary</p>
                       <p className="text-xs text-slate-600">
                         Accrued <strong>{fmt(expenseTracker.salary.accrued)}</strong> · Paid <strong className="text-green-700">{fmt(expenseTracker.salary.paid)}</strong> · Balance <strong className="text-red-700">{fmt(expenseTracker.salary.balance)}</strong>
                       </p>
                     </div>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                          <th className="px-4 py-2 font-semibold">Employee</th>
-                          <th className="px-4 py-2 font-semibold text-right">Accrued</th>
-                          <th className="px-4 py-2 font-semibold text-right">Paid</th>
-                          <th className="px-4 py-2 font-semibold text-right">Balance</th>
-                          <th className="px-4 py-2 font-semibold"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
+
+                    {isNativeApp && expenseTrackerCompact ? (
+                      <div className="space-y-2 p-3">
                         {expenseTracker.salary.byEmployee.map(row => (
-                          <tr key={row.employeeId} className="border-b border-slate-100 last:border-0">
-                            <td className="px-4 py-2 text-slate-700">{row.fullName} <span className="text-xs text-slate-400">({row.designation})</span></td>
-                            <td className="px-4 py-2 text-right text-slate-700">{fmt(row.accrued)}</td>
-                            <td className="px-4 py-2 text-right text-green-700">{fmt(row.paid)}</td>
-                            <td className="px-4 py-2 text-right text-red-700">{fmt(row.balance)}</td>
-                            <td className="px-4 py-2 text-right">
+                          <div key={row.employeeId} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                                {row.fullName} <span className="font-normal text-xs text-slate-400">({row.designation})</span>
+                              </p>
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                              <div>
+                                <p className="text-slate-400">Accrued</p>
+                                <p className="font-mono font-semibold text-slate-700">{fmt(row.accrued)}</p>
+                              </div>
+                              <div>
+                                <p className="text-slate-400">Paid</p>
+                                <p className="font-mono font-semibold text-green-700">{fmt(row.paid)}</p>
+                              </div>
+                              <div>
+                                <p className="text-slate-400">Balance</p>
+                                <p className="font-mono font-semibold text-red-700">{fmt(row.balance)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-2 border-t border-slate-100 pt-2">
                               {!row.taggable ? (
                                 <span className="text-xs text-slate-400">No login account — can't be tagged</span>
                               ) : row.balance <= 0 ? (
@@ -4678,70 +4890,155 @@ export default function AccountsPage() {
                               ) : (
                                 <button
                                   onClick={() => row.userId && openSalaryBankMatch(row.userId, row.fullName, expenseTracker.year, expenseTracker.month, row.balance)}
-                                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                  className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                                   Mark Paid
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Sanket — pure bank-based, no fixed figure */}
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <p className="text-sm font-semibold text-amber-900">
+                            Sanket (Owner) <span className="block font-normal text-xs text-amber-700">no fixed salary, bank-tagged only</span>
+                          </p>
+                          <p className="mt-1 font-mono text-sm font-semibold text-amber-900">{fmt(expenseTracker.salary.sanket.amount)}</p>
+                          {expenseTracker.salary.sanket.userId && (
+                            <button
+                              onClick={() => openSalaryBankMatch(expenseTracker.salary.sanket.userId!, "Sanket", expenseTracker.year, expenseTracker.month, 0)}
+                              className="mt-2 w-full rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100">
+                              + Tag Withdrawal
+                            </button>
+                          )}
+                          {expenseTracker.salary.sanket.transactions.length > 0 && (
+                            <div className="mt-2 space-y-1.5 border-t border-amber-200 pt-2">
+                              {expenseTracker.salary.sanket.transactions.map(t => (
+                                <div key={t.id} className="flex items-start justify-between gap-2 text-xs text-amber-800">
+                                  <span className="min-w-0 flex-1 break-words">{new Date(t.txnDate).toLocaleDateString("en-IN")} — {t.description}</span>
+                                  <span className="shrink-0 font-semibold">{fmt(t.amount)}</span>
+                                  <button onClick={() => handleUnmarkSalaryPaid(t.id)} className="shrink-0 text-red-600 hover:underline">Untag</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[720px] text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                            <th className="px-4 py-2 font-semibold">Employee</th>
+                            <th className="px-4 py-2 font-semibold text-right">Accrued</th>
+                            <th className="px-4 py-2 font-semibold text-right">Paid</th>
+                            <th className="px-4 py-2 font-semibold text-right">Balance</th>
+                            <th className="px-4 py-2 font-semibold"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {expenseTracker.salary.byEmployee.map(row => (
+                            <tr key={row.employeeId} className="border-b border-slate-100 last:border-0">
+                              <td className="px-4 py-2 text-slate-700">{row.fullName} <span className="text-xs text-slate-400">({row.designation})</span></td>
+                              <td className="px-4 py-2 text-right text-slate-700">{fmt(row.accrued)}</td>
+                              <td className="px-4 py-2 text-right text-green-700">{fmt(row.paid)}</td>
+                              <td className="px-4 py-2 text-right text-red-700">{fmt(row.balance)}</td>
+                              <td className="px-4 py-2 text-right">
+                                {!row.taggable ? (
+                                  <span className="text-xs text-slate-400">No login account — can't be tagged</span>
+                                ) : row.balance <= 0 ? (
+                                  <span className="text-xs font-semibold text-green-700">Fully paid</span>
+                                ) : (
+                                  <button
+                                    onClick={() => row.userId && openSalaryBankMatch(row.userId, row.fullName, expenseTracker.year, expenseTracker.month, row.balance)}
+                                    className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                    Mark Paid
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                          {/* Sanket — pure bank-based, no fixed figure */}
+                          <tr className="bg-amber-50">
+                            <td className="px-4 py-2 font-semibold text-amber-900">Sanket (Owner) <span className="text-xs font-normal text-amber-700">— no fixed salary, bank-tagged only</span></td>
+                            <td className="px-4 py-2 text-right font-semibold text-amber-900" colSpan={3}>{fmt(expenseTracker.salary.sanket.amount)}</td>
+                            <td className="px-4 py-2 text-right">
+                              {expenseTracker.salary.sanket.userId && (
+                                <button
+                                  onClick={() => openSalaryBankMatch(expenseTracker.salary.sanket.userId!, "Sanket", expenseTracker.year, expenseTracker.month, 0)}
+                                  className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100">
+                                  + Tag Withdrawal
                                 </button>
                               )}
                             </td>
                           </tr>
-                        ))}
-                        {/* Sanket — pure bank-based, no fixed figure */}
-                        <tr className="bg-amber-50">
-                          <td className="px-4 py-2 font-semibold text-amber-900">Sanket (Owner) <span className="text-xs font-normal text-amber-700">— no fixed salary, bank-tagged only</span></td>
-                          <td className="px-4 py-2 text-right font-semibold text-amber-900" colSpan={3}>{fmt(expenseTracker.salary.sanket.amount)}</td>
-                          <td className="px-4 py-2 text-right">
-                            {expenseTracker.salary.sanket.userId && (
-                              <button
-                                onClick={() => openSalaryBankMatch(expenseTracker.salary.sanket.userId!, "Sanket", expenseTracker.year, expenseTracker.month, 0)}
-                                className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100">
-                                + Tag Withdrawal
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                        {expenseTracker.salary.sanket.transactions.map(t => (
-                          <tr key={t.id} className="bg-amber-50/50 text-xs text-amber-800">
-                            <td className="px-4 py-1.5 pl-8" colSpan={3}>{new Date(t.txnDate).toLocaleDateString("en-IN")} — {t.description}</td>
-                            <td className="px-4 py-1.5 text-right font-semibold">{fmt(t.amount)}</td>
-                            <td className="px-4 py-1.5 text-right">
-                              <button onClick={() => handleUnmarkSalaryPaid(t.id)} className="text-red-600 hover:underline">Untag</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                          {expenseTracker.salary.sanket.transactions.map(t => (
+                            <tr key={t.id} className="bg-amber-50/50 text-xs text-amber-800">
+                              <td className="px-4 py-1.5 pl-8" colSpan={3}>{new Date(t.txnDate).toLocaleDateString("en-IN")} — {t.description}</td>
+                              <td className="px-4 py-1.5 text-right font-semibold">{fmt(t.amount)}</td>
+                              <td className="px-4 py-1.5 text-right">
+                                <button onClick={() => handleUnmarkSalaryPaid(t.id)} className="text-red-600 hover:underline">Untag</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    )}
                   </div>
 
                   {/* Commission */}
                   <div className="rounded-xl border border-slate-300 bg-white overflow-hidden">
-                    <div className="flex items-center justify-between bg-slate-100 px-4 py-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 px-4 py-2">
                       <p className="text-sm font-bold text-slate-800">Commission</p>
                       <p className="text-xs text-slate-600">
                         Accrued <strong>{fmt(expenseTracker.commission.accrued)}</strong> · Paid <strong className="text-green-700">{fmt(expenseTracker.commission.paid)}</strong> · Balance <strong className="text-red-700">{fmt(expenseTracker.commission.balance)}</strong>
                       </p>
                     </div>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                          <th className="px-4 py-2 font-semibold">Agent</th>
-                          <th className="px-4 py-2 font-semibold text-right">Accrued</th>
-                          <th className="px-4 py-2 font-semibold text-right">Paid / Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+
+                    {isNativeApp && expenseTrackerCompact ? (
+                      <div className="space-y-2 p-3">
                         {expenseTracker.commission.byAgent.filter(a => a.accrued > 0).map(a => (
-                          <tr key={a.id} className="border-b border-slate-100 last:border-0">
-                            <td className="px-4 py-2 text-slate-700">{a.name}</td>
-                            <td className="px-4 py-2 text-right text-slate-700">{fmt(a.accrued)}</td>
-                            <td className="px-4 py-2 text-right">
+                          <div key={a.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-sm font-semibold text-slate-800 break-words">{a.name}</p>
+                            <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                              <div>
+                                <p className="text-slate-400">Accrued</p>
+                                <p className="font-mono font-semibold text-slate-700">{fmt(a.accrued)}</p>
+                              </div>
                               {a.paid > 0
-                                ? <span className="text-green-700 font-semibold">Paid {fmt(a.paid)}</span>
-                                : <span className="text-red-700 font-semibold">Balance {fmt(a.accrued)}</span>}
-                            </td>
-                          </tr>
+                                ? <span className="font-semibold text-green-700">Paid {fmt(a.paid)}</span>
+                                : <span className="font-semibold text-red-700">Balance {fmt(a.accrued)}</span>}
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[480px] text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                            <th className="px-4 py-2 font-semibold">Agent</th>
+                            <th className="px-4 py-2 font-semibold text-right">Accrued</th>
+                            <th className="px-4 py-2 font-semibold text-right">Paid / Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {expenseTracker.commission.byAgent.filter(a => a.accrued > 0).map(a => (
+                            <tr key={a.id} className="border-b border-slate-100 last:border-0">
+                              <td className="px-4 py-2 text-slate-700">{a.name}</td>
+                              <td className="px-4 py-2 text-right text-slate-700">{fmt(a.accrued)}</td>
+                              <td className="px-4 py-2 text-right">
+                                {a.paid > 0
+                                  ? <span className="text-green-700 font-semibold">Paid {fmt(a.paid)}</span>
+                                  : <span className="text-red-700 font-semibold">Balance {fmt(a.accrued)}</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    )}
                     <p className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">
                       Paid/verified via the Commission tab's existing "Mark as Paid" flow.
                     </p>
