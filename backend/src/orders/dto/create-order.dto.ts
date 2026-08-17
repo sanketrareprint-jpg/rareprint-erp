@@ -1,5 +1,5 @@
 import { PaymentMethod } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsEmail,
@@ -18,6 +18,15 @@ import {
 // sending — this is the server-side backstop so the DB never ends up with
 // a malformed phone number regardless of what calls this endpoint.
 const PHONE_10_DIGIT = /^\d{10}$/;
+
+// Standard GSTIN shape: 2-digit state code + 10-char PAN (5 letters, 4
+// digits, 1 letter) + 1 entity code + fixed "Z" + 1 checksum char. This is a
+// FORMAT check only — confirms the number is shaped like a real GSTIN, does
+// not confirm it's actually registered/active with the government (that
+// needs a paid third-party verification API, not used here). Frontend
+// already uppercases before sending; @Transform is the server-side backstop
+// for direct API calls that skip the UI, same pattern as PHONE_10_DIGIT above.
+const GSTIN_FORMAT = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
 export class CreateOrderCustomerDto {
   @IsOptional()
@@ -56,7 +65,8 @@ export class CreateOrderCustomerDto {
   pincode?: string;
 
   @IsOptional()
-  @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Matches(GSTIN_FORMAT, { message: 'GST Number must be a valid 15-character GSTIN (e.g. 27AAAAA0000A1Z5)' })
   gstNumber?: string;
 }
 

@@ -83,6 +83,13 @@ function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
 
+// Standard GSTIN shape: 2-digit state code + 10-char PAN (5 letters, 4
+// digits, 1 letter) + 1 entity code + fixed "Z" + 1 checksum char. This is a
+// FORMAT check only — confirms the number is shaped like a real GSTIN, does
+// not confirm it's actually registered/active with the government (that
+// needs a paid third-party verification API, not used here).
+const GSTIN_FORMAT = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+
 function emptyLine(): LineItem {
   return { productId: "", sizeInches: "", gsm: 0, paperType: "", sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "", customFields: {}, offerCodeId: "" };
 }
@@ -410,6 +417,7 @@ export default function CreateOrderPage() {
     if (!customer.phone.trim()) { alert("Phone number is required"); return; }
     if (customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
     if (customer.phone2 && customer.phone2.length !== 10) { alert("Phone 2 number must be exactly 10 digits"); return; }
+    if (customer.gstNumber && !GSTIN_FORMAT.test(customer.gstNumber)) { alert("GST Number doesn't match a valid GSTIN format (e.g. 27AAAAA0000A1Z5)"); return; }
     if (!leadSource) { alert("Lead source is required"); return; }
     const badLineIdx = lineItems.findIndex(i => !i.productId || i.quantity <= 0);
     if (badLineIdx !== -1) {
@@ -585,8 +593,13 @@ export default function CreateOrderPage() {
               <div>
                 <label style={S.label}>GST Number</label>
                 <input value={customer.gstNumber}
-                  onChange={e => setCustomer(c => ({ ...c, gstNumber: e.target.value.toUpperCase().slice(0, 15) }))}
+                  onChange={e => setCustomer(c => ({ ...c, gstNumber: e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15) }))}
                   placeholder="15-digit GSTIN (optional)" style={S.input} />
+                {customer.gstNumber.length > 0 && !GSTIN_FORMAT.test(customer.gstNumber) && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>
+                    {customer.gstNumber.length < 15 ? "GSTIN must be 15 characters" : "Doesn't match a valid GSTIN format (e.g. 27AAAAA0000A1Z5)"}
+                  </p>
+                )}
               </div>
             </div>
           </div>
