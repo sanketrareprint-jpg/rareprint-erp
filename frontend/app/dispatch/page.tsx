@@ -743,7 +743,7 @@ export default function DispatchPage() {
   return (
     <DashboardShell>
       <div className="p-6 lg:p-8">
-        <div className="mx-auto max-w-5xl space-y-5">
+        <div className="mx-auto max-w-full space-y-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">Dispatch</h1>
