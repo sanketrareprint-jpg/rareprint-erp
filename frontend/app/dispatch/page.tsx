@@ -915,6 +915,7 @@ export default function DispatchPage() {
                         <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Amount</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">COD</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">Status</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Live Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -951,48 +952,52 @@ export default function DispatchPage() {
                               </span>
                             ) : <span className="text-slate-300">—</span>}
                           </td>
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-4 py-2 text-center align-middle">
                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                               h.status === "DELIVERED" ? "bg-green-100 text-green-700" :
                               h.status === "IN_TRANSIT" ? "bg-blue-100 text-blue-700" :
                               h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
                               "bg-slate-100 text-slate-600"
                             }`}>{h.status}</span>
-                            {h.bigshipStatus && (
-                              <div className="mt-0.5 text-[9px] text-slate-500" title="Live status as reported by Bigship">{h.bigshipStatus}</div>
-                            )}
-                            {(h.status === "PACKED" || h.status === "IN_TRANSIT" || h.status === "CANCELLED") && (
-                              <button
-                                onClick={() => void returnToQueue(h.orderId)}
-                                disabled={returningId === h.orderId}
-                                title="Reset this order back to Ready for Dispatch — use this if the shipment was cancelled or stuck in Bigship and needs to be rebooked"
-                                className="mt-1 block w-full rounded border border-orange-300 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
-                              >↩ Queue</button>
-                            )}
-                            {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
-                              <button
-                                onClick={() => void markDelivered(h.id)}
-                                disabled={markingDeliveredId === h.id}
-                                title="Mark delivered and send the customer a WhatsApp review/testimonial request"
-                                className="mt-1 block w-full rounded border border-green-300 bg-green-50 px-1 py-0.5 text-[10px] font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50"
-                              >{markingDeliveredId === h.id ? "…" : "✅ Delivered"}</button>
-                            )}
-                            {h.bigshipOrderId && (h.status === "PACKED" || h.status === "IN_TRANSIT") && (
-                              <button
-                                onClick={() => void syncBigship(h.id)}
-                                disabled={syncingId === h.id}
-                                title={h.bigshipSyncedAt ? `Last synced ${new Date(h.bigshipSyncedAt).toLocaleString("en-IN")}${h.bigshipStatus ? ` — ${h.bigshipStatus}` : ""}` : "Pull the real AWB and status from Bigship"}
-                                className="mt-1 block w-full rounded border border-blue-300 bg-blue-50 px-1 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                              >{syncingId === h.id ? "…" : "🔄 Sync Bigship"}</button>
-                            )}
-                            {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
-                              <button
-                                onClick={() => void setManualAwb(h.id, h.trackingNumber)}
-                                disabled={settingAwbId === h.id}
-                                title="Manually enter the real AWB number (e.g. after shipping it directly from Bigship's dashboard)"
-                                className="mt-1 block w-full rounded border border-gray-300 bg-gray-50 px-1 py-0.5 text-[10px] font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-                              >{settingAwbId === h.id ? "…" : "✏️ Add AWB"}</button>
-                            )}
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              {(h.status === "PACKED" || h.status === "IN_TRANSIT" || h.status === "CANCELLED") && (
+                                <button
+                                  onClick={() => void returnToQueue(h.orderId)}
+                                  disabled={returningId === h.orderId}
+                                  title="Reset this order back to Ready for Dispatch — use this if the shipment was cancelled or stuck in Bigship and needs to be rebooked"
+                                  className="rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-50 whitespace-nowrap"
+                                >↩ Queue</button>
+                              )}
+                              {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                                <button
+                                  onClick={() => void markDelivered(h.id)}
+                                  disabled={markingDeliveredId === h.id}
+                                  title="Mark delivered and send the customer a WhatsApp review/testimonial request"
+                                  className="rounded border border-green-300 bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50 whitespace-nowrap"
+                                >{markingDeliveredId === h.id ? "…" : "✅ Delivered"}</button>
+                              )}
+                              {h.bigshipOrderId && (h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                                <button
+                                  onClick={() => void syncBigship(h.id)}
+                                  disabled={syncingId === h.id}
+                                  title={h.bigshipSyncedAt ? `Last synced ${new Date(h.bigshipSyncedAt).toLocaleString("en-IN")}${h.bigshipStatus ? ` — ${h.bigshipStatus}` : ""}` : "Pull the real AWB and status from Bigship"}
+                                  className="rounded border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50 whitespace-nowrap"
+                                >{syncingId === h.id ? "…" : "🔄 Sync"}</button>
+                              )}
+                              {(h.status === "PACKED" || h.status === "IN_TRANSIT") && (
+                                <button
+                                  onClick={() => void setManualAwb(h.id, h.trackingNumber)}
+                                  disabled={settingAwbId === h.id}
+                                  title="Manually enter the real AWB number (e.g. after shipping it directly from Bigship's dashboard)"
+                                  className="rounded border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
+                                >{settingAwbId === h.id ? "…" : "✏️ AWB"}</button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2 text-left align-middle text-slate-500">
+                            {h.bigshipStatus ? (
+                              <span title="Live status as reported by Bigship">{h.bigshipStatus}</span>
+                            ) : <span className="text-slate-300">—</span>}
                           </td>
                         </tr>
                       ))}
