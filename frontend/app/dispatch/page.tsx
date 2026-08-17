@@ -42,6 +42,7 @@ type CourierChargeRow = {
   dispatchDate: string; dispatchType: string | null;
   awbNumber: string | null; carrierName: string | null;
   courierOrderStatus: string | null;
+  parcelStatus: string | null;
   actual: number | null; taken: number | null; net: number | null;
   hasReportData: boolean;
 };
@@ -1056,6 +1057,7 @@ export default function DispatchPage() {
                         <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Dispatched</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">AWB / Mode</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Status</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Actual</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Taken from Customer</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Net</th>
@@ -1080,6 +1082,13 @@ export default function DispatchPage() {
                               <span className="rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 font-semibold">
                                 {row.dispatchType === "TRANSPORT" ? "Transport" : row.dispatchType === "BY_HAND" ? "By Hand" : row.dispatchType === "SELF_COLLECTED" ? "Self Collected" : row.dispatchType ?? "—"}
                               </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {row.parcelStatus ? (
+                              <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{row.parcelStatus}</span>
+                            ) : (
+                              <span className="text-slate-300">—</span>
                             )}
                           </td>
                           <td className="px-3 py-2 font-semibold text-slate-800">

@@ -1975,37 +1975,51 @@ export class DispatchService {
       : [];
     const byAwb = new Map<string, any>(chargeRecords.map((r: any) => [r.awbNumber, r]));
 
-    const rows = shipments.map((s) => {
-      const isCourier = s.dispatchType === 'COURIER';
-      const awb = isCourier && s.awbNumber ? normalizeAwb(s.awbNumber) : null;
-      const chargeRecord = awb ? byAwb.get(awb) : undefined;
-      // Prefer the reconciled real cost from the uploaded Shipping Charges
-      // report (accounts for weight/RTO surcharges); fall back to the rate
-      // quote captured at booking time so this is never blank in between.
-      const actual = chargeRecord
-        ? Number(chargeRecord.totalCharges)
-        : (s as any).courierChargeActual != null
-        ? Number((s as any).courierChargeActual)
-        : null;
-      const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
-      const net = actual != null && taken != null ? taken - actual : null;
-      return {
-        shipmentId: s.id,
-        orderId: s.orderId,
-        orderNo: s.order.orderNumber,
-        customerName: s.order.customer.businessName,
-        salesAgentName: s.order.salesAgent?.fullName ?? null,
-        dispatchDate: s.dispatchDate?.toISOString() ?? s.createdAt.toISOString(),
-        dispatchType: s.dispatchType,
-        awbNumber: awb,
-        carrierName: s.carrierName,
-        courierOrderStatus: chargeRecord?.orderStatus ?? null,
-        actual,
-        taken,
-        net,
-        hasReportData: !!chargeRecord,
-      };
-    });
+    // Resolve the best-known live status for each shipment, preferring the
+    // most authoritative source available: the courier's own reconciled
+    // "Order Status" from the uploaded Shipping Charges report (ground
+    // truth), then Bigship's last-synced live status (bigshipStatus — can
+    // be ahead of the ERP's local `status` enum if a shipment was cancelled
+    // directly in Bigship's dashboard and nobody has clicked "Sync Bigship"
+    // for it since), then finally the local ERP status as a last resort.
+    // Cancelled shipments are excluded below — once cancelled, the courier
+    // doesn't actually charge for it (amount gets credited back), so it has
+    // no place in a courier profit/loss reconciliation.
+    const rows = shipments
+      .map((s) => {
+        const isCourier = s.dispatchType === 'COURIER';
+        const awb = isCourier && s.awbNumber ? normalizeAwb(s.awbNumber) : null;
+        const chargeRecord = awb ? byAwb.get(awb) : undefined;
+        const parcelStatus = chargeRecord?.orderStatus ?? (s as any).bigshipStatus ?? s.status;
+        // Prefer the reconciled real cost from the uploaded Shipping Charges
+        // report (accounts for weight/RTO surcharges); fall back to the rate
+        // quote captured at booking time so this is never blank in between.
+        const actual = chargeRecord
+          ? Number(chargeRecord.totalCharges)
+          : (s as any).courierChargeActual != null
+          ? Number((s as any).courierChargeActual)
+          : null;
+        const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
+        const net = actual != null && taken != null ? taken - actual : null;
+        return {
+          shipmentId: s.id,
+          orderId: s.orderId,
+          orderNo: s.order.orderNumber,
+          customerName: s.order.customer.businessName,
+          salesAgentName: s.order.salesAgent?.fullName ?? null,
+          dispatchDate: s.dispatchDate?.toISOString() ?? s.createdAt.toISOString(),
+          dispatchType: s.dispatchType,
+          awbNumber: awb,
+          carrierName: s.carrierName,
+          courierOrderStatus: chargeRecord?.orderStatus ?? null,
+          parcelStatus,
+          actual,
+          taken,
+          net,
+          hasReportData: !!chargeRecord,
+        };
+      })
+      .filter((r) => !/cancel/i.test(r.parcelStatus ?? ''));
 
     const totals = rows.reduce(
       (acc, r) => {
@@ -2049,20 +2063,28 @@ export class DispatchService {
         dispatchDate: { not: null },
         order: { isTest: false },
       },
-      select: { dispatchDate: true, awbNumber: true, courierChargeCollected: true },
+      select: { dispatchDate: true, awbNumber: true, courierChargeCollected: true, bigshipStatus: true },
     });
 
     const awbs = shipments.map((s) => (s.awbNumber ? normalizeAwb(s.awbNumber) : null)).filter((a): a is string => !!a);
     const chargeRecords = awbs.length
-      ? await (this.prisma as any).shippingChargeRecord.findMany({ where: { awbNumber: { in: awbs } }, select: { awbNumber: true, totalCharges: true } })
+      ? await (this.prisma as any).shippingChargeRecord.findMany({ where: { awbNumber: { in: awbs } }, select: { awbNumber: true, totalCharges: true, orderStatus: true } })
       : [];
     const byAwb = new Map<string, number>(chargeRecords.map((r: any) => [r.awbNumber, Number(r.totalCharges)]));
+    const statusByAwb = new Map<string, string | null>(chargeRecords.map((r: any) => [r.awbNumber, r.orderStatus]));
 
     const byMonth = new Map<string, { actual: number; taken: number; net: number; shipments: number }>();
     for (const s of shipments) {
       if (!s.dispatchDate) continue;
-      const monthKey = `${s.dispatchDate.getFullYear()}-${String(s.dispatchDate.getMonth() + 1).padStart(2, '0')}`;
       const awb = s.awbNumber ? normalizeAwb(s.awbNumber) : null;
+      // Same cancellation gap as listCourierCharges: local `status` can be
+      // stale if a shipment was cancelled directly in Bigship and nobody
+      // has synced since — check the reconciled report status and Bigship's
+      // last-synced live status too, so this dashboard rollup and the
+      // Dispatch > Courier Charges page never disagree.
+      const resolvedStatus = (awb ? statusByAwb.get(awb) : null) ?? s.bigshipStatus;
+      if (resolvedStatus && /cancel/i.test(resolvedStatus)) continue;
+      const monthKey = `${s.dispatchDate.getFullYear()}-${String(s.dispatchDate.getMonth() + 1).padStart(2, '0')}`;
       const actual = awb ? byAwb.get(awb) ?? null : null;
       const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
       const bucket = byMonth.get(monthKey) ?? { actual: 0, taken: 0, net: 0, shipments: 0 };
