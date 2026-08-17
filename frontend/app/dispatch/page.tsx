@@ -914,7 +914,7 @@ export default function DispatchPage() {
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Tracking</th>
                         <th className="px-4 py-2.5 text-right font-semibold text-slate-600">Amount</th>
                         <th className="px-4 py-2.5 text-center font-semibold text-slate-600">COD</th>
-                        <th className="px-4 py-2.5 text-center font-semibold text-slate-600">Status</th>
+                        <th className="px-4 py-2.5 text-center font-semibold text-slate-600">Actions</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Live Status</th>
                       </tr>
                     </thead>
@@ -953,13 +953,7 @@ export default function DispatchPage() {
                             ) : <span className="text-slate-300">—</span>}
                           </td>
                           <td className="px-4 py-2 text-center align-middle">
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              h.status === "DELIVERED" ? "bg-green-100 text-green-700" :
-                              h.status === "IN_TRANSIT" ? "bg-blue-100 text-blue-700" :
-                              h.status === "PACKED" ? "bg-yellow-100 text-yellow-700" :
-                              "bg-slate-100 text-slate-600"
-                            }`}>{h.status}</span>
-                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <div className="flex flex-wrap items-center justify-center gap-1">
                               {(h.status === "PACKED" || h.status === "IN_TRANSIT" || h.status === "CANCELLED") && (
                                 <button
                                   onClick={() => void returnToQueue(h.orderId)}
