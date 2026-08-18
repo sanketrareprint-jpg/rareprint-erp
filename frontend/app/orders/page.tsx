@@ -14,6 +14,7 @@ import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { MobileSelect } from "@/components/MobileSelect";
 
 type ItemDetail = {
+  id?: string;
   productName: string; size: string | null; gsm: string | null;
   sides: string | null; quantity: number; unitPrice: number;
   lineTotal: number; itemProductionStage: string;
@@ -22,6 +23,8 @@ type ItemDetail = {
   // already physically shipped, so the badge doesn't just say "Ready"
   // forever even after the item has left the building.
   dispatchStatus?: 'FREE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPATCHED' | null;
+  // Set once Accounts approves this item's cancellation request.
+  cancelledAt?: string | null;
 };
 
 type OrderItemRef = {
@@ -38,6 +41,12 @@ type Order = {
   readyItemsCount?: number; totalItemsCount?: number;
   itemDetails?: ItemDetail[];
   items?: OrderItemRef[];
+  // Cancellation request state (see backend OrdersService.requestCancellation /
+  // AccountsService.approveCancellation). Non-null cancellationRequestedAt
+  // means a request is pending Accounts' review right now.
+  cancellationRequestedAt?: string | null;
+  cancellationReason?: string | null;
+  pendingCancelItemIds?: string[];
 };
 
 type OrderItem = {
@@ -295,6 +304,15 @@ export default function OrdersPage() {
   const [fileModalOrder, setFileModalOrder] = useState<Order | null>(null);
   const [fileModalItems, setFileModalItems] = useState<any[]>([]);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Cancellation request — agent requests, Accounts approves/rejects
+  // (see backend OrdersService.requestCancellation).
+  const [cancelModalOrder, setCancelModalOrder] = useState<Order | null>(null);
+  const [cancelScope, setCancelScope] = useState<"ORDER" | "ITEMS">("ORDER");
+  const [cancelItemIds, setCancelItemIds] = useState<Set<string>>(new Set());
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // Dispatch
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
@@ -692,9 +710,9 @@ export default function OrdersPage() {
                 <span className="text-slate-500" style={{ minWidth: "16px" }}>{item.quantity}</span>
                 <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "50px" }}>{fmt(item.lineTotal)}</span>
                 <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${
-                  (item.dispatchStatus && dispatchStatusColors[item.dispatchStatus]) ?? itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"
+                  item.cancelledAt ? "bg-red-100 text-red-700" : (item.dispatchStatus && dispatchStatusColors[item.dispatchStatus]) ?? itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"
                 }`}>
-                  {(item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
+                  {item.cancelledAt ? "Cancelled" : (item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
                 </span>
               </div>
             ))}
@@ -709,6 +727,54 @@ export default function OrdersPage() {
         </div>
       </td>
     );
+  }
+
+  // ── Cancellation request (agent side — Accounts approves/rejects) ────────
+  const TERMINAL_STATUSES = ["CANCELLED", "DISPATCHED", "DELIVERED"];
+  function cancellableItems(o: Order): ItemDetail[] {
+    return (o.itemDetails ?? []).filter((i) => i.itemProductionStage === "NOT_PRINTED" && !i.cancelledAt);
+  }
+  function orderCancelEligible(o: Order): boolean {
+    return !TERMINAL_STATUSES.includes(o.status) && !o.cancellationRequestedAt && cancellableItems(o).length > 0;
+  }
+  function wholeOrderCancelEligible(o: Order): boolean {
+    const items = o.itemDetails ?? [];
+    return items.length > 0 && items.every((i) => i.itemProductionStage === "NOT_PRINTED" && !i.cancelledAt);
+  }
+  function openCancelModal(o: Order) {
+    setCancelModalOrder(o);
+    setCancelScope(wholeOrderCancelEligible(o) ? "ORDER" : "ITEMS");
+    setCancelItemIds(new Set());
+    setCancelReason("");
+    setCancelError(null);
+  }
+  async function submitCancelRequest() {
+    if (!cancelModalOrder) return;
+    if (!cancelReason.trim()) { setCancelError("A reason is required."); return; }
+    if (cancelScope === "ITEMS" && cancelItemIds.size === 0) { setCancelError("Select at least one item."); return; }
+    setCancelSubmitting(true);
+    setCancelError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/${cancelModalOrder.id}/request-cancellation`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          itemIds: cancelScope === "ITEMS" ? Array.from(cancelItemIds) : undefined,
+          reason: cancelReason.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setCancelError(body?.message ?? "Failed to submit cancellation request.");
+        return;
+      }
+      setCancelModalOrder(null);
+      await load();
+    } catch {
+      setCancelError("Failed to submit cancellation request.");
+    } finally {
+      setCancelSubmitting(false);
+    }
   }
 
   return (
@@ -986,6 +1052,15 @@ export default function OrdersPage() {
                           <button title="Design Files" onClick={async () => { setFileModalOrder(o); const r = await fetch(`${API_BASE_URL}/orders/${o.id}/items`, { headers: getAuthHeaders() }); if (r.ok) setFileModalItems(await r.json()); }}
                             className={cx("flex-1 rounded-lg border border-purple-200 bg-purple-50 p-2 text-purple-700", "flex-1 rounded-lg border border-purple-200 bg-purple-50 p-1.5 text-purple-700")}><Paperclip className="mx-auto h-4 w-4" /></button>
                         )}
+                        {o.cancellationRequestedAt ? (
+                          <span title={`Cancellation pending accounts approval — ${o.cancellationReason ?? ""}`}
+                            className={cx("flex-1 rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 text-center text-[10px] font-bold flex items-center justify-center", "flex-1 rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-700 text-center text-[10px] font-bold flex items-center justify-center")}>
+                            <AlertTriangle className="h-4 w-4" />
+                          </span>
+                        ) : orderCancelEligible(o) ? (
+                          <button title="Cancel Order / Item" onClick={() => openCancelModal(o)}
+                            className={cx("flex-1 rounded-lg border border-red-200 bg-red-50 p-2 text-red-700", "flex-1 rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-700")}><AlertTriangle className="mx-auto h-4 w-4" /></button>
+                        ) : null}
                       </div>
                       {expandedPayments === o.id && (
                         <div className={cx("rounded-xl bg-slate-50 p-3 text-xs text-slate-600", "rounded-xl bg-slate-50 p-2.5 text-xs text-slate-600")}>
@@ -1149,6 +1224,18 @@ export default function OrdersPage() {
                                   )}
                                 </button>
                               )}
+                              {/* Cancel */}
+                              {o.cancellationRequestedAt ? (
+                                <span title={`Cancellation pending accounts approval — ${o.cancellationReason ?? ""}`}
+                                  className="px-1 py-1.5 rounded-md border border-red-200 bg-red-50 text-red-700">
+                                  <AlertTriangle className="h-3.5 w-3.5" />
+                                </span>
+                              ) : orderCancelEligible(o) ? (
+                                <button title="Cancel Order / Item" onClick={() => openCancelModal(o)}
+                                  className="px-1 py-1.5 rounded-md border border-red-200 bg-red-50 text-red-700 hover:bg-red-100">
+                                  <AlertTriangle className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                           {activeTab === "dispatch" && (
@@ -1567,6 +1654,76 @@ export default function OrdersPage() {
             <div className="mt-4 flex justify-end">
               <button onClick={() => { setFileModalOrder(null); setFileModalItems([]); }}
                 className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancellation Request Modal ───────────────────────────────────────
+          Requests only — nothing is actually cancelled here. Accounts reviews
+          and approves/rejects on their own Cancellation Approval tab, same
+          two-step flow as Dispatch Approval. */}
+      {cancelModalOrder && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
+          <div style={{ width: "100%", maxWidth: "28rem", background: "white", borderRadius: "1rem", border: "1px solid #e2e8f0", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Request Cancellation</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{cancelModalOrder.orderNo} — {cancelModalOrder.customerName}</p>
+              </div>
+              <button onClick={() => setCancelModalOrder(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Only items still <strong>Not Printed</strong> can be cancelled. This sends a request to Accounts for approval — nothing is cancelled immediately.
+            </p>
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <button onClick={() => setCancelScope("ORDER")} disabled={!wholeOrderCancelEligible(cancelModalOrder)}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed ${cancelScope === "ORDER" ? "border-red-400 bg-red-50 text-red-700" : "border-slate-200 text-slate-600"}`}>
+                  Whole Order
+                </button>
+                <button onClick={() => setCancelScope("ITEMS")}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold ${cancelScope === "ITEMS" ? "border-red-400 bg-red-50 text-red-700" : "border-slate-200 text-slate-600"}`}>
+                  Specific Item(s)
+                </button>
+              </div>
+              {!wholeOrderCancelEligible(cancelModalOrder) && (
+                <p className="text-[11px] text-amber-600">Whole-order cancellation needs every item still Not Printed — some items here have already moved on, so only individual items can be cancelled.</p>
+              )}
+              {cancelScope === "ITEMS" && (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {cancellableItems(cancelModalOrder).map((item) => (
+                    <label key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                      <input type="checkbox" checked={item.id ? cancelItemIds.has(item.id) : false}
+                        onChange={(e) => {
+                          if (!item.id) return;
+                          setCancelItemIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(item.id!); else next.delete(item.id!);
+                            return next;
+                          });
+                        }} />
+                      <span className="font-medium text-slate-800">{item.productName}</span>
+                      <span className="text-slate-400">×{item.quantity}</span>
+                      <span className="ml-auto font-semibold text-emerald-700">{fmt(item.lineTotal)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Reason (required)</label>
+                <textarea rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="Why is this being cancelled?" />
+              </div>
+              {cancelError && <p className="text-xs font-semibold text-red-600">{cancelError}</p>}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setCancelModalOrder(null)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={submitCancelRequest} disabled={cancelSubmitting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+                {cancelSubmitting ? "Submitting…" : "Submit Request"}
+              </button>
             </div>
           </div>
         </div>

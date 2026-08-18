@@ -401,6 +401,18 @@ model Order {
   // PENDING_DISPATCH_APPROVAL; gets overwritten on the next submission and
   // ignored (empty = "show everything") otherwise.
   pendingDispatchItemIds String[]           @default([])
+  // Cancellation request/approval — mirrors the pendingDispatchItemIds
+  // pattern: a sales agent can request cancelling a whole order or specific
+  // item(s) while they're still NOT_PRINTED (OrdersService.requestCancellation).
+  // cancellationRequestedAt != null is the marker Accounts' Cancellation
+  // Approval tab filters on; order.status is deliberately left untouched
+  // while a request is pending (avoids touching every status-based query
+  // elsewhere). pendingCancelItemIds empty = whole order was requested;
+  // populated = only those item(s). Cleared on approve or reject.
+  cancellationRequestedAt     DateTime?
+  cancellationRequestedByName String?
+  cancellationReason          String?
+  pendingCancelItemIds        String[]      @default([])
   // Base64 data URLs captured in the Book Shipment modal when a dispatch
   // submission goes to Accounts — a packing photo (proof of what's actually
   // being shipped) and, optionally, a bill/invoice photo. Overwritten on
@@ -466,6 +478,13 @@ model OrderItem {
   // Dispatch tab), and persisted in Dispatch's queue forever even after it
   // showed up as shipped in Bigship. Confirmed via a real order, 2026-08-10.
   dispatchedAt        DateTime?
+  // Set once this specific item's cancellation is approved by Accounts (see
+  // Order.cancellationRequestedAt / AccountsService.approveCancellation).
+  // Same convention as dispatchedAt: itemProductionStage is left at whatever
+  // it already was (NOT_PRINTED, since that's the only stage cancellation is
+  // allowed from) rather than repurposed, so this is the one field every
+  // production/dispatch listing must exclude on.
+  cancelledAt         DateTime?
   processingFollowUpDate DateTime?
   offerCodeId         String?
   createdAt           DateTime             @default(now())

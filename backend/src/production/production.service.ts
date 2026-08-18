@@ -87,19 +87,24 @@ export class ProductionService {
             OrderStatus.PARTIALLY_DISPATCHED,
           ],
         },
-        items: { some: { itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH } } },
+        // cancelledAt: null (plain key, not a spread -- same rule as
+        // dispatchedAt elsewhere in this codebase) so an item whose
+        // cancellation was approved no longer counts as "still needs
+        // production" -- otherwise an order left with only cancelled items
+        // outstanding would never leave this queue.
+        items: { some: { itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH }, cancelledAt: null } as any },
         isSample: false,
       },
       orderBy: { updatedAt: 'desc' },
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, processingFollowUpDate: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, processingFollowUpDate: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, cancelledAt: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } as any },
       },
     });
 
     // Fetch designFiles separately since it's a JSON field not in TypeScript types
-    
+
 
     return orders.map((o) => ({
       id: o.id,
@@ -111,7 +116,9 @@ export class ProductionService {
       productionStage: o.productionStage,
       orderDate: o.orderDate.toISOString(),
       notes: o.notes,
-      items: o.items.map((i) => {
+      // Cancelled items shouldn't show up as production work at all -- see
+      // the matching `where` exclusion above.
+      items: o.items.filter((i) => !(i as any).cancelledAt).map((i) => {
         const { size, gsm, sides } = resolveItemDetails(i);
         return {
           id: i.id,
@@ -265,6 +272,9 @@ export class ProductionService {
       },
     });
     if (!item) throw new NotFoundException('Order item not found');
+    if ((item as any).cancelledAt) {
+      throw new BadRequestException('This item was cancelled and can no longer move through production');
+    }
 
     await this.prisma.orderItem.update({
       where: { id: itemId },

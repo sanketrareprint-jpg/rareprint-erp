@@ -58,6 +58,17 @@ type DispatchPendingOrder = {
   dispatchBillPhoto?: string | null;
 };
 
+type CancellationPendingOrder = {
+  id: string; orderNo: string; customerName: string; salesAgentName?: string;
+  isWholeOrder: boolean;
+  requestedByName?: string | null;
+  requestedAt: string;
+  reason?: string | null;
+  items: { id: string; productName: string; quantity: number; lineTotal: number }[];
+  amountAffected: number;
+  orderTotal: number;
+};
+
 type PendingPayment = {
   id: string;
   orderId: string;
@@ -254,7 +265,7 @@ type CodForm = {
   courierOrderId: string;
 };
 
-type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "receipts" | "receipt_history" | "vendors" | "commission" | "payment_verification" | "payment_history" | "expense_tracker";
+type Tab = "pending" | "accounting" | "outstanding" | "dispatch" | "cancellations" | "receipts" | "receipt_history" | "vendors" | "commission" | "payment_verification" | "payment_history" | "expense_tracker";
 
 // ── Payment Verification (bank statement debit sign-off) ───────────────────
 type CommissionInfo = { agentName: string; month: string; year: number; label: string };
@@ -419,6 +430,14 @@ export default function AccountsPage() {
   const [dispatchRejectId, setDispatchRejectId] = useState<string | null>(null);
   const [dispatchRejectReason, setDispatchRejectReason] = useState("");
 
+  // Cancellation requests (agent requests via Orders page, approved/rejected here)
+  const [cancelOrders, setCancelOrders] = useState<CancellationPendingOrder[]>([]);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelExpanded, setCancelExpanded] = useState<string | null>(null);
+  const [cancelProcessing, setCancelProcessing] = useState<string | null>(null);
+  const [cancelRejectId, setCancelRejectId] = useState<string | null>(null);
+  const [cancelRejectReason, setCancelRejectReason] = useState("");
+
   // Sample Kit orders
   const [sampleOrders, setSampleOrders] = useState<SampleOrder[]>([]);
   const [sampleLoading, setSampleLoading] = useState(false);
@@ -569,6 +588,17 @@ export default function AccountsPage() {
     } catch (error) {
       handleLoadError("Dispatch approvals", error);
     } finally { setDispatchLoading(false); }
+  }, [handleLoadError]);
+
+  const loadCancellations = useCallback(async () => {
+    setCancelLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/pending-cancellations`, { headers: getAuthHeaders() });
+      if (res.ok) setCancelOrders(await res.json());
+    } catch (error) {
+      handleLoadError("Cancellation requests", error);
+    } finally { setCancelLoading(false); }
   }, [handleLoadError]);
 
   const loadVendors = useCallback(async () => {
@@ -975,6 +1005,7 @@ export default function AccountsPage() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === "accounting") void loadAccounting(); }, [tab, loadAccounting]);
   useEffect(() => { if (tab === "dispatch") void loadDispatch(); }, [tab, loadDispatch]);
+  useEffect(() => { if (tab === "cancellations") void loadCancellations(); }, [tab, loadCancellations]);
   useEffect(() => { if (tab === "receipts") void loadReceipts(); }, [tab, loadReceipts]);
   useEffect(() => { if (tab === "outstanding") { void loadOutstanding(); void loadCourierStatus(); } }, [tab, loadOutstanding, loadCourierStatus]);
 
@@ -1364,6 +1395,31 @@ export default function AccountsPage() {
       setDispatchRejectId(null); setDispatchRejectReason(""); await loadDispatch();
       alert("Dispatch rejected — sales agent has been notified.");
     } finally { setDispatchProcessing(null); }
+  }
+
+  async function approveCancellationRequest(id: string) {
+    setCancelProcessing(id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${id}/approve-cancellation`, {
+        method: "PATCH", headers: getAuthHeaders(),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Failed to approve cancellation"); return; }
+      await loadCancellations();
+    } finally { setCancelProcessing(null); }
+  }
+
+  async function rejectCancellationRequest() {
+    if (!cancelRejectId || !cancelRejectReason.trim()) { alert("Please enter a reason"); return; }
+    setCancelProcessing(cancelRejectId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${cancelRejectId}/reject-cancellation`, {
+        method: "PATCH", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancelRejectReason }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Failed to reject"); return; }
+      setCancelRejectId(null); setCancelRejectReason(""); await loadCancellations();
+      alert("Cancellation request rejected — sales agent has been notified.");
+    } finally { setCancelProcessing(null); }
   }
 
   async function openBankMatch(payment: PendingPayment) {
@@ -1906,6 +1962,7 @@ export default function AccountsPage() {
                 { key: "accounting", label: "Billing & GST", count: salesInvoices.length + purchaseBills.length },
                 { key: "outstanding", label: "Customer Outstanding", count: outstanding.length },
                 { key: "dispatch", label: "Dispatch Approval", count: dispatchOrders.length },
+                { key: "cancellations", label: "Cancellation Approval", count: cancelOrders.length },
                 { key: "receipts", label: "Receipts Pending", count: pendingPayments.length },
                 { key: "receipt_history", label: "Receipt History", count: receiptHistory.length },
                 { key: "vendors", label: "Vendor Statements", count: vendorEntries.filter(e => !e.isPaid).length },
@@ -2886,6 +2943,83 @@ export default function AccountsPage() {
                           className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 font-semibold">
                           {dispatchProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}
                           Approve Dispatch
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── CANCELLATION APPROVAL TAB ── */}
+          {tab === "cancellations" && (
+            <div className="space-y-3">
+              {cancelLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-red-500" /></div>
+              ) : cancelOrders.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                  <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No cancellation requests pending approval</p>
+                </div>
+              ) : cancelOrders.map(order => (
+                <div key={order.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 bg-red-50 border-b border-red-100">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="font-bold text-blue-700">{order.orderNo}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.isWholeOrder ? "bg-red-600 text-white" : "bg-orange-100 text-orange-700"}`}>
+                        {order.isWholeOrder ? "Whole Order" : `${order.items.length} Item(s)`}
+                      </span>
+                      <span className="font-semibold text-slate-800">{order.customerName}</span>
+                      {order.salesAgentName && <span className="rounded-full bg-purple-50 text-purple-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-auto">
+                      <span className="text-xs font-bold whitespace-nowrap text-red-600">Amount: {fmt(order.amountAffected)}</span>
+                      <button onClick={() => setCancelExpanded(cancelExpanded === order.id ? null : order.id)}
+                        className="p-1 rounded hover:bg-slate-200 shrink-0">
+                        {cancelExpanded === order.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  {cancelExpanded === order.id && (
+                    <div className="p-4 space-y-3">
+                      <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs space-y-1">
+                        <div className="flex justify-between"><span className="text-slate-500">Requested By</span><span className="font-semibold">{order.requestedByName || "—"}</span></div>
+                        <div className="flex justify-between"><span className="text-slate-500">Requested At</span><span className="font-semibold">{new Date(order.requestedAt).toLocaleString()}</span></div>
+                        <div className="flex justify-between border-t border-slate-200 pt-1 mt-1"><span className="text-slate-700 font-semibold">Order Total</span><span className="font-semibold">{fmt(order.orderTotal)}</span></div>
+                        <div className="flex justify-between"><span className="text-slate-700 font-semibold">Amount Affected</span><span className="font-bold text-red-600">{fmt(order.amountAffected)}</span></div>
+                      </div>
+                      {order.reason && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs">
+                          <p className="font-semibold text-amber-800 text-[10px] uppercase tracking-wide mb-1">Reason</p>
+                          <p className="text-amber-900 whitespace-pre-wrap">{order.reason}</p>
+                        </div>
+                      )}
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b border-slate-100 text-slate-500">
+                          <th className="pb-1 text-left font-medium">Product</th>
+                          <th className="pb-1 text-right font-medium">Qty</th>
+                          <th className="pb-1 text-right font-medium">Amount</th>
+                        </tr></thead>
+                        <tbody>
+                          {order.items.map((item, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              <td className="py-1 font-medium text-slate-800">{item.productName}</td>
+                              <td className="py-1 text-right text-slate-600">{item.quantity}</td>
+                              <td className="py-1 text-right text-slate-800">{fmt(item.lineTotal)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setCancelRejectId(order.id)} disabled={cancelProcessing === order.id}
+                          className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-60">
+                          Reject
+                        </button>
+                        <button onClick={() => approveCancellationRequest(order.id)} disabled={cancelProcessing === order.id}
+                          className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60 font-semibold">
+                          {cancelProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertTriangle className="h-3 w-3" />}
+                          Approve Cancellation
                         </button>
                       </div>
                     </div>
@@ -5424,6 +5558,27 @@ export default function AccountsPage() {
               <button onClick={rejectDispatchOrder} disabled={dispatchProcessing === dispatchRejectId}
                 className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
                 {dispatchProcessing === dispatchRejectId ? "Rejecting..." : "Reject Dispatch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Cancellation Modal */}
+      {cancelRejectId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}>
+          <div style={{ background: "white", borderRadius: "12px", padding: "1.5rem", width: "100%", maxWidth: "24rem", boxShadow: "0 25px 50px rgba(0,0,0,0.3)" }}>
+            <h2 className="text-sm font-bold text-slate-800 mb-3">Reject Cancellation Request</h2>
+            <p className="text-xs text-slate-500 mb-2">The order stays as-is and the sales agent will be notified with your reason.</p>
+            <textarea value={cancelRejectReason} onChange={e => setCancelRejectReason(e.target.value)}
+              placeholder="Enter rejection reason..." rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-400 resize-none" />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => { setCancelRejectId(null); setCancelRejectReason(""); }}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={rejectCancellationRequest} disabled={cancelProcessing === cancelRejectId}
+                className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60">
+                {cancelProcessing === cancelRejectId ? "Rejecting..." : "Reject Cancellation"}
               </button>
             </div>
           </div>

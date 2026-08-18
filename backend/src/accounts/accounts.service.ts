@@ -625,6 +625,247 @@ export class AccountsService {
     return updated;
   }
 
+  // ── Cancellation requests (agent requests via OrdersService.requestCancellation,
+  //    only while item(s) are still NOT_PRINTED — Accounts approves or rejects here) ──
+
+  async getPendingCancellations() {
+    const orders = await this.prisma.order.findMany({
+      where: ({ cancellationRequestedAt: { not: null } } as any),
+      include: {
+        customer: true,
+        salesAgent: { select: { fullName: true } },
+        items: { include: { product: true } },
+      },
+      orderBy: ({ cancellationRequestedAt: 'desc' } as any),
+    });
+    return orders.map((order) => {
+      const pendingIds: string[] = (order as any).pendingCancelItemIds ?? [];
+      const isWholeOrder = pendingIds.length === 0;
+      const targetItems = isWholeOrder ? order.items : order.items.filter((i) => pendingIds.includes(i.id));
+      return {
+        id: order.id,
+        orderNo: order.orderNumber,
+        customerName: order.customer.businessName,
+        salesAgentName: order.salesAgent?.fullName ?? null,
+        isWholeOrder,
+        requestedByName: (order as any).cancellationRequestedByName ?? null,
+        requestedAt: (order as any).cancellationRequestedAt,
+        reason: (order as any).cancellationReason ?? null,
+        items: targetItems.map((i) => ({
+          id: i.id,
+          productName: i.product.name,
+          quantity: i.quantity,
+          lineTotal: Number(i.lineTotal),
+        })),
+        amountAffected: this.money(targetItems.reduce((s, i) => s + Number(i.lineTotal), 0)),
+        orderTotal: Number(order.grandTotal),
+      };
+    });
+  }
+
+  // Rebuilds the linked Invoice (totals + line items) to reflect only
+  // `remainingItems` — reused for both whole-order cancellation (called with
+  // an empty array, which zeroes the invoice out) and item-level
+  // cancellation (called with whatever items are left). InvoiceItem rows
+  // have no FK back to OrderItem (they're a denormalized snapshot taken at
+  // invoice-creation time), so delete-and-recreate from the current item set
+  // is simpler and safer than trying to match/patch individual rows. Posts a
+  // CREDIT_NOTE ledger entry for the amount actually removed, same account
+  // ("Customer Receivable") the original SALE entry debited in
+  // createInvoiceAndLedger, so the books stay balanced. paidAmount is left
+  // untouched — money already received doesn't un-receive itself; a genuine
+  // refund is a separate manual accounts action, out of scope here.
+  private async reconcileInvoiceToRemainingItems(
+    tx: any,
+    invoice: any,
+    order: any,
+    remainingItems: any[],
+    narration: string,
+  ) {
+    const gstTreatment = invoice.gstTreatment as GstTreatment;
+    const oldTotal = this.money(invoice.totalAmount);
+
+    const newSubtotal = this.money(remainingItems.reduce((s, i) => s + Number(i.lineTotal), 0));
+    const discountAmount = this.money(invoice.discountAmount);
+    const shippingCharge = Number(order.shippingCharge ?? 0);
+    const newTaxableAmount = Math.max(0, this.money(newSubtotal - discountAmount + shippingCharge));
+
+    let cgst = 0, sgst = 0, igst = 0, tax = 0;
+    const itemRows = remainingItems.map((item) => {
+      const itemTaxable = this.money(Number(item.lineTotal) - Number(item.taxAmount ?? 0));
+      const split = this.splitGst(itemTaxable, Number(item.taxRatePct ?? 0), gstTreatment);
+      cgst += split.cgstAmount; sgst += split.sgstAmount; igst += split.igstAmount; tax += split.taxAmount;
+      return { item, itemTaxable, split };
+    });
+
+    const newTotalAmount = this.money(newTaxableAmount + tax);
+    const paidAmount = this.money(invoice.paidAmount);
+    const newBalance = this.money(newTotalAmount - paidAmount);
+
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        subtotal: newSubtotal,
+        taxableAmount: newTaxableAmount,
+        cgstAmount: this.money(cgst),
+        sgstAmount: this.money(sgst),
+        igstAmount: this.money(igst),
+        taxAmount: this.money(tax),
+        totalAmount: newTotalAmount,
+        balanceAmount: newBalance,
+      },
+    });
+
+    await tx.invoiceItem.deleteMany({ where: { invoiceId: invoice.id } });
+    for (const { item, itemTaxable, split } of itemRows) {
+      await tx.invoiceItem.create({
+        data: {
+          invoiceId: invoice.id,
+          productName: item.product?.name ?? 'Item',
+          sku: item.product?.sku ?? null,
+          hsnSac: null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountAmount: item.lineDiscount,
+          taxableAmount: itemTaxable,
+          gstRatePct: item.taxRatePct,
+          cgstAmount: split.cgstAmount,
+          sgstAmount: split.sgstAmount,
+          igstAmount: split.igstAmount,
+          lineTotal: item.lineTotal,
+        },
+      });
+    }
+
+    const removedAmount = this.money(oldTotal - newTotalAmount);
+    if (removedAmount > 0) {
+      await tx.accountingLedgerEntry.create({
+        data: {
+          entryType: LedgerEntryType.CREDIT_NOTE,
+          accountName: 'Customer Receivable',
+          debitAmount: 0,
+          creditAmount: removedAmount,
+          narration: `${narration} — invoice ${invoice.invoiceNumber} reduced by ₹${removedAmount}`,
+          referenceType: 'INVOICE',
+          referenceId: invoice.id,
+          customerId: order.customerId,
+          orderId: order.id,
+          invoiceId: invoice.id,
+        },
+      });
+    }
+  }
+
+  async approveCancellation(orderId: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { customer: true, items: { include: { product: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!(order as any).cancellationRequestedAt) {
+      throw new BadRequestException('This order has no pending cancellation request');
+    }
+
+    const pendingIds: string[] = (order as any).pendingCancelItemIds ?? [];
+    const isWholeOrder = pendingIds.length === 0;
+    const targetItems = isWholeOrder ? order.items : order.items.filter((i) => pendingIds.includes(i.id));
+    const invoice = await this.prisma.invoice.findUnique({ where: { orderId } });
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.orderItem.updateMany({
+        where: { id: { in: targetItems.map((i) => i.id) } },
+        data: ({ cancelledAt: new Date() } as any),
+      });
+
+      const clearedRequestFields = ({
+        cancellationRequestedAt: null,
+        cancellationRequestedByName: null,
+        cancellationReason: null,
+        pendingCancelItemIds: [],
+      } as any);
+
+      let updated;
+      if (isWholeOrder) {
+        updated = await tx.order.update({
+          where: { id: orderId },
+          data: { status: OrderStatus.CANCELLED, ...clearedRequestFields },
+        });
+        if (invoice) {
+          await this.reconcileInvoiceToRemainingItems(tx, invoice, order, [], 'Whole order cancelled');
+        }
+        // Reverse loyalty points earned on this order — matches rejectOrder's
+        // behavior for a whole-order cancellation. Not done for the
+        // item-level branch below: LoyaltyService only supports reversing an
+        // entire order's EARN transaction, not a proportional per-item share.
+        this.loyalty.reverseForOrder(orderId, (order as any).cancellationReason || 'Order cancelled').catch((err) =>
+          console.error(`Loyalty reverseForOrder failed for order ${orderId}:`, err),
+        );
+      } else {
+        const remainingItems = order.items.filter((i) => !targetItems.some((t) => t.id === i.id));
+        const removedSubtotal = targetItems.reduce((s, i) => s + Number(i.lineTotal), 0);
+        const removedTax = targetItems.reduce((s, i) => s + Number(i.taxAmount ?? 0), 0);
+        updated = await tx.order.update({
+          where: { id: orderId },
+          data: ({
+            subtotal: Math.max(0, this.money(Number(order.subtotal) - removedSubtotal)),
+            taxAmount: Math.max(0, this.money(Number(order.taxAmount) - removedTax)),
+            grandTotal: Math.max(0, this.money(Number(order.grandTotal) - removedSubtotal - removedTax)),
+            ...clearedRequestFields,
+          } as any),
+        });
+        if (invoice) {
+          await this.reconcileInvoiceToRemainingItems(
+            tx, invoice, order, remainingItems,
+            `${targetItems.length} item(s) cancelled`,
+          );
+        }
+      }
+
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: isWholeOrder ? OrderStatus.CANCELLED : order.status,
+          changedById: user.id,
+          reason: isWholeOrder
+            ? 'Accounts approved cancellation of the whole order'
+            : `Accounts approved cancellation of ${targetItems.length} item(s): ${targetItems.map((i) => i.product.name).join(', ')}`,
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  async rejectCancellation(orderId: string, reason: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!(order as any).cancellationRequestedAt) {
+      throw new BadRequestException('This order has no pending cancellation request');
+    }
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: ({
+        cancellationRequestedAt: null,
+        cancellationRequestedByName: null,
+        cancellationReason: null,
+        pendingCancelItemIds: [],
+      } as any),
+    });
+    await this.prisma.statusLog.create({
+      data: {
+        orderId,
+        fromStatus: order.status,
+        toStatus: order.status,
+        changedById: user.id,
+        reason: `Accounts rejected cancellation request: ${reason || 'no reason given'}`,
+      },
+    });
+    return updated;
+  }
+
   // ── Return order to accounts (back to PENDING_APPROVAL) ──────────────────
   async returnToAccounts(orderId: string, reason: string, user: AccountsUser) {
     assertAccountsUser(user);

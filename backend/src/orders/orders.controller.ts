@@ -195,6 +195,22 @@ export class OrdersController {
     return this.ordersService.getPayments(id);
   }
 
+  @Patch(':id/request-cancellation')
+  @UseGuards(AuthGuard('jwt'))
+  requestCancellation(
+    @Param('id') id: string,
+    @Req() req: Request & { user: JwtUser & { fullName?: string } },
+    @Body() body: { itemIds?: string[]; reason: string },
+  ) {
+    return this.ordersService.requestCancellation(
+      id,
+      body.itemIds,
+      body.reason,
+      req.user.id,
+      req.user.fullName ?? 'Unknown',
+    );
+  }
+
   @Get(':id/status-logs')
   @UseGuards(AuthGuard('jwt'))
   getStatusLogs(@Param('id') id: string) {

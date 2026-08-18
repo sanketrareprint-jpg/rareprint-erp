@@ -52,7 +52,7 @@ function resolveLockedItemIds(order: {
 }
 
 function buildItemDetails(
-  items: Array<{ id: string; product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string; dispatchedAt?: Date | null }>,
+  items: Array<{ id: string; product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string; dispatchedAt?: Date | null; cancelledAt?: Date | null }>,
   dispatchContext?: { lockedIds: Set<string>; orderStatus: string },
 ) {
   return items.map((i) => {
@@ -96,6 +96,7 @@ function buildItemDetails(
     }
 
     return {
+      id: i.id,
       productName: i.product.name,
       productionNotes: i.productionNotes ?? null,
       quantity: i.quantity,
@@ -106,6 +107,7 @@ function buildItemDetails(
       size,
       gsm,
       sides: sidesLabel,
+      cancelledAt: i.cancelledAt ?? null,
     };
   });
 }
@@ -428,10 +430,14 @@ export class OrdersService {
             // the same way (TS2322 on 2026-08-10, o.status inferred as some
             // unrelated giant union). Plain keys are safe in both places.
             dispatchedAt: true,
+            cancelledAt: true,
           }
         },
         payments: true,
         pendingDispatchItemIds: true,
+        cancellationRequestedAt: true,
+        cancellationReason: true,
+        pendingCancelItemIds: true,
       },
     });
     const slabsByProductId = (includeMargin || includeCommission)
@@ -493,7 +499,11 @@ export class OrdersService {
           productName: i.product.name,
           itemProductionStage: i.itemProductionStage,
           designFiles: Array.from({ length: designFileCounts[i.id] ?? 0 }),
+          cancelledAt: (i as any).cancelledAt ?? null,
         })),
+        cancellationRequestedAt: (o as any).cancellationRequestedAt ?? null,
+        cancellationReason: (o as any).cancellationReason ?? null,
+        pendingCancelItemIds: (o as any).pendingCancelItemIds ?? [],
       };
     });
     return { data, page, limit, total, hasMore: page * limit < total };
@@ -1264,6 +1274,82 @@ export class OrdersService {
         },
       });
 
+      return updated;
+    });
+  }
+
+  // Request cancellation of a whole order or specific item(s) — only while
+  // still NOT_PRINTED (production hasn't actually started on them). Doesn't
+  // cancel anything itself: it flags the request for Accounts to approve or
+  // reject (see AccountsService.approveCancellation/rejectCancellation),
+  // mirroring how dispatch submissions go through accounts approval before
+  // taking effect. itemIds omitted/empty means "cancel the whole order."
+  async requestCancellation(
+    orderId: string,
+    itemIds: string[] | undefined,
+    reason: string,
+    userId: string,
+    userName: string,
+  ) {
+    if (!reason?.trim()) {
+      throw new BadRequestException('A reason is required to request cancellation');
+    }
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const TERMINAL: OrderStatus[] = [OrderStatus.CANCELLED, OrderStatus.DISPATCHED, OrderStatus.DELIVERED];
+    if (TERMINAL.includes(order.status)) {
+      throw new BadRequestException(`Order status (${order.status}) can't be cancelled`);
+    }
+    if ((order as any).cancellationRequestedAt) {
+      throw new BadRequestException('A cancellation request is already pending accounts approval for this order');
+    }
+
+    const targetIds = itemIds && itemIds.length > 0 ? itemIds : null; // null = whole order
+    const targetItems = targetIds ? order.items.filter((i) => targetIds.includes(i.id)) : order.items;
+    if (targetIds && targetItems.length !== targetIds.length) {
+      throw new BadRequestException('One or more selected items were not found on this order');
+    }
+    if (targetItems.length === 0) {
+      throw new BadRequestException('No items to cancel');
+    }
+
+    const notEligible = targetItems.filter(
+      (i) => i.itemProductionStage !== OrderProductionStage.NOT_PRINTED || !!(i as any).cancelledAt,
+    );
+    if (notEligible.length > 0) {
+      throw new BadRequestException(
+        targetIds
+          ? 'Only items still "Not Printed" can be cancelled — one or more selected items have already moved past that stage.'
+          : 'The whole order can only be cancelled while every item is still "Not Printed" — cancel individual items instead, or wait for accounts to review.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: ({
+          cancellationRequestedAt: new Date(),
+          cancellationRequestedByName: userName,
+          cancellationReason: reason.trim(),
+          pendingCancelItemIds: targetIds ?? [],
+        } as any),
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: order.status,
+          changedById: userId,
+          reason: targetIds
+            ? `Requested cancellation of ${targetItems.length} item(s): ${reason.trim()}`
+            : `Requested cancellation of the whole order: ${reason.trim()}`,
+          metadata: { type: 'CANCELLATION_REQUESTED', itemIds: targetIds ?? 'ALL' },
+        },
+      });
       return updated;
     });
   }

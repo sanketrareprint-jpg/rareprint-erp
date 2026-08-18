@@ -423,6 +423,55 @@ async function main() {
       }
     });
 
+    // ── Order cancellation request/approval columns ────────────────────────
+    await safely('Order cancellation columns', async () => {
+      const COLUMNS = ['cancellationRequestedAt', 'cancellationRequestedByName', 'cancellationReason', 'pendingCancelItemIds'];
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = ANY($1::text[])
+      `, [COLUMNS]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      if (!existing.has('cancellationRequestedAt')) {
+        console.log('[ensure-all-columns] Order.cancellationRequestedAt: missing, adding.');
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "cancellationRequestedAt" TIMESTAMP(3);`);
+      } else {
+        console.log('[ensure-all-columns] Order.cancellationRequestedAt: already exists.');
+      }
+      if (!existing.has('cancellationRequestedByName')) {
+        console.log('[ensure-all-columns] Order.cancellationRequestedByName: missing, adding.');
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "cancellationRequestedByName" TEXT;`);
+      } else {
+        console.log('[ensure-all-columns] Order.cancellationRequestedByName: already exists.');
+      }
+      if (!existing.has('cancellationReason')) {
+        console.log('[ensure-all-columns] Order.cancellationReason: missing, adding.');
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT;`);
+      } else {
+        console.log('[ensure-all-columns] Order.cancellationReason: already exists.');
+      }
+      if (!existing.has('pendingCancelItemIds')) {
+        console.log('[ensure-all-columns] Order.pendingCancelItemIds: missing, adding.');
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "pendingCancelItemIds" TEXT[] NOT NULL DEFAULT '{}';`);
+      } else {
+        console.log('[ensure-all-columns] Order.pendingCancelItemIds: already exists.');
+      }
+    });
+
+    // ── OrderItem.cancelledAt column ────────────────────────────────────────
+    await safely('OrderItem.cancelledAt', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'OrderItem' AND column_name = 'cancelledAt'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] OrderItem.cancelledAt: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] OrderItem.cancelledAt: missing, adding.');
+      await client.query(`ALTER TABLE "OrderItem" ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMP(3);`);
+      console.log('[ensure-all-columns] OrderItem.cancelledAt: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

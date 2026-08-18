@@ -26,6 +26,25 @@ export class AccountsController {
     return this.accountsService.getPendingPayments();
   }
 
+  @Get('pending-cancellations')
+  getPendingCancellations() {
+    return this.accountsService.getPendingCancellations();
+  }
+
+  @Patch(':id/approve-cancellation')
+  approveCancellation(@Param('id') id: string, @Req() req: Request & { user: JwtUser }) {
+    return this.accountsService.approveCancellation(id, req.user);
+  }
+
+  @Patch(':id/reject-cancellation')
+  rejectCancellation(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.rejectCancellation(id, reason, req.user);
+  }
+
   @Get('payment-accounts')
   getPaymentAccounts() {
     return this.accountsService.getPaymentAccounts();
