@@ -43,6 +43,7 @@ import { ComplaintsModule } from './complaints/complaints.module';
 import { CallComplianceModule } from './call-compliance/call-compliance.module';
 import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
 import { MachineReadingsModule } from './machine-readings/machine-readings.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { MachineReadingsModule } from './machine-readings/machine-readings.modul
     CallComplianceModule,
     MarketingRoiModule,
     MachineReadingsModule,
+    BillingModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

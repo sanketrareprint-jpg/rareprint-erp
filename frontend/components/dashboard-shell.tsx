@@ -9,7 +9,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -28,6 +28,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard",  href: "/dashboard",       icon: LayoutDashboard },
     { label: "Orders",     href: "/orders",           icon: ShoppingCart },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
+    { label: "Billing",    href: "/billing",          icon: Receipt },
     { label: "Production", href: "/production",       icon: Package },
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
     { label: "Tasks",      href: "/tasks",            icon: CheckSquare },
@@ -93,6 +94,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
+    { label: "Billing",   href: "/billing",   icon: Receipt },
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
     { label: "Cost Table", href: "/cost-table", icon: Table2 },
     { label: "Machine Readings", href: "/machine-readings", icon: Gauge },
