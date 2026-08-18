@@ -193,15 +193,18 @@ function StickerSheetContent() {
           const x = (cfg.startX + col * cfg.stepX) * SCALE;
           const y = (cfg.startY + row * cfg.stepY) * SCALE;
 
-          // Cut border
-          ctx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
-          ctx.lineWidth = 0.8;
-          ctx.strokeRect(
-            (cfg.startX + col * cfg.stepX + cfg.offsetX) * SCALE,
-            (cfg.startY + row * cfg.stepY + cfg.offsetY) * SCALE,
-            cfg.cutW * SCALE,
-            cfg.cutH * SCALE
-          );
+          // Cut border — custom sizes are rarely die-cut, so skip the red
+          // cut-line marking for them (still drawn for every preset size).
+          if (layout !== 'CUSTOM') {
+            ctx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
+            ctx.lineWidth = 0.8;
+            ctx.strokeRect(
+              (cfg.startX + col * cfg.stepX + cfg.offsetX) * SCALE,
+              (cfg.startY + row * cfg.stepY + cfg.offsetY) * SCALE,
+              cfg.cutW * SCALE,
+              cfg.cutH * SCALE
+            );
+          }
 
           if (imgEl) {
             ctx.drawImage(imgEl, x, y, cfg.imgW * SCALE, cfg.imgH * SCALE);
@@ -298,8 +301,10 @@ function StickerSheetContent() {
           const x = cfg.startX + col * cfg.stepX;
           const y = cfg.startY + row * cfg.stepY;
 
-          pdf.setDrawColor(255, 0, 0);
-          pdf.rect(x + cfg.offsetX, y + cfg.offsetY, cfg.cutW, cfg.cutH);
+          if (layout !== 'CUSTOM') {
+            pdf.setDrawColor(255, 0, 0);
+            pdf.rect(x + cfg.offsetX, y + cfg.offsetY, cfg.cutW, cfg.cutH);
+          }
 
           pdf.addImage(img, 'PNG', x, y, cfg.imgW, cfg.imgH, undefined, 'FAST');
         }
@@ -438,7 +443,7 @@ function StickerSheetContent() {
                 ['Sticker Size', meta.stickerSize],
                 ['Sheet Size', '12.25 × 18.25 in'],
                 ['Resolution', '300 DPI'],
-                ['Cut Border', 'Red (RGB 255,0,0)'],
+                ['Cut Border', layout === 'CUSTOM' ? 'None' : 'Red (RGB 255,0,0)'],
                 ['Corner Marks', '4× Toyocut dots'],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between items-center px-4 py-2.5">
@@ -521,10 +526,12 @@ function StickerSheetContent() {
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
               <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Live Preview</span>
               <div className="flex items-center gap-3 text-xs text-gray-400 font-mono">
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-2 border border-red-400 opacity-60"></span>
-                  Cut line
-                </span>
+                {layout !== 'CUSTOM' && (
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-3 h-2 border border-red-400 opacity-60"></span>
+                    Cut line
+                  </span>
+                )}
                 <span className="flex items-center gap-1">
                   <span className="inline-block w-3 h-3 rounded-full bg-gray-800"></span>
                   Corner mark
