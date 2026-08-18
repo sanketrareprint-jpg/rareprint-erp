@@ -49,6 +49,29 @@ const layouts = {
     offsetX: -3.19,
     offsetY: -3.05,
   },
+  // Grid geometry extracted directly from the reference PDF (vector cut
+  // lines + registration marks), not eyeballed: 7 cols x 23 rows, cut cells
+  // pitched exactly 1.5in (108pt) wide and ~0.739in (53.22pt) tall — the
+  // PDF's own dieline is already calibrated slightly under the nominal
+  // 0.75in (54pt), the same way SIZE_150/SIZE_175 above are each calibrated
+  // a little under their own nominal pitch. Margins: 0.75in left/right,
+  // 0.5in top/bottom on the 12x18in sheet. Image inset (offsetX/offsetY)
+  // reuses SIZE_150's inset ratio — the PDF has no design image, only
+  // dielines, so there's nothing to extract it from directly.
+  SIZE_150_075: {
+    cols: 7,
+    rows: 23,
+    startX: 56.55,
+    startY: 37.78,
+    stepX: 108,
+    stepY: 53.22,
+    imgW: 102.9,
+    imgH: 49.66,
+    cutW: 108,
+    cutH: 53.22,
+    offsetX: -2.55,
+    offsetY: -1.78,
+  },
 };
 
 const LAYOUT_META = {
@@ -70,12 +93,18 @@ const LAYOUT_META = {
     stickerSize: '44.5 x 31.8 mm',
     description: '6x14 grid — 84 per sheet',
   },
+  SIZE_150_075: {
+    label: '1.5x0.75 INCH',
+    subtitle: 'SHEET 1.5x0.75 IN',
+    stickerSize: '38.1 x 19.05 mm',
+    description: '7x23 grid — 161 per sheet',
+  },
 };
 
 function StickerSheetContent() {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175'>('SPARSH');
+  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175' | 'SIZE_150_075'>('SPARSH');
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -138,6 +167,8 @@ function StickerSheetContent() {
       const dotR = layout === 'SPARSH' ? 7.26 * SCALE : 7.09 * SCALE;
       const dotPositions = layout === 'SPARSH'
         ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
+        : layout === 'SIZE_150_075'
+        ? [[22.68, 22.68], [841.32, 22.68], [22.68, 1273.32], [841.32, 1273.32]]
         : [[20.98, 20.98], [858.05, 20.98], [20.98, 1290.33], [858.05, 1290.33]];
       dotPositions.forEach(([dx, dy]) => {
         ctx.beginPath();
@@ -146,7 +177,11 @@ function StickerSheetContent() {
       });
       // Toyocut dash (TL only)
       ctx.fillStyle = 'rgb(33, 31, 28)';
-      ctx.fillRect(39.9 * SCALE, 24.34 * SCALE, 3.3 * SCALE, 1.92 * SCALE);
+      if (layout === 'SIZE_150_075') {
+        ctx.fillRect(31.18 * SCALE, 15.59 * SCALE, 2.83 * SCALE, 1.42 * SCALE);
+      } else {
+        ctx.fillRect(39.9 * SCALE, 24.34 * SCALE, 3.3 * SCALE, 1.92 * SCALE);
+      }
     };
 
     if (image) {
@@ -222,12 +257,15 @@ function StickerSheetContent() {
         ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
         : layout === 'SIZE_175'
         ? [[28.32, 27.81], [847.53, 27.81], [28.32, 1278.11], [847.53, 1278.11]]
+        : layout === 'SIZE_150_075'
+        ? [[22.68, 22.68], [841.32, 22.68], [22.68, 1273.32], [841.32, 1273.32]]
         : [[11.99, 11.25], [831.2, 11.25], [11.99, 1262.75], [831.2, 1262.75]];
       pdfDots.forEach(([x, y]) => {
         pdf.circle(x, y, pdfDotR, 'F');
       });
       if (layout === 'SPARSH') pdf.rect(39.9, 24.34, 3.3, 1.92, 'F');
       else if (layout === 'SIZE_175') pdf.rect(36.6, 20.53, 3.3, 1.92, 'F');
+      else if (layout === 'SIZE_150_075') pdf.rect(31.18, 15.59, 2.83, 1.42, 'F');
       else pdf.rect(20.27, 3.97, 3.3, 1.92, 'F');
 
       const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'sticker-sheet';
@@ -267,7 +305,7 @@ function StickerSheetContent() {
               <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Layout</span>
             </div>
             <div className="p-3">
-              {(['SPARSH', 'SIZE_150', 'SIZE_175'] as const).map((key) => {
+              {(['SPARSH', 'SIZE_150', 'SIZE_175', 'SIZE_150_075'] as const).map((key) => {
                 const m = LAYOUT_META[key];
                 const l = layouts[key];
                 const isActive = layout === key;
