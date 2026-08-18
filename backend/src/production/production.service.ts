@@ -92,14 +92,20 @@ export class ProductionService {
         // cancellation was approved no longer counts as "still needs
         // production" -- otherwise an order left with only cancelled items
         // outstanding would never leave this queue.
-        items: { some: { itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH }, cancelledAt: null } as any },
+        items: { some: { itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH }, cancelledAt: null } },
         isSample: false,
       },
       orderBy: { updatedAt: 'desc' },
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, processingFollowUpDate: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, cancelledAt: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } as any },
+        // Plain keys, no `as any` cast on the select object -- a whole-object
+        // cast here corrupted TS's inferred type for the entire `items`
+        // relation on Railway's build (prisma generate had already run, so
+        // this wasn't the usual stale-client issue -- the `as any` itself was
+        // the bug, same family as the nested-spread gotcha elsewhere in this
+        // codebase). Broke a deploy 2026-08-18, fixed by dropping the cast.
+        items: { select: { id: true, productionCategory: true, itemProductionStage: true, processingFollowUpDate: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, cancelledAt: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
       },
     });
 
@@ -118,7 +124,7 @@ export class ProductionService {
       notes: o.notes,
       // Cancelled items shouldn't show up as production work at all -- see
       // the matching `where` exclusion above.
-      items: o.items.filter((i) => !(i as any).cancelledAt).map((i) => {
+      items: o.items.filter((i) => !i.cancelledAt).map((i) => {
         const { size, gsm, sides } = resolveItemDetails(i);
         return {
           id: i.id,
@@ -272,7 +278,7 @@ export class ProductionService {
       },
     });
     if (!item) throw new NotFoundException('Order item not found');
-    if ((item as any).cancelledAt) {
+    if (item.cancelledAt) {
       throw new BadRequestException('This item was cancelled and can no longer move through production');
     }
 
