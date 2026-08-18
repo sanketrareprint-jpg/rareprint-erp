@@ -101,17 +101,71 @@ const LAYOUT_META = {
   },
 };
 
+// Custom size: user types a sticker width/height (in) and the grid is
+// computed to fit, rather than hand-tuned per size like the presets above.
+// Fit against the same 11.5x17.5in usable print area the rate-calculator
+// module already assumes for 12x18 in-house sheets (12x18 sheet minus a
+// 0.25in margin on every side), so a custom size prints inside the same
+// safe area the standard sizes do. Cut line = full cell pitch (no gap
+// between stickers, same as every preset above); the image is inset 2.5%
+// of the cell size on each side so print bleed can't cross the cut line —
+// a conservative middle ground within the ~2.4%-5.4% insets the hand-tuned
+// presets above use.
+const CUSTOM_USABLE_W = 828; // 11.5in
+const CUSTOM_USABLE_H = 1260; // 17.5in
+const CUSTOM_INSET_RATIO = 0.025;
+
+function computeCustomLayout(widthIn: number, heightIn: number) {
+  const cellW = widthIn * 72;
+  const cellH = heightIn * 72;
+  if (!Number.isFinite(cellW) || !Number.isFinite(cellH) || cellW <= 0 || cellH <= 0) {
+    return { cols: 0, rows: 0, startX: 0, startY: 0, stepX: 0, stepY: 0, imgW: 0, imgH: 0, cutW: 0, cutH: 0, offsetX: 0, offsetY: 0 };
+  }
+  const cols = Math.max(0, Math.floor(CUSTOM_USABLE_W / cellW));
+  const rows = Math.max(0, Math.floor(CUSTOM_USABLE_H / cellH));
+  const offsetX = -(cellW * CUSTOM_INSET_RATIO);
+  const offsetY = -(cellH * CUSTOM_INSET_RATIO);
+  return {
+    cols,
+    rows,
+    startX: (PAGE_WIDTH - cols * cellW) / 2,
+    startY: (PAGE_HEIGHT - rows * cellH) / 2,
+    stepX: cellW,
+    stepY: cellH,
+    imgW: cellW + 2 * offsetX,
+    imgH: cellH + 2 * offsetY,
+    cutW: cellW,
+    cutH: cellH,
+    offsetX,
+    offsetY,
+  };
+}
+
 function StickerSheetContent() {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175' | 'SIZE_150_075'>('SPARSH');
+  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175' | 'SIZE_150_075' | 'CUSTOM'>('SPARSH');
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [customWidthIn, setCustomWidthIn] = useState('');
+  const [customHeightIn, setCustomHeightIn] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const cfg = layouts[layout];
-  const meta = LAYOUT_META[layout];
+  const customCfg = computeCustomLayout(parseFloat(customWidthIn), parseFloat(customHeightIn));
+  const cfg = layout === 'CUSTOM' ? customCfg : layouts[layout];
+  const meta = layout === 'CUSTOM'
+    ? {
+        label: customWidthIn && customHeightIn ? `${customWidthIn}x${customHeightIn} INCH` : 'CUSTOM SIZE',
+        subtitle: 'CUSTOM SIZE',
+        stickerSize: customWidthIn && customHeightIn
+          ? `${(parseFloat(customWidthIn) * 25.4).toFixed(1)} x ${(parseFloat(customHeightIn) * 25.4).toFixed(1)} mm`
+          : 'Enter size',
+        description: customCfg.cols > 0 && customCfg.rows > 0
+          ? `${customCfg.cols}x${customCfg.rows} grid — ${customCfg.cols * customCfg.rows} per sheet`
+          : 'Enter a width and height to fit',
+      }
+    : LAYOUT_META[layout];
   const totalStickers = cfg.cols * cfg.rows;
 
   const drawPreview = useCallback(() => {
@@ -325,6 +379,50 @@ function StickerSheetContent() {
                   </div>
                 );
               })}
+
+              {/* Custom size */}
+              <div onClick={() => setLayout('CUSTOM')}
+                className={"px-3 py-3 rounded border cursor-pointer transition-all " + (layout === 'CUSTOM' ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className={"text-sm font-bold tracking-wider " + (layout === 'CUSTOM' ? "text-indigo-700" : "text-gray-700")}>CUSTOM SIZE</div>
+                    <div className="text-xs text-gray-400 mt-0.5">For rarely-made sizes</div>
+                  </div>
+                  {layout === 'CUSTOM' && (
+                    <div className="text-right">
+                      <div className="text-xs font-mono text-indigo-600">{customCfg.cols}x{customCfg.rows}</div>
+                      <div className="text-xs text-indigo-500">{customCfg.cols * customCfg.rows} stickers</div>
+                    </div>
+                  )}
+                </div>
+                {layout === 'CUSTOM' && (
+                  <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.05"
+                      placeholder="Width"
+                      value={customWidthIn}
+                      onChange={(e) => setCustomWidthIn(e.target.value)}
+                      className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
+                    />
+                    <span className="text-xs text-gray-400">×</span>
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.05"
+                      placeholder="Height"
+                      value={customHeightIn}
+                      onChange={(e) => setCustomHeightIn(e.target.value)}
+                      className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
+                    />
+                    <span className="text-xs text-gray-400 shrink-0">in</span>
+                  </div>
+                )}
+                {layout === 'CUSTOM' && customWidthIn && customHeightIn && (customCfg.cols === 0 || customCfg.rows === 0) && (
+                  <p className="text-xs text-red-500 mt-2">Too large to fit on a 12x18 sheet — try a smaller size.</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -399,9 +497,9 @@ function StickerSheetContent() {
           {/* Download Button */}
           <button
             onClick={generatePDF}
-            disabled={!image || isGenerating}
+            disabled={!image || isGenerating || totalStickers === 0}
             className={`w-full py-3.5 rounded-lg font-bold tracking-widest uppercase text-sm transition-all ${
-              image && !isGenerating
+              image && !isGenerating && totalStickers > 0
                 ? 'bg-gray-900 text-white hover:bg-gray-800 active:scale-95'
                 : 'bg-gray-100 text-gray-300 cursor-not-allowed'
             }`}
@@ -411,6 +509,9 @@ function StickerSheetContent() {
 
           {!image && (
             <p className="text-center text-xs text-gray-400">Upload a design image to enable PDF export</p>
+          )}
+          {image && totalStickers === 0 && (
+            <p className="text-center text-xs text-red-500">Enter a valid custom size to enable PDF export</p>
           )}
         </div>
 
