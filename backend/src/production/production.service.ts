@@ -99,13 +99,21 @@ export class ProductionService {
       include: {
         customer: { select: { businessName: true, phone: true } },
         salesAgent: { select: { id: true, fullName: true } },
-        // Plain keys, no `as any` cast on the select object -- a whole-object
-        // cast here corrupted TS's inferred type for the entire `items`
-        // relation on Railway's build (prisma generate had already run, so
-        // this wasn't the usual stale-client issue -- the `as any` itself was
-        // the bug, same family as the nested-spread gotcha elsewhere in this
-        // codebase). Broke a deploy 2026-08-18, fixed by dropping the cast.
-        items: { select: { id: true, productionCategory: true, itemProductionStage: true, processingFollowUpDate: true, productionNotes: true, artworkNotes: true, quantity: true, unitPrice: true, lineTotal: true, cancelledAt: true, product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } } } },
+        // `include` instead of a narrow `select` here -- dropping the `as
+        // any` cast (previous attempt) did NOT fix Railway's build, the
+        // error was identical either way. Adding `cancelledAt` to this
+        // relation's `select` alongside its already-large field list and a
+        // nested `product: { select: {...} }` tips some Prisma+TS inference
+        // complexity limit, and TS silently falls back to inferring `items`
+        // as `Order[keyof Order]` (a union of every relation's array type)
+        // instead of the actual OrderItem shape -- hence errors like
+        // "Property 'name' does not exist" on what looks like an unrelated
+        // model. `include` sidesteps the narrow-select inference path
+        // entirely (same safe-alternative already documented for the
+        // nested-any-spread gotcha). Pulls every OrderItem/Product scalar
+        // column instead of a subset, which is harmless here since nothing
+        // downstream needs a narrower shape. Broke a deploy 2026-08-18.
+        items: { include: { product: true } },
       },
     });
 
