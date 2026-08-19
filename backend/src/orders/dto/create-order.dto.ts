@@ -141,6 +141,18 @@ export class CreateOrderDto {
   @IsOptional()
   isParcelBooking?: boolean;
 
+  // Parcel Booking only: courier charge quoted to the customer, and whether
+  // they pay it COD or PREPAID. See Order.parcelCourierCharge doc comment.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  courierCharge?: number;
+
+  @IsOptional()
+  @IsEnum(['COD', 'PREPAID'])
+  parcelPaymentType?: 'COD' | 'PREPAID';
+
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;

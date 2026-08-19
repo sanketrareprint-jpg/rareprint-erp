@@ -404,6 +404,8 @@ export class OrdersService {
         isSample: true,
         samplePaymentType: true,
         isParcelBooking: true,
+        parcelCourierCharge: true,
+        parcelPaymentType: true,
         grandTotal: true,
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
@@ -500,6 +502,8 @@ export class OrdersService {
         isSample: (o as any).isSample ?? false,
         samplePaymentType: (o as any).samplePaymentType ?? null,
         isParcelBooking: (o as any).isParcelBooking ?? false,
+        parcelCourierCharge: (o as any).parcelCourierCharge != null ? Number((o as any).parcelCourierCharge) : null,
+        parcelPaymentType: (o as any).parcelPaymentType ?? null,
         date: o.orderDate.toISOString(),
         itemDetails: buildItemDetails(o.items as any, {
           lockedIds: resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds }),
@@ -528,6 +532,8 @@ export class OrdersService {
       leadSource?: string;
       isSample?: boolean;
       isParcelBooking?: boolean;
+      courierCharge?: number;
+      parcelPaymentType?: 'COD' | 'PREPAID';
       advanceAmount?: number;
       paymentAccountId?: string;
       paymentMethod?: string;
@@ -718,6 +724,8 @@ export class OrdersService {
           // off dto.isSample only, so a parcel booking flows through the
           // exact same PENDING_APPROVAL pipeline as a real order.
           isParcelBooking: dto.isParcelBooking ?? false,
+          parcelCourierCharge: (dto.isParcelBooking ?? false) && dto.courierCharge != null ? new Prisma.Decimal(dto.courierCharge) : null,
+          parcelPaymentType: (dto.isParcelBooking ?? false) ? (dto.parcelPaymentType ?? null) : null,
           requestedLoyaltyRedemption: dto.requestedLoyaltyRedemption ?? null,
           items: { create: itemsData },
         } as any,

@@ -343,7 +343,7 @@ export class DashboardService {
         status: { not: OrderStatus.CANCELLED },
         salesAgentId: { not: null },
         isSample: false,
-        isTest: false,
+        isTest: false, isParcelBooking: false,
       },
       select: { salesAgentId: true, salesAgent: { select: { id: true, fullName: true } } },
     });
@@ -409,7 +409,7 @@ export class DashboardService {
     const from = new Date(Date.UTC(b.istYear, b.istMonth - (monthsBack - 1), 1) - b.istOffsetMs);
 
     const orders = await this.prisma.order.findMany({
-      where: { orderDate: { gte: from }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+      where: { orderDate: { gte: from }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
       select: { orderDate: true, grandTotal: true },
     });
 
@@ -492,7 +492,7 @@ export class DashboardService {
           paymentDate: { gte: from, lt: to },
           method: 'CASH',
           verificationStatus: { not: 'REJECTED' },
-          order: { isTest: false },
+          order: { isTest: false, isParcelBooking: false },
         },
         _sum: { amount: true },
       });
@@ -639,11 +639,11 @@ export class DashboardService {
     const b = this.istBoundaries();
     const [thisMonthOrders, lastMonthOrders] = await Promise.all([
       this.prisma.order.findMany({
-        where: { orderDate: { gte: b.startOfMonth, lt: b.startOfNextMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: b.startOfMonth, lt: b.startOfNextMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         select: { orderDate: true, grandTotal: true },
       }),
       this.prisma.order.findMany({
-        where: { orderDate: { gte: b.startOfLastMonth, lt: b.startOfMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: b.startOfLastMonth, lt: b.startOfMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         select: { orderDate: true, grandTotal: true },
       }),
     ]);
@@ -755,38 +755,38 @@ export class DashboardService {
       recentOrders,
     ] = await Promise.all([
       this.prisma.order.aggregate({
-        where: { status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _count: { _all: true },
         _sum: { grandTotal: true },
       }),
       this.prisma.order.count({
-        where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
       }),
       this.prisma.order.aggregate({
-        where: { orderDate: { gte: startOfToday, lt: startOfTomorrow }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: startOfToday, lt: startOfTomorrow }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _sum: { grandTotal: true },
       }),
       this.prisma.order.aggregate({
-        where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: startOfMonth, lt: startOfNextMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _sum: { grandTotal: true },
       }),
       this.prisma.order.aggregate({
-        where: { orderDate: { gte: startOfLastMonth, lt: endOfLastMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: startOfLastMonth, lt: endOfLastMonth }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _sum: { grandTotal: true },
       }),
-      this.prisma.payment.aggregate({ where: { order: { isTest: false } }, _sum: { amount: true } }),
+      this.prisma.payment.aggregate({ where: { order: { isTest: false, isParcelBooking: false } }, _sum: { amount: true } }),
       this.prisma.order.groupBy({
         by: ['status'],
-        where: { status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _count: { _all: true },
       }),
       this.prisma.order.findMany({
-        where: { orderDate: { gte: new Date(now.getTime() - 7 * 86400000) }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { orderDate: { gte: new Date(now.getTime() - 7 * 86400000) }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         orderBy: { orderDate: 'asc' },
         select: { orderDate: true, grandTotal: true },
       }),
       this.prisma.order.findMany({
-        where: { status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         orderBy: { orderDate: 'desc' }, take: 10,
         select: { id: true, orderNumber: true, status: true, grandTotal: true, orderDate: true },
       }),
@@ -868,13 +868,13 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     const [allTimeGroups, monthGroups, allAgents] = await Promise.all([
       this.prisma.order.groupBy({
         by: ['salesAgentId'],
-        where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _count: { _all: true },
         _sum: { grandTotal: true },
       }),
       this.prisma.order.groupBy({
         by: ['salesAgentId'],
-        where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: startOfMonth, lt: startOfNextMonth }, isTest: false },
+        where: { salesAgentId: { not: null }, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: startOfMonth, lt: startOfNextMonth }, isTest: false, isParcelBooking: false },
         _count: { _all: true },
         _sum: { grandTotal: true },
       }),
@@ -1257,13 +1257,13 @@ const last7Days = Object.entries(dayMap).map(([date, val]) => ({
     const [allTimeGroups, monthGroups] = await Promise.all([
       this.prisma.order.groupBy({
         by: ['leadSource'],
-        where: { leadSource: { not: null }, status: { not: OrderStatus.CANCELLED }, isTest: false },
+        where: { leadSource: { not: null }, status: { not: OrderStatus.CANCELLED }, isTest: false, isParcelBooking: false },
         _count: { _all: true },
         _sum: { grandTotal: true },
       }),
       this.prisma.order.groupBy({
         by: ['leadSource'],
-        where: { leadSource: { not: null }, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: startOfMonth }, isTest: false },
+        where: { leadSource: { not: null }, status: { not: OrderStatus.CANCELLED }, orderDate: { gte: startOfMonth }, isTest: false, isParcelBooking: false },
         _count: { _all: true },
         _sum: { grandTotal: true },
       }),

@@ -487,6 +487,34 @@ async function main() {
       console.log('[ensure-all-columns] Order.isParcelBooking: added.');
     });
 
+    // ── Order.parcelCourierCharge / Order.parcelPaymentType columns ────────
+    await safely('Order.parcelCourierCharge', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = 'parcelCourierCharge'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] Order.parcelCourierCharge: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] Order.parcelCourierCharge: missing, adding.');
+      await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "parcelCourierCharge" DECIMAL(12,2);`);
+      console.log('[ensure-all-columns] Order.parcelCourierCharge: added.');
+    });
+    await safely('Order.parcelPaymentType', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = 'parcelPaymentType'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] Order.parcelPaymentType: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] Order.parcelPaymentType: missing, adding.');
+      await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "parcelPaymentType" TEXT;`);
+      console.log('[ensure-all-columns] Order.parcelPaymentType: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

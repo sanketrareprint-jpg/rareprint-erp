@@ -430,6 +430,12 @@ model Order {
   // real order. Excluded from revenue/commission figures (see dashboard and
   // cost-table services) since it isn't a real sale.
   isParcelBooking  Boolean                 @default(false)
+  // Courier charge quoted for a Parcel Booking, and whether the customer
+  // pays it COD (courier collects on delivery) or PREPAID (agent collects a
+  // Payment against this order at booking time — see
+  // OrdersController/frontend parcel-booking page). Null for normal orders.
+  parcelCourierCharge Decimal?             @db.Decimal(12, 2)
+  parcelPaymentType   String?              // "PREPAID" | "COD" — set by the agent at booking time
   loyaltyPointsEarned    Int?              // points credited on invoicing (see CustomerLoyaltyTransaction)
   loyaltyPointsRedeemed  Int?              // points redeemed against this bill
   loyaltyDiscountAmount  Decimal?          @db.Decimal(12, 2) // ₹ value of redeemed points — excluded from `discount` on purpose
