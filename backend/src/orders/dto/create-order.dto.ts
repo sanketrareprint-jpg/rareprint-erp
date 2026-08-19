@@ -136,6 +136,11 @@ export class CreateOrderDto {
   @IsOptional()
   isSample?: boolean;
 
+  // Booked via the Parcel Booking screen (non-sale shipment — free gift,
+  // sample). Goes through the normal approval pipeline, unlike isSample.
+  @IsOptional()
+  isParcelBooking?: boolean;
+
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;

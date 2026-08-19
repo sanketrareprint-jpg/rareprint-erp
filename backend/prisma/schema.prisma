@@ -423,6 +423,13 @@ model Order {
   isTest           Boolean                 @default(false)
   isSample         Boolean                 @default(false)
   samplePaymentType String?               // "PREPAID" | "COD" — set by accounts on approval
+  // A parcel booked by a sales agent for a non-sale shipment (free gift,
+  // sample) via Parcel Booking — unlike isSample, this does NOT skip
+  // accounts/production approval; it goes through the exact same
+  // PENDING_APPROVAL -> Order Approval -> Dispatch Approval pipeline as a
+  // real order. Excluded from revenue/commission figures (see dashboard and
+  // cost-table services) since it isn't a real sale.
+  isParcelBooking  Boolean                 @default(false)
   loyaltyPointsEarned    Int?              // points credited on invoicing (see CustomerLoyaltyTransaction)
   loyaltyPointsRedeemed  Int?              // points redeemed against this bill
   loyaltyDiscountAmount  Decimal?          @db.Decimal(12, 2) // ₹ value of redeemed points — excluded from `discount` on purpose

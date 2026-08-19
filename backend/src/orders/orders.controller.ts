@@ -55,6 +55,7 @@ export class OrdersController {
     @Query('marginThreshold') marginThreshold?: string,
     @Query('salesAgentId') salesAgentIdParam?: string,
     @Query('isTest') isTest?: string,
+    @Query('isParcelBooking') isParcelBooking?: string,
   ) {
     return this.prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } })
       .then((user) => {
@@ -85,6 +86,7 @@ export class OrdersController {
           includeCommission,
           salesAgentId,
           isTest,
+          isParcelBooking,
         });
       });
   }

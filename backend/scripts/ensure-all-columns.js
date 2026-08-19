@@ -472,6 +472,21 @@ async function main() {
       console.log('[ensure-all-columns] OrderItem.cancelledAt: added.');
     });
 
+    // ── Order.isParcelBooking column ──────────────────────────────────────
+    await safely('Order.isParcelBooking', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = 'isParcelBooking'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] Order.isParcelBooking: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] Order.isParcelBooking: missing, adding.');
+      await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "isParcelBooking" BOOLEAN NOT NULL DEFAULT false;`);
+      console.log('[ensure-all-columns] Order.isParcelBooking: added.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();
