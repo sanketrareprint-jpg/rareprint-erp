@@ -153,6 +153,11 @@ type OrderListQuery = {
   // only (the dedicated "Test Orders" view). 'false' = hide test orders
   // (used by finance-facing screens that must never mix in dummy data).
   isTest?: string;
+  // Parcel Booking visibility filter (see Order.isParcelBooking). Same
+  // semantics as isTest above — 'true' powers the "My Booked Parcels"
+  // history (combined with salesAgentId, which SALES_AGENT callers already
+  // get scoped to automatically).
+  isParcelBooking?: string;
 };
 
 function paging(query: OrderListQuery) {
@@ -371,6 +376,9 @@ export class OrdersService {
     // Test-order visibility (see OrderListQuery.isTest doc comment).
     if (query.isTest === 'true') where.isTest = true;
     else if (query.isTest === 'false') where.isTest = false;
+    // Parcel Booking visibility (see OrderListQuery.isParcelBooking doc comment).
+    if (query.isParcelBooking === 'true') (where as any).isParcelBooking = true;
+    else if (query.isParcelBooking === 'false') (where as any).isParcelBooking = false;
     const search = query.search?.trim();
     if (search) {
       where.OR = [
@@ -395,6 +403,7 @@ export class OrdersService {
         isTest: true,
         isSample: true,
         samplePaymentType: true,
+        isParcelBooking: true,
         grandTotal: true,
         customer: true,
         salesAgent: { select: { id: true, fullName: true } },
@@ -428,7 +437,8 @@ export class OrdersService {
             // the identical spread pattern at the TOP level of this same
             // select (pendingDispatchItemIds, right below) broke the build
             // the same way (TS2322 on 2026-08-10, o.status inferred as some
-            // unrelated giant union). Plain keys are safe in both places.
+            // unrelated giant union). Plain keys are safe in both places --
+            // isParcelBooking above follows the same rule.
             dispatchedAt: true,
             cancelledAt: true,
           }
@@ -489,6 +499,7 @@ export class OrdersService {
         isTest: o.isTest,
         isSample: (o as any).isSample ?? false,
         samplePaymentType: (o as any).samplePaymentType ?? null,
+        isParcelBooking: (o as any).isParcelBooking ?? false,
         date: o.orderDate.toISOString(),
         itemDetails: buildItemDetails(o.items as any, {
           lockedIds: resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds }),
@@ -516,6 +527,7 @@ export class OrdersService {
       notes?: string;
       leadSource?: string;
       isSample?: boolean;
+      isParcelBooking?: boolean;
       advanceAmount?: number;
       paymentAccountId?: string;
       paymentMethod?: string;
@@ -701,6 +713,11 @@ export class OrdersService {
           notes: dto.notes,
           isSample: dto.isSample ?? false,
           samplePaymentType: (dto.isSample ?? false) ? (advance > 0 ? 'PREPAID' : 'COD') : null,
+          // Parcel Booking orders deliberately do NOT get the isSample
+          // treatment above — status/order-number/item-stage all stay keyed
+          // off dto.isSample only, so a parcel booking flows through the
+          // exact same PENDING_APPROVAL pipeline as a real order.
+          isParcelBooking: dto.isParcelBooking ?? false,
           requestedLoyaltyRedemption: dto.requestedLoyaltyRedemption ?? null,
           items: { create: itemsData },
         } as any,
@@ -1733,6 +1750,15 @@ export class OrdersService {
       // "Ready" count and the booking checklist in sync with each other.
       const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds });
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt).length;
+      // Value of items already physically shipped in an earlier partial
+      // batch of this order — used by the Book Shipment modal to work out
+      // how much of the order's advance payment is "left over" for the
+      // CURRENT shipment, instead of suggesting the whole order's
+      // outstanding balance as COD on every shipment regardless of what's
+      // actually in it. See suggestedCod in frontend/app/orders/page.tsx.
+      const alreadyDispatchedValue = o.items
+        .filter((i) => !!(i as any).dispatchedAt)
+        .reduce((sum, i) => sum + Number(i.lineTotal), 0);
       const margin = includeMargin ? this.calculateOrderMargin(o) : null;
       const commission = includeCommission ? this.calculateOrderCommission(o) : null;
 
@@ -1746,6 +1772,7 @@ export class OrdersService {
         totalAmount: total,
         advancePaid,
         balanceDue,
+        alreadyDispatchedValue,
         ...(includeMargin && margin ? {
           marginPct: margin.marginPct,
           marginTotal: margin.marginTotal,

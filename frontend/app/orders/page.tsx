@@ -36,6 +36,10 @@ type Order = {
   salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
   balanceDue: number; status: string; date: string; isTest?: boolean; isSample?: boolean;
+  // Value of items already physically shipped in an earlier partial batch
+  // of this order — used to work out how much advance is left for the
+  // CURRENT shipment (see suggestedCod below).
+  alreadyDispatchedValue?: number;
   marginPct?: number | null; marginTotal?: number | null; costTotal?: number | null;
   commissionTotal?: number | null; commissionPctOfSale?: number | null;
   readyItemsCount?: number; totalItemsCount?: number;
@@ -610,7 +614,27 @@ export default function OrdersPage() {
   }, 0);
   const shouldChargeDispatch = bookingForm.dispatchType === "COURIER";
   const courierNum   = shouldChargeDispatch ? Number(bookingForm.courierCharges || 0) : 0;
-  const suggestedCod = totalBalance + courierNum;
+  // Was `totalBalance + courierNum` -- the WHOLE order's outstanding
+  // balance, regardless of which item(s) are actually in this shipment.
+  // That meant a partial shipment worth less than the advance already paid
+  // still suggested collecting the full remaining balance as COD (e.g. a
+  // customer who'd paid ₹4,000 against a ₹6,700 order, shipping only a
+  // ₹1,700 item, was suggested ₹2,700 COD on that shipment alone) -- and
+  // on a LATER shipment of the same order, the same whole-order balance
+  // would be suggested again, risking asking the customer to pay it twice.
+  //
+  // Now: the advance payment is treated as applying to items in the order
+  // they ship. remainingAdvance is whatever's left of the advance after
+  // covering the value of items already shipped in earlier batches; this
+  // shipment only asks for COD on its own value beyond that. For an order
+  // that ships all at once (the common case), alreadyDispatchedValue is 0,
+  // so this comes out identical to the old formula -- only multi-shipment
+  // orders behave differently, which is exactly the case that was wrong.
+  // Confirmed via a real order (1498, SPARSH MEDICAL), 2026-08-19.
+  const totalAdvancePaid = selectedOrders.reduce((s, o) => s + o.advancePaid, 0);
+  const alreadyDispatchedValue = selectedOrders.reduce((s, o) => s + (o.alreadyDispatchedValue ?? 0), 0);
+  const remainingAdvance = Math.max(0, totalAdvancePaid - alreadyDispatchedValue);
+  const suggestedCod = Math.max(0, selectedItemsValue - remainingAdvance) + courierNum;
 
   async function submitBooking() {
     if (selectedOrderIds.size === 0) return;
@@ -1998,7 +2022,7 @@ export default function OrdersPage() {
                     {bookingForm.isCod && (
                       <div className="space-y-1">
                         <p className="text-[10px] text-orange-700">
-                          Suggested: Balance {fmt(totalBalance)}{shouldChargeDispatch ? ` + Courier ${fmt(courierNum)}` : ""} = <strong>{fmt(suggestedCod)}</strong>
+                          Suggested: Shipment {fmt(selectedItemsValue)} − Advance left {fmt(remainingAdvance)}{shouldChargeDispatch ? ` + Courier ${fmt(courierNum)}` : ""} = <strong>{fmt(suggestedCod)}</strong>
                         </p>
                         <div className="flex items-center gap-1.5">
                           <label className="text-[10px] font-medium text-slate-700 whitespace-nowrap">COD ₹</label>
