@@ -124,6 +124,25 @@ function nearPair(size: [number, number] | null, a: number, b: number, tolerance
   return Math.abs(size[0] - target[0]) <= tolerance && Math.abs(size[1] - target[1]) <= tolerance;
 }
 
+// Some product types package many physical printed sheets into one "order
+// quantity" unit (e.g. 1 letterpad/reference pad/bill book = many printed
+// leaves). This is the single source of truth for that ratio -- used by
+// classifyAutoItem below (auto-sheet-organizer) AND by
+// ClubbingSheetService.getPlaceableItems / ProductionService.listInProduction
+// (manual sheet-assignment screens), so a small pad/book order quantity is
+// always compared against a print sheet's own much larger physical run size
+// using the same converted number everywhere, instead of the raw order
+// quantity. Returns 1 for products where 1 order unit == 1 printed sheet.
+// Ratios confirmed by Sanket: letterpad/reference pad 2026-08-13,
+// bill book 2026-08-19.
+export function getPrintUnitMultiplier(productName: string, categoryName?: string | null): number {
+  const haystack = `${productName} ${categoryName ?? ''}`.toLowerCase();
+  if (haystack.includes('letterpad')) return 100;
+  if (haystack.includes('reference pad')) return 100;
+  if (haystack.includes('bill book')) return 100;
+  return 1;
+}
+
 function classifyAutoItem(raw: {
   id: string;
   productId: string;
@@ -166,9 +185,17 @@ function classifyAutoItem(raw: {
     slot = 'FILE_12X18';
     family = 'FILE_19X25';
   } else if (haystack.includes('letterpad')) {
-    effectiveQuantity = raw.quantity * 100;
+    effectiveQuantity = raw.quantity * getPrintUnitMultiplier(productName, categoryName);
     if (nearPair(openSize, 5.5, 8.5) || nearPair(productSize, 5.5, 8.5)) slot = 'SMALL_5_5X8_5';
     else slot = 'LARGE_8_5X11';
+    family = 'STANDARD_18X23';
+  } else if (haystack.includes('reference pad')) {
+    // Reference pads run small (e.g. 4.25x5.5) — no existing size bucket
+    // matches that directly, so this always uses the smallest slot rather
+    // than guessing a size-based branch like letterpad does (letterpad
+    // actually spans small AND full-page sizes in practice).
+    effectiveQuantity = raw.quantity * getPrintUnitMultiplier(productName, categoryName);
+    slot = 'SMALL_5_5X8_5';
     family = 'STANDARD_18X23';
   } else if (haystack.includes('letterhead') || haystack.includes('letter head')) {
     slot = nearPair(openSize, 5.5, 8.5) || nearPair(productSize, 5.5, 8.5) ? 'SMALL_5_5X8_5' : 'LARGE_8_5X11';
@@ -930,16 +957,25 @@ export class ClubbingSheetService {
         id: true,
         quantity: true,
         productionNotes: true,
-        product: { select: { name: true, sku: true, gsm: true, sizeInches: true, openSizeInches: true } },
+        product: { select: { name: true, sku: true, gsm: true, sizeInches: true, openSizeInches: true, category: { select: { name: true } } } },
         order: { select: { orderNumber: true, customer: { select: { businessName: true } } } },
         sheetItems: { select: { quantityOnSheet: true } },
       },
       orderBy: { updatedAt: 'desc' },
       take: 200,
     });
+    // `quantity` below is the EFFECTIVE quantity (raw order quantity x
+    // getPrintUnitMultiplier) -- for pad/book products this converts e.g.
+    // "5 pads" into "500 printed sheets" so it's directly comparable to a
+    // PrintSheet's own quantity/quantityOnSheet, which are always in
+    // physical-printed-sheet units. Consumers of this endpoint (the
+    // "Place items" list inside a sheet's detail view) only ever use
+    // `quantity` for balance/max-multiple math, never as a display figure,
+    // so this substitution is safe. See getPrintUnitMultiplier for the SOT.
     return items
-      .filter(i => i.sheetItems.reduce((sum, si) => sum + si.quantityOnSheet, 0) < i.quantity)
-      .map(i => ({ id: i.id, productName: i.product.name, sku: i.product.sku, gsm: i.product.gsm, openSizeInches: i.product.openSizeInches ?? i.product.sizeInches, quantity: i.quantity, productionNotes: i.productionNotes, orderNo: (i.order as any).orderNumber, customerName: (i.order as any).customer.businessName }));
+      .map(i => ({ ...i, effectiveQuantity: i.quantity * getPrintUnitMultiplier(i.product.name, i.product.category?.name) }))
+      .filter(i => i.sheetItems.reduce((sum, si) => sum + si.quantityOnSheet, 0) < i.effectiveQuantity)
+      .map(i => ({ id: i.id, productName: i.product.name, sku: i.product.sku, gsm: i.product.gsm, openSizeInches: i.product.openSizeInches ?? i.product.sizeInches, quantity: i.effectiveQuantity, productionNotes: i.productionNotes, orderNo: (i.order as any).orderNumber, customerName: (i.order as any).customer.businessName }));
   }
 
   async placeItemOnSheet(sheetId: string, data: { orderItemId: string; productId: string; multiple: number; quantityOnSheet: number; areaSqInches: number }, userId?: string) {

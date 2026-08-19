@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { getPrintUnitMultiplier } from './clubbing-sheet.service';
 
 const STAGE_LABEL: Record<string, string> = {
   PRINTING:           'Printing 🖨️',
@@ -139,6 +140,13 @@ export class ProductionService {
           productName: i.product.name,
           sku: i.product.sku,
           quantity: i.quantity,
+          // Some products (letterpad, reference pad, bill book) package many
+          // physical printed sheets into one order-quantity unit. The
+          // Sheets > Unassigned screen needs this converted figure -- not
+          // raw `quantity` -- to correctly compare an item's remaining
+          // balance against a PrintSheet's own (much larger) physical run
+          // size. See getPrintUnitMultiplier for the shared ratio table.
+          effectiveQuantity: i.quantity * getPrintUnitMultiplier(i.product.name, (i.product as any).category?.name),
           unitPrice: Number(i.unitPrice),
           lineTotal: Number(i.lineTotal),
           productionNotes: i.productionNotes,
