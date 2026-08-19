@@ -2289,15 +2289,23 @@ export class AccountsService {
     }
     const txn = await this.prisma.bankTransaction.findUnique({ where: { id } });
     if (!txn) throw new NotFoundException('Bank transaction not found');
-    if (!(txn as any).checkedAt) {
-      throw new BadRequestException('This entry must be checked before it can be verified');
-    }
     if ((txn as any).recheckedAt) {
       throw new BadRequestException('This entry has already been verified');
     }
+    // Sanket does Check + Verify in a single click: if nobody has checked
+    // this entry yet, stamp him as both the checker and the verifier at
+    // once instead of forcing a separate "Checked" click first. If someone
+    // else already checked it, that original checkedBy/checkedAt is left
+    // untouched — only recheckedBy/recheckedAt get set here.
+    const now = new Date();
+    const data: any = { recheckedById: user.id, recheckedAt: now };
+    if (!(txn as any).checkedAt) {
+      data.checkedById = user.id;
+      data.checkedAt = now;
+    }
     const updated = await this.prisma.bankTransaction.update({
       where: { id },
-      data: { recheckedById: user.id, recheckedAt: new Date() } as any,
+      data,
       include: this.paymentVerificationInclude,
     });
     return this.mapPaymentVerificationEntry(updated);

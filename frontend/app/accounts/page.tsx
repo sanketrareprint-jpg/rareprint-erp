@@ -820,9 +820,11 @@ export default function AccountsPage() {
   }
 
   async function handleBulkVerify() {
-    const ids = pvQueue.filter(e => pvSelectedIds.has(e.id) && e.checkedAt && !e.recheckedAt && pvIsSelectable(e)).map(e => e.id);
+    // Not gated on e.checkedAt — Sanket checks and verifies in one step now,
+    // same as the per-row "Check & Verify" button.
+    const ids = pvQueue.filter(e => pvSelectedIds.has(e.id) && !e.recheckedAt && pvIsSelectable(e)).map(e => e.id);
     if (ids.length === 0) return;
-    if (!confirm(`Verify ${ids.length} entries as Sanket and move them to Payment History? This does not change the Checked status.`)) return;
+    if (!confirm(`Verify ${ids.length} entries as Sanket and move them to Payment History? Any not yet checked will be checked and verified in one step.`)) return;
     setPvBulkProcessing(true);
     try {
       const results = await Promise.all(ids.map(async id => {
@@ -4432,7 +4434,7 @@ export default function AccountsPage() {
               {pvSelectedIds.size > 0 && (
                 <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs">
                   <span className="font-semibold text-blue-800">{pvSelectedIds.size} selected</span>
-                  {canCheckPayments && (
+                  {canCheckPayments && !isSuperAdmin && (
                     <button onClick={handleBulkCheck} disabled={pvBulkProcessing}
                       className="px-2.5 py-1 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50">
                       {pvBulkProcessing ? "..." : "Bulk Check"}
@@ -4565,6 +4567,9 @@ export default function AccountsPage() {
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                             <Check className="h-3.5 w-3.5 flex-none" /> <span className="truncate">{entry.checkedByName || "Checked"}</span>
                           </span>
+                        ) : isSuperAdmin ? (
+                          // Sanket checks and verifies in one click below — no separate "Checked" step for him.
+                          <span className="text-xs text-slate-400">—</span>
                         ) : canCheckPayments ? (
                           <button
                             onClick={() => handleCheckVerification(entry)}
@@ -4581,12 +4586,13 @@ export default function AccountsPage() {
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
                             <ShieldCheck className="h-3.5 w-3.5 flex-none" /> Verified by {entry.recheckedByName || "Sanket"}
                           </span>
-                        ) : isSuperAdmin && entry.checkedAt ? (
+                        ) : isSuperAdmin ? (
                           <button
                             onClick={() => handleRecheckVerification(entry)}
-                            disabled={pvRecheckingId === entry.id}
+                            disabled={pvRecheckingId === entry.id || !pvIsSelectable(entry)}
+                            title={!pvIsSelectable(entry) ? "Add a Vendor/Expense first" : undefined}
                             className="flex-1 min-w-[80px] px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold disabled:opacity-50">
-                            {pvRecheckingId === entry.id ? "..." : "Verify"}
+                            {pvRecheckingId === entry.id ? "..." : entry.checkedAt ? "Verify" : "Check & Verify"}
                           </button>
                         ) : null}
 
@@ -4743,6 +4749,9 @@ export default function AccountsPage() {
                                   </button>
                                 )}
                               </div>
+                            ) : isSuperAdmin ? (
+                              // Sanket checks and verifies in one click via the Verified column — no separate "Checked" step for him.
+                              <span className="text-xs text-slate-400">—</span>
                             ) : canCheckPayments ? (
                               <button
                                 onClick={() => handleCheckVerification(entry)}
@@ -4760,12 +4769,13 @@ export default function AccountsPage() {
                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
                                 <ShieldCheck className="h-3.5 w-3.5 flex-none" /> <span>Verified by {entry.recheckedByName || "Sanket"}</span>
                               </span>
-                            ) : isSuperAdmin && entry.checkedAt ? (
+                            ) : isSuperAdmin ? (
                               <button
                                 onClick={() => handleRecheckVerification(entry)}
-                                disabled={pvRecheckingId === entry.id}
+                                disabled={pvRecheckingId === entry.id || !pvIsSelectable(entry)}
+                                title={!pvIsSelectable(entry) ? "Add a Vendor/Expense first" : undefined}
                                 className="px-2.5 py-1 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50">
-                                {pvRecheckingId === entry.id ? "..." : "Verify"}
+                                {pvRecheckingId === entry.id ? "..." : entry.checkedAt ? "Verify" : "Check & Verify"}
                               </button>
                             ) : (
                               <span className="text-xs text-slate-300">—</span>
