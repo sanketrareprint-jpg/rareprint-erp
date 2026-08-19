@@ -1661,7 +1661,26 @@ export class DispatchService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const updatedShipment = await tx.shipment.update({
         where: { id: shipment.id },
-        data: { status: ShipmentStatus.DELIVERED, deliveredAt: new Date() },
+        data: {
+          status: ShipmentStatus.DELIVERED,
+          deliveredAt: new Date(),
+          // Keep the displayed "live status as reported by Bigship" text in
+          // sync too -- without this, a shipment marked delivered here (by
+          // hand or via the bulk Delivered Orders Report import) kept
+          // showing whatever bigshipStatus was last captured at booking
+          // time (e.g. "Pickup Scheduled") forever, since the Sync button
+          // that would normally refresh it only shows for PACKED/IN_TRANSIT
+          // shipments and disappears once status flips to DELIVERED. Same
+          // "as any" spread pattern already used for this field elsewhere
+          // in this file (syncShipmentFromBigship, autoReturnToQueue, etc.)
+          // -- safe for a `data:` write payload, unlike a `select`/`include`
+          // query shape. Only touch it for shipments actually booked
+          // through Bigship -- for Manual-courier shipments this field
+          // should stay null, since there's no real Bigship status to show.
+          ...((shipment as any).bigshipOrderId
+            ? ({ bigshipStatus: 'Delivered', bigshipSyncedAt: new Date() } as any)
+            : {}),
+        },
       });
       await tx.order.update({
         where: { id: shipment.orderId },
