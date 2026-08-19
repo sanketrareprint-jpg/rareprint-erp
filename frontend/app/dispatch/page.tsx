@@ -222,7 +222,7 @@ export default function DispatchPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || "Failed");
-      await loadHistory();
+      await loadHistory(historySearch);
       setReportModalOpen(false);
       setReportPreview(null);
       alert(`Done — ${body.succeeded}/${body.total} marked delivered.${body.failed?.length ? ` ${body.failed.length} failed (already delivered or removed since upload).` : ""}`);
@@ -241,7 +241,7 @@ export default function DispatchPage() {
       });
       const b = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(b.message || "Failed");
-      await loadHistory();
+      await loadHistory(historySearch);
       alert(`Synced ${b.synced}/${b.total} Bigship shipment${b.total === 1 ? "" : "s"}${b.failed ? ` — ${b.failed} could not be synced (check they're actually shipped in Bigship)` : ""}.`);
     } catch (e) {
       alert("Failed: " + (e instanceof Error ? e.message : String(e)));
@@ -345,7 +345,7 @@ export default function DispatchPage() {
       });
       const b = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(b.message || "Failed");
-      await loadHistory();
+      await loadHistory(historySearch);
     } catch (e) {
       alert("Failed: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -361,7 +361,7 @@ export default function DispatchPage() {
       });
       const b = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(b.message || "Failed");
-      await loadHistory();
+      await loadHistory(historySearch);
       if (b.success) {
         alert(`Synced from Bigship — AWB: ${b.awbNumber || "not yet assigned"}, Status: ${b.status || "unknown"}`);
       } else {
@@ -382,7 +382,7 @@ export default function DispatchPage() {
         method: "POST", headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error(await res.text());
-      await loadHistory();
+      await loadHistory(historySearch);
       alert("Marked delivered — review request sent to the customer.");
     } catch (e) {
       alert("Failed: " + (e instanceof Error ? e.message : String(e)));
@@ -399,7 +399,7 @@ export default function DispatchPage() {
         method: "POST", headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error(await res.text());
-      await loadHistory();
+      await loadHistory(historySearch);
       await load();
       alert("Order returned to queue.");
     } catch (e) {
@@ -429,16 +429,30 @@ export default function DispatchPage() {
     finally { setLoading(false); }
   }, [router]);
 
-  const loadHistory = useCallback(async () => {
+  // With no search term this is still just the 100 most recently created
+  // shipments (same as before). With a search term, it hits the backend's
+  // `search` param instead, which queries the full table (not capped to
+  // "recent") across order#, customer name/phone, carrier, and
+  // tracking/AWB/shipment number -- so a shipment that's aged out of the
+  // "last 100" view (like an old one from months back) is still findable.
+  const loadHistory = useCallback(async (search?: string) => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/dispatch/history?limit=100`, { headers: getAuthHeaders() });
+      const q = search?.trim();
+      const url = `${API_BASE_URL}/dispatch/history?limit=100${q ? `&search=${encodeURIComponent(q)}` : ""}`;
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (res.ok) setHistory(await res.json());
     } finally { setHistoryLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (tab === "history" || tab === "delivered") void loadHistory(); }, [tab, loadHistory]);
+  // Debounced so typing doesn't fire a request per keystroke; tab switches
+  // (historySearch usually empty then) load essentially immediately.
+  useEffect(() => {
+    if (tab !== "history" && tab !== "delivered") return;
+    const t = setTimeout(() => { void loadHistory(historySearch); }, historySearch ? 350 : 0);
+    return () => clearTimeout(t);
+  }, [tab, historySearch, loadHistory]);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/dispatch/warehouses`, { headers: getAuthHeaders() })
@@ -730,6 +744,7 @@ export default function DispatchPage() {
       (h.customerPhone ?? "").includes(q) ||
       (h.carrierName ?? "").toLowerCase().includes(q) ||
       (h.trackingNumber ?? "").toLowerCase().includes(q) ||
+      (h.awbNumber ?? "").toLowerCase().includes(q) ||
       (h.shipmentNumber ?? "").toLowerCase().includes(q)
     );
   }, [history, historySearch]);
@@ -785,7 +800,7 @@ export default function DispatchPage() {
                     placeholder="Search order, customer, courier, tracking…"
                     className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
                 </div>
-                <button onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                <button onClick={() => void loadHistory(historySearch)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
                   <Loader2 className={`h-3 w-3 ${historyLoading ? "animate-spin" : ""}`} /> Refresh
                 </button>
                 <button

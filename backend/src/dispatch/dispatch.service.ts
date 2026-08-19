@@ -1300,10 +1300,35 @@ export class DispatchService {
     return updated;
   }
 
-  async getShipmentHistory(limit = 50) {
+  async getShipmentHistory(limit = 50, search?: string) {
+    const q = search?.trim();
+    // With no search term: just the most recent `limit` shipments, same as
+    // before. With a search term: a shipment months old (like the Jul-4 one
+    // that "vanished" after Sync -- it hadn't broken, it had simply aged out
+    // of the "most recent 100" window once 100+ newer shipments existed)
+    // needs to still be findable, so search the whole table by the same
+    // fields the frontend already lets you search by, uncapped by recency.
+    // `take` here is a sanity ceiling on how many MATCHES to return, not a
+    // "most recent" cutoff -- a search should basically never match more
+    // than this many rows.
+    const where = q
+      ? {
+          OR: [
+            { shipmentNumber: { contains: q, mode: 'insensitive' as const } },
+            { trackingNumber: { contains: q, mode: 'insensitive' as const } },
+            { awbNumber: { contains: q, mode: 'insensitive' as const } },
+            { carrierName: { contains: q, mode: 'insensitive' as const } },
+            { order: { orderNumber: { contains: q, mode: 'insensitive' as const } } },
+            { order: { customer: { businessName: { contains: q, mode: 'insensitive' as const } } } },
+            { order: { customer: { phone: { contains: q, mode: 'insensitive' as const } } } },
+          ],
+        }
+      : undefined;
+
     const shipments = await this.prisma.shipment.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take: q ? 200 : limit,
       include: {
         order: {
           include: {

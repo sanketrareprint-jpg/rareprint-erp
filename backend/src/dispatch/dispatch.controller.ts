@@ -36,9 +36,9 @@ export class DispatchController {
   }
 
   @Get('history')
-  getShipmentHistory(@Query('limit') limitStr?: string) {
+  getShipmentHistory(@Query('limit') limitStr?: string, @Query('search') search?: string) {
     const limit = limitStr ? Math.min(parseInt(limitStr, 10) || 50, 200) : 50;
-    return this.dispatchService.getShipmentHistory(limit);
+    return this.dispatchService.getShipmentHistory(limit, search);
   }
 
   @Get('warehouses')

@@ -1,16 +1,24 @@
 /**
  * check-shipment-status.js
  *
- * Prints everything the ERP currently knows about an order's latest
- * shipment — local status, Bigship's last-synced raw status, and the
- * reconciled status from an uploaded Shipping Charges report. Use this to
- * see exactly why a shipment is or isn't showing in Dispatch > Courier
- * Charges (that list excludes a row only if one of these three says
- * "cancel" — see listCourierCharges in dispatch.service.ts).
+ * Read-only diagnostic. Look up a shipment by order number, tracking
+ * number, AWB, or internal shipment number, and print everything the ERP
+ * currently knows about it -- local status, Bigship's last-synced raw
+ * status, and the reconciled status from an uploaded Shipping Charges
+ * report (if the shipment has an AWB). Use this to see exactly why a
+ * shipment is or isn't showing in Dispatch > Courier Charges (that list
+ * excludes a row only if one of these three says "cancel" -- see
+ * listCourierCharges in dispatch.service.ts), or to confirm whether a
+ * shipment that "vanished" from Dispatch > History (because it aged out of
+ * the "most recent 100" window, not because anything broke) actually has
+ * correct, up-to-date data.
+ *
+ * Makes NO changes to the database.
  *
  * HOW TO RUN (from your own machine, needs real DATABASE_URL to Railway):
  *   cd backend
  *   node scripts/check-shipment-status.js 1331
+ *   node scripts/check-shipment-status.js 13090324486710
  */
 
 if (!process.env.DATABASE_URL) {
@@ -37,32 +45,42 @@ const { PrismaPg } = require('@prisma/adapter-pg');
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-const orderNumberArg = process.argv[2];
+const needle = process.argv[2];
 
 async function main() {
-  if (!orderNumberArg) {
-    console.error('Usage: node scripts/check-shipment-status.js <orderNumber>');
+  if (!needle) {
+    console.error('Usage: node scripts/check-shipment-status.js <orderNumber|trackingNumber|awbNumber|shipmentNumber>');
     process.exitCode = 1;
     return;
   }
 
-  const order = await prisma.order.findUnique({
-    where: { orderNumber: orderNumberArg },
-    include: { shipments: { orderBy: { createdAt: 'desc' } } },
+  const shipments = await prisma.shipment.findMany({
+    where: {
+      OR: [
+        { order: { orderNumber: { contains: needle, mode: 'insensitive' } } },
+        { trackingNumber: { contains: needle, mode: 'insensitive' } },
+        { awbNumber: { contains: needle, mode: 'insensitive' } },
+        { shipmentNumber: { contains: needle, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    include: { order: { select: { orderNumber: true, status: true, isTest: true, customer: { select: { businessName: true } } } } },
   });
 
-  if (!order) {
-    console.error(`Order ${orderNumberArg} not found.`);
-    process.exitCode = 1;
+  if (shipments.length === 0) {
+    console.log(`No shipment found matching "${needle}".`);
     return;
   }
 
-  console.log(`Order ${order.orderNumber}  status: ${order.status}  isTest: ${order.isTest}`);
-  console.log(`Shipments: ${order.shipments.length}`);
-
-  for (const s of order.shipments) {
-    console.log(`\n  shipment ${s.id}`);
+  for (const s of shipments) {
+    console.log('─'.repeat(60));
+    console.log(`Order ${s.order.orderNumber}  (${s.order.customer.businessName})  order status: ${s.order.status}  isTest: ${s.order.isTest}`);
+    console.log(`  shipment ${s.id}`);
     console.log(`    local status:      ${s.status}`);
+    console.log(`    createdAt:         ${s.createdAt.toISOString()}`);
+    console.log(`    deliveredAt:       ${s.deliveredAt ? s.deliveredAt.toISOString() : '(none)'}`);
+    console.log(`    carrierName:       ${s.carrierName ?? '(none)'}`);
+    console.log(`    trackingNumber:    ${s.trackingNumber ?? '(none)'}`);
     console.log(`    awbNumber:         ${s.awbNumber ?? '(none)'}`);
     console.log(`    bigshipOrderId:    ${s.bigshipOrderId ?? '(none)'}`);
     console.log(`    bigshipStatus:     ${s.bigshipStatus ?? '(never synced)'}`);
@@ -77,9 +95,9 @@ async function main() {
     }
   }
 
-  console.log('\nIf none of the above says "cancel" in any form, the ERP genuinely does not know this shipment was cancelled yet.');
-  console.log('Fix: open Dispatch > History, find this order, click "Sync Bigship" to pull the live status from Bigship directly.');
-  console.log('If it does not appear in History either, its local status has already moved past PACKED/IN_TRANSIT — check order.status above.');
+  console.log('─'.repeat(60));
+  console.log('If none of the above says "cancel"/"deliver"/"rto" in any form and you expected it to, the ERP genuinely does not have that update yet.');
+  console.log('Fix: open Dispatch > History, search for this order/tracking number (now searches the full table, not just the last 100), and click "Sync Bigship".');
 }
 
 main()
