@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShoppingCart, Package,
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
-  Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning,
+  Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
   ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
@@ -27,6 +27,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ADMIN: [
     { label: "Dashboard",  href: "/dashboard",       icon: LayoutDashboard },
     { label: "Orders",     href: "/orders",           icon: ShoppingCart },
+    { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
     { label: "Billing",    href: "/billing",          icon: Receipt },
     { label: "Production", href: "/production",       icon: Package },
@@ -64,6 +65,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Calls", href: "/call-analysis", icon: Phone },
@@ -77,6 +79,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   SALES_AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Calls", href: "/call-analysis", icon: Phone },

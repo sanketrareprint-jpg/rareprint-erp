@@ -36,6 +36,7 @@ type Order = {
   salesAgentName?: string; customerId?: string;
   products: string; totalAmount: number; advancePaid: number;
   balanceDue: number; status: string; date: string; isTest?: boolean; isSample?: boolean;
+  isParcelBooking?: boolean; parcelCourierCharge?: number | null; parcelPaymentType?: string | null;
   // Value of items already physically shipped in an earlier partial batch
   // of this order — used to work out how much advance is left for the
   // CURRENT shipment (see suggestedCod below).
@@ -282,6 +283,10 @@ export default function OrdersPage() {
   // way to find/manage the dummy orders created via the Test Order button
   // without them getting lost among real orders as the list grows.
   const [testFilter, setTestFilter] = useState<"" | "true">("");
+  // "" = show everything (default). "true" = Parcel Bookings only -- lets a
+  // sales agent (or admin) pull up just their non-sale gift/sample
+  // shipments, same idea as testFilter above.
+  const [parcelFilter, setParcelFilter] = useState<"" | "true">("");
   const [agentOptions, setAgentOptions] = useState<{ id: string; fullName: string }[]>([]);
   const [marginMode, setMarginMode] = useState<"" | "below" | "above">("");
   const [marginThreshold, setMarginThreshold] = useState("15");
@@ -371,6 +376,7 @@ export default function OrdersPage() {
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (agentFilter !== "ALL") params.set("salesAgentId", agentFilter);
     if (testFilter) params.set("isTest", testFilter);
+    if (parcelFilter) params.set("isParcelBooking", parcelFilter);
     if (canViewMargin && marginMode && marginThreshold) {
       params.set("marginMode", marginMode);
       params.set("marginThreshold", marginThreshold);
@@ -413,7 +419,7 @@ export default function OrdersPage() {
     setAccounts(accs);
     if (accs.length > 0) setBookingForm(p => ({ ...p, paymentAccountId: accs[0].id }));
     append ? setLoadingMore(false) : setLoading(false);
-  }, [router, debouncedSearch, statusFilter, agentFilter, testFilter, canViewMargin, marginMode, marginThreshold]);
+  }, [router, debouncedSearch, statusFilter, agentFilter, testFilter, parcelFilter, canViewMargin, marginMode, marginThreshold]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -932,8 +938,14 @@ export default function OrdersPage() {
                   Test Orders Only
                 </button>
               )}
-              {(search || statusFilter !== "ALL" || agentFilter !== "ALL" || testFilter || (canViewMargin && marginMode)) && (
-                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setAgentFilter("ALL"); setTestFilter(""); setMarginMode(""); setMarginThreshold("15"); }}
+              <button
+                onClick={() => setParcelFilter(f => f === "true" ? "" : "true")}
+                title="Show only Parcel Bookings (free gift / sample shipments)"
+                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${parcelFilter === "true" ? "border-sky-400 bg-sky-100 text-sky-800" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Parcel Bookings Only
+              </button>
+              {(search || statusFilter !== "ALL" || agentFilter !== "ALL" || testFilter || parcelFilter || (canViewMargin && marginMode)) && (
+                <button onClick={() => { setSearch(""); setStatusFilter("ALL"); setAgentFilter("ALL"); setTestFilter(""); setParcelFilter(""); setMarginMode(""); setMarginThreshold("15"); }}
                   className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-1">
                   <X className="h-3 w-3" /> Clear
                 </button>
@@ -1013,6 +1025,7 @@ export default function OrdersPage() {
                             )}
                             <p className={cx("text-base font-bold leading-none", "text-sm font-bold leading-none")}>{o.orderNo}</p>
                             {o.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST</span>}
+                            {o.isParcelBooking && <span className="rounded-full bg-sky-400 text-sky-900 px-1.5 py-0.5 text-xs font-bold">PARCEL</span>}
                             <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-semibold">
                               {orderAge(o.date)}
                             </span>
@@ -1180,6 +1193,7 @@ export default function OrdersPage() {
                           <td className="px-1.5 py-1.5 font-bold text-blue-700 align-top whitespace-nowrap" style={{ maxWidth: "60px" }}>
                             {o.orderNo}
                             {o.isTest && <span className="ml-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300 px-1 py-0 text-xs font-bold">TEST</span>}
+                            {o.isParcelBooking && <span className="ml-1 rounded-full bg-sky-100 text-sky-700 border border-sky-300 px-1 py-0 text-xs font-bold">PARCEL</span>}
                           </td>
                           <td className="px-1.5 py-1.5 text-slate-700 align-top" style={{ maxWidth: "80px" }}>
                             <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
