@@ -32,6 +32,12 @@ const JW_STATUSES = ["PENDING","IN_PROGRESS","COMPLETED"];
 type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number; };
 type OrderItem = {
   id: string; productName: string; sku: string; quantity: number;
+  // Raw `quantity` converted to physical-printed-sheet units for pad/book
+  // products (letterpad, reference pad, bill book — 1 unit = 100 printed
+  // sheets). Use this, not `quantity`, for sheet balance/compatibility math;
+  // keep using `quantity` for the on-screen "Order" display. Falls back to
+  // `quantity` if the backend hasn't sent it (shouldn't happen once deployed).
+  effectiveQuantity?: number;
   unitPrice: number; lineTotal: number; productionNotes?: string;
   artworkNotes?: string; itemProductionStage: ProductionStage;
   processingFollowUpDate?: string | null;
@@ -1565,7 +1571,7 @@ export default function ProductionPage() {
                       const aqm: Record<string,number> = {};
                       sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
                       const count = t.key === "unassigned"
-                        ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).length, 0)
+                        ? ordersData.reduce((sum, o) => sum + o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && ((i.effectiveQuantity ?? i.quantity) - (aqm[i.id] || 0)) > 0).length, 0)
                         : t.key === "created" ? sheetsData.filter(s => s.status === "INCOMPLETE" || s.status === "SETTING").length
                         : t.key === "processing" ? sheetsData.filter(s => s.status === "SETTING" || s.status === "PRINTING" || s.status === "PROCESSING" || s.status === "DONE").filter(s => s.items.some(si => si.orderItem?.itemProductionStage !== "READY_FOR_DISPATCH")).length
                         : sheetHistory.total;
@@ -1609,7 +1615,7 @@ export default function ProductionPage() {
               {sheetSubTab === "unassigned" && (() => {
                 const aqm: Record<string,number> = {};
                 sheetsData.forEach(s => s.items.forEach(si => { aqm[si.orderItem.id] = (aqm[si.orderItem.id] || 0) + (si.quantityOnSheet || si.multiple * s.quantity); }));
-                const rawItems = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && (i.quantity - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName, orderDate: o.orderDate, salesAgentName: o.salesAgentName }))).filter(i => !sheetSearch || i.orderNo?.toLowerCase().includes(sheetSearch.toLowerCase()) || i.customerName?.toLowerCase().includes(sheetSearch.toLowerCase()) || i.productName?.toLowerCase().includes(sheetSearch.toLowerCase()));
+                const rawItems = ordersData.flatMap(o => o.items.filter(i => i.productionCategory === "SHEET_PRODUCTION" && ((i.effectiveQuantity ?? i.quantity) - (aqm[i.id] || 0)) > 0).map(i => ({ ...i, orderNo: o.orderNo, customerName: o.customerName, orderDate: o.orderDate, salesAgentName: o.salesAgentName }))).filter(i => !sheetSearch || i.orderNo?.toLowerCase().includes(sheetSearch.toLowerCase()) || i.customerName?.toLowerCase().includes(sheetSearch.toLowerCase()) || i.productName?.toLowerCase().includes(sheetSearch.toLowerCase()));
                 const itemMeta = rawItems.map(item => ({ item, ...getItemDetails(item) }));
                 const uniq = (values: (string | null | undefined)[]) => Array.from(new Set(values.filter(Boolean).map(String))).sort((a,b) => a.localeCompare(b, undefined, { numeric: true }));
                 const filterOptions = {
@@ -1656,7 +1662,7 @@ export default function ProductionPage() {
                       {items.map(item => {
                         const { size, gsm, sides } = getItemDetails(item);
                         const assigned = aqm[item.id] || 0;
-                        const balance = item.quantity - assigned;
+                        const balance = (item.effectiveQuantity ?? item.quantity) - assigned;
                         const itemGsm = gsm ? parseInt(gsm) : 0;
                         const compatibleSheets = sheetsData.filter(s =>
                           (s.status === "INCOMPLETE" || s.status === "COMPLETE" || s.status === "SETTING") &&
@@ -1719,7 +1725,7 @@ export default function ProductionPage() {
                                     <button onClick={() => {
                                       const selValue = sheetPickerValue[item.id];
                                       if (!selValue) { alert("Select a sheet first"); return; }
-                                      const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
+                                      const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.effectiveQuantity ?? item.quantity, orderNo: item.orderNo, customerName: item.customerName };
                                       openMultipleDialog(selValue, pi);
                                     }} className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white">Assign</button>
                                     <button
@@ -1759,7 +1765,7 @@ export default function ProductionPage() {
                       <tbody>{items.map(item => {
                         const { size, gsm, sides } = getItemDetails(item);
                         const assigned = aqm[item.id] || 0;
-                        const balance = item.quantity - assigned;
+                        const balance = (item.effectiveQuantity ?? item.quantity) - assigned;
                         // Find compatible sheets (same GSM, has space, sheetQty <= balanceQty)
                         const itemGsm = gsm ? parseInt(gsm) : 0;
                         const compatibleSheets = sheetsData.filter(s =>
