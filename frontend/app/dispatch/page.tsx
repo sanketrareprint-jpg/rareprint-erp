@@ -548,6 +548,11 @@ export default function DispatchPage() {
       }
       if (wkg > 0) params.set("weightKg", String(wkg));
       if (sanitizedBoxes.length > 0) params.set("packageBoxes", JSON.stringify(sanitizedBoxes));
+      // Only the item(s) actually checked for booking -- otherwise the
+      // quoted/declared value included every ready item on the order
+      // regardless of what was selected here. Confirmed via a real order
+      // (1498), 2026-08-19.
+      if (selected.size > 0) params.set("itemIds", Array.from(selected).join(','));
       const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));

@@ -555,7 +555,7 @@ export class DispatchService {
     return result;
   }
 
-  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[]) {
+  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[]) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -573,9 +573,18 @@ export class DispatchService {
     // a PARTIALLY_DISPATCHED order) -- itemProductionStage alone doesn't
     // change after real dispatch, so without this check a rate quote could
     // include an item that's already been shipped.
-    const readyItems = order.items.filter(
-      (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt,
-    );
+    //
+    // When itemIds is passed (both the Orders page's booking modal and
+    // Dispatch's own booking page now send it), narrow further to exactly
+    // those items -- otherwise this fell back to "every free ready item on
+    // the order," so unchecking an item in the modal still quoted/declared
+    // a value that included it. Without itemIds (e.g. an older caller),
+    // falls back to the previous "every free ready item" behavior.
+    // Confirmed via a real order (1498, SPARSH MEDICAL), 2026-08-19.
+    const readyItems = order.items.filter((i) => {
+      if (i.itemProductionStage !== OrderProductionStage.READY_FOR_DISPATCH || (i as any).dispatchedAt) return false;
+      return !itemIds || itemIds.length === 0 || itemIds.includes(i.id);
+    });
     // Rate fetching only needs a valid dispatchable status — skip the approval
     // log check here (that's enforced on actual booking in bookItems via
     // assertCanDispatch).

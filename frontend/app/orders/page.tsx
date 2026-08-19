@@ -576,7 +576,12 @@ export default function OrdersPage() {
     if (!firstOrderId) return;
     setRatesLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${firstOrderId}`, { headers: getAuthHeaders() });
+      // Only the item(s) actually checked for this order -- otherwise the
+      // quoted/declared value included every ready item regardless of what
+      // was unchecked in the modal. Confirmed via a real order (1498), 2026-08-19.
+      const checkedIds = Array.from(selectedItemIds[firstOrderId] ?? []);
+      const itemIdsParam = checkedIds.length > 0 ? `?itemIds=${checkedIds.map(encodeURIComponent).join(',')}` : '';
+      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${firstOrderId}${itemIdsParam}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         alert(Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Could not fetch rates"));
@@ -591,6 +596,18 @@ export default function OrdersPage() {
   const selectedOrders = readyOrders.filter(o => selectedOrderIds.has(o.id));
   const totalBalance = selectedOrders.reduce((s, o) => s + o.balanceDue, 0);
   const totalAmount  = selectedOrders.reduce((s, o) => s + o.totalAmount, 0);
+  // Value of just the item(s) actually checked in the modal below, not the
+  // whole order — for a single ready item out of a multi-item order, this
+  // is the number that should show as what's being shipped now. Paid and
+  // Balance stay whole-order figures on purpose: those are real facts about
+  // the order's payment state regardless of which item ships first, not
+  // something that splits per-item. Confirmed via a real order (1498,
+  // SPARSH MEDICAL), 2026-08-19.
+  const selectedItemsValue = selectedOrders.reduce((sum, o) => {
+    const items = bookingItems[o.id] ?? [];
+    const checked = selectedItemIds[o.id];
+    return sum + items.reduce((s, item) => (!checked || checked.has(item.id) ? s + item.lineTotal : s), 0);
+  }, 0);
   const shouldChargeDispatch = bookingForm.dispatchType === "COURIER";
   const courierNum   = shouldChargeDispatch ? Number(bookingForm.courierCharges || 0) : 0;
   const suggestedCod = totalBalance + courierNum;
@@ -1802,7 +1819,7 @@ export default function OrdersPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
                     <div className="grid grid-cols-3 gap-1 text-center">
-                      <div><p className="text-[10px] text-slate-500 leading-tight">Order Value</p><p className="font-bold text-slate-900 text-sm">{fmt(totalAmount)}</p></div>
+                      <div><p className="text-[10px] text-slate-500 leading-tight">Shipment Value</p><p className="font-bold text-slate-900 text-sm">{fmt(selectedItemsValue)}</p></div>
                       <div><p className="text-[10px] text-slate-500 leading-tight">Paid</p><p className="font-bold text-emerald-600 text-sm">{fmt(totalAmount - totalBalance)}</p></div>
                       <div><p className="text-[10px] text-slate-500 leading-tight">Balance</p><p className="font-bold text-red-500 text-sm">{fmt(totalBalance)}</p></div>
                     </div>

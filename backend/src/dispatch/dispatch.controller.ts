@@ -60,13 +60,18 @@ export class DispatchController {
     @Query('pickupPincode') pickupPincode?: string,
     @Query('pickupLocation') pickupLocation?: string,
     @Query('packageBoxes') packageBoxesRaw?: string,
+    // Which specific item(s) this rate quote is for -- when provided, the
+    // quoted/declared value only reflects these items, not every ready item
+    // on the order. Optional so older callers keep working unchanged.
+    @Query('itemIds') itemIdsRaw?: string,
   ) {
     const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
+    const itemIds = itemIdsRaw ? itemIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
     return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride, {
       name: pickupName,
       pincode: pickupPincode,
       location: pickupLocation,
-    }, parsePackageBoxes(packageBoxesRaw));
+    }, parsePackageBoxes(packageBoxesRaw), itemIds);
   }
 
   @Post('book')

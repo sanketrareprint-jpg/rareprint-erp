@@ -55,18 +55,23 @@ const prisma = new PrismaClient({ adapter });
 const apply = process.argv.includes('--apply');
 
 async function main() {
-  const candidates = await prisma.shipment.findMany({
+  // Filtered in plain JS below instead of in the Prisma query -- Prisma's
+  // nested `not: { contains, mode: 'insensitive' }` filter doesn't accept
+  // `mode` (that's only valid on a top-level string filter, not inside a
+  // nested `not`), which threw PrismaClientValidationError on first run.
+  // Simpler and just as correct to pull the (small) DELIVERED+Bigship set
+  // and filter case-insensitively here.
+  const delivered = await prisma.shipment.findMany({
     where: {
       status: ShipmentStatus.DELIVERED,
       bigshipOrderId: { not: null },
-      OR: [
-        { bigshipStatus: null },
-        { bigshipStatus: { not: { contains: 'deliver', mode: 'insensitive' } } },
-      ],
     },
     include: { order: { select: { orderNumber: true } } },
     orderBy: { deliveredAt: 'desc' },
   });
+  const candidates = delivered.filter(
+    (s) => !s.bigshipStatus || !s.bigshipStatus.toLowerCase().includes('deliver'),
+  );
 
   if (candidates.length === 0) {
     console.log('No stale bigshipStatus rows found — nothing to do.');
