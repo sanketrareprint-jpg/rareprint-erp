@@ -117,37 +117,67 @@ function parseCellDate(v: unknown): Date | null {
 }
 
 // Finds the "Exception Statistic Report"-shaped sheet by its CONTENT, not
-// its name. Previously this only matched a sheet literally named
+// its name. Originally this only matched a sheet literally named
 // "Exception Stat." — but the report is sometimes re-exported with that tab
 // deleted (to avoid having two sheets that look like they mean the same
 // thing) and the same data ends up on whatever sheet is left, e.g. one
 // literally named "Sheet1". Matching by content means it keeps working no
 // matter what the tab happens to be called.
-function findExceptionSheet(wb: XLSX.WorkBook): XLSX.WorkSheet | null {
+//
+// IMPORTANT: this only handles the tab being RENAMED (one candidate sheet).
+// A real case broke it again: someone duplicated "Exception Stat." into a
+// new "Sheet1" tab and hand-corrected times there WITHOUT deleting the
+// original — so the workbook had TWO sheets that both look like the report,
+// and the old code just returned the first match in wb.SheetNames order
+// (always "Exception Stat.", since duplicated tabs get appended after it),
+// silently importing the stale, uncorrected sheet and discarding the fix.
+// Now every candidate is collected; if more than one matches, we refuse to
+// guess and tell the user exactly which tabs are ambiguous so they can
+// delete the one they don't want before re-uploading — never silently pick.
+function findExceptionSheet(wb: XLSX.WorkBook): XLSX.WorkSheet {
+  const collect = (test: (aoa: unknown[][]) => boolean): string[] =>
+    wb.SheetNames.filter((name) => {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, raw: true, defval: null }).slice(0, 10);
+      return test(aoa);
+    });
+
+  const assertSingle = (names: string[]): XLSX.WorkSheet | null => {
+    if (names.length === 0) return null;
+    if (names.length > 1) {
+      throw new BadRequestException(
+        `Found ${names.length} sheets that all look like the "Exception Statistic Report" (${names.map((n) => `"${n}"`).join(', ')}) — can't tell which one is the correct/latest data. ` +
+        `This usually happens when a sheet was duplicated to hand-correct some rows without deleting the original. Delete the tab(s) you don't want used, keep only the one with the correct data, and re-upload.`,
+      );
+    }
+    return wb.Sheets[names[0]];
+  };
+
   // 1. Look for the report's own title text in the first few rows of any sheet.
-  for (const name of wb.SheetNames) {
-    const sheet = wb.Sheets[name];
-    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null }).slice(0, 10);
-    const text = aoa.map((row) => (row ?? []).map(cellStr).join(' ')).join(' ').toLowerCase();
-    if (text.includes('exception statistic report')) return sheet;
-  }
+  const byTitle = collect((aoa) => aoa.map((row) => (row ?? []).map(cellStr).join(' ')).join(' ').toLowerCase().includes('exception statistic report'));
+  const titleMatch = assertSingle(byTitle);
+  if (titleMatch) return titleMatch;
+
   // 2. Fall back to the actual header-row shape (ID / Name / Date / On-duty),
   //    in case the title text got trimmed but the data itself is still there.
-  for (const name of wb.SheetNames) {
-    const sheet = wb.Sheets[name];
-    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null }).slice(0, 10);
-    for (const row of aoa) {
+  const byHeaderShape = collect((aoa) =>
+    aoa.some((row) => {
       const cells = row ?? [];
       const joined = cells.map(cellStr).join(' | ').toLowerCase();
-      if (cellStr(cells[0]).toLowerCase() === 'id' && joined.includes('name') && joined.includes('date') && joined.includes('on-duty')) {
-        return sheet;
-      }
-    }
-  }
+      return cellStr(cells[0]).toLowerCase() === 'id' && joined.includes('name') && joined.includes('date') && joined.includes('on-duty');
+    }),
+  );
+  const shapeMatch = assertSingle(byHeaderShape);
+  if (shapeMatch) return shapeMatch;
+
   // 3. Last resort: name-based match, covering both the original export name
   //    and the common "data ended up on Sheet1" case.
-  const name = wb.SheetNames.find((n) => /exception/i.test(n) || /^sheet\s*1$/i.test(n.trim()));
-  return name ? wb.Sheets[name] : null;
+  const byName = wb.SheetNames.filter((n) => /exception/i.test(n) || /^sheet\s*1$/i.test(n.trim()));
+  const nameMatch = assertSingle(byName);
+  if (nameMatch) return nameMatch;
+
+  throw new BadRequestException(
+    'Could not find an "Exception Statistic Report" sheet (checked every tab by name and by content, including a plain "Sheet1"). Export the "Exception Statistic Report" from the attendance machine software and upload that .xls file.',
+  );
 }
 
 function parseExceptionSheet(sheet: XLSX.WorkSheet): { rows: ParsedRow[]; periodStart: Date | null; periodEnd: Date | null } {
@@ -212,12 +242,7 @@ export class AttendanceService {
 
   async importFromMachineReport(buffer: Buffer, fileName: string, importedById: string) {
     const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false });
-    const sheet = findExceptionSheet(wb);
-    if (!sheet) {
-      throw new BadRequestException(
-        `Could not find an "Exception Statistic Report" sheet in ${fileName} (checked every tab by name and by content, including a plain "Sheet1"). Export the "Exception Statistic Report" from the attendance machine software and upload that .xls file.`,
-      );
-    }
+    const sheet = findExceptionSheet(wb); // throws BadRequestException itself if none found or if ambiguous
     const { rows, periodStart, periodEnd } = parseExceptionSheet(sheet);
     if (!periodStart || !periodEnd) {
       throw new BadRequestException('Could not determine the report period (no dates found in the sheet).');
