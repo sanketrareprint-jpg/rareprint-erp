@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { getStoredUser } from "@/lib/auth";
 import { getAuthHeaders } from "@/lib/auth";
@@ -282,10 +283,11 @@ export default function AttendancePage() {
               </div>
               <div>
                 <label className="text-[10px] font-semibold text-slate-500 uppercase block">Type</label>
-                <select value={newHoliday.type} onChange={(e) => setNewHoliday({ ...newHoliday, type: e.target.value as "HOLIDAY" | "EXTRA_LEAVE" })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
-                  <option value="HOLIDAY">Holiday</option>
-                  <option value="EXTRA_LEAVE">Extra leave</option>
-                </select>
+                <MobileSelect value={newHoliday.type} onChange={(v) => setNewHoliday({ ...newHoliday, type: v as "HOLIDAY" | "EXTRA_LEAVE" })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs"
+                  options={[
+                    { value: "HOLIDAY", label: "Holiday" },
+                    { value: "EXTRA_LEAVE", label: "Extra leave" },
+                  ]} />
               </div>
               <button onClick={handleAddHoliday} disabled={savingHoliday || !newHoliday.date || !newHoliday.label.trim()} className="inline-flex items-center gap-1 text-xs font-semibold bg-slate-800 text-white rounded-lg px-3 py-1.5 disabled:opacity-50">
                 {savingHoliday ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add
@@ -413,15 +415,13 @@ export default function AttendancePage() {
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Employee</label>
-            <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="mt-1 block w-64 border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.fullName}</option>)}
-            </select>
+            <MobileSelect value={employeeId} onChange={setEmployeeId} className="mt-1 block w-64 border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+              options={employees.map((e) => ({ value: e.id, label: `${e.employeeCode} — ${e.fullName}` }))} />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Month</label>
-            <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="mt-1 block border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
-              {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-            </select>
+            <MobileSelect value={String(month)} onChange={(v) => setMonth(Number(v))} className="mt-1 block border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+              options={MONTH_NAMES.map((m, i) => ({ value: String(i + 1), label: m }))} />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Year</label>
