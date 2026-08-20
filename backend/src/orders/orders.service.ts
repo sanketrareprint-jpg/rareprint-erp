@@ -1480,11 +1480,27 @@ export class OrdersService {
       // confirmed via a real order (1473), even though
       // getOrdersWithReadyItems (the list this is submitted from) already
       // correctly showed the order as having free ready items.
+      //
+      // PENDING_DISPATCH_APPROVAL added 2026-08-20: same class of gap. Once
+      // one item is submitted, order.status moves to
+      // PENDING_DISPATCH_APPROVAL, but a DIFFERENT item on the order can
+      // still finish production afterward and become genuinely free to
+      // submit — getOrdersWithReadyItems already showed the order in that
+      // case, but submitting was blocked with "Order status
+      // (PENDING_DISPATCH_APPROVAL) isn't eligible for dispatch submission"
+      // — confirmed via a real order (1453, SATYA HOMEOPATHY). Safe to
+      // allow: readyItems below already excludes anything already in
+      // pendingDispatchItemIds or dispatchedAt, so this can only ever
+      // submit the genuinely new free item(s), never re-touch the item
+      // that's already pending approval. See the merge (not overwrite) of
+      // pendingDispatchItemIds further down — required so this doesn't
+      // lose track of the item that was already pending.
       const allowedStatuses: OrderStatus[] = [
         OrderStatus.APPROVED,
         OrderStatus.IN_PRODUCTION,
         OrderStatus.READY_FOR_DISPATCH,
         OrderStatus.PARTIALLY_DISPATCHED,
+        OrderStatus.PENDING_DISPATCH_APPROVAL,
       ];
       if (!allowedStatuses.includes(order.status)) {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: `Order status (${order.status}) isn't eligible for dispatch submission.` });
@@ -1568,7 +1584,27 @@ export class OrdersService {
             // this sandbox can't run `prisma generate` against the live DB,
             // so the locally-generated client type doesn't know about this
             // field yet (it will on the real build).
-            ...({ pendingDispatchItemIds: submittedItems.map((i) => i.id) } as any),
+            //
+            // Merged with whatever's already there, not overwritten. This
+            // matters when the order was ALREADY at PENDING_DISPATCH_APPROVAL
+            // (a different item submitted earlier, still awaiting approval)
+            // and a second, separately-ready item is being submitted now --
+            // overwriting would silently un-lock the first item (it'd drop
+            // out of pendingDispatchItemIds even though it's still genuinely
+            // pending), making it look free again and hiding it from
+            // Accounts' approval screen. Confirmed via a real order (1453,
+            // SATYA HOMEOPATHY), 2026-08-20. Harmless for every other status
+            // this runs from too: any stale ids left over from an earlier,
+            // already-resolved batch belong to items that are either already
+            // dispatchedAt (excluded from "ready" everywhere regardless of
+            // this list) or simply irrelevant once their own status cycle
+            // finished.
+            ...({
+              pendingDispatchItemIds: Array.from(new Set([
+                ...(((order as any).pendingDispatchItemIds ?? []) as string[]),
+                ...submittedItems.map((i) => i.id),
+              ])),
+            } as any),
             // Packing/bill photos captured in the Book Shipment modal, kept
             // as base64 data URLs (same as design file uploads elsewhere in
             // this app) so Accounts can see exactly what was packed/billed
