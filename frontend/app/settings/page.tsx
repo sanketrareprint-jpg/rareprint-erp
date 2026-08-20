@@ -2,13 +2,14 @@
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText, Tag, TicketPercent, PackageCheck, X, Edit2 } from "lucide-react";
 
 type CarrierCfg = {
-  activeCarrier: "shiprocket" | "bigship";
+  activeCarrier: "shiprocket" | "bigship" | "fship";
   bigship: {
     username: string;
     password: string;
@@ -23,6 +24,12 @@ type CarrierCfg = {
     password: string;
     pickupLocation: string;
     pickupPincode: string;
+    isConfigured: boolean;
+  };
+  fship: {
+    clientKey: string;
+    pickupPincode: string;
+    pickupAddressId: number | null;
     isConfigured: boolean;
   };
 };
@@ -114,7 +121,7 @@ export default function SettingsPage() {
   const [warehouseError, setWarehouseError]       = useState<string | null>(null);
 
   // Local edit state (passwords shown as blank when masked)
-  const [activeCarrier, setActiveCarrier]     = useState<"shiprocket" | "bigship">("shiprocket");
+  const [activeCarrier, setActiveCarrier]     = useState<"shiprocket" | "bigship" | "fship">("shiprocket");
   const [bsUsername, setBsUsername]           = useState("");
   const [bsPassword, setBsPassword]           = useState("");
   const [bsAccessKey, setBsAccessKey]         = useState("");
@@ -124,6 +131,9 @@ export default function SettingsPage() {
   const [srPassword, setSrPassword]           = useState("");
   const [srPickupLocation, setSrPickupLocation] = useState("");
   const [srPickupPincode, setSrPickupPincode] = useState("");
+  const [fsClientKey, setFsClientKey]         = useState("");
+  const [fsPickupPincode, setFsPickupPincode] = useState("");
+  const [fsPickupAddressId, setFsPickupAddressId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -155,6 +165,9 @@ export default function SettingsPage() {
       setSrPassword("");
       setSrPickupLocation(data.shiprocket.pickupLocation);
       setSrPickupPincode(data.shiprocket.pickupPincode);
+      setFsClientKey("");
+      setFsPickupPincode(data.fship.pickupPincode);
+      setFsPickupAddressId(data.fship.pickupAddressId ? String(data.fship.pickupAddressId) : "");
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, []);
@@ -209,6 +222,11 @@ export default function SettingsPage() {
           ...(srPassword  ? { password: srPassword } : {}),
           pickupLocation: srPickupLocation,
           pickupPincode:  srPickupPincode,
+        },
+        fship: {
+          ...(fsClientKey ? { clientKey: fsClientKey } : {}),
+          pickupPincode:   fsPickupPincode,
+          pickupAddressId: fsPickupAddressId ? parseInt(fsPickupAddressId, 10) : null,
         },
       };
       const res = await fetch(`${API_BASE_URL}/carrier-config`, {
@@ -704,10 +722,8 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-600">Product *</label>
-                <select value={ruleProductId} onChange={e => setRuleProductId(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                  <option value="">— Select product —</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                </select>
+                <MobileSelect value={ruleProductId} onChange={setRuleProductId} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  options={[{ value: "", label: "— Select product —" }, ...products.map(p => ({ value: p.id, label: `${p.name} (${p.sku})` }))]} />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-600">Minimum Qty *</label>
@@ -748,15 +764,20 @@ export default function SettingsPage() {
         {/* ── Active Carrier Toggle ───────────────────────────────────────── */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
           <h2 className="font-semibold text-gray-800 text-base flex items-center gap-2">
-            <Truck size={18} className="text-indigo-500" /> Active Courier Provider
+            <Truck size={18} className="text-indigo-500" /> Default Courier Provider
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            {(["shiprocket", "bigship"] as const).map((carrier) => {
+          <p className="text-xs text-gray-500 -mt-2">
+            Pre-selects this carrier in the per-shipment "Ship via" dropdown on Orders/Dispatch —
+            dispatchers can still pick a different one for any individual shipment.
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {(["shiprocket", "bigship", "fship"] as const).map((carrier) => {
               const isActive = activeCarrier === carrier;
-              const labels: Record<string, string> = { shiprocket: "Shiprocket", bigship: "BigShip" };
+              const labels: Record<string, string> = { shiprocket: "Shiprocket", bigship: "BigShip", fship: "Fship" };
               const configured =
                 carrier === "shiprocket" ? cfg?.shiprocket.isConfigured :
-                carrier === "bigship"    ? cfg?.bigship.isConfigured    : false;
+                carrier === "bigship"    ? cfg?.bigship.isConfigured    :
+                carrier === "fship"      ? cfg?.fship.isConfigured      : false;
               return (
                 <button
                   key={carrier}
@@ -776,7 +797,7 @@ export default function SettingsPage() {
                   </span>
                   {isActive && (
                     <span className="absolute top-2.5 right-3 text-xs font-bold text-indigo-600 bg-indigo-100 rounded-full px-2 py-0.5">
-                      Active
+                      Default
                     </span>
                   )}
                 </button>
@@ -887,18 +908,12 @@ export default function SettingsPage() {
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-gray-600">Default Pickup Warehouse</label>
-                  <select
+                  <MobileSelect
                     value={bsPickupWH}
-                    onChange={(e) => { setBsPickupWH(e.target.value); if (!bsReturnWH) setBsReturnWH(e.target.value); }}
+                    onChange={(v) => { setBsPickupWH(v); if (!bsReturnWH) setBsReturnWH(v); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
-                  >
-                    <option value="">— Select warehouse —</option>
-                    {bsWarehouses.filter(w => w.isActive).map((w) => (
-                      <option key={w.bigshipWarehouseId} value={String(w.bigshipWarehouseId)}>
-                        {w.name} — {w.city} {w.pincode}
-                      </option>
-                    ))}
-                  </select>
+                    options={[{ value: "", label: "— Select warehouse —" }, ...bsWarehouses.filter(w => w.isActive).map((w) => ({ value: String(w.bigshipWarehouseId), label: `${w.name} — ${w.city} ${w.pincode}` }))]}
+                  />
                   {bsPickupWH && (() => {
                     const wh = bsWarehouses.find(w => String(w.bigshipWarehouseId) === bsPickupWH);
                     return wh ? (
@@ -908,18 +923,12 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-gray-600">Return Warehouse</label>
-                  <select
+                  <MobileSelect
                     value={bsReturnWH}
-                    onChange={(e) => setBsReturnWH(e.target.value)}
+                    onChange={setBsReturnWH}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
-                  >
-                    <option value="">— Same as pickup —</option>
-                    {bsWarehouses.filter(w => w.isActive).map((w) => (
-                      <option key={w.bigshipWarehouseId} value={String(w.bigshipWarehouseId)}>
-                        {w.name} — {w.city} {w.pincode}
-                      </option>
-                    ))}
-                  </select>
+                    options={[{ value: "", label: "— Same as pickup —" }, ...bsWarehouses.filter(w => w.isActive).map((w) => ({ value: String(w.bigshipWarehouseId), label: `${w.name} — ${w.city} ${w.pincode}` }))]}
+                  />
                 </div>
               </div>
             ) : (
@@ -959,6 +968,36 @@ export default function SettingsPage() {
             <div className="grid grid-cols-2 gap-4">
               <Field label="Pickup Location Name" value={srPickupLocation} onChange={setSrPickupLocation} placeholder="Office" />
               <Field label="Pickup Pincode" value={srPickupPincode} onChange={setSrPickupPincode} placeholder="442402" inputMode="numeric" />
+            </div>
+          </div>
+        </section>
+
+        {/* ── Fship Credentials ───────────────────────────────────────────── */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-gray-800 text-base">Fship API Credentials</h2>
+            {cfg?.fship.isConfigured && (
+              <span className="text-xs text-green-600 flex items-center gap-1 font-medium">
+                <CheckCircle2 size={13} /> Configured
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 -mt-3">
+            Client Key from Fship Dashboard &gt; Settings &gt; API Details. Pickup Address Id must be
+            created once in Fship Dashboard &gt; Manage Warehouse first — Fship's API has no way to
+            list existing warehouses, only add new ones.
+          </p>
+
+          <div className="space-y-4">
+            <Field label="Client Key" value={fsClientKey} onChange={setFsClientKey} type="password"
+              placeholder={cfg?.fship.isConfigured ? "••••••••  (leave blank to keep current)" : "Fship Client Key"} />
+          </div>
+
+          <div className="border-t border-gray-100 pt-4 space-y-4">
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Pickup Details</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Pickup Pincode" value={fsPickupPincode} onChange={setFsPickupPincode} placeholder="440032" inputMode="numeric" />
+              <Field label="Pickup Address Id" value={fsPickupAddressId} onChange={setFsPickupAddressId} placeholder="From Fship Dashboard > Manage Warehouse" inputMode="numeric" />
             </div>
           </div>
         </section>
@@ -1040,9 +1079,8 @@ function FieldConfigList({ fields, onChange, onRemove }: { fields: CustomField[]
         <div key={field.id} className="rounded-lg border border-gray-100 bg-gray-50 p-2 space-y-2">
           <div className="grid grid-cols-[1fr_110px_72px_28px] gap-2 items-center">
             <input value={field.label} onChange={e => onChange(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
-            <select value={field.type} onChange={e => onChange(index, { type: e.target.value as CustomField["type"] })} className="border border-gray-200 rounded-lg px-2 py-2 text-xs">
-              {FIELD_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
-            </select>
+            <MobileSelect value={field.type} onChange={v => onChange(index, { type: v as CustomField["type"] })} className="border border-gray-200 rounded-lg px-2 py-2 text-xs"
+              options={FIELD_TYPES.map(type => ({ value: type, label: type }))} />
             <label className="flex items-center gap-1 text-xs text-gray-600">
               <input type="checkbox" checked={!!field.required} onChange={e => onChange(index, { required: e.target.checked })} />
               Req

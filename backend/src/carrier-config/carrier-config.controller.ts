@@ -34,6 +34,12 @@ export class CarrierConfigController {
         pickupPincode:   cfg.shiprocket.pickupPincode,
         isConfigured:    !!(cfg.shiprocket.email && cfg.shiprocket.password),
       },
+      fship: {
+        clientKey:        cfg.fship.clientKey ? '••••••••' : '',
+        pickupPincode:    cfg.fship.pickupPincode,
+        pickupAddressId:  cfg.fship.pickupAddressId,
+        isConfigured:     !!cfg.fship.clientKey,
+      },
     };
   }
 

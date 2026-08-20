@@ -9,6 +9,7 @@ import { OrderProductionStage, OrderStatus, PaymentVerificationStatus, Prisma, S
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
 import { BigshipService, bigshipTotalBoxCount, type BigshipPackageBox } from '../bigship/bigship.service';
+import { FshipService } from '../fship/fship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 // Reuse the already-proven Bigship "Delivered Orders Report" parsing/matching
@@ -222,6 +223,7 @@ export class DispatchService {
     private readonly prisma: PrismaService,
     private readonly shiprocket: ShiprocketService,
     private readonly bigship: BigshipService,
+    private readonly fship: FshipService,
     private readonly carrierConfig: CarrierConfigService,
     private readonly whatsapp: WhatsAppService,
   ) {}
@@ -555,7 +557,7 @@ export class DispatchService {
     return result;
   }
 
-  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[]) {
+  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[], carrierOverride?: 'bigship' | 'shiprocket' | 'fship') {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -647,7 +649,12 @@ export class DispatchService {
     const readyItemsValue = readyItems.reduce((sum, i) => sum + Number(i.lineTotal), 0);
     const dispatchInvoiceAmount = readyItemsValue > 0 ? readyItemsValue : Number(order.grandTotal);
 
-    const activeCarrier = this.carrierConfig.getActiveCarrier();
+    // carrierOverride lets the Book Shipment modal's per-shipment carrier
+    // dropdown pick a specific carrier for THIS quote/booking, independent
+    // of the Settings > Carrier Config "default" -- see
+    // docs/Fship_Integration_Build_Prompt.md §0. Falls back to the global
+    // default when not provided, so existing callers are unaffected.
+    const activeCarrier = carrierOverride ?? this.carrierConfig.getActiveCarrier();
 
     // ── BigShip ───────────────────────────────────────────────────────────
     if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {
@@ -746,6 +753,37 @@ export class DispatchService {
         }
       } catch (e) {
         this.logger.warn(`Shiprocket rates failed: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
+    // ── Fship ─────────────────────────────────────────────────────────────
+    // Fship's pickup pincode is a plain configured value (Settings > Carrier
+    // Config), not tied to the Bigship/Shiprocket "warehouse" system --
+    // Fship's Rate Calculator only needs a bare pincode, no address id.
+    if (activeCarrier === 'fship' && this.fship.isConfigured()) {
+      try {
+        const fs = await this.fship.fetchRates({
+          pickupPincode: this.carrierConfig.getConfig().fship.pickupPincode || pickup,
+          deliveryPincode: delivery,
+          weightKg,
+          lengthCm: normalizedBoxes?.[0]?.length,
+          widthCm: normalizedBoxes?.[0]?.breadth,
+          heightCm: normalizedBoxes?.[0]?.height,
+          isCod: orderIsCod,
+          amount: dispatchInvoiceAmount,
+        });
+        if (fs.length) {
+          return {
+            orderId: order.id, orderNo: order.orderNumber,
+            destination: order.customer.businessName,
+            weightKg, deliveryPincode: delivery, pickupPincode: pickup,
+            warehouseId: warehouse.id, warehouseName: warehouse.name,
+            source: 'fship',
+            rates: fs,
+          };
+        }
+      } catch (e) {
+        this.logger.warn(`Fship rates failed: ${e instanceof Error ? e.message : e}`);
       }
     }
 
@@ -851,6 +889,8 @@ export class DispatchService {
     let awbNumber: string | null = null;
     let bigshipOrderId: string | null = null;
     let bigshipStatus: string | null = null;
+    let fshipOrderId: string | null = null;
+    let fshipStatus: string | null = null;
     let shipmentStatus: ShipmentStatus = ShipmentStatus.PACKED;
 
     const addr = splitAddressForShiprocket(order.customer);
@@ -961,6 +1001,72 @@ export class DispatchService {
           shiprocketNote = ` Shiprocket: ${sr.shiprocketOrderId}.`;
         }
       }
+    } else if (rateId.startsWith('fs-') && this.fship.isConfigured()) {
+      // ── Fship booking ────────────────────────────────────────────────────
+      // rateId carries the courierId resolved at rate-quote time (fship.service.ts's
+      // fetchRates -- Fship's own Rate Calculator response only returns a
+      // courier display name, not an id, so it's looked up against Get
+      // Courier List and encoded into the rateId, same idea as Bigship's
+      // "bs-<courierId>" scheme).
+      const courierId = parseInt(rateId.replace(/^fs-/, ''), 10);
+      const fshipCfg = this.carrierConfig.getConfig().fship;
+      if (!fshipCfg.pickupAddressId) {
+        shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
+      } else if (Number.isFinite(courierId) && courierId > 0) {
+        const fs = await this.fship.createForwardOrder({
+          customerName: order.customer.businessName,
+          customerMobile: order.customer.phone ?? '9999999999',
+          customerEmail: order.customer.email ?? undefined,
+          address: addr.line,
+          addressType: 'Home',
+          pincode: addr.pincode,
+          city: addr.city,
+          externalOrderId: order.orderNumber,
+          invoiceNumber: order.orderNumber,
+          isCod: orderIsCod,
+          codAmount: orderIsCod ? (orderCodAmt ?? 0) : 0,
+          orderAmount: dispatchItemsValue,
+          totalAmount: dispatchItemsValue,
+          weightKg,
+          lengthCm: normalizedBoxes?.[0]?.length ?? 10,
+          widthCm: normalizedBoxes?.[0]?.breadth ?? 10,
+          heightCm: normalizedBoxes?.[0]?.height ?? 10,
+          pickAddressId: fshipCfg.pickupAddressId,
+          courierId,
+          products: itemsToDispatch.map((i) => ({
+            productId: i.id,
+            productName: i.product.name,
+            unitPrice: Number(i.unitPrice),
+            quantity: i.quantity,
+            sku: i.product.sku ?? undefined,
+          })),
+        });
+        if (fs.waybill) {
+          awbNumber   = fs.waybill;
+          trackingRef = fs.waybill;
+          fshipOrderId = fs.apiOrderId != null ? String(fs.apiOrderId) : null;
+          // Register pickup immediately -- same "auto-manifest" UX already
+          // built for Bigship (2026-08-10), so Sanket never has to log into
+          // Fship's own dashboard to schedule collection for a normal
+          // booking. If it fails, the order/AWB Fship already assigned is
+          // still valid -- it just needs a manual pickup registration from
+          // Fship's dashboard, same fallback shape as Bigship's manual "Ship
+          // Now".
+          const pickupResult = await this.fship.registerPickup([fs.waybill]);
+          const statusResult = await this.fship.getShipmentStatus(fs.waybill);
+          fshipStatus = statusResult?.status ?? fs.orderStatus ?? null;
+          // mapBigshipStatusToShipmentStatus's keyword matching (deliver/
+          // transit/dispatch/cancel/rto) is generic English courier-status
+          // vocabulary, not Bigship-specific -- reused here rather than
+          // duplicating the same regex table for Fship.
+          shipmentStatus = mapBigshipStatusToShipmentStatus(fshipStatus ?? undefined) ?? ShipmentStatus.IN_TRANSIT;
+          shiprocketNote = pickupResult.pickupOrderId
+            ? ` Fship Order: ${fshipOrderId ?? ''} — booked, AWB ${fs.waybill}, pickup registered.`
+            : ` Fship Order: ${fshipOrderId ?? ''} — booked, AWB ${fs.waybill}, pickup registration failed (${pickupResult.message ?? 'unknown error'}) — needs manual pickup registration in Fship dashboard.`;
+        } else {
+          shiprocketNote = ` Fship booking failed: ${fs.message ?? 'no waybill returned'}.`;
+        }
+      }
     }
 
     let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus };
@@ -983,6 +1089,12 @@ export class DispatchService {
             // repo's sandbox not regenerating the client locally) — cast to bypass that.
             ...(bigshipOrderId ? ({ bigshipOrderId } as any) : {}),
             ...(bigshipStatus ? ({ bigshipStatus, bigshipSyncedAt: new Date() } as any) : {}),
+            // fshipOrderId/fshipStatus aren't in the generated Prisma types
+            // until `prisma generate` picks up the new schema column at
+            // deploy time -- same cast-workaround reasoning as bigshipOrderId
+            // above.
+            ...(fshipOrderId ? ({ fshipOrderId } as any) : {}),
+            ...(fshipStatus ? ({ fshipStatus, fshipSyncedAt: new Date() } as any) : {}),
             // Dispatch > Courier Charges: Actual = the rate quote just picked
             // above; Taken from Customer is pre-filled from what the seller
             // entered in Book Shipment (Ready for Dispatch), still editable

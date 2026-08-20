@@ -1064,6 +1064,11 @@ model Shipment {
   bigshipOrderId       String?
   bigshipStatus        String?
   bigshipSyncedAt      DateTime?
+  // Fship equivalents of the three Bigship fields above -- added 2026-08-20
+  // for the Fship courier integration (see fship.service.ts).
+  fshipOrderId         String?
+  fshipStatus          String?
+  fshipSyncedAt        DateTime?
   // Amount the sales/dispatch agent actually collected from the customer for
   // courier/shipping — entered by hand in Dispatch > Courier Charges.
   // Deliberately NOT part of Order.grandTotal/payments: Bigship's COD

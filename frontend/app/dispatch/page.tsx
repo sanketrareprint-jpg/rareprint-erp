@@ -141,6 +141,11 @@ export default function DispatchPage() {
   const [rates, setRates] = useState<Record<string, RateQuote[]>>({});
   const [ratesLoading, setRatesLoading] = useState<string | null>(null);
   const [selectedRate, setSelectedRate] = useState<Record<string, string>>({});
+  // Per-shipment carrier override for "Fetch Rates" -- empty string means
+  // "use the Settings > Carrier Config default", unchanged from before this
+  // was added. Sanket asked for a dropdown here specifically (not a global
+  // switch) so Bigship/Fship/Shiprocket can be picked per booking.
+  const [selectedCarrier, setSelectedCarrier] = useState<Record<string, string>>({});
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<Record<string, File | null>>({});
   const [search, setSearch] = useState("");
@@ -567,6 +572,7 @@ export default function DispatchPage() {
       // regardless of what was selected here. Confirmed via a real order
       // (1498), 2026-08-19.
       if (selected.size > 0) params.set("itemIds", Array.from(selected).join(','));
+      if (selectedCarrier[orderId]) params.set("carrier", selectedCarrier[orderId]);
       const res = await fetch(`${API_BASE_URL}/dispatch/rates/${orderId}?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
@@ -1329,6 +1335,15 @@ export default function DispatchPage() {
                           value={weightOverride[o.id] || ""}
                           onChange={e => setWeightOverride(prev => ({ ...prev, [o.id]: e.target.value }))}
                           className="w-20 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                        <MobileSelect value={selectedCarrier[o.id] || ""}
+                          onChange={v => { setSelectedCarrier(prev => ({ ...prev, [o.id]: v })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
+                          className="min-w-[130px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
+                          options={[
+                            { value: "", label: "Ship via: Default" },
+                            { value: "bigship", label: "Bigship" },
+                            { value: "fship", label: "Fship" },
+                            { value: "shiprocket", label: "Shiprocket" },
+                          ]} />
                         <button onClick={() => fetchRates(o.id)} disabled={ratesLoading === o.id || !someSelected}
                           className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">
                           {ratesLoading === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}

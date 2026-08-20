@@ -64,14 +64,19 @@ export class DispatchController {
     // quoted/declared value only reflects these items, not every ready item
     // on the order. Optional so older callers keep working unchanged.
     @Query('itemIds') itemIdsRaw?: string,
+    // Per-shipment carrier override from the Book Shipment modal's carrier
+    // dropdown (bigship/shiprocket/fship) -- when omitted, falls back to the
+    // Settings > Carrier Config default, unchanged from before.
+    @Query('carrier') carrier?: string,
   ) {
     const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
     const itemIds = itemIdsRaw ? itemIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    const carrierOverride = carrier === 'bigship' || carrier === 'shiprocket' || carrier === 'fship' ? carrier : undefined;
     return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride, {
       name: pickupName,
       pincode: pickupPincode,
       location: pickupLocation,
-    }, parsePackageBoxes(packageBoxesRaw), itemIds);
+    }, parsePackageBoxes(packageBoxesRaw), itemIds, carrierOverride);
   }
 
   @Post('book')

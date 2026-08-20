@@ -336,6 +336,10 @@ export default function OrdersPage() {
   const [itemsLoading, setItemsLoading] = useState(false);
   const [rates, setRates] = useState<RateQuote[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
+  // Empty = use the Settings > Carrier Config default, unchanged from
+  // before this was added -- lets the dispatcher pick Bigship/Fship/
+  // Shiprocket per shipment instead of a single global switch.
+  const [selectedCarrier, setSelectedCarrier] = useState("");
   const [customerError, setCustomerError] = useState<string | null>(null);
   const [bookingForm, setBookingForm] = useState({
     courierCharges: "", isCod: false, codAmount: "",
@@ -590,8 +594,11 @@ export default function OrdersPage() {
       // quoted/declared value included every ready item regardless of what
       // was unchecked in the modal. Confirmed via a real order (1498), 2026-08-19.
       const checkedIds = Array.from(selectedItemIds[firstOrderId] ?? []);
-      const itemIdsParam = checkedIds.length > 0 ? `?itemIds=${checkedIds.map(encodeURIComponent).join(',')}` : '';
-      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${firstOrderId}${itemIdsParam}`, { headers: getAuthHeaders() });
+      const params = new URLSearchParams();
+      if (checkedIds.length > 0) params.set("itemIds", checkedIds.join(','));
+      if (selectedCarrier) params.set("carrier", selectedCarrier);
+      const qs = params.toString();
+      const res = await fetch(`${API_BASE_URL}/dispatch/rates/${firstOrderId}${qs ? `?${qs}` : ''}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         alert(Array.isArray(b.message) ? b.message.join(", ") : (b.message || "Could not fetch rates"));
@@ -2000,6 +2007,15 @@ export default function OrdersPage() {
                   <div className="rounded-lg border border-slate-200 px-3 py-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
+                      <MobileSelect value={selectedCarrier}
+                        onChange={v => { setSelectedCarrier(v); setRates([]); }}
+                        className="min-w-[120px] rounded-md border border-slate-200 px-2 py-0.5 text-[10px] bg-white"
+                        options={[
+                          { value: "", label: "Default" },
+                          { value: "bigship", label: "Bigship" },
+                          { value: "fship", label: "Fship" },
+                          { value: "shiprocket", label: "Shiprocket" },
+                        ]} />
                       <button onClick={fetchRates} disabled={ratesLoading}
                         className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 hover:bg-brand-100 disabled:opacity-60">
                         {ratesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}

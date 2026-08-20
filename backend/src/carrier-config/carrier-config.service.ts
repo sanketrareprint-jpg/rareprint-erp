@@ -1,7 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type ActiveCarrier = 'shiprocket' | 'bigship';
+// 'fship' added 2026-08-20. Unlike bigship/shiprocket, this "active carrier"
+// no longer means "the only carrier every shipment uses" -- Sanket wants
+// per-shipment carrier choice (a dropdown in Book Shipment), so this field
+// now just decides the *default* pre-selected option in that dropdown. See
+// docs/Fship_Integration_Build_Prompt.md.
+export type ActiveCarrier = 'shiprocket' | 'bigship' | 'fship';
 
 export type BigshipCfg = {
   username: string;
@@ -18,10 +23,30 @@ export type ShiprocketCfg = {
   pickupPincode: string;
 };
 
+export type FshipCfg = {
+  // Called "signature" in Fship's API docs, sent as the `signature` request
+  // header on every call. Obtained from Fship Dashboard > Settings > API
+  // Details > Client Key (production) — Fship also has a separate Staging
+  // security key, but this codebase defaults to production (see
+  // fship.service.ts's FSHIP_ENV handling).
+  clientKey: string;
+  // Plain pincode used only for rate-quote calls (Fship's Rate Calculator
+  // takes source_Pincode as a bare string, no address-id needed for a
+  // quote).
+  pickupPincode: string;
+  // Fship's numeric pickup Address Id, required by Create Forward Order
+  // (pick_Address_ID). Fship's API has no "list warehouses" endpoint (only
+  // Add/Update), so this can't be looked up dynamically like Bigship's
+  // warehouse cache -- it has to be created once in Fship's own dashboard
+  // (Manage Warehouse) and the resulting id pasted in here.
+  pickupAddressId: number | null;
+};
+
 export type CarrierConfig = {
   activeCarrier: ActiveCarrier;
   bigship: BigshipCfg;
   shiprocket: ShiprocketCfg;
+  fship: FshipCfg;
 };
 
 const DB_KEY = 'carrier_config';
@@ -57,6 +82,7 @@ export class CarrierConfigService implements OnModuleInit {
       ...patch,
       bigship:    { ...this.config.bigship,    ...(patch.bigship    ?? {}) },
       shiprocket: { ...this.config.shiprocket, ...(patch.shiprocket ?? {}) },
+      fship:      { ...this.config.fship,      ...(patch.fship      ?? {}) },
     };
     await this.saveToDb();
     this.applyToEnv(this.config);
@@ -70,6 +96,7 @@ export class CarrierConfigService implements OnModuleInit {
       activeCarrier: 'shiprocket',
       bigship:    { username: '', password: '', accessKey: '', pickupWarehouseId: null, returnWarehouseId: null },
       shiprocket: { email: '', password: '', pickupLocation: 'Office', pickupPincode: '110001' },
+      fship:      { clientKey: '', pickupPincode: '440032', pickupAddressId: null },
     };
   }
 
@@ -83,6 +110,7 @@ export class CarrierConfigService implements OnModuleInit {
           ...parsed,
           bigship:    { ...this.config.bigship,    ...(parsed.bigship    ?? {}) },
           shiprocket: { ...this.config.shiprocket, ...(parsed.shiprocket ?? {}) },
+          fship:      { ...this.config.fship,      ...(parsed.fship      ?? {}) },
         };
         this.logger.log('Carrier config loaded from database');
       }
@@ -105,6 +133,10 @@ export class CarrierConfigService implements OnModuleInit {
    * SHIPROCKET_PASSWORD=...
    * SHIPROCKET_PICKUP_LOCATION=Office
    * SHIPROCKET_PICKUP_PINCODE=442402
+   * FSHIP_CLIENT_KEY=...
+   * FSHIP_PICKUP_PINCODE=440032
+   * FSHIP_PICKUP_ADDRESS_ID=12345
+   * FSHIP_ENV=staging   (optional -- omit for production, Fship's default)
    */
   private overlayEnvVars(): void {
     const e = process.env;
@@ -127,6 +159,10 @@ export class CarrierConfigService implements OnModuleInit {
     if (e.SHIPROCKET_PASSWORD)          this.config.shiprocket.password       = e.SHIPROCKET_PASSWORD;
     if (e.SHIPROCKET_PICKUP_LOCATION)   this.config.shiprocket.pickupLocation = e.SHIPROCKET_PICKUP_LOCATION;
     if (e.SHIPROCKET_PICKUP_PINCODE)    this.config.shiprocket.pickupPincode  = e.SHIPROCKET_PICKUP_PINCODE;
+
+    if (e.FSHIP_CLIENT_KEY)             this.config.fship.clientKey       = e.FSHIP_CLIENT_KEY;
+    if (e.FSHIP_PICKUP_PINCODE)         this.config.fship.pickupPincode   = e.FSHIP_PICKUP_PINCODE;
+    if (e.FSHIP_PICKUP_ADDRESS_ID)      this.config.fship.pickupAddressId = parseInt(e.FSHIP_PICKUP_ADDRESS_ID, 10);
   }
 
   private async saveToDb(): Promise<void> {
@@ -154,5 +190,9 @@ export class CarrierConfigService implements OnModuleInit {
     process.env.SHIPROCKET_PASSWORD         = cfg.shiprocket.password;
     process.env.SHIPROCKET_PICKUP_LOCATION  = cfg.shiprocket.pickupLocation;
     process.env.SHIPROCKET_PICKUP_PINCODE   = cfg.shiprocket.pickupPincode;
+    process.env.FSHIP_CLIENT_KEY            = cfg.fship.clientKey;
+    process.env.FSHIP_PICKUP_PINCODE        = cfg.fship.pickupPincode;
+    if (cfg.fship.pickupAddressId != null)
+      process.env.FSHIP_PICKUP_ADDRESS_ID   = String(cfg.fship.pickupAddressId);
   }
 }
