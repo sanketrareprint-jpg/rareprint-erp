@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
@@ -123,6 +124,33 @@ type OrderWithoutCost = {
   orderDate: string;
   totalAmount: number;
   itemsWithNoCost: OrderWithoutCostItem[];
+};
+
+type IncreasedCostItem = {
+  productId: string;
+  sku: string;
+  productName: string;
+  gsm: number;
+  category: string | null;
+  quantity: number;
+  predictedCost: number;
+  actualCost: number;
+  increase: number;
+  increasePct: number | null;
+  vendors: string[];
+  invoiceNumbers: string[];
+};
+type IncreasedCostOrder = {
+  id: string;
+  orderNo: string;
+  status: string;
+  customerName: string;
+  customerPhone: string | null;
+  salesAgentName: string | null;
+  orderDate: string;
+  totalAmount: number;
+  totalIncrease: number;
+  itemsWithIncreasedCost: IncreasedCostItem[];
 };
 
 type OrderWithoutRateItem = {
@@ -253,7 +281,7 @@ export default function CostTablePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders" | "rates">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders" | "rates" | "increased">("table");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rateFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
@@ -288,6 +316,9 @@ export default function CostTablePage() {
   const [ordersWithoutRate, setOrdersWithoutRate] = useState<OrderWithoutRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
   const [expandedRateOrder, setExpandedRateOrder] = useState<string | null>(null);
+  const [increasedCost, setIncreasedCost] = useState<IncreasedCostOrder[]>([]);
+  const [increasedCostLoading, setIncreasedCostLoading] = useState(false);
+  const [expandedIncreasedOrder, setExpandedIncreasedOrder] = useState<string | null>(null);
   const [addRateModal, setAddRateModal] = useState<{
     productId: string;
     sku: string;
@@ -369,6 +400,18 @@ export default function CostTablePage() {
   }, []);
 
   useEffect(() => { if (activeTab === "rates") loadOrdersWithoutRate(); }, [activeTab, loadOrdersWithoutRate]);
+
+  const loadIncreasedCost = useCallback(async () => {
+    setIncreasedCostLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/increased-cost`, { headers });
+      if (res.ok) setIncreasedCost(await res.json());
+    } finally {
+      setIncreasedCostLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (activeTab === "increased") loadIncreasedCost(); }, [activeTab, loadIncreasedCost]);
 
   async function updateAgentCategory(userId: string, category: "A" | "B" | "C" | "D" | "") {
     await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/category`, {
@@ -823,13 +866,14 @@ export default function CostTablePage() {
             { key: "table", label: "Cost Slabs", icon: IndianRupee },
             { key: "orders", label: "Orders Without Cost", icon: ShoppingCart, badge: ordersWithoutCost.length },
             { key: "rates", label: "Orders Without Rate", icon: AlertTriangle, badge: ordersWithoutRate.length },
+            { key: "increased", label: "Increased Cost", icon: TrendingUp, badge: increasedCost.length },
             { key: "profit", label: "Profit", icon: BarChart3 },
             { key: "checker", label: "Margin Checker", icon: TrendingUp },
             { key: "settings", label: "Settings", icon: Settings },
           ] as const).map(({ key, label, icon: Icon, badge }: { key: string; label: string; icon: React.ElementType; badge?: number }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "profit" | "checker" | "settings")}
+              onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "increased" | "profit" | "checker" | "settings")}
               className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === key
                   ? "border-brand-600 text-brand-600"
@@ -1177,14 +1221,15 @@ export default function CostTablePage() {
                             <p className="truncate text-sm font-semibold text-gray-900">{agent.fullName}</p>
                             <p className="text-xs text-gray-400">{agent.email}</p>
                           </div>
-                          <select value={agent.salesAgentCategory ?? ""} onChange={e => updateAgentCategory(agent.id, e.target.value as any)}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm">
-                            <option value="">No category</option>
-                            <option value="A">A - 10%, stickers 15%</option>
-                            <option value="B">B - 10%</option>
-                            <option value="C">C - 12%, stickers 17%</option>
-                            <option value="D">D - fixed rate upper</option>
-                          </select>
+                          <MobileSelect value={agent.salesAgentCategory ?? ""} onChange={v => updateAgentCategory(agent.id, v as any)}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm"
+                            options={[
+                              { value: "", label: "No category" },
+                              { value: "A", label: "A - 10%, stickers 15%" },
+                              { value: "B", label: "B - 10%" },
+                              { value: "C", label: "C - 12%, stickers 17%" },
+                              { value: "D", label: "D - fixed rate upper" },
+                            ]} />
                         </div>
                       ))}
                     </div>
@@ -1238,16 +1283,12 @@ export default function CostTablePage() {
             <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-                <select
+                <MobileSelect
                   value={checker.productId}
-                  onChange={e => { setChecker(c => ({ ...c, productId: e.target.value })); setCheckerResult(null); }}
+                  onChange={v => { setChecker(c => ({ ...c, productId: v })); setCheckerResult(null); }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">— Select a product —</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>{p.sku} — {p.name}</option>
-                  ))}
-                </select>
+                  options={[{ value: "", label: "— Select a product —" }, ...products.map(p => ({ value: p.id, label: `${p.sku} — ${p.name}` }))]}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1534,6 +1575,104 @@ export default function CostTablePage() {
                             >
                               <Plus size={12} /> Add Rate
                             </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB: Increased Cost ───────────────────────────────────────── */}
+        {activeTab === "increased" && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 flex items-start gap-3">
+              <TrendingUp size={16} className="text-red-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-800">Orders where actual vendor cost exceeded the predicted cost</p>
+                <p className="text-xs text-red-700 mt-0.5">
+                  "Actual cost" is the amount a production manager enters in Production &gt; Clubbing when marking a job work
+                  <strong> Received</strong>. Shown here whenever that real vendor cost came in higher than the Cost Table's
+                  predicted cost slab for that product/quantity — meaning the order's recorded margin is now overstated.
+                </p>
+              </div>
+            </div>
+
+            {increasedCostLoading ? (
+              <div className="text-center py-16 text-gray-400">Loading orders…</div>
+            ) : increasedCost.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
+                <CheckCircle size={32} className="mx-auto mb-2 text-green-400" />
+                <p className="text-sm text-gray-500 font-medium">No cost overruns found!</p>
+                <p className="text-xs text-gray-400 mt-1">No received job-work costs currently exceed their predicted cost slab.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {increasedCost.map(order => (
+                  <div key={order.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    <div
+                      className="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => setExpandedIncreasedOrder(expandedIncreasedOrder === order.id ? null : order.id)}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-blue-700 font-mono">{order.orderNo}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                          order.status === "PENDING_APPROVAL" ? "bg-amber-50 border-amber-300 text-amber-700" :
+                          order.status === "APPROVED" ? "bg-green-50 border-green-300 text-green-700" :
+                          order.status === "IN_PRODUCTION" ? "bg-blue-50 border-blue-300 text-blue-700" :
+                          order.status === "READY_FOR_DISPATCH" || order.status === "DISPATCHED" || order.status === "DELIVERED" ? "bg-emerald-50 border-emerald-300 text-emerald-700" :
+                          order.status === "CANCELLED" || order.status === "REJECTED" ? "bg-red-50 border-red-300 text-red-600" :
+                          "bg-gray-100 border-gray-200 text-gray-600"
+                        }`}>
+                          {order.status.replace(/_/g, " ")}
+                        </span>
+                        <span className="font-semibold text-gray-800 text-sm">{order.customerName}</span>
+                        {order.customerPhone && <span className="text-gray-400 text-xs">{order.customerPhone}</span>}
+                        {order.salesAgentName && (
+                          <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs font-medium">{order.salesAgentName}</span>
+                        )}
+                        <span className="text-xs text-gray-400">{new Date(order.orderDate).toLocaleDateString("en-IN")}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className="text-sm font-bold text-gray-800">₹{order.totalAmount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
+                          +{fmt(order.totalIncrease)}
+                        </span>
+                        {expandedIncreasedOrder === order.id ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                      </div>
+                    </div>
+
+                    {expandedIncreasedOrder === order.id && (
+                      <div className="border-t border-red-100 px-4 py-3 space-y-2">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Products over predicted cost</p>
+                        {order.itemsWithIncreasedCost.map(item => (
+                          <div
+                            key={item.productId}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-blue-100 rounded px-1.5 py-0.5">{item.sku}</span>
+                                <span className="font-medium text-gray-900 text-sm">{item.productName}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {item.category && <span>{item.category} &middot; </span>}
+                                {item.gsm}gsm
+                                <span className="ml-2 font-semibold text-gray-700">Qty: {item.quantity.toLocaleString("en-IN")}</span>
+                                <span className="ml-2 text-gray-500">Predicted: {fmt(item.predictedCost)}</span>
+                                <span className="ml-2 text-gray-700 font-semibold">Actual: {fmt(item.actualCost)}</span>
+                                {item.vendors.length > 0 && <span className="ml-2 text-gray-400">Vendor: {item.vendors.join(", ")}</span>}
+                                {item.invoiceNumbers.length > 0 && <span className="ml-2 text-gray-400">Inv: {item.invoiceNumbers.join(", ")}</span>}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-600 text-white text-xs font-bold">
+                                +{fmt(item.increase)}{item.increasePct != null && ` (${item.increasePct}%)`}
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>
