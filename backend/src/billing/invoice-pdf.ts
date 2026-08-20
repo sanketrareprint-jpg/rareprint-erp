@@ -157,7 +157,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // ── 1. Page title ────────────────────────────────────────────────────
     doc.font('Body-Bold').fontSize(18).fillColor(BORDER);
     doc.text('Invoice', PAGE_MARGIN, y + 3, { align: 'center', width: CONTENT_WIDTH });
-    y += 33; // -> boxTop lands at 68pt, matching the reference's company-box top border.
+    y += 34; // -> boxTop lands at 69pt, matching the reference's company-box top border.
 
     const boxTop = y;
 
@@ -171,7 +171,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     let headerTextX = PAGE_MARGIN + 12;
     if (logoBuf) {
       try {
-        doc.image(logoBuf, PAGE_MARGIN + 8, y + 8, { width: 68, height: 68, fit: [68, 68] });
+        // Position/size read directly off the reference PDF's content
+        // stream (the `cm` transform matrix preceding the image `Do`
+        // operator, decoded via pikepdf) — not eyeballed. Reference places
+        // the logo at x=39.75, y=75.0 (top-left, boxTop+7) sized 72.75².
+        doc.image(logoBuf, PAGE_MARGIN + 5, y + 7, { width: 73, height: 73, fit: [73, 73] });
         headerTextX = 120;
       } catch {
         // Corrupt/unsupported image data — fall back to text-only header
@@ -186,16 +190,21 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 29, { width: headerTextWidth, height: 22, ellipsis: true });
 
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
+    // Right-half column starts at headerTextX+220.5 — measured from the
+    // reference (Email:/State: sit at x≈340.5 vs Phone:/GSTIN: at x≈121.8,
+    // a ~219pt gap), not an exact half of headerTextWidth as an earlier
+    // pass assumed (that landed ~5pt too far left).
+    const rightColX = headerTextX + 220.5;
     const rowY1 = y + 53;
     doc.text('Phone:', headerTextX, rowY1, { continued: true, width: headerTextWidth / 2 });
     doc.font('Body-Bold').text(` ${sanitize(data.company.companyPhone) || '-'}`);
-    doc.font('Body').text('Email:', headerTextX + headerTextWidth / 2, rowY1, { continued: true });
+    doc.font('Body').text('Email:', rightColX, rowY1, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.company.companyEmail) || '-'}`);
 
     const rowY2 = y + 66;
     doc.font('Body').text('GSTIN:', headerTextX, rowY2, { continued: true, width: headerTextWidth / 2 });
     doc.font('Body-Bold').text(` ${sanitize(data.company.companyGstin) || '-'}`);
-    doc.font('Body').text('State:', headerTextX + headerTextWidth / 2, rowY2, { continued: true });
+    doc.font('Body').text('State:', rightColX, rowY2, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.company.companyState) || '-'}`);
 
     y += headerHeight;
@@ -209,37 +218,42 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(PAGE_MARGIN, y, colWidth, 17).fill(GREY);
     doc.rect(PAGE_MARGIN + colWidth, y, colWidth, 17).fill(GREY);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(9);
-    doc.text('Bill To:', PAGE_MARGIN + 8, y + 5);
-    doc.text('Invoice Details:', PAGE_MARGIN + colWidth + 8, y + 5);
+    // Left-column text padding reduced from an earlier +8 to +2 — the
+    // reference's actual left-inset (measured from its text bbox x, ~1.9-
+    // 2.6pt from the border) is much tighter than that; +8 was visibly
+    // shifting the whole Bill To block right of the original in an overlay
+    // diff.
+    doc.text('Bill To:', PAGE_MARGIN + 2, y + 5);
+    doc.text('Invoice Details:', PAGE_MARGIN + colWidth + 5, y + 5);
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
     doc.font('Body-Bold').fontSize(10).fillColor(BORDER);
-    doc.text(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 8, y + 21, { width: colWidth - 16, height: 13, ellipsis: true });
+    doc.text(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 2, y + 21, { width: colWidth - 10, height: 13, ellipsis: true });
     doc.font('Body').fontSize(9);
-    doc.text(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 8, y + 34, { width: colWidth - 16, height: 16, ellipsis: true });
+    doc.text(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 2, y + 34, { width: colWidth - 10, height: 16, ellipsis: true });
 
-    const gstinColX = PAGE_MARGIN + colWidth / 2 + 4;
-    doc.font('Body').fontSize(9).text('Contact No:', PAGE_MARGIN + 8, y + 51, { continued: true, width: colWidth / 2 - 12 });
+    const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
+    doc.font('Body').fontSize(9).text('Contact No:', PAGE_MARGIN + 2, y + 51, { continued: true, width: colWidth / 2 - 6 });
     doc.font('Body-Bold').text(` ${sanitize(data.customerPhone) || '-'}`);
-    doc.font('Body').text('GSTIN Number:', gstinColX, y + 51, { width: colWidth / 2 - 12 });
-    doc.font('Body-Bold').text(sanitize(data.customerGstin) || '-', gstinColX, y + 61, { width: colWidth / 2 - 12 });
+    doc.font('Body').text('GSTIN Number:', gstinColX, y + 51, { width: colWidth / 2 - 6 });
+    doc.font('Body-Bold').text(sanitize(data.customerGstin) || '-', gstinColX, y + 61, { width: colWidth / 2 - 6 });
 
-    doc.font('Body').fontSize(9).text('State:', PAGE_MARGIN + 8, y + 63, { continued: true });
+    doc.font('Body').fontSize(9).text('State:', PAGE_MARGIN + 2, y + 63, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.customerState) || '-'}`);
 
     // Invoice Details column.
     doc.font('Body').fontSize(9);
-    doc.text('No:', PAGE_MARGIN + colWidth + 8, y + 22, { continued: true });
+    doc.text('No:', PAGE_MARGIN + colWidth + 5, y + 22, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.invoiceNumber)}`);
-    doc.font('Body').text('Date:', PAGE_MARGIN + colWidth + 8, y + 34, { continued: true });
+    doc.font('Body').text('Date:', PAGE_MARGIN + colWidth + 5, y + 34, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.issueDate)}`);
-    doc.font('Body').text('Place of Supply:', PAGE_MARGIN + colWidth + 8, y + 46, { continued: true });
+    doc.font('Body').text('Place of Supply:', PAGE_MARGIN + colWidth + 5, y + 46, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.customerState) || '-'}`);
 
     y += biRowHeight;
-    // Reference leaves a small ~6pt gap between the Bill To/Invoice Details
-    // box and the item table's own top border (they don't share a line).
-    y += 6;
+    // Reference leaves a small gap between the Bill To/Invoice Details box
+    // and the item table's own top border (they don't share a line).
+    y += 4;
 
     // ── 4. Line items table ─────────────────────────────────────────────
     // 8 columns — no separate Ad.CESS column in this template (dropped vs.
@@ -359,14 +373,22 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     y += 12;
 
     const isInterState = data.gstTreatment === 'INTER_STATE' || data.gstTreatment === 'EXPORT';
-    const leftWidth = CONTENT_WIDTH * 0.58;
+    // leftWidth was previously CONTENT_WIDTH*0.58 (a guess) — the reference
+    // tax table is actually ~70% of content width (measured: its rightmost
+    // column data — "1,449.15" in the TOTAL row — ends at x≈400.3, and
+    // "Sub Total" on the right starts at x≈406.3, both against tableX=35).
+    // The 58% guess put the whole right-side summary box ~55pt too far
+    // left, consistently, across every row — confirmed by diffing this
+    // render's exact text coordinates against the reference's.
+    const leftWidth = 368;
+    const GAP = 3;
     // RIGHT_PAD keeps right-aligned values (Sub Total / Total / Balance /
     // etc.) from landing flush against the outer page border — without it,
     // rightX + rightWidth lands exactly on tableX + CONTENT_WIDTH, so
     // align:'right' text has zero clearance and visibly touches the border.
-    const RIGHT_PAD = 8;
-    const rightWidth = CONTENT_WIDTH - leftWidth - 12 - RIGHT_PAD;
-    const rightX = tableX + leftWidth + 12;
+    const RIGHT_PAD = 6;
+    const rightWidth = CONTENT_WIDTH - leftWidth - GAP - RIGHT_PAD;
+    const rightX = tableX + leftWidth + GAP;
 
     // Group items by HSN/SAC for the tax summary table.
     const groups = new Map<string, { taxable: number; cgst: number; sgst: number; igst: number; total: number }>();
@@ -507,13 +529,17 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // right-aligned). Row pitch (15.75pt for the first three, 15pt for the
     // last three) matches the reference's measured line spacing exactly —
     // it isn't a single round constant there either.
-    const labelW = 110;
+    // labelW=93 matches the reference's measured colon position (x≈499.8,
+    // rightX≈406.3) — the earlier leftWidth fix changed rightX enough that
+    // the old labelW=110 (sized for the old, wrong rightX) would have left
+    // too little room for the value column against the new, wider rightWidth.
+    const labelW = 93;
     function summaryRow(label: string, value: string, opts?: { bold?: boolean; size?: number }) {
       const size = opts?.size ?? 8.5;
       doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size).fillColor(BORDER);
       doc.text(label, rightX, ry, { width: labelW });
       doc.text(':', rightX + labelW, ry, { width: 10 });
-      doc.text(value, rightX + labelW + 12, ry, { width: rightWidth - labelW - 12, align: 'right' });
+      doc.text(value, rightX + labelW + 9, ry, { width: rightWidth - labelW - 9, align: 'right' });
     }
 
     let ry = rightBoxTop;
@@ -560,9 +586,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(tableX, y, CONTENT_WIDTH, termsRowH).stroke(BORDER);
     doc.rect(tableX, y, CONTENT_WIDTH, 17).fill(GREY);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(8);
-    doc.text('Terms And Conditions:', tableX + 6, y + 4);
+    doc.text('Terms And Conditions:', tableX + 2, y + 4);
     doc.font('Body').fontSize(8);
-    doc.text(sanitize(data.termsAndConditions) || '-', tableX + 6, y + 21, { width: CONTENT_WIDTH - 12, height: 11, ellipsis: true });
+    doc.text(sanitize(data.termsAndConditions) || '-', tableX + 2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
     y += termsRowH;
     // No gap here — in the reference, the Terms row's bottom border and the
     // Bank Details row's top border are the same line (adjacent boxes).
@@ -575,30 +601,34 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(tableX, y, colWidth, 17).fill(GREY);
     doc.rect(tableX + colWidth, y, colWidth, 17).fill(GREY);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(8);
-    doc.text('Bank Details:', tableX + 6, y + 4);
+    doc.text('Bank Details:', tableX + 2, y + 4);
     doc.text(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 6, y + 4);
 
     doc.font('Body').fontSize(8);
-    doc.text('Name:', tableX + 6, y + 21, { continued: true });
+    doc.text('Name:', tableX + 2, y + 21, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.company.bankName) || '-'}`);
-    doc.font('Body').text('Account No.:', tableX + 6, y + 32, { continued: true });
+    doc.font('Body').text('Account No.:', tableX + 2, y + 32, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.company.bankAccountNumber) || '-'}`);
-    doc.font('Body').text('IFSC code:', tableX + 6, y + 44, { continued: true });
+    doc.font('Body').text('IFSC code:', tableX + 2, y + 44, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.company.bankIfsc) || '-'}`);
-    doc.font('Body').text("Account Holder's Name:", tableX + 6, y + 56, { continued: true });
+    doc.font('Body').text("Account Holder's Name:", tableX + 2, y + 56, { continued: true });
     doc.font('Body-Bold').text(` ${sanitize(data.company.bankAccountHolderName) || '-'}`);
 
-    // Signature is centered under the "For <Company>:" header so it lines
-    // up with the centered "Authorized Signatory" caption below it — an
-    // earlier pass fixed the image at a left-shifted x offset while the
-    // caption was centered, which visibly misaligned the two.
-    const sigW = 90;
-    const sigH = 34;
+    // Signature size/position, like the logo above, read directly off the
+    // reference PDF's content stream transform matrix rather than
+    // eyeballed — reference places it 85.5wide x 44.25 tall, top edge at
+    // rowTop+21 (nearly touching the "Authorized Signatory" caption below
+    // it, same as the reference). It's also horizontally centered under
+    // "For <Company>:" — an earlier pass fixed the image at a left-shifted
+    // x offset while the caption was centered, which visibly misaligned
+    // the two; centering keeps both aligned regardless of column width.
+    const sigW = 85.5;
+    const sigH = 44.25;
     const sigX = tableX + colWidth + (colWidth - sigW) / 2;
     const sigBuf = dataUrlToBuffer(data.company.signatureUrl);
     if (sigBuf) {
       try {
-        doc.image(sigBuf, sigX, y + 18, { width: sigW, height: sigH, fit: [sigW, sigH] });
+        doc.image(sigBuf, sigX, y + 21, { width: sigW, height: sigH, fit: [sigW, sigH] });
       } catch {
         // ignore corrupt signature image
       }

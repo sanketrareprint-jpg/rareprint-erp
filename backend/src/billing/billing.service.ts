@@ -139,12 +139,14 @@ export class BillingService {
   }
 
   async updateLogo(file: Express.Multer.File): Promise<CompanyProfile> {
+    if (!file) throw new BadRequestException('No file uploaded');
     const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     await this.setImageConfig(CFG.LOGO_URL, dataUrl);
     return this.getCompanyProfile();
   }
 
   async updateSignature(file: Express.Multer.File): Promise<CompanyProfile> {
+    if (!file) throw new BadRequestException('No file uploaded');
     const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     await this.setImageConfig(CFG.SIGNATURE_URL, dataUrl);
     return this.getCompanyProfile();

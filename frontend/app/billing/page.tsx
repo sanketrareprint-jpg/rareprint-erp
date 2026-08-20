@@ -195,13 +195,24 @@ function BillingPageInner() {
     try {
       const form = new FormData();
       form.append("file", file);
+      // Must NOT send Content-Type here — getAuthHeaders() always sets
+      // "application/json", which overrides the multipart boundary the
+      // browser would otherwise generate for FormData, so the backend
+      // (multer's FileInterceptor) never receives a parseable file. Same
+      // fix already used for the other file-upload flows in this app, e.g.
+      // app/orders/page.tsx's design-file upload.
+      const headers = getAuthHeaders();
+      delete (headers as Record<string, string>)["Content-Type"];
       const res = await fetch(`${API_BASE_URL}/billing/company-profile/${kind}`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
         body: form,
       });
       if (res.ok) setProfile(await res.json());
-      else alert(`Could not upload ${kind}`);
+      else {
+        const body = await res.json().catch(() => ({}));
+        alert(body.message || `Could not upload ${kind}`);
+      }
     } finally {
       setBusy(false);
     }
