@@ -119,6 +119,16 @@ export class CostTableController {
     return this.svc.updateSalesAgentCategory(userId, dto.category ?? null);
   }
 
+  @Put('sales-agents/:userId/agency-rates-flag')
+  updateSalesAgentAgencyRatesFlag(
+    @Param('userId') userId: string,
+    @Body() dto: { enabled: boolean },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.updateSalesAgentAgencyRatesFlag(userId, !!dto.enabled);
+  }
+
   @Put('sales-agents/:userId/salary')
   updateSalesAgentSalary(
     @Param('userId') userId: string,
@@ -246,6 +256,46 @@ export class CostTableController {
   ) {
     this.assertAdmin(req);
     return this.svc.clearCommissionOverride(orderItemId);
+  }
+
+  // ── Agency Rates ──────────────────────────────────────────────────────────
+
+  @Get('agency-rates')
+  getAgencyRatesTable() {
+    return this.svc.getAgencyRatesTable();
+  }
+
+  @Post('agency-rates/products')
+  addAgencyRateProduct(@Body() dto: { sku: string }, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.svc.addAgencyRateProduct(dto.sku);
+  }
+
+  @Delete('agency-rates/products/:id')
+  deleteAgencyRateProduct(@Param('id') id: string, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.svc.deleteAgencyRateProduct(id);
+  }
+
+  @Post('agency-rates/columns')
+  addAgencyRateColumn(@Body() dto: { quantity: number }, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.svc.addAgencyRateColumn(Number(dto.quantity));
+  }
+
+  @Delete('agency-rates/columns/:id')
+  deleteAgencyRateColumn(@Param('id') id: string, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.svc.deleteAgencyRateColumn(id);
+  }
+
+  @Put('agency-rates/cell')
+  upsertAgencyRateCell(
+    @Body() dto: { productId: string; quantity: number; rate: number | null },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.upsertAgencyRateCell(dto.productId, Number(dto.quantity), dto.rate == null ? null : Number(dto.rate));
   }
 
   // ── Margin & approval check ───────────────────────────────────────────────

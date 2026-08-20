@@ -539,6 +539,96 @@ async function main() {
       console.log('[ensure-all-columns] Order.parcelPaymentType: added.');
     });
 
+    // ── Agency Rates (Cost Table) ──────────────────────────────────────────
+    await safely('User.usesAgencyRatesForCommission', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'User' AND column_name = 'usesAgencyRatesForCommission'
+      `);
+      if (rows.length === 0) {
+        console.log('[ensure-all-columns] User.usesAgencyRatesForCommission: missing, adding.');
+        await client.query(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "usesAgencyRatesForCommission" BOOLEAN NOT NULL DEFAULT false;`);
+      } else {
+        console.log('[ensure-all-columns] User.usesAgencyRatesForCommission: already exists.');
+      }
+    });
+
+    await safely('AgencyRateProduct', async () => {
+      const { rows } = await client.query(`SELECT to_regclass('public."AgencyRateProduct"') AS reg`);
+      if (rows[0]?.reg) {
+        console.log('[ensure-all-columns] AgencyRateProduct: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] AgencyRateProduct: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "AgencyRateProduct" (
+          "id"        TEXT NOT NULL,
+          "productId" TEXT NOT NULL,
+          "sortOrder" INTEGER NOT NULL DEFAULT 0,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "AgencyRateProduct_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "AgencyRateProduct_productId_key" ON "AgencyRateProduct"("productId");`);
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE "AgencyRateProduct" ADD CONSTRAINT "AgencyRateProduct_productId_fkey"
+          FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+      `);
+      console.log('[ensure-all-columns] AgencyRateProduct: created.');
+    });
+
+    await safely('AgencyRateQuantityColumn', async () => {
+      const { rows } = await client.query(`SELECT to_regclass('public."AgencyRateQuantityColumn"') AS reg`);
+      if (rows[0]?.reg) {
+        console.log('[ensure-all-columns] AgencyRateQuantityColumn: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] AgencyRateQuantityColumn: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "AgencyRateQuantityColumn" (
+          "id"        TEXT NOT NULL,
+          "quantity"  INTEGER NOT NULL,
+          "sortOrder" INTEGER NOT NULL DEFAULT 0,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "AgencyRateQuantityColumn_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "AgencyRateQuantityColumn_quantity_key" ON "AgencyRateQuantityColumn"("quantity");`);
+      console.log('[ensure-all-columns] AgencyRateQuantityColumn: created.');
+    });
+
+    await safely('AgencyRate', async () => {
+      const { rows } = await client.query(`SELECT to_regclass('public."AgencyRate"') AS reg`);
+      if (rows[0]?.reg) {
+        console.log('[ensure-all-columns] AgencyRate: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] AgencyRate: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "AgencyRate" (
+          "id"        TEXT NOT NULL,
+          "productId" TEXT NOT NULL,
+          "quantity"  INTEGER NOT NULL,
+          "rate"      DECIMAL(12,2) NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "AgencyRate_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "AgencyRate_productId_quantity_key" ON "AgencyRate"("productId", "quantity");`);
+      await client.query(`CREATE INDEX IF NOT EXISTS "AgencyRate_productId_idx" ON "AgencyRate"("productId");`);
+      await client.query(`CREATE INDEX IF NOT EXISTS "AgencyRate_quantity_idx" ON "AgencyRate"("quantity");`);
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE "AgencyRate" ADD CONSTRAINT "AgencyRate_productId_fkey"
+          FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+      `);
+      console.log('[ensure-all-columns] AgencyRate: created.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

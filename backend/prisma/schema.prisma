@@ -21,6 +21,13 @@ model User {
   role               UserRole
   salesAgentCategory SalesAgentCategory?
   baseSalary         Decimal?              @db.Decimal(12, 2)
+  // Cost Table > Agency Rates: when true, this agent's commission sheet
+  // checks the AgencyRate table first (exact productId+quantity match) --
+  // commission on a matched line becomes Sale − Agency Rate instead of the
+  // normal category-based calc. Unmatched lines still use the normal calc.
+  // Off by default; toggled per-agent in Cost Table > Profit > Sales Agent
+  // Categories, not hardcoded to any one agent's name.
+  usesAgencyRatesForCommission Boolean    @default(false)
   isActive           Boolean               @default(true)
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
@@ -136,6 +143,48 @@ model Product {
   rateSlabs          ProductRateSlab[]
   sheetItems         PrintSheetItem[]
   productRule        ProductRule?
+  agencyRateProduct  AgencyRateProduct?
+  agencyRates        AgencyRate[]
+}
+
+// ── Cost Table > Agency Rates ──────────────────────────────────────────────
+// A separate, exact-quantity-match rate table (distinct from ProductRateSlab,
+// which is range-based and feeds category D's "Sale − Rate" commission for
+// ALL category-D agents). Agency Rates is opt-in per agent via
+// User.usesAgencyRatesForCommission -- rows are products explicitly added
+// here, columns are quantities explicitly added here, kept as their own
+// tables (not derived from AgencyRate rows) so an empty row/column persists
+// across reloads even before any rate cell is filled in.
+
+model AgencyRateProduct {
+  id        String   @id @default(cuid())
+  productId String   @unique
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model AgencyRateQuantityColumn {
+  id        String   @id @default(cuid())
+  quantity  Int      @unique
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model AgencyRate {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  // Total agency price for this exact quantity of this product (not
+  // per-unit) -- same convention as ProductRateSlab.rateAmount.
+  rate      Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, quantity])
+  @@index([productId])
+  @@index([quantity])
 }
 
 model OfferCode {

@@ -888,10 +888,10 @@ export class CostTableService {
         // for how the two are reconciled — Employee.userId is essentially
         // never populated (no HR UI sets it), so matching also falls back
         // to normalized email/full-name.
-        select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true },
+        select: { id: true, fullName: true, email: true, salesAgentCategory: true, baseSalary: true, usesAgencyRatesForCommission: true },
       });
     } catch {
-      // baseSalary column may not have been migrated onto the DB yet — degrade gracefully
+      // baseSalary/usesAgencyRatesForCommission columns may not have been migrated onto the DB yet — degrade gracefully
       agents = await (this.prisma as any).user.findMany({
         where: { id: { in: ids }, isActive: true },
         orderBy: { fullName: 'asc' },
@@ -937,6 +937,15 @@ export class CostTableService {
       where: { id: userId },
       data: { salesAgentCategory: category },
       select: { id: true, fullName: true, salesAgentCategory: true },
+    });
+  }
+
+  // Cost Table > Agency Rates opt-in, per agent (see getAgentCommissionSheet).
+  async updateSalesAgentAgencyRatesFlag(userId: string, enabled: boolean) {
+    return (this.prisma.user as any).update({
+      where: { id: userId },
+      data: { usesAgencyRatesForCommission: enabled },
+      select: { id: true, fullName: true, usesAgencyRatesForCommission: true },
     });
   }
 
@@ -1121,7 +1130,7 @@ export class CostTableService {
       }).catch(() => null),
       (this.prisma as any).user.findUnique({
         where: { id: userId },
-        select: { fullName: true, salesAgentCategory: true, baseSalary: true, email: true },
+        select: { fullName: true, salesAgentCategory: true, baseSalary: true, email: true, usesAgencyRatesForCommission: true },
       }).catch(() => null),
       // Same HR-Employee-first resolution as getSalesAgents()/getUserSalaryInfo()
       // — without this, this sheet fell back straight to User.baseSalary (almost
@@ -1174,6 +1183,20 @@ export class CostTableService {
     const rateMap = (rateSlabs as any[]).reduce((m: Map<string, any[]>, s: any) => {
       const arr = m.get(s.productId) ?? []; arr.push(s); m.set(s.productId, arr); return m;
     }, new Map<string, any[]>());
+
+    // Cost Table > Agency Rates — opt-in per agent (usesAgencyRatesForCommission).
+    // Exact productId+quantity match only; unlike rateMap above this is never
+    // range-matched. Only fetched when the agent actually has the flag on, to
+    // avoid an extra query for the (default) common case.
+    const agencyRateMap = new Map<string, number>();
+    if (agentUser?.usesAgencyRatesForCommission && productIds.length) {
+      const agencyRates = await (this.prisma as any).agencyRate.findMany({
+        where: { productId: { in: productIds } },
+      }).catch(() => []);
+      for (const r of agencyRates as any[]) {
+        agencyRateMap.set(`${r.productId}:${r.quantity}`, Number(r.rate));
+      }
+    }
 
     // Manual commission corrections (Accounts > Commission pencil icon).
     // Keyed by orderItemId so a correction survives sheet reloads, verify
@@ -1243,7 +1266,19 @@ export class CostTableService {
         let   commAmt  = 0;
         let   calcMethod = '';
 
-        if (!agentCategory) {
+        // Cost Table > Agency Rates — exact productId+quantity match, opt-in
+        // per agent. Takes priority over every category-based branch below:
+        // if this specific product was sold at exactly this quantity and
+        // there's an agency rate on file for it, commission is simply
+        // Sale − Agency Rate, full stop. Anything not in the table (or sold
+        // at a quantity with no matching column) falls through to the
+        // normal calculation unchanged.
+        const agencyRate = agencyRateMap.get(`${item.productId}:${item.quantity}`);
+
+        if (agencyRate !== undefined) {
+          commAmt = Math.max(0, lineTotal - agencyRate);
+          calcMethod = `Sale − Agency Rate (₹${lineTotal.toFixed(0)} − ₹${agencyRate.toFixed(0)})`;
+        } else if (!agentCategory) {
           calcMethod = 'No category';
         } else if (belowThreshold && (agentCategory === 'A' || agentCategory === 'B') && costSlab && grossProfit !== null && grossProfit > 0) {
           // Below ₹1.15L monthly threshold: reduced cap (7% A / 5% B), not a
@@ -1679,5 +1714,107 @@ export class CostTableService {
           .sort().reverse(),
       })),
     };
+  }
+
+  // ── Cost Table > Agency Rates ────────────────────────────────────────────
+  // Exact-quantity-match product rate table, opt-in per agent via
+  // User.usesAgencyRatesForCommission — see getAgentCommissionSheet for how
+  // this feeds into commission (Sale − Agency Rate on a matched line,
+  // normal category calc otherwise). All writes here are admin-gated at the
+  // controller.
+
+  async getAgencyRatesTable() {
+    const [columns, rateProducts, rates] = await Promise.all([
+      (this.prisma as any).agencyRateQuantityColumn.findMany({ orderBy: { quantity: 'asc' } }),
+      (this.prisma as any).agencyRateProduct.findMany({
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          product: {
+            select: { id: true, sku: true, name: true, gsm: true, sizeInches: true, printingType: true, sides: true, category: { select: { name: true } } },
+          },
+        },
+      }),
+      (this.prisma as any).agencyRate.findMany(),
+    ]);
+
+    const cellsByProduct = new Map<string, Map<number, number>>();
+    for (const r of rates as any[]) {
+      const m = cellsByProduct.get(r.productId) ?? new Map<number, number>();
+      m.set(r.quantity, Number(r.rate));
+      cellsByProduct.set(r.productId, m);
+    }
+
+    return {
+      columns: (columns as any[]).map((c) => ({ id: c.id, quantity: c.quantity })),
+      rows: (rateProducts as any[]).map((rp) => ({
+        id: rp.id,
+        productId: rp.productId,
+        sku: rp.product.sku,
+        name: rp.product.name,
+        details: [rp.product.category?.name, rp.product.gsm ? `${rp.product.gsm}gsm` : null, rp.product.sizeInches, rp.product.sides]
+          .filter(Boolean).join(' · '),
+        cells: Object.fromEntries(cellsByProduct.get(rp.productId) ?? new Map()),
+      })),
+    };
+  }
+
+  async addAgencyRateProduct(sku: string) {
+    const trimmed = sku?.trim();
+    if (!trimmed) throw new BadRequestException('Product code is required');
+    const product = await (this.prisma as any).product.findUnique({ where: { sku: trimmed } });
+    if (!product) throw new NotFoundException(`No product with code "${trimmed}"`);
+    const existing = await (this.prisma as any).agencyRateProduct.findUnique({ where: { productId: product.id } });
+    if (existing) throw new BadRequestException(`${trimmed} is already in the Agency Rates table`);
+    const count = await (this.prisma as any).agencyRateProduct.count();
+    return (this.prisma as any).agencyRateProduct.create({
+      data: { productId: product.id, sortOrder: count },
+    });
+  }
+
+  async deleteAgencyRateProduct(id: string) {
+    await (this.prisma as any).agencyRateProduct.delete({ where: { id } }).catch(() => {
+      throw new NotFoundException('Agency Rates row not found');
+    });
+    return { success: true };
+  }
+
+  async addAgencyRateColumn(quantity: number) {
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new BadRequestException('Enter a valid quantity');
+    const existing = await (this.prisma as any).agencyRateQuantityColumn.findUnique({ where: { quantity } });
+    if (existing) throw new BadRequestException(`A column for quantity ${quantity} already exists`);
+    const count = await (this.prisma as any).agencyRateQuantityColumn.count();
+    return (this.prisma as any).agencyRateQuantityColumn.create({
+      data: { quantity, sortOrder: count },
+    });
+  }
+
+  async deleteAgencyRateColumn(id: string) {
+    const column = await (this.prisma as any).agencyRateQuantityColumn.findUnique({ where: { id } });
+    if (!column) throw new NotFoundException('Column not found');
+    // Cascade: also drop every cell entered under this quantity, across all
+    // product rows — AgencyRate.quantity isn't a hard FK to this table (kept
+    // as a plain value so columns can be added/removed independently), so
+    // this has to be done explicitly rather than relying on onDelete: Cascade.
+    await (this.prisma as any).agencyRate.deleteMany({ where: { quantity: column.quantity } });
+    await (this.prisma as any).agencyRateQuantityColumn.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async upsertAgencyRateCell(productId: string, quantity: number, rate: number | null) {
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new BadRequestException('Invalid quantity');
+    const rowExists = await (this.prisma as any).agencyRateProduct.findUnique({ where: { productId } });
+    if (!rowExists) throw new NotFoundException('This product is not a row in the Agency Rates table');
+
+    if (rate == null || !Number.isFinite(rate)) {
+      await (this.prisma as any).agencyRate.deleteMany({ where: { productId, quantity } });
+      return { success: true, cleared: true };
+    }
+    if (rate < 0) throw new BadRequestException('Rate cannot be negative');
+
+    return (this.prisma as any).agencyRate.upsert({
+      where: { productId_quantity: { productId, quantity } },
+      create: { productId, quantity, rate },
+      update: { rate },
+    });
   }
 }

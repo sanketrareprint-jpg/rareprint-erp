@@ -101,7 +101,12 @@ type Profitability = {
   rows: ProfitabilityRow[];
 };
 type NoCostProduct = { id: string; sku: string; name: string; description?: string | null; category?: { name: string }; gsm: number; sizeInches: string; sides: string };
-type SalesAgent = { id: string; fullName: string; email: string; salesAgentCategory: "A" | "B" | "C" | "D" | null };
+type SalesAgent = { id: string; fullName: string; email: string; salesAgentCategory: "A" | "B" | "C" | "D" | null; usesAgencyRatesForCommission?: boolean };
+
+// ── Agency Rates (Cost Table > Agency Rates) ─────────────────────────────
+type AgencyRateColumn = { id: string; quantity: number };
+type AgencyRateRow = { id: string; productId: string; sku: string; name: string; details: string; cells: Record<string, number> };
+type AgencyRatesData = { columns: AgencyRateColumn[]; rows: AgencyRateRow[] };
 
 type OrderWithoutCostItem = {
   productId: string;
@@ -281,7 +286,7 @@ export default function CostTablePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders" | "rates" | "increased">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "checker" | "settings" | "profit" | "orders" | "rates" | "increased" | "agencyRates">("table");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rateFileInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
@@ -318,6 +323,16 @@ export default function CostTablePage() {
   const [expandedRateOrder, setExpandedRateOrder] = useState<string | null>(null);
   const [increasedCost, setIncreasedCost] = useState<IncreasedCostOrder[]>([]);
   const [increasedCostLoading, setIncreasedCostLoading] = useState(false);
+
+  // ── Agency Rates ──────────────────────────────────────────────────────
+  const [agencyRates, setAgencyRates] = useState<AgencyRatesData>({ columns: [], rows: [] });
+  const [agencyRatesLoading, setAgencyRatesLoading] = useState(false);
+  const [newAgencySku, setNewAgencySku] = useState("");
+  const [addingAgencyProduct, setAddingAgencyProduct] = useState(false);
+  const [newAgencyQty, setNewAgencyQty] = useState("");
+  const [addingAgencyColumn, setAddingAgencyColumn] = useState(false);
+  const [agencyCellDrafts, setAgencyCellDrafts] = useState<Record<string, string>>({});
+  const [savingAgencyCell, setSavingAgencyCell] = useState<string | null>(null);
   const [expandedIncreasedOrder, setExpandedIncreasedOrder] = useState<string | null>(null);
   const [addRateModal, setAddRateModal] = useState<{
     productId: string;
@@ -412,6 +427,89 @@ export default function CostTablePage() {
   }, []);
 
   useEffect(() => { if (activeTab === "increased") loadIncreasedCost(); }, [activeTab, loadIncreasedCost]);
+
+  const loadAgencyRates = useCallback(async () => {
+    setAgencyRatesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/agency-rates`, { headers });
+      if (res.ok) setAgencyRates(await res.json());
+    } finally {
+      setAgencyRatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (activeTab === "agencyRates") loadAgencyRates(); }, [activeTab, loadAgencyRates]);
+
+  async function addAgencyProduct() {
+    const sku = newAgencySku.trim();
+    if (!sku) return;
+    setAddingAgencyProduct(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/agency-rates/products`, {
+        method: "POST", headers, body: JSON.stringify({ sku }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(body.message || "Failed to add product"); return; }
+      setNewAgencySku("");
+      await loadAgencyRates();
+    } finally {
+      setAddingAgencyProduct(false);
+    }
+  }
+
+  async function deleteAgencyProduct(id: string) {
+    if (!confirm("Remove this product row from the Agency Rates table? Its rates will be deleted too.")) return;
+    await fetch(`${API_BASE_URL}/cost-table/agency-rates/products/${id}`, { method: "DELETE", headers });
+    await loadAgencyRates();
+  }
+
+  async function addAgencyColumn() {
+    const qty = Number(newAgencyQty);
+    if (!Number.isFinite(qty) || qty <= 0) { alert("Enter a valid quantity"); return; }
+    setAddingAgencyColumn(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/agency-rates/columns`, {
+        method: "POST", headers, body: JSON.stringify({ quantity: qty }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(body.message || "Failed to add column"); return; }
+      setNewAgencyQty("");
+      await loadAgencyRates();
+    } finally {
+      setAddingAgencyColumn(false);
+    }
+  }
+
+  async function deleteAgencyColumn(id: string) {
+    if (!confirm("Remove this quantity column? Every rate entered under it (for every product) will be deleted too.")) return;
+    await fetch(`${API_BASE_URL}/cost-table/agency-rates/columns/${id}`, { method: "DELETE", headers });
+    await loadAgencyRates();
+  }
+
+  async function saveAgencyCell(productId: string, quantity: number, rawValue: string) {
+    const key = `${productId}:${quantity}`;
+    const trimmed = rawValue.trim();
+    const rate = trimmed === "" ? null : Number(trimmed);
+    if (rate !== null && (!Number.isFinite(rate) || rate < 0)) { alert("Enter a valid, non-negative rate."); return; }
+    setSavingAgencyCell(key);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/agency-rates/cell`, {
+        method: "PUT", headers, body: JSON.stringify({ productId, quantity, rate }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Failed to save rate"); return; }
+      setAgencyCellDrafts(d => { const next = { ...d }; delete next[key]; return next; });
+      await loadAgencyRates();
+    } finally {
+      setSavingAgencyCell(null);
+    }
+  }
+
+  async function toggleAgentAgencyRates(userId: string, enabled: boolean) {
+    await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/agency-rates-flag`, {
+      method: "PUT", headers, body: JSON.stringify({ enabled }),
+    });
+    setSalesAgents(prev => prev.map(a => a.id === userId ? { ...a, usesAgencyRatesForCommission: enabled } : a));
+  }
 
   async function updateAgentCategory(userId: string, category: "A" | "B" | "C" | "D" | "") {
     await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/category`, {
@@ -867,13 +965,14 @@ export default function CostTablePage() {
             { key: "orders", label: "Orders Without Cost", icon: ShoppingCart, badge: ordersWithoutCost.length },
             { key: "rates", label: "Orders Without Rate", icon: AlertTriangle, badge: ordersWithoutRate.length },
             { key: "increased", label: "Increased Cost", icon: TrendingUp, badge: increasedCost.length },
+            { key: "agencyRates", label: "Agency Rates", icon: IndianRupee },
             { key: "profit", label: "Profit", icon: BarChart3 },
             { key: "checker", label: "Margin Checker", icon: TrendingUp },
             { key: "settings", label: "Settings", icon: Settings },
           ] as const).map(({ key, label, icon: Icon, badge }: { key: string; label: string; icon: React.ElementType; badge?: number }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "increased" | "profit" | "checker" | "settings")}
+              onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "increased" | "profit" | "checker" | "settings" | "agencyRates")}
               className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === key
                   ? "border-brand-600 text-brand-600"
@@ -1221,15 +1320,22 @@ export default function CostTablePage() {
                             <p className="truncate text-sm font-semibold text-gray-900">{agent.fullName}</p>
                             <p className="text-xs text-gray-400">{agent.email}</p>
                           </div>
-                          <MobileSelect value={agent.salesAgentCategory ?? ""} onChange={v => updateAgentCategory(agent.id, v as any)}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm"
-                            options={[
-                              { value: "", label: "No category" },
-                              { value: "A", label: "A - 10%, stickers 15%" },
-                              { value: "B", label: "B - 10%" },
-                              { value: "C", label: "C - 12%, stickers 17%" },
-                              { value: "D", label: "D - fixed rate upper" },
-                            ]} />
+                          <div className="flex items-center gap-2">
+                            <label className="flex items-center gap-1 text-xs text-gray-500" title="When on, this agent's commission sheet checks Cost Table > Agency Rates first (exact product+quantity match) before the normal category calc">
+                              <input type="checkbox" checked={!!agent.usesAgencyRatesForCommission}
+                                onChange={e => toggleAgentAgencyRates(agent.id, e.target.checked)} />
+                              Agency Rates
+                            </label>
+                            <MobileSelect value={agent.salesAgentCategory ?? ""} onChange={v => updateAgentCategory(agent.id, v as any)}
+                              className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm"
+                              options={[
+                                { value: "", label: "No category" },
+                                { value: "A", label: "A - 10%, stickers 15%" },
+                                { value: "B", label: "B - 10%" },
+                                { value: "C", label: "C - 12%, stickers 17%" },
+                                { value: "D", label: "D - fixed rate upper" },
+                              ]} />
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1679,6 +1785,113 @@ export default function CostTablePage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Agency Rates Tab */}
+        {activeTab === "agencyRates" && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 flex items-start gap-3">
+              <IndianRupee size={16} className="text-blue-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Agency-negotiated rates, by product × exact quantity</p>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  For an agent with "Agency Rates" turned on (Profit tab &gt; Sales Agent Categories), a product+quantity found
+                  here overrides their normal commission calc: commission = Sale − Agency Rate. Quantity must match one of the
+                  columns exactly — a product not in this table (or sold at a quantity with no matching column) still uses the
+                  agent's normal commission calc.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={newAgencySku} onChange={e => setNewAgencySku(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") addAgencyProduct(); }}
+                placeholder="Product code (SKU)…" className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm w-48" />
+              <button onClick={addAgencyProduct} disabled={addingAgencyProduct || !newAgencySku.trim()}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
+                <Plus size={14} /> Add Product
+              </button>
+              <div className="w-px h-6 bg-gray-200 mx-1" />
+              <input value={newAgencyQty} onChange={e => setNewAgencyQty(e.target.value.replace(/[^0-9]/g, ""))}
+                onKeyDown={e => { if (e.key === "Enter") addAgencyColumn(); }}
+                placeholder="Quantity…" className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm w-32" />
+              <button onClick={addAgencyColumn} disabled={addingAgencyColumn || !newAgencyQty.trim()}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+                <Plus size={14} /> Add Quantity Column
+              </button>
+            </div>
+
+            {agencyRatesLoading ? (
+              <div className="text-center py-16 text-gray-400">Loading…</div>
+            ) : agencyRates.rows.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
+                <p className="text-sm text-gray-500 font-medium">No products added yet</p>
+                <p className="text-xs text-gray-400 mt-1">Type a product code above to add the first row.</p>
+              </div>
+            ) : (
+              <div className="overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                <table className="text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="sticky left-0 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Product Code</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Product</th>
+                      {agencyRates.columns.length === 0 ? (
+                        <th className="px-3 py-2 text-left font-medium text-gray-400 whitespace-nowrap">No quantity columns yet</th>
+                      ) : agencyRates.columns.map(col => (
+                        <th key={col.id} className="px-3 py-2 text-center font-semibold text-gray-700 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            {col.quantity.toLocaleString("en-IN")}
+                            <button onClick={() => deleteAgencyColumn(col.id)} title="Delete this column" className="text-gray-300 hover:text-red-500">
+                              <X size={12} />
+                            </button>
+                          </div>
+                        </th>
+                      ))}
+                      <th className="px-3 py-2 w-8" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agencyRates.rows.map(row => (
+                      <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="sticky left-0 bg-white px-3 py-2 font-mono text-xs font-bold text-blue-700 whitespace-nowrap">{row.sku}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                          {row.details && <p className="text-xs text-gray-400">{row.details}</p>}
+                        </td>
+                        {agencyRates.columns.map(col => {
+                          const key = `${row.productId}:${col.quantity}`;
+                          const existing = row.cells[String(col.quantity)];
+                          const draft = agencyCellDrafts[key];
+                          const value = draft !== undefined ? draft : (existing != null ? String(existing) : "");
+                          return (
+                            <td key={col.id} className="px-2 py-1 text-center">
+                              <input
+                                value={value}
+                                onChange={e => setAgencyCellDrafts(d => ({ ...d, [key]: e.target.value }))}
+                                onBlur={e => {
+                                  if (agencyCellDrafts[key] === undefined) return;
+                                  saveAgencyCell(row.productId, col.quantity, e.target.value);
+                                }}
+                                onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                disabled={savingAgencyCell === key}
+                                placeholder="—"
+                                className="w-24 rounded border border-gray-200 px-2 py-1 text-sm text-right focus:border-brand-400 outline-none disabled:opacity-50"
+                              />
+                            </td>
+                          );
+                        })}
+                        <td className="px-2 py-1">
+                          <button onClick={() => deleteAgencyProduct(row.id)} title="Remove this product row" className="text-gray-300 hover:text-red-500">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
