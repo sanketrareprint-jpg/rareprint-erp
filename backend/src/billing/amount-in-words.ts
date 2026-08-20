@@ -51,9 +51,12 @@ function integerToWords(n: number): string {
   return parts.join(' ').trim();
 }
 
-// Renders a rupee amount (can include paise) as "Rupees ... and ... Paise
-// Only", matching the standard Indian tax-invoice phrasing. Rounds to the
-// nearest paise to avoid floating-point artifacts (e.g. 10388.549999...).
+// Renders a rupee amount (can include paise) as "<NumberWords> Rupees[ and
+// <PaiseWords> Paise] only" — matching the reference invoice's exact
+// phrasing (e.g. "Nine Thousand Five Hundred Rupees only"; "Rupees" comes
+// after the number words, and "only" is lowercase at the very end — see
+// docs/Invoice_PDF_Replication_Spec.md §6). Rounds to the nearest paise to
+// avoid floating-point artifacts (e.g. 10388.549999...).
 export function amountInWords(amount: number): string {
   const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
   const totalPaise = Math.round(safeAmount * 100);
@@ -61,10 +64,10 @@ export function amountInWords(amount: number): string {
   const paise = totalPaise % 100;
 
   const rupeesWords = integerToWords(rupees);
-  let result = `Rupees ${rupeesWords}`;
+  let result = `${rupeesWords} Rupees`;
   if (paise > 0) {
     result += ` and ${integerToWords(paise)} Paise`;
   }
-  result += ' Only';
+  result += ' only';
   return result;
 }

@@ -5,6 +5,7 @@ import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { buildInvoicePdf, InvoicePdfCompanyProfile, InvoicePdfData } from './invoice-pdf';
+import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 
 // ── SystemConfig keys for Company Profile ───────────────────────────────────
@@ -221,9 +222,24 @@ export class BillingService {
     return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
-  async generateInvoicePdf(invoiceId: string, termsOverride?: string, descriptionOverride?: string): Promise<{ buffer: Buffer; filename: string }> {
+  async generateInvoicePdf(invoiceId: string, termsOverride?: string, agentNameOverride?: string): Promise<{ buffer: Buffer; filename: string }> {
     const invoice = await this.loadInvoiceForPdf(invoiceId);
     const company = await this.getCompanyProfile();
+
+    // Previous/Current Balance — reuses getPartyLedger()'s running-balance
+    // calc (single source of truth, see CLAUDE.md §17) rather than a second
+    // formula. currentBalance is this invoice's cumulative running balance;
+    // previousBalance is that minus this invoice's own balance.
+    const ledger = await this.getPartyLedger(invoice.order.customerId);
+    const ledgerEntry = ledger.entries.find((e) => e.invoiceId === invoice.id);
+    const currentBalance = ledgerEntry ? ledgerEntry.runningBalance : Number(invoice.balanceAmount);
+    const previousBalance = currentBalance - Number(invoice.balanceAmount);
+
+    const customer = invoice.order.customer;
+    const customerAddress = [customer.billingAddress, customer.city, customer.state, customer.pincode]
+      .map((v) => (v ?? '').toString().trim())
+      .filter(Boolean)
+      .join(', ');
 
     const pdfData: InvoicePdfData = {
       invoiceNumber: invoice.invoiceNumber,
@@ -233,13 +249,15 @@ export class BillingService {
       totalAmount: Number(invoice.totalAmount),
       paidAmount: Number(invoice.paidAmount),
       balanceAmount: Number(invoice.balanceAmount),
-      description: descriptionOverride ?? invoice.order.salesAgent?.fullName ?? '',
+      previousBalance,
+      currentBalance,
+      agentName: agentNameOverride ?? invoice.order.salesAgent?.fullName ?? '',
       termsAndConditions: termsOverride ?? company.defaultTermsAndConditions,
-      customerName: invoice.order.customer.businessName,
-      customerCity: invoice.order.customer.city ?? '',
-      customerPhone: invoice.order.customer.phone ?? '',
-      customerState: invoice.order.customer.state ?? '',
-      customerGstin: invoice.order.customer.gstNumber ?? '',
+      customerName: customer.businessName,
+      customerAddress,
+      customerPhone: customer.phone ?? '',
+      customerState: customer.state ?? '',
+      customerGstin: customer.gstNumber ?? '',
       items: invoice.items.map((item) => ({
         productName: item.productName,
         hsnSac: item.hsnSac,
@@ -339,19 +357,20 @@ export class BillingService {
     const ledger = await this.getPartyLedger(customerId);
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
     const chunks: Buffer[] = [];
+    registerInvoiceFonts(doc); // DejaVu Sans — Helvetica has no ₹ glyph, see pdf-fonts.ts
 
     const buffer = await new Promise<Buffer>((resolve, reject) => {
       doc.on('data', (c: Buffer) => chunks.push(c));
       doc.on('error', reject);
       doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-      doc.font('Helvetica-Bold').fontSize(16).text('Party Statement', { align: 'center' });
+      doc.font('Body-Bold').fontSize(16).text('Party Statement', { align: 'center' });
       doc.moveDown(0.3);
-      doc.font('Helvetica').fontSize(10).text(ledger.customer.businessName, { align: 'center' });
+      doc.font('Body').fontSize(10).text(ledger.customer.businessName, { align: 'center' });
       if (ledger.customer.phone) doc.text(ledger.customer.phone, { align: 'center' });
       doc.moveDown();
 
-      doc.font('Helvetica-Bold').fontSize(9);
+      doc.font('Body-Bold').fontSize(9);
       const startX = 40;
       let y = doc.y;
       doc.text('Invoice No', startX, y, { width: 90 });
@@ -364,7 +383,7 @@ export class BillingService {
       doc.moveTo(startX, y).lineTo(555, y).stroke();
       y += 6;
 
-      doc.font('Helvetica').fontSize(9);
+      doc.font('Body').fontSize(9);
       for (const e of ledger.entries) {
         if (y > 780) { doc.addPage(); y = 40; }
         doc.text(e.invoiceNumber, startX, y, { width: 90 });
@@ -379,7 +398,7 @@ export class BillingService {
       y += 8;
       doc.moveTo(startX, y).lineTo(555, y).stroke();
       y += 10;
-      doc.font('Helvetica-Bold').fontSize(10);
+      doc.font('Body-Bold').fontSize(10);
       doc.text(`Total Billed: ₹${ledger.totalBilled.toFixed(2)}    Total Received: ₹${ledger.totalReceived.toFixed(2)}    Balance Due: ₹${ledger.balanceDue.toFixed(2)}`, startX, y, { width: 495 });
 
       doc.end();
