@@ -104,6 +104,11 @@ export class CostTableController {
     return this.svc.getOrdersWithoutRate();
   }
 
+  @Get('increased-cost')
+  getIncreasedCostOrders() {
+    return this.svc.getIncreasedCostOrders();
+  }
+
   @Get('sales-agents')
   getSalesAgents() {
     return this.svc.getSalesAgents();

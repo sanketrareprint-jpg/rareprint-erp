@@ -603,6 +603,93 @@ export class CostTableService {
     }));
   }
 
+  // ── Orders where the actual vendor cost (Production > Clubbing >
+  // Received) came in higher than the Cost Table's predicted slab cost ────
+  // "Actual cost" here specifically means JobWork.cost -- the amount a
+  // production manager enters when marking a Clubbing job-work "Received"
+  // (PATCH /production/clubbing/jobworks/:id). This is NOT a comparison
+  // against a cost slab that was edited later; it's real vendor spend vs.
+  // what the Cost Table predicted for that item's quantity. Confirmed with
+  // Sanket 2026-08-19.
+  async getIncreasedCostOrders() {
+    const orders = await (this.prisma as any).order.findMany({
+      where: {
+        isSample: false,
+        isTest: false,
+        isParcelBooking: false,
+        items: { some: { jobWorks: { some: { status: 'COMPLETED' } } } },
+      },
+      include: {
+        customer: { select: { businessName: true, phone: true } },
+        salesAgent: { select: { fullName: true } },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true, sku: true, name: true, gsm: true, sizeInches: true, sides: true,
+                category: { select: { name: true } },
+                costSlabs: true,
+              },
+            },
+            jobWorks: {
+              where: { status: 'COMPLETED' },
+              include: { vendor: { select: { name: true } } },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const rows = orders
+      .map((order: any) => {
+        const itemsWithIncreasedCost = order.items
+          .filter((item: any) => item.jobWorks.length > 0)
+          .map((item: any) => {
+            const actualCost = item.jobWorks.reduce((sum: number, jw: any) => sum + Number(jw.cost), 0);
+            const predictedCost = this.lineCostTotal(item);
+            if (predictedCost == null) return null; // no cost slab -- can't say it "increased" vs nothing
+            const increase = actualCost - predictedCost;
+            if (increase <= 0) return null;
+            return {
+              productId: item.product.id,
+              sku: item.product.sku,
+              productName: item.product.name,
+              gsm: item.product.gsm,
+              category: item.product.category?.name ?? null,
+              quantity: item.quantity,
+              predictedCost: Number(predictedCost.toFixed(2)),
+              actualCost: Number(actualCost.toFixed(2)),
+              increase: Number(increase.toFixed(2)),
+              increasePct: predictedCost > 0 ? Number(((increase / predictedCost) * 100).toFixed(1)) : null,
+              vendors: item.jobWorks.map((jw: any) => jw.vendor?.name).filter(Boolean),
+              invoiceNumbers: item.jobWorks.map((jw: any) => jw.vendorInvoiceNo).filter(Boolean),
+            };
+          })
+          .filter((x: any) => x != null);
+
+        if (itemsWithIncreasedCost.length === 0) return null;
+
+        const totalIncrease = itemsWithIncreasedCost.reduce((s: number, i: any) => s + i.increase, 0);
+
+        return {
+          id: order.id,
+          orderNo: order.orderNumber,
+          status: order.status,
+          customerName: order.customer.businessName,
+          customerPhone: order.customer.phone ?? null,
+          salesAgentName: order.salesAgent?.fullName ?? null,
+          orderDate: order.orderDate,
+          totalAmount: Number(order.grandTotal),
+          totalIncrease: Number(totalIncrease.toFixed(2)),
+          itemsWithIncreasedCost,
+        };
+      })
+      .filter((x: any) => x != null);
+
+    return rows.sort((a: any, b: any) => b.totalIncrease - a.totalIncrease);
+  }
+
   async getOrdersWithoutRate() {
     const orderIdsRaw = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT DISTINCT o.id
