@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Patch,
   Param,
@@ -137,6 +138,14 @@ export class OrdersController {
   @Post('test')
   @UseGuards(AuthGuard('jwt'))
   createTestOrder(@Req() req: Request & { user: JwtUser }) {
+    // Frontend only renders this button for ADMIN (see orders/page.tsx), but
+    // that's not enforcement — anyone with a valid JWT could otherwise call
+    // this endpoint directly. Test orders are financially inert, but keeping
+    // who can create them restricted matches every other admin-only action
+    // in this controller (see the inline role checks above/below).
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Only an admin can create a test order');
+    }
     return this.ordersService.createTestOrder(req.user.id);
   }
 

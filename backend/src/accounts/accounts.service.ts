@@ -1171,6 +1171,12 @@ export class AccountsService {
         select: { noteType: true, totalAmount: true, taxAmount: true },
       }),
       this.prisma.accountingLedgerEntry.findMany({
+        // Test-order ledger postings (e.g. "Invoice ... raised to TEST
+        // CUSTOMER (DELETE ME)") were still showing up in this recent-activity
+        // feed even though every OTHER accounting total here already excludes
+        // isTest — entries with no linked order (purchase bills, manual notes,
+        // etc.) are kept as-is via the orderId: null branch.
+        where: { OR: [{ orderId: null }, { order: { isTest: false } }] },
         orderBy: { entryDate: 'desc' },
         take: 50,
       }),
