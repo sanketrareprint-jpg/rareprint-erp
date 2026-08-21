@@ -464,7 +464,7 @@ export default function CreateOrderPage() {
 
   return (
     <DashboardShell>
-      <div className="create-order-page" style={{ padding: "1rem 1.5rem", maxWidth: "900px", margin: "0 auto" }}>
+      <div className="create-order-page" style={{ padding: "1rem 1.5rem", maxWidth: "1600px", margin: "0 auto" }}>
 
         {/* Header */}
         <div className="create-order-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
@@ -716,19 +716,19 @@ export default function CreateOrderPage() {
         {/* Products */}
         <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Products / Line Items</p>
-          <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px" }}>
+          <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "4fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px" }}>
             {["Product","Size","GSM","Paper","Sides","Qty","Rate/Unit","Amount",""].map(h => (
               <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
             ))}
           </div>
           {lineItems.map((item, idx) => (
             <div key={idx}>
-              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "4fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
                 <div className="create-order-product-picker" style={{ position: "relative" }}>
                   <input
                     type="text"
                     placeholder="Search product..."
-                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
+                    value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `[${products.find(p => p.id === item.productId)!.sku}] ${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
                     onFocus={e => { e.target.select(); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
                     onBlur={() => setTimeout(() => { setProductDropdownOpen(s => ({ ...s, [idx]: false })); setProductSearch(s => { const n = {...s}; delete n[idx]; return n; }); }, 200)}
@@ -739,7 +739,7 @@ export default function CreateOrderPage() {
                       {products
                         .filter(p => {
                           const q = (productSearch[idx] ?? "").toLowerCase();
-                          return !q || p.name.toLowerCase().includes(q) || (p.sizeInches ?? "").toLowerCase().includes(q);
+                          return !q || p.name.toLowerCase().includes(q) || (p.sku ?? "").toLowerCase().includes(q) || (p.sizeInches ?? "").toLowerCase().includes(q);
                         })
                         .map(p => (
                           <div key={p.id}
@@ -752,7 +752,7 @@ export default function CreateOrderPage() {
                             onMouseEnter={e => (e.currentTarget.style.background = "#f0f9ff")}
                             onMouseLeave={e => (e.currentTarget.style.background = "white")}
                           >
-                            {p.name} | {p.sizeInches} | {p.gsm} GSM{p.paperType ? ` | ${p.paperType}` : ""} | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
+                            <span style={{ fontWeight: 700, color: "#ee1c25" }}>[{p.sku}]</span> {p.name} | {p.sizeInches} | {p.gsm} GSM{p.paperType ? ` | ${p.paperType}` : ""} | {p.sides === "DOUBLE_SIDE" ? "Double" : "Single"}
                           </div>
                         ))}
                     </div>
