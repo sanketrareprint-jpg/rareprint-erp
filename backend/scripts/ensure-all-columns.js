@@ -147,7 +147,7 @@ async function main() {
       console.log('[ensure-all-columns] Shipment fship columns: added.');
     });
 
-    // ── Shipment ship-to address override columns ────────────────
+    // ── Shipment ship-to address override columns ──────────────────────────
     await safely('Shipment address override columns', async () => {
       const COLUMNS = [
         { name: 'overrideReceiverName', ddl: 'TEXT' },
@@ -654,6 +654,48 @@ async function main() {
         EXCEPTION WHEN duplicate_object THEN null; END $$;
       `);
       console.log('[ensure-all-columns] AgencyRate: created.');
+    });
+
+    // ── PaperPurchaseOrder/Item billing columns ────────────────────────────
+    // Migration 20260612000400_add_billing_fields_to_paper_po is on the
+    // RECOVERABLE_MIGRATIONS list in railway-migrate.js (known to drift in
+    // _prisma_migrations) but never had a matching self-heal check here —
+    // same failure class as the 2026-08-14 courierChargeActual/Quoted
+    // incident. createPurchaseOrder() writes these 3 columns via raw SQL
+    // ($executeRaw, since the Prisma client may not have them typed yet), so
+    // if they're missing on the DB the "New Paper Purchase Order" save fails
+    // with a generic 500 and no useful message on the frontend.
+    await safely('PaperPurchaseOrder billing columns', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'PaperPurchaseOrder' AND column_name = ANY($1::text[])
+      `, [['transportCharges', 'totalBillAmount']]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      if (!existing.has('transportCharges')) {
+        console.log('[ensure-all-columns] PaperPurchaseOrder.transportCharges: missing, adding.');
+        await client.query(`ALTER TABLE "PaperPurchaseOrder" ADD COLUMN IF NOT EXISTS "transportCharges" DOUBLE PRECISION DEFAULT 0;`);
+      } else {
+        console.log('[ensure-all-columns] PaperPurchaseOrder.transportCharges: already exists.');
+      }
+      if (!existing.has('totalBillAmount')) {
+        console.log('[ensure-all-columns] PaperPurchaseOrder.totalBillAmount: missing, adding.');
+        await client.query(`ALTER TABLE "PaperPurchaseOrder" ADD COLUMN IF NOT EXISTS "totalBillAmount" DOUBLE PRECISION;`);
+      } else {
+        console.log('[ensure-all-columns] PaperPurchaseOrder.totalBillAmount: already exists.');
+      }
+    });
+    await safely('PaperPurchaseItem.ratePerUnit', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'PaperPurchaseItem' AND column_name = 'ratePerUnit'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] PaperPurchaseItem.ratePerUnit: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] PaperPurchaseItem.ratePerUnit: missing, adding.');
+      await client.query(`ALTER TABLE "PaperPurchaseItem" ADD COLUMN IF NOT EXISTS "ratePerUnit" DOUBLE PRECISION;`);
+      console.log('[ensure-all-columns] PaperPurchaseItem.ratePerUnit: added.');
     });
 
     console.log('[ensure-all-columns] All checks complete.');
