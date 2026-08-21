@@ -505,9 +505,14 @@ export default function CostTablePage() {
   }
 
   async function toggleAgentAgencyRates(userId: string, enabled: boolean) {
-    await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/agency-rates-flag`, {
+    const res = await fetch(`${API_BASE_URL}/cost-table/sales-agents/${userId}/agency-rates-flag`, {
       method: "PUT", headers, body: JSON.stringify({ enabled }),
     });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      alert(b.message || "Failed to save Agency Rates setting — the checkbox was NOT updated. Please try again.");
+      return;
+    }
     setSalesAgents(prev => prev.map(a => a.id === userId ? { ...a, usesAgencyRatesForCommission: enabled } : a));
   }
 
