@@ -188,7 +188,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // fontSize by this factor brings both dimensions much closer without
     // needing a separate (heavier) font file.
     doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
-    boldText('Invoice', PAGE_MARGIN, y + 3, { align: 'center', width: CONTENT_WIDTH });
+    // y+7 (was y+3) — the old offset was tuned for fontSize(18); shrinking to
+    // 14.5 for the height-correction left the title sitting ~4pt too high
+    // relative to the reference (measured: ref baseline y=42.10 vs our
+    // y=38.0 at the old offset), which read as the text looking vertically
+    // "stretched" against the overlay since the two baselines don't line up.
+    boldText('Invoice', PAGE_MARGIN, y + 7, { align: 'center', width: CONTENT_WIDTH });
     y += 34; // -> boxTop lands at 69pt, matching the reference's company-box top border.
 
     const boxTop = y;
@@ -214,7 +219,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // signature image below has a non-square target box that doesn't
         // match its source aspect ratio either, and still renders at the
         // full target size — i.e. it's stretched, not letterboxed).
-        doc.image(logoBuf, PAGE_MARGIN + 5, y + 7, { width: 73, height: 73 });
+        // y+6 (was y+7) — re-measured against the reference's actual image
+        // transform matrix post-fix: ref places the logo's top edge 1pt
+        // higher than our y+7 was landing.
+        doc.image(logoBuf, PAGE_MARGIN + 5, y + 6, { width: 73, height: 73 });
         headerTextX = 120;
       } catch {
         // Corrupt/unsupported image data — fall back to text-only header
@@ -673,7 +681,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.rect(tableX, ty, leftWidth, sectionBottom - ty).stroke(BORDER);
     }
 
-    y = sectionBottom + 7;
+    // +8.25 (was +7) — measured against the reference's actual rect borders
+    // (pikepdf content-stream extraction): our sectionBottom lands ~2.25pt
+    // earlier than the reference's tax-summary box bottom border, so the
+    // plain 6pt gap the reference itself uses wasn't enough to bring the
+    // Terms row's top border back in line — this compensates so the two
+    // boxes' borders read as connected/adjacent again, matching the
+    // reference, instead of visibly offset from each other.
+    y = sectionBottom + 8.25;
 
     // ── 6. Terms And Conditions row (full width — no separate Description
     // column any more; the sales-agent note moved into the item table, §4) ──
@@ -720,7 +735,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the two; centering keeps both aligned regardless of column width.
     const sigW = 85.5;
     const sigH = 44.25;
-    const sigX = tableX + colWidth + (colWidth - sigW) / 2;
+    // +1.5 — the pure centering formula lands 1.54pt left of the reference's
+    // actual measured signature origin (pikepdf transform-matrix diff), not
+    // a large amount but visible when the two are overlaid directly.
+    const sigX = tableX + colWidth + (colWidth - sigW) / 2 + 1.5;
     const sigBuf = dataUrlToBuffer(data.company.signatureUrl);
     if (sigBuf) {
       try {
@@ -731,6 +749,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // instead of stretching to the target — rendering ~12pt narrower
         // (73.14pt) than the reference's actual 85.5pt, confirmed via
         // pikepdf transform-matrix extraction on both PDFs.
+        // Plain y+21 here — the earlier "sits 1.25pt too high" measurement
+        // was taken before the Terms-gap fix above, which already shifts
+        // this whole row (and everything in it) down by that same 1.25pt,
+        // so adding it again here would double-count it.
         doc.image(sigBuf, sigX, y + 21, { width: sigW, height: sigH });
       } catch {
         // ignore corrupt signature image
