@@ -155,7 +155,17 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     // ── 1. Page title ────────────────────────────────────────────────────
-    doc.font('Body-Bold').fontSize(18).fillColor(BORDER);
+    // fontSize correction (also applied to every other Body-Bold size below,
+    // factor ~0.8): our SegoeUI-Bold.ttf renders ~25% taller and ~15% wider
+    // per point than the reference's actual bold weight — confirmed via
+    // pdftotext -bbox-layout cap-height/width measurements on 3 independent
+    // bold elements ("Invoice" 18pt, "RAREPRINT.IN" 16pt, "Tax Summary:" 9pt
+    // all showed the same ~1.25x inflation), and visually (rendered "Invoice"
+    // /company name looked noticeably heavier+wider than the reference when
+    // the user overlaid both PDFs). Reducing every explicit Body-Bold
+    // fontSize by this factor brings both dimensions much closer without
+    // needing a separate (heavier) font file.
+    doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
     doc.text('Invoice', PAGE_MARGIN, y + 3, { align: 'center', width: CONTENT_WIDTH });
     y += 34; // -> boxTop lands at 69pt, matching the reference's company-box top border.
 
@@ -184,7 +194,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     const headerTextWidth = PAGE_MARGIN + CONTENT_WIDTH - headerTextX - 10;
-    doc.font('Body-Bold').fontSize(16).fillColor(BORDER);
+    doc.font('Body-Bold').fontSize(13).fillColor(BORDER);
     doc.text(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 9, { width: headerTextWidth });
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
     doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 29, { width: headerTextWidth, height: 22, ellipsis: true });
@@ -217,7 +227,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     doc.rect(PAGE_MARGIN, y, colWidth, 17).fill(GREY);
     doc.rect(PAGE_MARGIN + colWidth, y, colWidth, 17).fill(GREY);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(9);
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     // Left-column text padding reduced from an earlier +8 to +2 — the
     // reference's actual left-inset (measured from its text bbox x, ~1.9-
     // 2.6pt from the border) is much tighter than that; +8 was visibly
@@ -227,7 +237,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.text('Invoice Details:', PAGE_MARGIN + colWidth + 5, y + 5);
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
-    doc.font('Body-Bold').fontSize(10).fillColor(BORDER);
+    doc.font('Body-Bold').fontSize(8).fillColor(BORDER);
     doc.text(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 2, y + 21, { width: colWidth - 10, height: 13, ellipsis: true });
     doc.font('Body').fontSize(9);
     doc.text(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 2, y + 34, { width: colWidth - 10, height: 16, ellipsis: true });
@@ -273,9 +283,21 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const tableX = PAGE_MARGIN;
     const headerRowH = 16;
     ensureSpace(headerRowH + 26);
+    // Vertical column-separator lines for a header/data/total row — rect()
+    // only draws each row's outer box, so without this every internal
+    // column line (between #, Item name, HSN/SAC, Quantity, ...) was
+    // missing throughout the whole table, header included.
+    function drawItemRowDividers(rowY: number, rowH: number) {
+      let dx = tableX;
+      for (let c = 0; c < cols.length - 1; c++) {
+        dx += cols[c].width;
+        doc.moveTo(dx, rowY).lineTo(dx, rowY + rowH).stroke(BORDER);
+      }
+    }
     let colX = tableX;
     doc.rect(tableX, y, CONTENT_WIDTH, headerRowH).fill(GREY).stroke(BORDER);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(7);
+    drawItemRowDividers(y, headerRowH);
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
     for (const col of cols) {
       doc.text(col.key, colX + 3, y + 4, { width: col.width - 6, height: 9, ellipsis: true, align: col.numeric ? 'right' : 'left' });
       colX += col.width;
@@ -296,6 +318,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       ensureSpace(itemRowH);
 
       doc.rect(tableX, y, CONTENT_WIDTH, itemRowH).stroke(BORDER);
+      drawItemRowDividers(y, itemRowH);
       colX = tableX;
 
       doc.fillColor(BORDER).font('Body').fontSize(8);
@@ -337,8 +360,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const totalRowH = 16;
     ensureSpace(totalRowH);
     doc.rect(tableX, y, CONTENT_WIDTH, totalRowH).fill('#f8f8f8').stroke(BORDER);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(8.5);
-    doc.text('Total', tableX + 3, y + 3, { width: cols[0].width + cols[1].width + cols[2].width - 6, height: 11, ellipsis: true });
+    drawItemRowDividers(y, totalRowH);
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
+    // 'Total' starts past the '#' column (tableX+cols[0].width+3), not at the
+    // very left edge — reference measured x≈58.56 vs tableX+3=38, a ~20.5pt
+    // gap matching exactly one '#' column width (21pt).
+    doc.text('Total', tableX + cols[0].width + 3, y + 3, { width: cols[1].width + cols[2].width - 6, height: 11, ellipsis: true });
     doc.text(
       String(totalQty),
       tableX + cols[0].width + cols[1].width + cols[2].width + 3,
@@ -369,7 +396,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // with "Tax Summary:", not with the tax table itself, which starts
     // ~12pt lower once the label's own line height is accounted for.
     const rightBoxTop = y;
-    doc.font('Body-Bold').fontSize(9).fillColor(BORDER).text('Tax Summary:', tableX, y);
+    doc.font('Body-Bold').fontSize(7.3).fillColor(BORDER).text('Tax Summary:', tableX, y);
     y += 12;
 
     const isInterState = data.gstTreatment === 'INTER_STATE' || data.gstTreatment === 'EXPORT';
@@ -442,7 +469,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     // Outer header rect + grey fill.
     doc.rect(tableX, taxTableTop, leftWidth, taxHeaderH).fill(GREY).stroke(BORDER);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(6.5);
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(6.3);
 
     let hx = tableX;
     // HSN/SAC — merged, vertically centered.
@@ -458,12 +485,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     // CGST/SGST or IGST spanning groups.
     for (const group of spanGroups) {
-      doc.font('Body-Bold').fontSize(7);
+      doc.font('Body-Bold').fontSize(6.5);
       doc.text(group.label, hx, taxTableTop + 3, { width: group.width, align: 'center' });
       // Horizontal divider under the group label, only within this group's width.
       doc.moveTo(hx, taxTableTop + taxRow1H).lineTo(hx + group.width, taxTableTop + taxRow1H).stroke(BORDER);
       // Sub-headers.
-      doc.font('Body-Bold').fontSize(6);
+      doc.font('Body-Bold').fontSize(5.5);
       doc.text('Rate (%)', hx + 1, taxTableTop + taxRow1H + 4, { width: group.subWidths[0] - 2, align: 'center' });
       doc.text('Amt (₹)', hx + group.subWidths[0] + 1, taxTableTop + taxRow1H + 4, { width: group.subWidths[1] - 2, align: 'center' });
       // Vertical divider between the group's two sub-columns (row 2 only).
@@ -473,11 +500,25 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     // Total Tax(₹) — merged, vertically centered.
-    doc.font('Body-Bold').fontSize(6.5);
+    doc.font('Body-Bold').fontSize(6.3);
     doc.text('Total Tax(₹)', hx + 2, taxTableTop + taxHeaderH / 2 - 3, { width: totalTaxW - 4, align: 'center' });
 
     // Column x-offsets for data rows, matching the header widths exactly.
     const dataColWidths = [hsnW, taxableW, ...spanGroups.flatMap((g) => g.subWidths), totalTaxW];
+
+    // Vertical column-separator lines for a data/total row — the header rows
+    // draw their own dividers via the moveTo/lineTo calls above, but the
+    // data and TOTAL rows previously only got the outer rect() border, so
+    // every internal column line (Taxable amount | Rate | Amt | Rate | Amt |
+    // Total Tax) silently disappeared below the header. Reference has these
+    // dividers running the full height of the table.
+    function drawTaxRowDividers(rowY: number, rowH: number) {
+      let dx = tableX;
+      for (let c = 0; c < dataColWidths.length - 1; c++) {
+        dx += dataColWidths[c];
+        doc.moveTo(dx, rowY).lineTo(dx, rowY + rowH).stroke(BORDER);
+      }
+    }
 
     let ty = taxTableTop + taxHeaderH;
     doc.font('Body').fontSize(7);
@@ -488,6 +529,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     let grandTax = 0;
     for (const [hsn, g] of groups) {
       doc.rect(tableX, ty, leftWidth, taxRowH).stroke(BORDER);
+      drawTaxRowDividers(ty, taxRowH);
       let tx = tableX;
       const taxableAmt = g.taxable;
       const cells: string[] = [hsn, rupee(taxableAmt)];
@@ -512,14 +554,25 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       grandTax += g.total;
     }
     doc.rect(tableX, ty, leftWidth, taxRowH).fill('#f8f8f8').stroke(BORDER);
-    doc.font('Body-Bold').fontSize(7);
+    drawTaxRowDividers(ty, taxRowH);
+    // .fill('#f8f8f8') above also sets the *current* fill color (PDFKit
+    // shares one fillColor state between shapes and text) — without
+    // resetting it back to BORDER here, every cell in this row was being
+    // drawn in near-white text on its own near-white background, i.e.
+    // invisible. The item table's own Total row already does this reset;
+    // this one didn't, which is what looked like "missing" row content.
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
     {
       let tx = tableX;
       const totalCells = isInterState
         ? ['TOTAL', rupee(grandTaxable), '', rupee(grandIgst), rupee(grandTax)]
         : ['TOTAL', rupee(grandTaxable), '', rupee(grandCgst), '', rupee(grandSgst), rupee(grandTax)];
       for (let c = 0; c < totalCells.length; c++) {
-        doc.text(totalCells[c], tx + 2, ty + 4, { width: dataColWidths[c] - 4, height: 9, ellipsis: true, align: c === 0 ? 'left' : 'right' });
+        // Unlike the regular per-item data rows (HSN/SAC left-aligned), the
+        // reference right-aligns the 'TOTAL' word itself in this row — its
+        // measured x-end (≈90.35) sits at the HSN column's right edge, not
+        // its left edge.
+        doc.text(totalCells[c], tx + 2, ty + 4, { width: dataColWidths[c] - 4, height: 9, ellipsis: true, align: 'right' });
         tx += dataColWidths[c];
       }
     }
@@ -535,7 +588,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // too little room for the value column against the new, wider rightWidth.
     const labelW = 93;
     function summaryRow(label: string, value: string, opts?: { bold?: boolean; size?: number }) {
-      const size = opts?.size ?? 8.5;
+      const rawSize = opts?.size ?? 8.5;
+      // Bold rows (Total / Balance) get the same height correction as every
+      // other Body-Bold usage in this file — non-bold rows (Sub Total /
+      // Received / etc.) measured correctly already and are left alone.
+      const size = opts?.bold ? rawSize * 0.86 : rawSize;
       doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size).fillColor(BORDER);
       doc.text(label, rightX, ry, { width: labelW });
       doc.text(':', rightX + labelW, ry, { width: 10 });
@@ -547,7 +604,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     ry += 15.75;
     summaryRow('Total', rupee(data.totalAmount), { bold: true, size: 9.5 });
     ry += 15.75;
-    doc.font('Body-Bold').fontSize(7.5).fillColor(BORDER).text('Invoice Amount In Words :', rightX, ry, { width: rightWidth });
+    doc.font('Body-Bold').fontSize(7.3).fillColor(BORDER).text('Invoice Amount In Words :', rightX, ry, { width: rightWidth });
     ry += 15.75;
     doc.font('Body').fontSize(7.5).text(amountInWords(data.totalAmount), rightX, ry, { width: rightWidth, height: 24 });
     ry += 25.5;
@@ -585,7 +642,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const termsRowH = 33;
     doc.rect(tableX, y, CONTENT_WIDTH, termsRowH).stroke(BORDER);
     doc.rect(tableX, y, CONTENT_WIDTH, 17).fill(GREY);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(8);
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     doc.text('Terms And Conditions:', tableX + 2, y + 4);
     doc.font('Body').fontSize(8);
     doc.text(sanitize(data.termsAndConditions) || '-', tableX + 2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
@@ -600,7 +657,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(tableX + colWidth, y, colWidth, bsRowH).stroke(BORDER);
     doc.rect(tableX, y, colWidth, 17).fill(GREY);
     doc.rect(tableX + colWidth, y, colWidth, 17).fill(GREY);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(8);
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     doc.text('Bank Details:', tableX + 2, y + 4);
     doc.text(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 6, y + 4);
 
