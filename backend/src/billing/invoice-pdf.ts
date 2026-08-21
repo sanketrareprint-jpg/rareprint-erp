@@ -695,14 +695,28 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.text(':', rightX + labelW, ry, { width: 10 });
     }
 
+    // Divider lines between Sub Total / Total / Invoice Amount In Words —
+    // measured from the reference's own thin divider rects (2026-08-21,
+    // pikepdf content-stream extraction): each spans from the tax table's
+    // right edge (tableX+leftWidth) to the outer border, not just under the
+    // right-box's own text column, matching the reference's actual width.
+    const rightDividerX0 = tableX + leftWidth;
+    const rightDividerX1 = tableX + CONTENT_WIDTH;
+    function rightDivider(atY: number) {
+      doc.moveTo(rightDividerX0, atY).lineTo(rightDividerX1, atY).stroke(BORDER);
+    }
+
     let ry = rightBoxTop;
     summaryRow('Sub Total', rupee(data.subtotal));
     ry += 15.75;
+    rightDivider(ry);
     summaryRow('Total', rupee(data.totalAmount), { bold: true, size: 9.5 });
     ry += 15.75;
+    rightDivider(ry);
     doc.font('Body-Bold').fontSize(7.3).fillColor(BORDER);
     boldText('Invoice Amount In Words :', rightX, ry, { width: rightWidth });
     ry += 15.75;
+    rightDivider(ry);
     doc.font('Body').fontSize(7.5).text(amountInWords(data.totalAmount), rightX, ry, { width: rightWidth, height: 24 });
     ry += 25.5;
     summaryRow('Received', rupee(data.paidAmount));
@@ -730,6 +744,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     if (sectionBottom > ty) {
       doc.rect(tableX, ty, leftWidth, sectionBottom - ty).stroke(BORDER);
     }
+    // The reference's closing line at this level runs the FULL content
+    // width (528.7 wide, verified via its own re() rect), not just under
+    // the tax table — it continues across the right-side summary box too,
+    // closing that box off from the Terms row below. The rect above only
+    // covers the tax table's own leftWidth; this line completes the rest.
+    doc.moveTo(rightDividerX0, sectionBottom).lineTo(tableX + CONTENT_WIDTH, sectionBottom).stroke(BORDER);
 
     // +7.32 (was +10.35) — re-measured 2026-08-21 after fixing the upstream
     // header-box/item-table gap constants (which shifted this whole chain
@@ -743,6 +763,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const termsRowH = 33;
     doc.rect(tableX, y, CONTENT_WIDTH, termsRowH).stroke(BORDER);
     doc.rect(tableX, y, CONTENT_WIDTH, 17).fill(GREY);
+    // Divider between the "Terms And Conditions:" label and the value text
+    // below it — the grey fill alone only implies a boundary via color; the
+    // reference draws an actual line there (matches the same treatment
+    // added to Bank Details/For Company below).
+    doc.moveTo(tableX, y + 17).lineTo(tableX + CONTENT_WIDTH, y + 17).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     boldText('Terms And Conditions:', tableX + 2, y + 4);
     doc.font('Body').fontSize(8);
@@ -758,6 +783,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(tableX + colWidth, y, colWidth, bsRowH).stroke(BORDER);
     doc.rect(tableX, y, colWidth, 17).fill(GREY);
     doc.rect(tableX + colWidth, y, colWidth, 17).fill(GREY);
+    // Same label/value divider treatment as Terms And Conditions above —
+    // full width so it also crosses (and reinforces) the vertical divider
+    // between the Bank Details and For <Company> columns.
+    doc.moveTo(tableX, y + 17).lineTo(tableX + CONTENT_WIDTH, y + 17).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     boldText('Bank Details:', tableX + 2, y + 4);
     boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 6, y + 4);
