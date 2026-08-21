@@ -105,6 +105,18 @@ export class DispatchController {
       // tryCreateAdhocOrder for why the ERP can't reliably guess this on
       // its own (Bigship has no pincode→city lookup API at all).
       manualShippingCity?: string;
+      // "Ship to a different address" override for just this booking's item(s)
+      // — for when separate items on the same order need to go to different
+      // delivery addresses (different branches/offices of the same customer).
+      // Typed fresh in Book Shipment; not saved back to Customer/OrderItem.
+      addressOverride?: {
+        receiverName?: string;
+        receiverPhone?: string;
+        address?: string;
+        city?: string;
+        state?: string;
+        pincode?: string;
+      };
     },
     @Req() req: Request & { user: JwtUser },
   ) {
@@ -125,6 +137,7 @@ export class DispatchController {
       body.selectedQuote,
       body.packageBoxes,
       body.manualShippingCity,
+      body.addressOverride,
     );
   }
 

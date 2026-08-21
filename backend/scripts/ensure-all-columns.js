@@ -147,6 +147,33 @@ async function main() {
       console.log('[ensure-all-columns] Shipment fship columns: added.');
     });
 
+    // ── Shipment ship-to address override columns ────────────────
+    await safely('Shipment address override columns', async () => {
+      const COLUMNS = [
+        { name: 'overrideReceiverName', ddl: 'TEXT' },
+        { name: 'overrideReceiverPhone', ddl: 'TEXT' },
+        { name: 'overrideShippingAddress', ddl: 'TEXT' },
+        { name: 'overrideShippingCity', ddl: 'TEXT' },
+        { name: 'overrideShippingState', ddl: 'TEXT' },
+        { name: 'overrideShippingPincode', ddl: 'TEXT' },
+      ];
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Shipment' AND column_name = ANY($1::text[])
+      `, [COLUMNS.map((c) => c.name)]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      const missing = COLUMNS.filter((c) => !existing.has(c.name));
+      if (missing.length === 0) {
+        console.log('[ensure-all-columns] Shipment address override columns: all exist.');
+        return;
+      }
+      for (const col of missing) {
+        console.log(`[ensure-all-columns] Shipment.${col.name}: missing, adding.`);
+        await client.query(`ALTER TABLE "Shipment" ADD COLUMN IF NOT EXISTS "${col.name}" ${col.ddl};`);
+      }
+      console.log('[ensure-all-columns] Shipment address override columns: added.');
+    });
+
     // ── UserPaymentKeyword table ──────────────────────────────────────────
     await safely('UserPaymentKeyword', async () => {
       const { rows } = await client.query(`SELECT to_regclass('public."UserPaymentKeyword"') AS reg`);

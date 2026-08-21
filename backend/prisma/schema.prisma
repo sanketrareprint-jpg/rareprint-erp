@@ -1134,6 +1134,18 @@ model Shipment {
   // ShippingChargeRecord.totalCharges (the reconciled real cost) when that
   // report row exists, and falls back to this quoted amount otherwise.
   courierChargeActual    Decimal?     @db.Decimal(12, 2)
+  // Set only when the dispatcher typed a "ship to a different address" override
+  // in Book Shipment for this specific shipment (e.g. different items on the
+  // same order going to different offices/branches) -- otherwise the shipment
+  // used the order's customer address as normal. Deliberately NOT written back
+  // to Customer/OrderItem: each booking types its own address fresh, nothing
+  // is remembered for next time. See dispatch.service.ts bookItems().
+  overrideReceiverName     String?
+  overrideReceiverPhone    String?
+  overrideShippingAddress  String?
+  overrideShippingCity     String?
+  overrideShippingState    String?
+  overrideShippingPincode  String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
   godown               Godown?        @relation(fields: [godownId], references: [id])

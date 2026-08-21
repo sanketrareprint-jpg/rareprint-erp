@@ -156,6 +156,14 @@ export default function DispatchPage() {
   const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
   const [multiBoxEnabled, setMultiBoxEnabled] = useState<Record<string, boolean>>({});
   const [packageBoxes, setPackageBoxes] = useState<Record<string, PackageBoxForm[]>>({});
+  // "Ship to a different address" for just this booking's selected item(s) —
+  // for when separate items on the same order need to go to different
+  // delivery addresses (different branches/offices of the same customer).
+  // Typed fresh per booking, not saved back to the customer/order.
+  const [addressOverrideEnabled, setAddressOverrideEnabled] = useState<Record<string, boolean>>({});
+  const [addressOverrideForm, setAddressOverrideForm] = useState<Record<string, {
+    receiverName: string; receiverPhone: string; address: string; city: string; state: string; pincode: string;
+  }>>({});
   const [dispatchMethod, setDispatchMethod] = useState<Record<string, DispatchMethod>>({});
   const [transportForm, setTransportForm] = useState<Record<string, TransportForm>>({});
   const [directForm, setDirectForm] = useState<Record<string, DirectForm>>({});
@@ -599,6 +607,11 @@ export default function DispatchPage() {
     const selectedWeight = orderData?.readyItems.filter(i => (selectedItems[orderId] ?? new Set()).has(i.id)).reduce((s, i) => s + i.weightKg, 0) ?? 0.5;
     const sanitizedBoxes = multiBoxEnabled[orderId] ? sanitizePackageBoxes(getPackageRows(orderId, selectedWeight)) : [];
     if (multiBoxEnabled[orderId] && sanitizedBoxes.length === 0) { alert("Enter valid package box details"); return; }
+    const addrOverride = addressOverrideEnabled[orderId] ? addressOverrideForm[orderId] : undefined;
+    if (addressOverrideEnabled[orderId] && !addrOverride?.address?.trim()) {
+      alert("Enter the alternate delivery address, or untick \"Ship to a different address\"");
+      return;
+    }
     setBookingId(orderId);
     try {
       const res = await fetch(`${API_BASE_URL}/dispatch/book`, {
@@ -616,6 +629,7 @@ export default function DispatchPage() {
           weightKgOverride: parseFloat(weightOverride[orderId] || "0") || undefined,
           packageBoxes: sanitizedBoxes.length > 0 ? sanitizedBoxes : undefined,
           manualShippingCity: manualShippingCity || undefined,
+          addressOverride: addrOverride?.address?.trim() ? addrOverride : undefined,
         }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
@@ -1408,6 +1422,41 @@ export default function DispatchPage() {
                             </button>
                           </div>
                         )}
+                      </div>
+
+                      {/* Ship to a different address — for separate items on the same
+                          order going to separate delivery addresses (e.g. different
+                          branches/offices of the same customer). Typed fresh for this
+                          booking only; not saved back to the customer/order. */}
+                      <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                        <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-slate-700">
+                          <input type="checkbox" checked={!!addressOverrideEnabled[o.id]}
+                            onChange={e => setAddressOverrideEnabled(prev => ({ ...prev, [o.id]: e.target.checked }))}
+                            className="h-3.5 w-3.5 rounded border-slate-300" />
+                          <MapPin className="h-3.5 w-3.5 text-slate-500" />
+                          Ship to a different address for these items
+                        </label>
+                        {addressOverrideEnabled[o.id] && (() => {
+                          const addrForm = addressOverrideForm[o.id] || { receiverName: "", receiverPhone: "", address: "", city: "", state: "", pincode: "" };
+                          const updateAddr = (patch: Partial<typeof addrForm>) =>
+                            setAddressOverrideForm(prev => ({ ...prev, [o.id]: { ...addrForm, ...patch } }));
+                          return (
+                            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                              <input value={addrForm.receiverName} onChange={e => updateAddr({ receiverName: e.target.value })}
+                                placeholder="Receiver name (optional, defaults to customer)" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                              <input value={addrForm.receiverPhone} onChange={e => updateAddr({ receiverPhone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                                placeholder="Receiver phone (optional)" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                              <input value={addrForm.address} onChange={e => updateAddr({ address: e.target.value })}
+                                placeholder="Delivery address *" className="sm:col-span-2 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                              <input value={addrForm.city} onChange={e => updateAddr({ city: e.target.value })}
+                                placeholder="City" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                              <input value={addrForm.state} onChange={e => updateAddr({ state: e.target.value })}
+                                placeholder="State" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                              <input value={addrForm.pincode} onChange={e => updateAddr({ pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                                placeholder="Pincode" className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Rate cards — compact rows */}

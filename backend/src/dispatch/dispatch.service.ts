@@ -198,6 +198,21 @@ function packageSummary(boxes?: DispatchPackageBox[]): string | null {
 export type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 type PickupOverride = { name?: string; pincode?: string; location?: string };
 
+// Dispatcher-typed "ship to a different address" override for one specific
+// booking action — for when separate items on the same order need to go to
+// different delivery addresses (different branches/offices of the same
+// customer, etc). Typed fresh each time in Book Shipment; not saved back to
+// Customer/OrderItem and not reused automatically on a future order. See
+// bookItems() below and Shipment.overrideShipping* in schema.prisma.
+type AddressOverride = {
+  receiverName?: string;
+  receiverPhone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+};
+
 function loadWarehouses(): Warehouse[] {
   const raw = process.env.SHIPROCKET_WAREHOUSES?.trim();
   if (raw) {
@@ -797,7 +812,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[], manualShippingCity?: string) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[], manualShippingCity?: string, addressOverride?: AddressOverride) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -893,7 +908,22 @@ export class DispatchService {
     let fshipStatus: string | null = null;
     let shipmentStatus: ShipmentStatus = ShipmentStatus.PACKED;
 
-    const addr = splitAddressForShiprocket(order.customer);
+    const customerAddr = splitAddressForShiprocket(order.customer);
+    // "Ship to a different address" override for just this booking's item(s) —
+    // falls back field-by-field to the customer's normal address for anything
+    // left blank, so e.g. typing only a different address+city still uses the
+    // customer's usual state/pincode if the dispatcher didn't override those too.
+    const hasAddressOverride = !!addressOverride?.address?.trim();
+    const addr = hasAddressOverride
+      ? {
+          line: addressOverride!.address!.trim(),
+          city: addressOverride!.city?.trim() || customerAddr.city,
+          state: addressOverride!.state?.trim() || customerAddr.state,
+          pincode: addressOverride!.pincode?.trim() || customerAddr.pincode,
+        }
+      : customerAddr;
+    const customerName = addressOverride?.receiverName?.trim() || order.customer.businessName;
+    const customerPhone = addressOverride?.receiverPhone?.trim() || order.customer.phone || '9999999999';
     const paymentInfo = this.dispatchPaymentInfo(order);
     const orderIsCod = isCod ?? paymentInfo.isCod;
     const orderCodAmt = codAmount ?? paymentInfo.codAmount ?? undefined;
@@ -913,8 +943,8 @@ export class DispatchService {
         // This mirrors how Shiprocket works: create + assign AWB in one shot at dispatch.
         bs = await this.bigship.tryCreateAdhocOrder({
           orderNumber: order.orderNumber,
-          customerName: order.customer.businessName,
-          customerPhone: order.customer.phone ?? '9999999999',
+          customerName,
+          customerPhone,
           customerEmail: order.customer.email ?? 'noreply@example.com',
           billingAddress: addr.line, billingCity: addr.city,
           billingPincode: addr.pincode, billingState: addr.state,
@@ -948,7 +978,7 @@ export class DispatchService {
         courierId,
         invoiceData: {
           orderNumber: order.orderNumber,
-          customerName: order.customer.businessName,
+          customerName,
           amount: dispatchItemsValue,
           notes: order.notes ?? undefined,
         },
@@ -986,8 +1016,8 @@ export class DispatchService {
         const sr = await this.shiprocket.tryCreateAdhocOrder({
           pickupLocation: warehouse.location,
           orderNumber: order.orderNumber,
-          customerName: order.customer.businessName,
-          customerPhone: order.customer.phone ?? '9999999999',
+          customerName,
+          customerPhone,
           customerEmail: order.customer.email ?? 'noreply@example.com',
           billingAddress: addr.line, billingCity: addr.city,
           billingPincode: addr.pincode, billingState: addr.state,
@@ -1014,8 +1044,8 @@ export class DispatchService {
         shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
       } else if (Number.isFinite(courierId) && courierId > 0) {
         const fs = await this.fship.createForwardOrder({
-          customerName: order.customer.businessName,
-          customerMobile: order.customer.phone ?? '9999999999',
+          customerName,
+          customerMobile: customerPhone,
           customerEmail: order.customer.email ?? undefined,
           address: addr.line,
           addressType: 'Home',
@@ -1095,6 +1125,22 @@ export class DispatchService {
             // above.
             ...(fshipOrderId ? ({ fshipOrderId } as any) : {}),
             ...(fshipStatus ? ({ fshipStatus, fshipSyncedAt: new Date() } as any) : {}),
+            // Ship-to override columns aren't in the generated Prisma types
+            // until `prisma generate` picks up the new schema column at
+            // deploy time -- same cast-workaround as bigshipOrderId above.
+            // Recorded on the Shipment itself (not Customer/OrderItem) so the
+            // label/history for THIS booking shows where it actually went,
+            // without changing the order's normal address for anything else.
+            ...(hasAddressOverride
+              ? ({
+                  overrideReceiverName: customerName,
+                  overrideReceiverPhone: customerPhone,
+                  overrideShippingAddress: addr.line,
+                  overrideShippingCity: addr.city,
+                  overrideShippingState: addr.state,
+                  overrideShippingPincode: addr.pincode,
+                } as any)
+              : {}),
             // Dispatch > Courier Charges: Actual = the rate quote just picked
             // above; Taken from Customer is pre-filled from what the seller
             // entered in Book Shipment (Ready for Dispatch), still editable
@@ -1106,6 +1152,7 @@ export class DispatchService {
             notes: [
               `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
               `Courier: ${picked.carrierName}, ${picked.amount} INR.${shiprocketNote}`.trim(),
+              hasAddressOverride ? `Ship-to override: ${customerName}, ${customerPhone}, ${addr.line}, ${addr.city}, ${addr.state} ${addr.pincode}` : '',
               packageNote,
             ].filter(Boolean).join('. '),
           },
