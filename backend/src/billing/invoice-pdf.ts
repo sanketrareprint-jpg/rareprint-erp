@@ -154,6 +154,28 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       }
     }
 
+    // Our SegoeUI-Bold.ttf's glyph aspect ratio doesn't match the reference's
+    // actual bold weight: matching cap-height (via fontSize alone) leaves
+    // every bold string measurably narrower (~8-9%) than the reference —
+    // measured consistently across "Invoice"/"RAREPRINT.IN"/"Tax Summary:"/
+    // "Bill To:" etc. via pdftotext -bbox-layout. No single fontSize can fix
+    // both dimensions at once (that would require the reference's actual
+    // font file, which we don't have). This stretches JUST the horizontal
+    // axis via a scale transform around each call — glyphs render at the
+    // correct height (fontSize unaffected) and the correct on-page width.
+    // Use for standalone (non `continued:true`) Body-Bold text only — a
+    // save()/restore() pair around a continued-chain call would break
+    // PDFKit's internal cursor tracking between the chained pieces.
+    const BOLD_HSCALE = 1.08;
+    function boldText(str: string, x: number, y0: number, opts?: PDFKit.Mixins.TextOptions) {
+      doc.save();
+      doc.translate(x, y0);
+      doc.scale(BOLD_HSCALE, 1);
+      const scaledOpts = opts?.width !== undefined ? { ...opts, width: opts.width / BOLD_HSCALE } : opts;
+      doc.text(str, 0, 0, scaledOpts);
+      doc.restore();
+    }
+
     // ── 1. Page title ────────────────────────────────────────────────────
     // fontSize correction (also applied to every other Body-Bold size below,
     // factor ~0.8): our SegoeUI-Bold.ttf renders ~25% taller and ~15% wider
@@ -166,7 +188,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // fontSize by this factor brings both dimensions much closer without
     // needing a separate (heavier) font file.
     doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
-    doc.text('Invoice', PAGE_MARGIN, y + 3, { align: 'center', width: CONTENT_WIDTH });
+    boldText('Invoice', PAGE_MARGIN, y + 3, { align: 'center', width: CONTENT_WIDTH });
     y += 34; // -> boxTop lands at 69pt, matching the reference's company-box top border.
 
     const boxTop = y;
@@ -185,7 +207,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // stream (the `cm` transform matrix preceding the image `Do`
         // operator, decoded via pikepdf) — not eyeballed. Reference places
         // the logo at x=39.75, y=75.0 (top-left, boxTop+7) sized 72.75².
-        doc.image(logoBuf, PAGE_MARGIN + 5, y + 7, { width: 73, height: 73, fit: [73, 73] });
+        // No `fit` here — fit preserves the source image's own aspect ratio
+        // within the box, but the reference stretches the logo to exactly
+        // 73x73 regardless of the uploaded image's native proportions
+        // (confirmed via pikepdf transform-matrix extraction: the reference
+        // signature image below has a non-square target box that doesn't
+        // match its source aspect ratio either, and still renders at the
+        // full target size — i.e. it's stretched, not letterboxed).
+        doc.image(logoBuf, PAGE_MARGIN + 5, y + 7, { width: 73, height: 73 });
         headerTextX = 120;
       } catch {
         // Corrupt/unsupported image data — fall back to text-only header
@@ -448,22 +477,31 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const taxHeaderH = taxRow1H + taxRow2H;
     const taxRowH = 16;
 
-    let hsnW: number, taxableW: number, totalTaxW: number;
+    // Column widths measured directly from the reference's data-row cell
+    // edges (right-aligned cells' xMax + a ~2pt inset = the true column
+    // boundary), not the earlier fractional guesses of leftWidth (0.14/0.2/
+    // 0.2 splits) — those were off by 3-6.4pt per column, which compounded
+    // rightward across CGST -> SGST -> Total Tax(₹) into a ~7.6pt drift by
+    // the last column. hsnW/taxableW/totalTaxW are shared between the
+    // INTRA_STATE (CGST+SGST) and INTER_STATE (IGST) layouts — only the
+    // middle span differs (one wide IGST column vs two CGST/SGST columns of
+    // half the width), which falls out naturally from the same leftWidth.
+    const hsnW = 56.71;
+    const taxableW = 70.61;
+    const totalTaxW = 80.01;
+    // Rate(%)/Amt(₹) sub-column split within each CGST/SGST pair — measured
+    // 41.77:38.21 (~52.2%:47.8%). The previous 0.44/0.56 had this backwards
+    // (Amt wider than Rate), which it isn't in the reference.
+    const RATE_FRACTION = 0.522;
     let spanGroups: { label: string; width: number; subWidths: [number, number] }[];
     if (isInterState) {
-      hsnW = leftWidth * 0.16;
-      taxableW = leftWidth * 0.24;
-      totalTaxW = leftWidth * 0.28;
       const igstW = leftWidth - hsnW - taxableW - totalTaxW;
-      spanGroups = [{ label: 'IGST', width: igstW, subWidths: [igstW * 0.44, igstW * 0.56] }];
+      spanGroups = [{ label: 'IGST', width: igstW, subWidths: [igstW * RATE_FRACTION, igstW * (1 - RATE_FRACTION)] }];
     } else {
-      hsnW = leftWidth * 0.14;
-      taxableW = leftWidth * 0.2;
-      totalTaxW = leftWidth * 0.2;
       const pairW = (leftWidth - hsnW - taxableW - totalTaxW) / 2;
       spanGroups = [
-        { label: 'CGST', width: pairW, subWidths: [pairW * 0.44, pairW * 0.56] },
-        { label: 'SGST', width: pairW, subWidths: [pairW * 0.44, pairW * 0.56] },
+        { label: 'CGST', width: pairW, subWidths: [pairW * RATE_FRACTION, pairW * (1 - RATE_FRACTION)] },
+        { label: 'SGST', width: pairW, subWidths: [pairW * RATE_FRACTION, pairW * (1 - RATE_FRACTION)] },
       ];
     }
 
@@ -477,9 +515,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     hx += hsnW;
     doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
 
-    // Taxable amount (₹) — merged, two lines, vertically centered.
-    doc.text('Taxable amount', hx + 2, taxTableTop + 4, { width: taxableW - 4, align: 'center' });
-    doc.text('(₹)', hx + 2, taxTableTop + 14, { width: taxableW - 4, align: 'center' });
+    // Taxable amount (₹) — merged, two lines, vertically centered. +7.4/+17.4
+    // (was +4/+14) — measured 3.42pt lower than the other same-row headers.
+    doc.text('Taxable amount', hx + 2, taxTableTop + 7.4, { width: taxableW - 4, align: 'center' });
+    doc.text('(₹)', hx + 2, taxTableTop + 17.4, { width: taxableW - 4, align: 'center' });
     hx += taxableW;
     doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
 
@@ -685,7 +724,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const sigBuf = dataUrlToBuffer(data.company.signatureUrl);
     if (sigBuf) {
       try {
-        doc.image(sigBuf, sigX, y + 21, { width: sigW, height: sigH, fit: [sigW, sigH] });
+        // No `fit` — see the logo comment above. This was a real bug: the
+        // reference signature is 85.5x44.25 (aspect ratio 1.93:1), but the
+        // uploaded source PNG is 800x484 (1.65:1), so `fit` was shrinking it
+        // to fit inside the box while preserving its own aspect ratio
+        // instead of stretching to the target — rendering ~12pt narrower
+        // (73.14pt) than the reference's actual 85.5pt, confirmed via
+        // pikepdf transform-matrix extraction on both PDFs.
+        doc.image(sigBuf, sigX, y + 21, { width: sigW, height: sigH });
       } catch {
         // ignore corrupt signature image
       }
