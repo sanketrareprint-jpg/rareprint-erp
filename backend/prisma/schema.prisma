@@ -2821,3 +2821,62 @@ model MachineReading {
   @@index([machineName, readingDate])
   @@index([isPaid])
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CERTIFICATE GENERATOR MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+// Bulk certificate generation: a saved template (background image + physical
+// size/DPI + dynamic text field positions in inches) is combined with an
+// uploaded Excel/CSV file to generate one certificate per row, imposed onto
+// print-ready sheets (e.g. 2× 11.5x8.5in certs on a 12x18in sheet) and
+// exported as a single combined PDF at exact physical dimensions. No S3/Redis
+// dependency — files are stored as base64 data URIs the same way
+// Order.dispatchProductPhoto and the HR ID-proof upload already do, and
+// generation runs as a fire-and-forget async job tracked by row counters,
+// the same shape as BankImportSession's rowsFound/rowsImported/rowsSkipped.
+
+model CertificateTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  imageDataUrl String   @db.Text // base64 data: URI of the uploaded template image
+  widthIn      Decimal  @db.Decimal(6, 3)
+  heightIn     Decimal  @db.Decimal(6, 3)
+  dpi          Int      @default(300)
+  fields       Json // array of {key,label,x,y,w,h,fontFamily,fontSizePt,bold,color,align,verticalAlign} — positions/sizes in inches, not browser pixels
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  jobs         CertificateJob[]
+
+  @@index([createdById])
+}
+
+enum CertificateJobStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model CertificateJob {
+  id             String               @id @default(cuid())
+  templateId     String
+  template       CertificateTemplate  @relation(fields: [templateId], references: [id])
+  fileName       String
+  rawRows        Json // parsed Excel/CSV rows (array of {column: value}), kept so generate can be re-run without re-uploading
+  columnMapping  Json // {fieldKey: excelColumnName}
+  sheetSettings  Json // {sheetWidthIn, sheetHeightIn, marginIn, gapIn, allowRotation}
+  invalidRowMode String               @default("SKIP") // SKIP | BLANK
+  rowsTotal      Int                  @default(0)
+  rowsGenerated  Int                  @default(0)
+  rowsFailed     Int                  @default(0)
+  status         CertificateJobStatus @default(DRAFT)
+  errorMessage   String?              @db.Text
+  resultPdfUrl   String?              @db.Text // base64 data URI of the final combined, imposed PDF
+  createdById    String
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([templateId])
+  @@index([status])
+}

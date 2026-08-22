@@ -44,6 +44,7 @@ import { CallComplianceModule } from './call-compliance/call-compliance.module';
 import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
 import { MachineReadingsModule } from './machine-readings/machine-readings.module';
 import { BillingModule } from './billing/billing.module';
+import { CertificateGeneratorModule } from './certificate-generator/certificate-generator.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { BillingModule } from './billing/billing.module';
     MarketingRoiModule,
     MachineReadingsModule,
     BillingModule,
+    CertificateGeneratorModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
