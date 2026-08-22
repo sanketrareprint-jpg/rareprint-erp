@@ -8,7 +8,7 @@
 // startGeneration(), updating row counters on the CertificateJob row as it
 // goes; the frontend polls getJobStatus() for progress, the same shape
 // already used by long-running Excel imports like BankImportSession.
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../prisma/prisma.service';
@@ -110,6 +110,8 @@ async function bufferFromPdfDoc(doc: PDFKit.PDFDocument): Promise<Buffer> {
 
 @Injectable()
 export class CertificateGeneratorService {
+  private readonly logger = new Logger(CertificateGeneratorService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   // ───────────────────────── Templates ─────────────────────────
@@ -391,6 +393,12 @@ export class CertificateGeneratorService {
 
     let rendered = 0;
     let failed = 0;
+    // Captured so a fully- or partially-failed batch still tells the user
+    // (and whoever reads the deploy logs) *why* — previously this caught
+    // and discarded the real error, so a batch that failed on every single
+    // row surfaced only as "0 generated / 100 skipped" with nothing to
+    // explain it, in the UI or in the logs.
+    let firstErrorMessage: string | null = null;
     const totalSheets = computeSheetCount(rowsToRender.length, imposition.perSheet);
 
     for (let sheetIndex = 0; sheetIndex < totalSheets; sheetIndex++) {
@@ -401,8 +409,11 @@ export class CertificateGeneratorService {
         try {
           drawCertificate(doc, slot.xIn, slot.yIn, certWidthIn, certHeightIn, imposition.rotated, templateImage, fields, values);
           rendered++;
-        } catch {
+        } catch (err) {
           failed++;
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error(`Row failed to render (job ${jobId}, sheet ${sheetIndex}, slot ${slotIndex}): ${message}`, err instanceof Error ? err.stack : undefined);
+          if (!firstErrorMessage) firstErrorMessage = message;
         }
       });
       // Persist progress once per sheet (not per certificate) so polling
@@ -418,7 +429,13 @@ export class CertificateGeneratorService {
 
     await this.prisma.certificateJob.update({
       where: { id: jobId },
-      data: { status: 'COMPLETED', rowsGenerated: rendered, rowsFailed: failed + excludedCount, resultPdfUrl },
+      data: {
+        status: 'COMPLETED',
+        rowsGenerated: rendered,
+        rowsFailed: failed + excludedCount,
+        resultPdfUrl,
+        errorMessage: failed > 0 ? `${failed} of ${rowsToRender.length} certificate(s) failed to render: ${firstErrorMessage}` : null,
+      },
     });
   }
 

@@ -974,9 +974,18 @@ function GenerateStep({ jobId, status, onStartOver }: { jobId: string; status: J
       {status.status === "COMPLETED" && (
         <div>
           <div className="flex items-center gap-2 text-green-700 font-semibold mb-1"><CheckCircle2 size={18} /> Done</div>
-          <div className="text-sm text-slate-600 mb-4">
+          <div className="text-sm text-slate-600 mb-2">
             {status.rowsTotal} records · {status.rowsGenerated} generated{status.rowsFailed > 0 && ` · ${status.rowsFailed} skipped/failed`}
           </div>
+          {status.rowsFailed > 0 && status.errorMessage && (
+            <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-4">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>{status.errorMessage}</span>
+            </div>
+          )}
+          {status.rowsGenerated === 0 && (
+            <div className="text-xs text-slate-500 mb-4">No certificates were generated — the downloaded PDF will only contain blank sheets. Fix the issue above and generate again.</div>
+          )}
           <a
             href={`${API_BASE_URL}/certificate-generator/jobs/${jobId}/download`}
             onClick={(e) => {
