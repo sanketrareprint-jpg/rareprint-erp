@@ -371,6 +371,7 @@ function EditorStep({
   const [saving, setSaving] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const toIn = (v: number) => (unit === "in" ? v : unit === "mm" ? v / 25.4 : v / 2.54);
   const fromIn = (v: number) => (unit === "in" ? v : unit === "mm" ? v * 25.4 : v * 2.54);
@@ -499,8 +500,9 @@ function EditorStep({
         <div className="text-xs text-slate-400 mb-2">{Math.round(pxW)}×{Math.round(pxH)}px at {dpi} DPI</div>
 
         {!template && (
-          <div className="mb-3">
+          <div className="mb-3 flex items-center gap-2">
             <input
+              ref={fileInputRef}
               type="file"
               accept="image/*"
               onChange={(e) => {
@@ -511,20 +513,34 @@ function EditorStep({
                   setImagePreview(url);
                 }
               }}
-              className="text-sm"
+              className="hidden"
             />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-3 py-1.5 rounded border text-sm font-semibold text-amber-700 border-amber-300 hover:bg-amber-50"
+            >
+              <Upload size={14} /> Choose template image
+            </button>
+            {file && <span className="text-xs text-slate-500">{file.name}</span>}
           </div>
         )}
 
         <div
           ref={containerRef}
-          onClick={() => setSelectedKey(null)}
+          onClick={() => {
+            if (!template && !imagePreview) {
+              fileInputRef.current?.click();
+              return;
+            }
+            setSelectedKey(null);
+          }}
           style={{ width: canvasWpx, height: canvasHpx, position: "relative", backgroundImage: imagePreview ? `url(${imagePreview})` : undefined, backgroundSize: "cover", backgroundColor: "#f8fafc" }}
-          className="border-2 border-slate-300 rounded overflow-hidden select-none"
+          className={`border-2 border-slate-300 rounded overflow-hidden select-none ${!template && !imagePreview ? "cursor-pointer hover:border-amber-400" : ""}`}
         >
           {!imagePreview && (
             <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm gap-2">
-              <Upload size={16} /> Upload a template image above
+              <Upload size={16} /> Click to upload a template image
             </div>
           )}
           {fields.map((f) => (
