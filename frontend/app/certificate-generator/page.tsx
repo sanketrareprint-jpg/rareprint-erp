@@ -658,6 +658,7 @@ function fromApiFields(raw: any[]): FieldConfig[] {
 function UploadStep({ templateId, onUploaded, onBack, setError }: { templateId: string; onUploaded: (r: JobUploadResult) => void; onBack: () => void; setError: (s: string | null) => void; }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const upload = async () => {
     if (!file) return setError("Please choose a .xlsx, .xls, or .csv file");
@@ -680,7 +681,25 @@ function UploadStep({ templateId, onUploaded, onBack, setError }: { templateId: 
   return (
     <div className="max-w-md">
       <p className="text-sm text-slate-600 mb-3">Upload the list of candidates/names for this batch (.xlsx, .xls, or .csv — first row must be column headers).</p>
-      <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm mb-3" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        className="hidden"
+      />
+      <div className="flex items-center gap-2 mb-1">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2 px-3 py-1.5 rounded border text-sm font-semibold text-amber-700 border-amber-300 hover:bg-amber-50"
+        >
+          <Upload size={14} /> Choose file
+        </button>
+        {file && <span className="text-xs text-slate-500">{file.name}</span>}
+      </div>
+      {!file && <p className="text-xs text-slate-400 mb-3">Choose a file above to enable Upload.</p>}
+      {file && <div className="mb-3" />}
       <div className="flex gap-2">
         <button onClick={onBack} className="px-3 py-2 rounded border text-sm font-semibold text-slate-600 flex items-center gap-1"><ArrowLeft size={14} /> Back</button>
         <button onClick={upload} disabled={uploading || !file} className="px-4 py-2 rounded bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1">
