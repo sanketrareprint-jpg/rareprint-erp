@@ -48,7 +48,15 @@ export function drawCertificate(
   certWidthIn: number,
   certHeightIn: number,
   rotated: boolean,
-  templateImage: Buffer,
+  // A file path, not raw image bytes — pdfkit only dedupes an embedded
+  // image across repeated doc.image() calls when given the same string
+  // source (it keys its internal registry by that string); a Buffer gets
+  // re-embedded as a fresh copy every single call, which is what caused
+  // one background image drawn on dozens of certificates to balloon the
+  // output into a 70-80MB PDF. Callers write the template image to a temp
+  // file once (see withTempImageFile in certificate-generator.service.ts)
+  // and pass that same path to every drawCertificate() call for a job.
+  templateImagePath: string,
   fields: CertificateField[],
   values: Record<string, string>,
 ): void {
@@ -76,7 +84,7 @@ export function drawCertificate(
     // Everything below is drawn in the certificate's own local
     // (0,0)-(wPt,hPt) frame — the save()/translate()/rotate() above places
     // that whole frame (image + text together) at the right spot on the sheet.
-    doc.image(templateImage, 0, 0, { width: wPt, height: hPt });
+    doc.image(templateImagePath, 0, 0, { width: wPt, height: hPt });
 
     for (const field of fields) {
       const value = values[field.key] ?? '';

@@ -11,6 +11,10 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import * as XLSX from 'xlsx';
+import { randomUUID } from 'crypto';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { registerCertificateFonts, FONT_FAMILIES, isFontFamily } from './fonts';
 import { drawCertificate, type CertificateField, type FieldAlign, type FieldVAlign } from './render';
@@ -108,6 +112,30 @@ async function bufferFromPdfDoc(doc: PDFKit.PDFDocument): Promise<Buffer> {
   });
 }
 
+// pdfkit only dedupes an embedded image across multiple doc.image() calls
+// when the source is a STRING (it keys an internal registry by the string
+// itself) — a Buffer source is re-opened and re-embedded as a brand-new
+// copy on every single call, with no caching at all (confirmed by reading
+// pdfkit's ImagesMixin.image()/openImage() directly). Since one certificate
+// template image gets drawn once per certificate — dozens of times per
+// job — passing the raw Buffer meant every certificate embedded its own
+// full copy of the template image: a 100-certificate batch from a ~1.5MB
+// template JPEG produced a 70-80MB PDF that was slow enough to blow past
+// Railway's request timeout on download ("Failed to fetch"). Writing the
+// image to a temp file once and passing that file PATH to every
+// drawCertificate() call instead lets pdfkit's own registry embed it a
+// single time and reference it from every certificate.
+async function withTempImageFile<T>(imageBuffer: Buffer, fn: (path: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'cert-tpl-'));
+  const filePath = join(dir, `${randomUUID()}.img`);
+  try {
+    await writeFile(filePath, imageBuffer);
+    return await fn(filePath);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 @Injectable()
 export class CertificateGeneratorService {
   private readonly logger = new Logger(CertificateGeneratorService.name);
@@ -190,12 +218,14 @@ export class CertificateGeneratorService {
     const templateImage = dataUrlToBuffer(template.imageDataUrl);
     const fields = template.fields as unknown as CertificateField[];
 
-    const doc = new PDFDocument({ size: [widthIn * 72, heightIn * 72], margin: 0 });
-    registerCertificateFonts(doc);
-    const pending = bufferFromPdfDoc(doc);
-    drawCertificate(doc, 0, 0, widthIn, heightIn, false, templateImage, fields, sampleValues ?? {});
-    doc.end();
-    return pending;
+    return withTempImageFile(templateImage, async (templateImagePath) => {
+      const doc = new PDFDocument({ size: [widthIn * 72, heightIn * 72], margin: 0 });
+      registerCertificateFonts(doc);
+      const pending = bufferFromPdfDoc(doc);
+      drawCertificate(doc, 0, 0, widthIn, heightIn, false, templateImagePath, fields, sampleValues ?? {});
+      doc.end();
+      return pending;
+    });
   }
 
   // ───────────────────────── Excel upload / mapping ─────────────────────────
@@ -387,55 +417,64 @@ export class CertificateGeneratorService {
     }
 
     const pageSize: [number, number] = [sheetSettings.sheetWidthIn * 72, sheetSettings.sheetHeightIn * 72];
-    const doc = new PDFDocument({ size: pageSize, margin: 0, bufferPages: true });
-    registerCertificateFonts(doc);
-    const pending = bufferFromPdfDoc(doc);
-
-    let rendered = 0;
-    let failed = 0;
-    // Captured so a fully- or partially-failed batch still tells the user
-    // (and whoever reads the deploy logs) *why* — previously this caught
-    // and discarded the real error, so a batch that failed on every single
-    // row surfaced only as "0 generated / 100 skipped" with nothing to
-    // explain it, in the UI or in the logs.
-    let firstErrorMessage: string | null = null;
     const totalSheets = computeSheetCount(rowsToRender.length, imposition.perSheet);
 
-    for (let sheetIndex = 0; sheetIndex < totalSheets; sheetIndex++) {
-      if (sheetIndex > 0) doc.addPage({ size: pageSize, margin: 0 });
-      const sheetRows = rowsToRender.slice(sheetIndex * imposition.perSheet, (sheetIndex + 1) * imposition.perSheet);
-      sheetRows.forEach((values, slotIndex) => {
-        const slot = imposition.slots[slotIndex];
-        try {
-          drawCertificate(doc, slot.xIn, slot.yIn, certWidthIn, certHeightIn, imposition.rotated, templateImage, fields, values);
-          rendered++;
-        } catch (err) {
-          failed++;
-          const message = err instanceof Error ? err.message : String(err);
-          this.logger.error(`Row failed to render (job ${jobId}, sheet ${sheetIndex}, slot ${slotIndex}): ${message}`, err instanceof Error ? err.stack : undefined);
-          if (!firstErrorMessage) firstErrorMessage = message;
-        }
+    // Writing the template image to a temp file once, and passing that path
+    // to every drawCertificate() call below, is what lets pdfkit embed it a
+    // single time and reuse it — see withTempImageFile's comment. Passing
+    // the raw Buffer instead (the previous approach) made pdfkit re-embed a
+    // full fresh copy of the image on every certificate, which is what
+    // ballooned a 100-certificate PDF to 70-80MB.
+    await withTempImageFile(templateImage, async (templateImagePath) => {
+      const doc = new PDFDocument({ size: pageSize, margin: 0, bufferPages: true });
+      registerCertificateFonts(doc);
+      const pending = bufferFromPdfDoc(doc);
+
+      let rendered = 0;
+      let failed = 0;
+      // Captured so a fully- or partially-failed batch still tells the user
+      // (and whoever reads the deploy logs) *why* — previously this caught
+      // and discarded the real error, so a batch that failed on every single
+      // row surfaced only as "0 generated / 100 skipped" with nothing to
+      // explain it, in the UI or in the logs.
+      let firstErrorMessage: string | null = null;
+
+      for (let sheetIndex = 0; sheetIndex < totalSheets; sheetIndex++) {
+        if (sheetIndex > 0) doc.addPage({ size: pageSize, margin: 0 });
+        const sheetRows = rowsToRender.slice(sheetIndex * imposition.perSheet, (sheetIndex + 1) * imposition.perSheet);
+        sheetRows.forEach((values, slotIndex) => {
+          const slot = imposition.slots[slotIndex];
+          try {
+            drawCertificate(doc, slot.xIn, slot.yIn, certWidthIn, certHeightIn, imposition.rotated, templateImagePath, fields, values);
+            rendered++;
+          } catch (err) {
+            failed++;
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.error(`Row failed to render (job ${jobId}, sheet ${sheetIndex}, slot ${slotIndex}): ${message}`, err instanceof Error ? err.stack : undefined);
+            if (!firstErrorMessage) firstErrorMessage = message;
+          }
+        });
+        // Persist progress once per sheet (not per certificate) so polling
+        // reflects real movement on large batches without hammering the DB.
+        await this.prisma.certificateJob
+          .update({ where: { id: jobId }, data: { rowsGenerated: rendered, rowsFailed: failed } })
+          .catch(() => undefined);
+      }
+
+      doc.end();
+      const pdfBuffer = await pending;
+      const resultPdfUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+
+      await this.prisma.certificateJob.update({
+        where: { id: jobId },
+        data: {
+          status: 'COMPLETED',
+          rowsGenerated: rendered,
+          rowsFailed: failed + excludedCount,
+          resultPdfUrl,
+          errorMessage: failed > 0 ? `${failed} of ${rowsToRender.length} certificate(s) failed to render: ${firstErrorMessage}` : null,
+        },
       });
-      // Persist progress once per sheet (not per certificate) so polling
-      // reflects real movement on large batches without hammering the DB.
-      await this.prisma.certificateJob
-        .update({ where: { id: jobId }, data: { rowsGenerated: rendered, rowsFailed: failed } })
-        .catch(() => undefined);
-    }
-
-    doc.end();
-    const pdfBuffer = await pending;
-    const resultPdfUrl = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-
-    await this.prisma.certificateJob.update({
-      where: { id: jobId },
-      data: {
-        status: 'COMPLETED',
-        rowsGenerated: rendered,
-        rowsFailed: failed + excludedCount,
-        resultPdfUrl,
-        errorMessage: failed > 0 ? `${failed} of ${rowsToRender.length} certificate(s) failed to render: ${firstErrorMessage}` : null,
-      },
     });
   }
 
