@@ -946,15 +946,28 @@ function computeImpositionPreview(s: SheetSettings, certWidthIn: number, certHei
 
 function GenerateStep({ jobId, status, onStartOver }: { jobId: string; status: JobStatus; onStartOver: () => void }) {
   const pct = status.rowsTotal > 0 ? Math.round(((status.rowsGenerated + status.rowsFailed) / status.rowsTotal) * 100) : 0;
+  // Once every row has been drawn onto the sheet pages, the server still has
+  // to close out the PDF, encode it, and save it before status flips to
+  // COMPLETED — that step doesn't move the row counters, so without this the
+  // bar sits at "100%" with no feedback and reads as frozen.
+  const finalizing = status.status === "PROCESSING" && pct >= 100;
 
   return (
     <div className="max-w-md">
       {status.status === "PROCESSING" && (
         <div>
           <div className="flex items-center gap-2 text-sm text-slate-600 mb-2">
-            <Loader2 className="animate-spin" size={16} /> Generating certificates… {status.rowsGenerated + status.rowsFailed} / {status.rowsTotal} ({pct}%)
+            <Loader2 className="animate-spin" size={16} />
+            {finalizing
+              ? "Finalizing the print-ready PDF…"
+              : `Generating certificates… ${status.rowsGenerated + status.rowsFailed} / ${status.rowsTotal} (${pct}%)`}
           </div>
           <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-amber-600" style={{ width: `${pct}%` }} /></div>
+          {finalizing && (
+            <p className="text-xs text-slate-400 mt-2">
+              All {status.rowsTotal} certificates are drawn — assembling and saving the combined sheet PDF now. This can take a bit longer for large batches or a heavy template image; keep this tab open.
+            </p>
+          )}
         </div>
       )}
 
