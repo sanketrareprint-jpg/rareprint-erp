@@ -58,38 +58,47 @@ export function drawCertificate(
   const hPt = certHeightIn * IN_TO_PT;
 
   doc.save();
-  if (rotated) {
-    doc.translate(slotXPt + hPt, slotYPt);
-    doc.rotate(90, { origin: [0, 0] });
-  } else {
-    doc.translate(slotXPt, slotYPt);
+  // try/finally guarantees this save() is always matched by a restore(),
+  // even if drawing throws partway through (e.g. a missing font file).
+  // Without this, a single failed certificate leaves pdfkit's internal
+  // transform stack unbalanced, and every certificate drawn afterward
+  // inherits the leftover translate/rotate on top of its own — which is
+  // what caused later certificates on a sheet to drift and end up
+  // positioned outside the page after an earlier one failed.
+  try {
+    if (rotated) {
+      doc.translate(slotXPt + hPt, slotYPt);
+      doc.rotate(90, { origin: [0, 0] });
+    } else {
+      doc.translate(slotXPt, slotYPt);
+    }
+
+    // Everything below is drawn in the certificate's own local
+    // (0,0)-(wPt,hPt) frame — the save()/translate()/rotate() above places
+    // that whole frame (image + text together) at the right spot on the sheet.
+    doc.image(templateImage, 0, 0, { width: wPt, height: hPt });
+
+    for (const field of fields) {
+      const value = values[field.key] ?? '';
+      if (!value) continue;
+
+      const fontName = resolveFontName(field.fontFamily, field.bold);
+      doc.font(fontName).fontSize(field.fontSizePt).fillColor(field.color);
+
+      const boxXPt = field.xIn * IN_TO_PT;
+      const boxYPt = field.yIn * IN_TO_PT;
+      const boxWPt = field.wIn * IN_TO_PT;
+      const boxHPt = field.hIn * IN_TO_PT;
+
+      const textOptions = { width: boxWPt, align: field.align, lineBreak: true } as const;
+      const textHeight = doc.heightOfString(value, textOptions);
+      let textYPt = boxYPt;
+      if (field.verticalAlign === 'middle') textYPt = boxYPt + Math.max(0, (boxHPt - textHeight) / 2);
+      else if (field.verticalAlign === 'bottom') textYPt = boxYPt + Math.max(0, boxHPt - textHeight);
+
+      doc.text(value, boxXPt, textYPt, textOptions);
+    }
+  } finally {
+    doc.restore();
   }
-
-  // Everything below is drawn in the certificate's own local (0,0)-(wPt,hPt)
-  // frame — the save()/translate()/rotate() above places that whole frame
-  // (image + text together) at the right spot on the sheet.
-  doc.image(templateImage, 0, 0, { width: wPt, height: hPt });
-
-  for (const field of fields) {
-    const value = values[field.key] ?? '';
-    if (!value) continue;
-
-    const fontName = resolveFontName(field.fontFamily, field.bold);
-    doc.font(fontName).fontSize(field.fontSizePt).fillColor(field.color);
-
-    const boxXPt = field.xIn * IN_TO_PT;
-    const boxYPt = field.yIn * IN_TO_PT;
-    const boxWPt = field.wIn * IN_TO_PT;
-    const boxHPt = field.hIn * IN_TO_PT;
-
-    const textOptions = { width: boxWPt, align: field.align, lineBreak: true } as const;
-    const textHeight = doc.heightOfString(value, textOptions);
-    let textYPt = boxYPt;
-    if (field.verticalAlign === 'middle') textYPt = boxYPt + Math.max(0, (boxHPt - textHeight) / 2);
-    else if (field.verticalAlign === 'bottom') textYPt = boxYPt + Math.max(0, boxHPt - textHeight);
-
-    doc.text(value, boxXPt, textYPt, textOptions);
-  }
-
-  doc.restore();
 }
