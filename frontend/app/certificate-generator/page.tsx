@@ -946,6 +946,26 @@ function computeImpositionPreview(s: SheetSettings, certWidthIn: number, certHei
 
 function GenerateStep({ jobId, status, onStartOver }: { jobId: string; status: JobStatus; onStartOver: () => void }) {
   const pct = status.rowsTotal > 0 ? Math.round(((status.rowsGenerated + status.rowsFailed) / status.rowsTotal) * 100) : 0;
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const download = async () => {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/certificate-generator/jobs/${jobId}/download`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `certificates-${jobId}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setDownloadError(e.message || "Download failed — please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
   // Once every row has been drawn onto the sheet pages, the server still has
   // to close out the PDF, encode it, and save it before status flips to
   // COMPLETED — that step doesn't move the row counters, so without this the
@@ -986,25 +1006,26 @@ function GenerateStep({ jobId, status, onStartOver }: { jobId: string; status: J
           {status.rowsGenerated === 0 && (
             <div className="text-xs text-slate-500 mb-4">No certificates were generated — the downloaded PDF will only contain blank sheets. Fix the issue above and generate again.</div>
           )}
-          <a
-            href={`${API_BASE_URL}/certificate-generator/jobs/${jobId}/download`}
-            onClick={(e) => {
-              // fetch with auth header, then trigger a normal download —
-              // a bare <a href> can't attach the Authorization header
-              e.preventDefault();
-              void (async () => {
-                const res = await fetch(`${API_BASE_URL}/certificate-generator/jobs/${jobId}/download`, { headers: getAuthHeaders() });
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url; a.download = `certificates-${jobId}.pdf`; a.click();
-                URL.revokeObjectURL(url);
-              })();
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700"
+          <button
+            type="button"
+            onClick={() => void download()}
+            disabled={downloading}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50"
           >
-            <Download size={16} /> Download print-ready PDF
-          </a>
+            {downloading ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
+            {downloading ? "Preparing download…" : "Download print-ready PDF"}
+          </button>
+          {downloading && (
+            <p className="text-xs text-slate-400 mt-2">
+              Fetching the full sheet PDF from the server — a {status.rowsTotal}-record batch with a detailed template image can take a little while. Keep this tab open.
+            </p>
+          )}
+          {downloadError && (
+            <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mt-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>{downloadError}</span>
+            </div>
+          )}
         </div>
       )}
 
