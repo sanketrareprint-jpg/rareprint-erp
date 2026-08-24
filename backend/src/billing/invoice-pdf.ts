@@ -297,6 +297,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     doc.rect(PAGE_MARGIN, y, colWidth, 17).fill(GREY);
     doc.rect(PAGE_MARGIN + colWidth, y, colWidth, 17).fill(GREY);
+    // Divider between the "Bill To:"/"Invoice Details:" labels and the
+    // customer/invoice details below them — same treatment as Terms And
+    // Conditions and Bank Details further down (added 2026-08-21; this one
+    // was missed in that pass since it's earlier in the document).
+    doc.moveTo(PAGE_MARGIN, y + 17).lineTo(PAGE_MARGIN + CONTENT_WIDTH, y + 17).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     // Left-column text padding reduced from an earlier +8 to +2 — the
     // reference's actual left-inset (measured from its text bbox x, ~1.9-
@@ -368,7 +373,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       }
     }
     let colX = tableX;
-    doc.rect(tableX, y, CONTENT_WIDTH, headerRowH).fill(GREY).stroke(BORDER);
+    // fillAndStroke (not .fill().stroke()) — PDFKit's .fill() immediately
+    // writes the PDF 'f' operator, which paints AND consumes the current
+    // path per the PDF spec, so a chained .stroke() right after has no path
+    // left to stroke and silently no-ops. .fillAndStroke() writes a single
+    // 'B' (fill+stroke) operator against the same path. This was why every
+    // grey header row's own border was invisible despite the code "drawing"
+    // it — root-caused 2026-08-21 across all 4 fill()+stroke() chains in
+    // this file (item header row, item Total row, tax header, tax TOTAL row).
+    doc.rect(tableX, y, CONTENT_WIDTH, headerRowH).fillAndStroke(GREY, BORDER);
     drawItemRowDividers(y, headerRowH);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
     for (const col of cols) {
@@ -432,7 +445,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     const totalRowH = 16;
     ensureSpace(totalRowH);
-    doc.rect(tableX, y, CONTENT_WIDTH, totalRowH).fill('#f8f8f8').stroke(BORDER);
+    doc.rect(tableX, y, CONTENT_WIDTH, totalRowH).fillAndStroke('#f8f8f8', BORDER);
     drawItemRowDividers(y, totalRowH);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
     // 'Total' starts past the '#' column (tableX+cols[0].width+3), not at the
@@ -557,7 +570,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     // Outer header rect + grey fill.
-    doc.rect(tableX, taxTableTop, leftWidth, taxHeaderH).fill(GREY).stroke(BORDER);
+    doc.rect(tableX, taxTableTop, leftWidth, taxHeaderH).fillAndStroke(GREY, BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.3);
 
     let hx = tableX;
@@ -643,7 +656,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       grandIgst += g.igst;
       grandTax += g.total;
     }
-    doc.rect(tableX, ty, leftWidth, taxRowH).fill('#f8f8f8').stroke(BORDER);
+    doc.rect(tableX, ty, leftWidth, taxRowH).fillAndStroke('#f8f8f8', BORDER);
     drawTaxRowDividers(ty, taxRowH);
     // .fill('#f8f8f8') above also sets the *current* fill color (PDFKit
     // shares one fillColor state between shapes and text) — without
