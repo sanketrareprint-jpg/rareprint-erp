@@ -649,4 +649,76 @@ export class WhatsAppService {
       return false;
     }
   }
+
+  // ── Events module (birthday / anniversary / festival flyer wishes) ───────
+  // One shared AiSensy WhatsApp template is reused for every occasion type
+  // (birthday, anniversary, every festival) — Sanket's choice, to minimise
+  // how many separate templates need Meta/AiSensy approval. That template
+  // MUST be created once in the AiSensy dashboard with an IMAGE header (the
+  // generated flyer is passed as `media.url`, exactly like
+  // sendDeliveryReviewRequest above — AiSensy fetches the image from that
+  // URL itself, it is never uploaded directly) and three body variables:
+  //   {{1}} person's name
+  //   {{2}} occasion label ("Birthday" / "Anniversary" / "Festival")
+  //   {{3}} a short extra line (years married/old if known, else repeats the
+  //         occasion label) — e.g. body text like:
+  //   "🎉 Happy {{2}}, {{1}}! {{3}} — Team RarePrint wishes you all the best."
+  // Set AISENSY_EVENTS_CAMPAIGN to whatever name that template is saved
+  // under in AiSensy (defaults to 'events_wish_erp'). Until that template
+  // exists and is approved, every call here will fail at AiSensy with an
+  // "unknown campaign" style error — this method still returns cleanly
+  // (sentToPerson/sentToOwner both false) rather than throwing, so a missing
+  // template never breaks the scheduler run for every other person that day.
+  async sendEventWish(params: {
+    customerName: string;
+    customerPhone: string;
+    imageUrl: string;
+    occasionLabel: string;
+    customMessage: string;
+  }): Promise<{ sentToPerson: boolean; sentToOwner: boolean }> {
+    const OWNER_PHONE = '919637318960';
+    const campaignName = process.env.AISENSY_EVENTS_CAMPAIGN ?? 'events_wish_erp';
+    const personPhone = this.normalizePhone(params.customerPhone);
+
+    const destinations: Array<{ phone: string; isOwner: boolean }> = [];
+    if (personPhone) destinations.push({ phone: personPhone, isOwner: false });
+    else this.logger.warn(`sendEventWish: invalid/missing WhatsApp number "${params.customerPhone}" for ${params.customerName}`);
+    if (!personPhone || personPhone !== OWNER_PHONE) destinations.push({ phone: OWNER_PHONE, isOwner: true });
+
+    let sentToPerson = false;
+    let sentToOwner = false;
+
+    for (const dest of destinations) {
+      const body = {
+        apiKey: AISENSY_API_KEY,
+        campaignName,
+        destination: dest.phone,
+        userName: params.customerName,
+        templateParams: [params.customerName, params.occasionLabel, params.customMessage],
+        source: 'rareprint-erp',
+        media: { url: params.imageUrl, filename: 'flyer.jpg' },
+        buttons: [],
+        carouselCards: [],
+        location: {},
+      };
+      try {
+        const res = await fetch(AISENSY_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          if (dest.isOwner) sentToOwner = true; else sentToPerson = true;
+          this.logger.log(`✅ Event wish (${params.occasionLabel}) sent to ${dest.phone}${dest.isOwner ? ' (owner)' : ''} for ${params.customerName}`);
+        } else {
+          this.logger.error(`❌ Event wish (${params.occasionLabel}) failed for ${dest.phone}: ${JSON.stringify(data)}`);
+        }
+      } catch (err) {
+        this.logger.error(`❌ Event wish (${params.occasionLabel}) error for ${dest.phone}: ${err}`);
+      }
+    }
+
+    return { sentToPerson, sentToOwner };
+  }
 }

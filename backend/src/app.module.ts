@@ -45,6 +45,7 @@ import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
 import { MachineReadingsModule } from './machine-readings/machine-readings.module';
 import { BillingModule } from './billing/billing.module';
 import { CertificateGeneratorModule } from './certificate-generator/certificate-generator.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { CertificateGeneratorModule } from './certificate-generator/certificate-
     MachineReadingsModule,
     BillingModule,
     CertificateGeneratorModule,
+    EventsModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

@@ -2880,3 +2880,104 @@ model CertificateJob {
   @@index([templateId])
   @@index([status])
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EVENTS MODULE (Birthday / Anniversary / Festival WhatsApp wishes)
+// ══════════════════════════════════════════════════════════════════════════════
+// Register a customer, friend, or anyone else with a DOB/anniversary date and a
+// WhatsApp number (EventPerson). A saved flyer template (background image +
+// variable NAME/PHOTO/text field positions — positions are fractions 0..1 of
+// the template image's own pixel dimensions, not inches/DPI like
+// CertificateTemplate, since this is composited to a raster JPEG for WhatsApp
+// and never printed) is rendered per person by events/flyer-render.ts (sharp:
+// composites the person's photo + rasterized text onto the template image)
+// and sent via WhatsAppService.sendEventWish — one shared AiSensy WhatsApp
+// template (AISENSY_EVENTS_CAMPAIGN) reused for birthdays, anniversaries, and
+// every festival, per Sanket's choice (least AiSensy/Meta approvals needed).
+// Images are stored as base64 data URIs, same convention as
+// CertificateTemplate.imageDataUrl / Order.dispatchProductPhoto.
+
+enum EventOccasionType {
+  BIRTHDAY
+  ANNIVERSARY
+  FESTIVAL
+}
+
+enum EventSendStatus {
+  SUCCESS
+  FAILED
+}
+
+model EventFlyerTemplate {
+  id           String            @id @default(cuid())
+  name         String
+  occasionType EventOccasionType
+  imageDataUrl String            @db.Text // base64 data: URI of the uploaded flyer background image
+  fields       Json // array of {key,label,type:'TEXT'|'PHOTO',x,y,w,h,fontFamily,fontSizePt,bold,color,align,verticalAlign,circle} — x/y/w/h are fractions (0..1) of the template image's own width/height, not pixels or inches
+  isActive     Boolean           @default(true)
+  createdById  String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  sendLogs     EventSendLog[]
+  festivals    Festival[]
+
+  @@index([occasionType])
+  @@index([createdById])
+}
+
+model EventPerson {
+  id              String         @id @default(cuid())
+  name            String
+  whatsappNumber  String
+  relation        String         @default("CUSTOMER") // free text, not an enum: CUSTOMER | FRIEND | OTHER | anything else Sanket wants to label people with
+  dob             DateTime?      @db.Date
+  anniversaryDate DateTime?      @db.Date
+  photoDataUrl    String?        @db.Text // base64 data: URI — used for both the birthday and anniversary flyer (one photo per person)
+  notes           String?        @db.Text
+  isActive        Boolean        @default(true) // paused people are skipped by the daily scheduler and festival broadcasts
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  sendLogs        EventSendLog[]
+
+  @@index([isActive])
+}
+
+model Festival {
+  id          String              @id @default(cuid())
+  name        String
+  date        DateTime            @db.Date // one specific calendar occurrence — re-added each year since festival dates shift (lunar calendar etc.); see Festival dates decision in project memory
+  templateId  String? // which flyer artwork to use for this specific festival (Diwali art vs. Christmas art) — nullable so a festival can be added before its template is designed; scheduler skips (and logs why) if still unset when the date arrives
+  template    EventFlyerTemplate? @relation(fields: [templateId], references: [id])
+  isActive    Boolean             @default(true)
+  sentAt      DateTime? // set once the scheduler has broadcast this occurrence, so a given row never sends twice
+  createdById String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  sendLogs    EventSendLog[]
+
+  @@index([date])
+  @@index([templateId])
+}
+
+model EventSendLog {
+  id                String              @id @default(cuid())
+  personId          String
+  person            EventPerson         @relation(fields: [personId], references: [id])
+  templateId        String?
+  template          EventFlyerTemplate? @relation(fields: [templateId], references: [id])
+  festivalId        String?
+  festival          Festival?           @relation(fields: [festivalId], references: [id])
+  occasionType      EventOccasionType
+  occasionYear      Int // calendar year this send covers — prevents re-sending the same birthday/anniversary twice in one year
+  recipientPhone    String
+  sentToOwner       Boolean             @default(false)
+  flyerImageDataUrl String?             @db.Text // the generated flyer — kept for the History view and served (base64-decoded) by the public flyer-image route AiSensy fetches from
+  status            EventSendStatus
+  errorMessage      String?             @db.Text
+  createdAt         DateTime            @default(now())
+
+  @@index([personId, occasionType, occasionYear])
+  @@index([festivalId])
+  @@index([createdAt])
+}

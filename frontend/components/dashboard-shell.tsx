@@ -9,7 +9,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -37,6 +37,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
     { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
     { label: "Certificates", href: "/certificate-generator", icon: Award },
+    { label: "Events",      href: "/events",                 icon: PartyPopper },
     { label: "Machine Readings", href: "/machine-readings", icon: Gauge },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Cost Table", href: "/cost-table",       icon: Table2 },
