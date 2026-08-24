@@ -365,9 +365,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       { key: 'Amount(₹)', width: 63.5, numeric: true },
     ];
     const tableX = PAGE_MARGIN;
-    // 15.7 (was 16) — matches the reference's item-header row height exactly
-    // (bbox bottom=252.70 vs top=237.00).
-    const headerRowH = 15.7;
+    // 16.5 (was 15.7) — re-measured 2026-08-21 against the reference's own
+    // rect() column-divider height (top=236.3, bottom=252.8) rather than
+    // the earlier text-bbox estimate, which undershot by 0.8pt and
+    // propagated through every row below it.
+    const headerRowH = 16.5;
     ensureSpace(headerRowH + 26);
     // Vertical column-separator lines for a header/data/total row — rect()
     // only draws each row's outer box, so without this every internal
@@ -403,7 +405,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     let totalGst = 0;
 
     const agentNote = sanitize(data.agentName);
-    const itemRowH = 28; // two lines: product name + "(agent)" note, and GST amount + rate%.
+    // 27.7 (was 28) — re-measured 2026-08-21 against the reference's own
+    // rect() column-divider height for this row.
+    const itemRowH = 27.7; // two lines: product name + "(agent)" note, and GST amount + rate%.
 
     doc.font('Body').fontSize(8);
     for (let i = 0; i < data.items.length; i++) {
@@ -451,7 +455,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       totalGst += gstAmt;
     }
 
-    const totalRowH = 16;
+    // 15.7 (was 16) — re-measured 2026-08-21 against the reference's own
+    // rect() column-divider height for this row.
+    const totalRowH = 15.7;
     ensureSpace(totalRowH);
     doc.rect(tableX, y, CONTENT_WIDTH, totalRowH).fillAndStroke('#f8f8f8', BORDER);
     drawItemRowDividers(y, totalRowH);
@@ -479,12 +485,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       { width: cols[7].width - 6, height: 11, ellipsis: true, align: 'right' },
     );
     y += totalRowH;
-    // 2.92 (was 4, briefly 2.22) — re-measured 2026-08-21 against a real
-    // generated PDF vs the reference: "Sub Total"/"Total"/every row in the
-    // right-side summary box was landing a uniform 1.78pt too low; the
-    // first correction (4→2.22) over-shot to -0.70, so this splits the
-    // difference at 2.92.
-    y += 2.92;
+    // 2.69 (was 2.92) — re-tuned after fixing headerRowH/itemRowH/totalRowH
+    // above (net +0.2pt shift to this row's bottom), so rightBoxTop/"Sub
+    // Total" still lands on its already-verified target (298.92).
+    y += 2.69;
 
     // ── 5. Tax Summary ───────────────────────────────────────────────────
     ensureSpace(18);
@@ -505,12 +509,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // isn't declared until after the isInterState branch just below — kept
     // in sync with it manually; see the `const leftWidth = 370.5` comment
     // a few lines down for the measurement this value comes from.
-    doc.moveTo(tableX + 370.5, y).lineTo(tableX + 370.5, y + 13.78).stroke(BORDER);
-    // 13.78 (was 12) — re-measured directly against a fresh render so
-    // taxTableTop (the two-tier header's actual top) lands exactly where it
-    // already measured correctly (312.73) rather than moving with the
-    // rightBoxTop gap change above.
-    y += 13.78;
+    doc.moveTo(tableX + 370.5, y).lineTo(tableX + 370.5, y + 13.88).stroke(BORDER);
+    // 13.88 (was 13.78) — re-tuned along with the gap above so taxTableTop
+    // (the two-tier header's actual top) still lands on its verified target
+    // (312.8).
+    y += 13.88;
 
     const isInterState = data.gstTreatment === 'INTER_STATE' || data.gstTreatment === 'EXPORT';
     // leftWidth was previously CONTENT_WIDTH*0.58 (a guess) — the reference
@@ -559,10 +562,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // Rate(%)/Amt(₹) sub-headers in row 2). Both header rows measure ~16pt
     // each in the reference (a much taller 2-tier header than a flattened
     // single-row one would need). See docs/Invoice_PDF_Replication_Spec.md §5.
-    const taxRow1H = 16;
-    const taxRow2H = 16;
+    // 15.35 each (was 16) — re-measured 2026-08-21: the reference's own
+    // merged HSN/SAC cell rect() is 30.7pt tall total (312.8 to 343.5), not
+    // 32.
+    const taxRow1H = 15.35;
+    const taxRow2H = 15.35;
     const taxHeaderH = taxRow1H + taxRow2H;
-    const taxRowH = 16;
+    // 15.7 (was 16) — matches the reference's own tax data/TOTAL row rect()
+    // height exactly.
+    const taxRowH = 15.7;
 
     // Column widths measured directly from the reference's data-row cell
     // edges (right-aligned cells' xMax + a ~2pt inset = the true column
@@ -649,6 +657,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       }
     }
 
+    // NOTE: the reference's own rect() extraction shows its tax data rows
+    // starting ~0.8pt below the header's bottom edge (343.5 -> 344.3)
+    // rather than flush against it. Left flush here deliberately — every
+    // other adjacent-box boundary in this document (item table rows, Terms/
+    // Bank Details) shares a single border line by design, and introducing
+    // a real gap here would look like a regression of that same fix
+    // elsewhere. Treating the reference's 0.8pt as rendering noise, not an
+    // intentional gap, unless a visual check says otherwise.
     let ty = taxTableTop + taxHeaderH;
     doc.font('Body').fontSize(7);
     let grandTaxable = 0;
