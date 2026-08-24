@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CustomerDirectoryService } from './customer-directory.service';
 
@@ -37,5 +37,13 @@ export class CustomerDirectoryController {
   @Post('sync-locations')
   syncLocations() {
     return this.service.syncLocationsFromAddresses();
+  }
+
+  @Patch(':id/address')
+  updateAddress(
+    @Param('id') id: string,
+    @Body() body: { shippingAddress?: string; city?: string; state?: string; pincode?: string },
+  ) {
+    return this.service.updateAddress(id, body);
   }
 }

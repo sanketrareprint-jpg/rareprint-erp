@@ -5,7 +5,7 @@ import { MobileSelect } from "@/components/MobileSelect";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
-import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck, IndianRupee } from "lucide-react";
+import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck, IndianRupee, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
@@ -56,6 +56,8 @@ type DispatchOrder = {
   id: string; orderNo: string; customerName: string;
   customerPhone?: string; salesAgentName?: string;
   shipTo: string; weightKg: number; orderDate: string;
+  customerId: string; customerShippingAddress: string | null;
+  customerCity: string | null; customerState: string | null; customerPincode: string | null;
   totalItems: number; readyItems: ReadyItem[];
   dispatchType?: DispatchMethod;
   paymentType?: "COD" | "PREPAID";
@@ -164,6 +166,16 @@ export default function DispatchPage() {
   const [addressOverrideForm, setAddressOverrideForm] = useState<Record<string, {
     receiverName: string; receiverPhone: string; address: string; city: string; state: string; pincode: string;
   }>>({});
+  // "Edit address" — fixes the customer's actual stored address/pincode
+  // (Customer.shippingAddress/city/state/pincode) before dispatching, since
+  // that's genuinely wrong data, not a one-off delivery elsewhere. Different
+  // from "Ship to a different address" above: this persists to the customer
+  // record and affects every future order for them, not just this shipment.
+  const [editAddressOpenId, setEditAddressOpenId] = useState<string | null>(null);
+  const [editAddressForm, setEditAddressForm] = useState<Record<string, {
+    shippingAddress: string; city: string; state: string; pincode: string;
+  }>>({});
+  const [savingAddressId, setSavingAddressId] = useState<string | null>(null);
   const [dispatchMethod, setDispatchMethod] = useState<Record<string, DispatchMethod>>({});
   const [transportForm, setTransportForm] = useState<Record<string, TransportForm>>({});
   const [directForm, setDirectForm] = useState<Record<string, DirectForm>>({});
@@ -442,6 +454,46 @@ export default function DispatchPage() {
     finally { setLoading(false); }
   }, [router]);
 
+  const openEditAddress = (o: DispatchOrder) => {
+    setEditAddressForm(prev => ({
+      ...prev,
+      [o.id]: {
+        shippingAddress: o.customerShippingAddress ?? o.shipTo ?? "",
+        city: o.customerCity ?? "",
+        state: o.customerState ?? "",
+        pincode: o.customerPincode ?? "",
+      },
+    }));
+    setEditAddressOpenId(o.id);
+  };
+
+  const saveEditAddress = async (o: DispatchOrder) => {
+    const form = editAddressForm[o.id];
+    if (!form) return;
+    if (form.pincode && !/^\d{6}$/.test(form.pincode.trim())) {
+      alert("Pincode must be 6 digits");
+      return;
+    }
+    setSavingAddressId(o.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/customer-directory/${o.customerId}/address`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(errText || "Failed to update address");
+      }
+      setEditAddressOpenId(null);
+      await load();
+    } catch (e) {
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSavingAddressId(null);
+    }
+  };
+
   // With no search term this is still just the 100 most recently created
   // shipments (same as before). With a search term, it hits the backend's
   // `search` param instead, which queries the full table (not capped to
@@ -655,7 +707,18 @@ export default function DispatchPage() {
         return;
       }
       const result = await res.json();
-      alert(`✅ Dispatched! Shipment: ${result.shipmentNumber} via ${result.carrierName}`);
+      // courierBookingWarning is set whenever the courier never actually
+      // returned a real tracking number (booking rejected/failed on their
+      // side) -- without this, the ERP said "Dispatched!" unconditionally
+      // even when nothing was actually booked with the courier, and the
+      // only "number" shown was this ERP's own internal shipment
+      // reference, not a real AWB. Confirmed via a real order booked
+      // through Fship that never showed up in Fship's own dashboard.
+      if (result.courierBookingWarning) {
+        alert(`⚠️ Recorded in the ERP, but the courier did NOT confirm this booking:\n\n${result.courierBookingWarning}\n\nShipment ref: ${result.shipmentNumber} (this is our internal reference, not a courier tracking number). Check the courier's balance/dashboard before assuming this is actually shipped.`);
+      } else {
+        alert(`✅ Dispatched! AWB: ${result.awbNumber ?? "pending"} via ${result.carrierName}\n(Shipment ref: ${result.shipmentNumber})`);
+      }
       await load();
     } finally { setBookingId(null); }
   }
@@ -1241,8 +1304,16 @@ export default function DispatchPage() {
                         {o.shipTo && o.shipTo !== "—" && (
                           <span className="text-[10px] text-slate-500 flex items-center gap-0.5 truncate max-w-[300px]">
                             <MapPin className="h-2.5 w-2.5 shrink-0" />{o.shipTo}
+                            {o.customerPincode && <span className="text-slate-400">· {o.customerPincode}</span>}
                           </span>
                         )}
+                        <button
+                          onClick={() => editAddressOpenId === o.id ? setEditAddressOpenId(null) : openEditAddress(o)}
+                          className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 hover:text-blue-800"
+                          title="Edit this customer's address/pincode"
+                        >
+                          <Pencil className="h-2.5 w-2.5" /> Edit address
+                        </button>
                       </div>
                       {/* Right: weight + pickup */}
                       <div className="flex items-center gap-3 text-[10px] text-slate-500 shrink-0">
@@ -1273,6 +1344,37 @@ export default function DispatchPage() {
                       </button>
                       </div>
                     </div>
+
+                    {editAddressOpenId === o.id && (() => {
+                      const form = editAddressForm[o.id] || { shippingAddress: "", city: "", state: "", pincode: "" };
+                      const setForm = (patch: Partial<typeof form>) =>
+                        setEditAddressForm(prev => ({ ...prev, [o.id]: { ...form, ...patch } }));
+                      return (
+                        <div className="px-3 py-3 border-b border-slate-100 bg-blue-50/50 space-y-2">
+                          <p className="text-[11px] font-semibold text-slate-600">
+                            Edit address for {o.customerName} — this updates their saved address, used on every order, not just this one.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input value={form.shippingAddress} onChange={e => setForm({ shippingAddress: e.target.value })}
+                              placeholder="Address" className="sm:col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+                            <input value={form.city} onChange={e => setForm({ city: e.target.value })}
+                              placeholder="City" className="rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+                            <input value={form.state} onChange={e => setForm({ state: e.target.value })}
+                              placeholder="State" className="rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+                            <input value={form.pincode} inputMode="numeric" maxLength={6}
+                              onChange={e => setForm({ pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                              placeholder="Pincode" className="rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => saveEditAddress(o)} disabled={savingAddressId === o.id}
+                              className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                              {savingAddressId === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Save address
+                            </button>
+                            <button onClick={() => setEditAddressOpenId(null)} className="text-[11px] text-slate-500 hover:text-slate-700">Cancel</button>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* ── Items (compact rows) ── */}
                     <div className="px-3 py-2 border-b border-slate-100">

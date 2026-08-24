@@ -334,4 +334,35 @@ export class CustomerDirectoryService {
 
     return { scanned: customers.length, updated };
   }
+
+  // Used by Dispatch's "Edit address" — the delivery address shown in the
+  // Dispatch Queue comes straight from Customer.shippingAddress/city/state/
+  // pincode (Order has no address fields of its own), so fixing a wrong
+  // address/pincode before booking a shipment means editing the customer
+  // record here. This intentionally changes the address for ALL of that
+  // customer's orders, not just the one being dispatched — for a one-off
+  // delivery to a different address without touching the customer's master
+  // record, use the existing "Ship to a different address" override on the
+  // Dispatch card instead.
+  async updateAddress(
+    id: string,
+    dto: { shippingAddress?: string; city?: string; state?: string; pincode?: string },
+  ) {
+    const customer = await this.prisma.customer.findUnique({ where: { id } });
+    if (!customer) throw new BadRequestException('Customer not found');
+
+    if (dto.pincode !== undefined && dto.pincode.trim() && !/^\d{6}$/.test(dto.pincode.trim())) {
+      throw new BadRequestException('Pincode must be 6 digits');
+    }
+
+    return this.prisma.customer.update({
+      where: { id },
+      data: {
+        ...(dto.shippingAddress !== undefined ? { shippingAddress: clean(dto.shippingAddress) } : {}),
+        ...(dto.city !== undefined ? { city: clean(dto.city) } : {}),
+        ...(dto.state !== undefined ? { state: clean(dto.state) } : {}),
+        ...(dto.pincode !== undefined ? { pincode: clean(dto.pincode) } : {}),
+      },
+    });
+  }
 }

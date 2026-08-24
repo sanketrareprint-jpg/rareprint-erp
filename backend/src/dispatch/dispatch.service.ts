@@ -478,6 +478,12 @@ export class DispatchService {
       id: string; orderNo: string; customerName: string;
       customerPhone: string | null; salesAgentName: string | null;
       shipTo: string; weightKg: number; orderDate: string;
+      // For Dispatch's "Edit address" — the address shown as shipTo lives on
+      // Customer, not Order, so editing it needs the customer id plus the
+      // individual fields to pre-fill the edit form (shipTo is just the
+      // merged display string).
+      customerId: string; customerShippingAddress: string | null;
+      customerCity: string | null; customerState: string | null; customerPincode: string | null;
       totalItems: number; readyItemsCount: number;
       dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
       paymentType: 'COD' | 'PREPAID';
@@ -546,6 +552,11 @@ export class DispatchService {
         customerPhone: o.customer.phone,
         salesAgentName: o.salesAgent?.fullName ?? null,
         shipTo: o.customer.shippingAddress ?? o.customer.billingAddress ?? '—',
+        customerId: o.customer.id,
+        customerShippingAddress: o.customer.shippingAddress,
+        customerCity: o.customer.city,
+        customerState: o.customer.state,
+        customerPincode: o.customer.pincode,
         weightKg: this.weightKgFromItems(readyItems),
         orderDate: o.orderDate.toISOString(),
         totalItems: o.items.length,
@@ -1099,7 +1110,7 @@ export class DispatchService {
       }
     }
 
-    let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus };
+    let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus; awbNumber: string | null; courierBookingWarning: string | null };
     try {
       result = await this.prisma.$transaction(async (tx) => {
         await tx.shipment.create({
@@ -1187,7 +1198,25 @@ export class DispatchService {
           },
         });
 
-        return { shipmentNumber, carrierName: picked.carrierName, amount: picked.amount, newStatus };
+        return {
+          shipmentNumber, carrierName: picked.carrierName, amount: picked.amount, newStatus,
+          awbNumber,
+          // Surfaces the specific carrier-side failure reason (already
+          // recorded in the Shipment's own notes field above) directly in
+          // the API response too, so the booking UI can warn the dispatcher
+          // immediately instead of silently saying "Dispatched!" when the
+          // courier never actually accepted the shipment -- no real AWB
+          // came back, so nothing was actually booked with them, even
+          // though the ERP recorded the attempt. Previously the frontend
+          // had no way to tell these two outcomes apart at all. Confirmed
+          // via a real order: Fship returned no waybill (recharge didn't
+          // fix it), the ERP still said "Dispatched!", and the AWB the
+          // dispatcher searched in Fship's dashboard was actually this
+          // ERP's own internal shipmentNumber, not anything Fship issued.
+          courierBookingWarning: awbNumber
+            ? null
+            : (shiprocketNote.trim() || 'Courier did not return a tracking number -- recorded in the ERP, but this shipment may not actually be booked with the courier yet.'),
+        };
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not save courier dispatch';
