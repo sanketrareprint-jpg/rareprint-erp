@@ -510,7 +510,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // isn't declared until after the isInterState branch just below — kept
     // in sync with it manually; see the `const leftWidth = 370.5` comment
     // a few lines down for the measurement this value comes from.
-    doc.moveTo(tableX + 370.5, y).lineTo(tableX + 370.5, y + 13.88).stroke(BORDER);
+    // Starts at y - 2.69 (the item table's own Total row bottom border,
+    // before the small gap this section's rightBoxTop adds) rather than at
+    // y itself, so the top of this vertical line actually touches the
+    // horizontal line above it instead of floating 2.69pt below it.
+    doc.moveTo(tableX + 370.5, y - 2.69).lineTo(tableX + 370.5, y + 13.88).stroke(BORDER);
     // 13.88 (was 13.78) — re-tuned along with the gap above so taxTableTop
     // (the two-tier header's actual top) still lands on its verified target
     // (312.8).
@@ -767,8 +771,16 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // right-box's own text column, matching the reference's actual width.
     const rightDividerX0 = tableX + leftWidth;
     const rightDividerX1 = tableX + CONTENT_WIDTH;
-    function rightDivider(atY: number) {
-      doc.moveTo(rightDividerX0, atY).lineTo(rightDividerX1, atY).stroke(BORDER);
+    // rightDivider(ry) previously drew the line flush with the NEXT row's
+    // text-top (ry itself), leaving zero clearance from the row above —
+    // PDFKit's text "top" y already sits close to the cap-height, so at
+    // that offset the line visually cut through the row above it (reported
+    // as text rendering with a line "through" it). The reference's own
+    // divider positions (311.3/327.0/342.8/368.3) sit a consistent 3.37pt
+    // *before* the following row's text-top (314.67/330.42/346.17/371.67),
+    // not flush with it — this offsets every call to match.
+    function rightDivider(nextRowTextY: number) {
+      doc.moveTo(rightDividerX0, nextRowTextY - 3.37).lineTo(rightDividerX1, nextRowTextY - 3.37).stroke(BORDER);
     }
 
     let ry = rightBoxTop;
