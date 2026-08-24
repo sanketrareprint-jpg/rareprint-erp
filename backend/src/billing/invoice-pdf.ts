@@ -209,12 +209,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // fontSize by this factor brings both dimensions much closer without
     // needing a separate (heavier) font file.
     doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
-    // y+7 (was y+3) — the old offset was tuned for fontSize(18); shrinking to
-    // 14.5 for the height-correction left the title sitting ~4pt too high
-    // relative to the reference (measured: ref baseline y=42.10 vs our
-    // y=38.0 at the old offset), which read as the text looking vertically
-    // "stretched" against the overlay since the two baselines don't line up.
-    boldText('Invoice', PAGE_MARGIN, y + 7, { align: 'center', width: CONTENT_WIDTH });
+    // y+8.4 (was y+7) — re-measured 2026-08-21 against a real generated PDF
+    // vs the reference via pdftotext bbox: reference title text top=42.10,
+    // ours was landing at 40.70 (1.4pt too high).
+    boldText('Invoice', PAGE_MARGIN, y + 8.4, { align: 'center', width: CONTENT_WIDTH });
     // 34.9 (was 34) — re-measured 2026-08-21 against the reference's actual
     // header-box rect() top edge (y=68.6, via pikepdf content-stream
     // extraction) rather than a text-based estimate; this offset is the
@@ -290,13 +288,23 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     y += 0.4;
 
     // ── 3. Bill To / Invoice Details row ────────────────────────────────
-    const biRowHeight = 77;
+    // 75.8 (was 77) — re-measured 2026-08-21 against a real generated PDF vs
+    // the reference: the reference's Bill To/Invoice Details box actually
+    // closes at y=230.3 (pikepdf rect extraction), 1.2pt earlier than 77
+    // was landing.
+    const biRowHeight = 75.8;
     const colWidth = CONTENT_WIDTH / 2;
     doc.rect(PAGE_MARGIN, y, CONTENT_WIDTH, biRowHeight).stroke(BORDER);
-    doc.moveTo(PAGE_MARGIN + colWidth, y).lineTo(PAGE_MARGIN + colWidth, y + biRowHeight).stroke(BORDER);
-
+    // Grey label fills drawn BEFORE the vertical/horizontal dividers below —
+    // fill() paints an opaque rectangle, so if the dividers were drawn
+    // first (as an earlier pass had it), the fill silently painted over
+    // whatever portion of them fell within the label band, making the
+    // column separator look like it "didn't reach the top" of the row even
+    // though the moveTo/lineTo call itself was correct. Root-caused
+    // 2026-08-21 — same fix applied to Bank Details/For Company below.
     doc.rect(PAGE_MARGIN, y, colWidth, 17).fill(GREY);
     doc.rect(PAGE_MARGIN + colWidth, y, colWidth, 17).fill(GREY);
+    doc.moveTo(PAGE_MARGIN + colWidth, y).lineTo(PAGE_MARGIN + colWidth, y + biRowHeight).stroke(BORDER);
     // Divider between the "Bill To:"/"Invoice Details:" labels and the
     // customer/invoice details below them — same treatment as Terms And
     // Conditions and Bank Details further down (added 2026-08-21; this one
@@ -331,11 +339,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     labelBoldValue('Place of Supply: ', sanitize(data.customerState) || '-', PAGE_MARGIN + colWidth + 5, y + 46, 9);
 
     y += biRowHeight;
-    // 5.5 (was 4) — re-measured 2026-08-21 against the reference's item
-    // table header row top edge (y=237.00, via pdftotext bbox on the header
-    // cell text) rather than assumed — the old 4pt gap left the item table
-    // starting 2.4pt too early relative to the reference.
-    y += 5.5;
+    // 6.0 (was 5.5) — re-measured 2026-08-21 against a real generated PDF vs
+    // the reference: the reference's item table header row actually starts
+    // at y=236.3 (pikepdf rect extraction), paired with the biRowHeight fix
+    // above.
+    y += 6.0;
 
     // ── 4. Line items table ─────────────────────────────────────────────
     // 8 columns — no separate Ad.CESS column in this template (dropped vs.
@@ -471,9 +479,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       { width: cols[7].width - 6, height: 11, ellipsis: true, align: 'right' },
     );
     y += totalRowH;
-    // Small gap before the "Tax Summary:" label (matches the reference's
-    // ~4pt gap between the item Total row and the label text).
-    y += 4;
+    // 2.92 (was 4, briefly 2.22) — re-measured 2026-08-21 against a real
+    // generated PDF vs the reference: "Sub Total"/"Total"/every row in the
+    // right-side summary box was landing a uniform 1.78pt too low; the
+    // first correction (4→2.22) over-shot to -0.70, so this splits the
+    // difference at 2.92.
+    y += 2.92;
 
     // ── 5. Tax Summary ───────────────────────────────────────────────────
     ensureSpace(18);
@@ -484,7 +495,22 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const rightBoxTop = y;
     doc.font('Body-Bold').fontSize(7.3).fillColor(BORDER);
     boldText('Tax Summary:', tableX, y);
-    y += 12;
+    // Vertical separator between the tax table and the right-side summary
+    // box, extended UP to also cover this label row (previously only drawn
+    // starting at taxTableTop below, so it visibly stopped short of "Tax
+    // Summary:"/"Sub Total" — the same title-row/vertical-separator issue
+    // as Bill To and Bank Details, just via a different code path here
+    // since this side has no rect() of its own to draw it accidentally).
+    // Hardcoded 370.5 here (not the `leftWidth` const) since that const
+    // isn't declared until after the isInterState branch just below — kept
+    // in sync with it manually; see the `const leftWidth = 370.5` comment
+    // a few lines down for the measurement this value comes from.
+    doc.moveTo(tableX + 370.5, y).lineTo(tableX + 370.5, y + 13.78).stroke(BORDER);
+    // 13.78 (was 12) — re-measured directly against a fresh render so
+    // taxTableTop (the two-tier header's actual top) lands exactly where it
+    // already measured correctly (312.73) rather than moving with the
+    // rightBoxTop gap change above.
+    y += 13.78;
 
     const isInterState = data.gstTreatment === 'INTER_STATE' || data.gstTreatment === 'EXPORT';
     // leftWidth was previously CONTENT_WIDTH*0.58 (a guess) — the reference
@@ -732,6 +758,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     rightDivider(ry);
     doc.font('Body').fontSize(7.5).text(amountInWords(data.totalAmount), rightX, ry, { width: rightWidth, height: 24 });
     ry += 25.5;
+    // 4th right-box divider, below the amount-in-words text and before
+    // Received — missed in the earlier pass (only 3 were added then); the
+    // reference has one here too (pikepdf thin-rect extraction, y=368.3).
+    rightDivider(ry);
     summaryRow('Received', rupee(data.paidAmount));
     ry += 15;
     summaryRow('Balance', rupee(data.balanceAmount), { bold: true });
@@ -764,11 +794,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // covers the tax table's own leftWidth; this line completes the rest.
     doc.moveTo(rightDividerX0, sectionBottom).lineTo(tableX + CONTENT_WIDTH, sectionBottom).stroke(BORDER);
 
-    // +7.32 (was +10.35) — re-measured 2026-08-21 after fixing the upstream
-    // header-box/item-table gap constants (which shifted this whole chain
-    // down): re-checked against the reference's Terms row rect() top edge
-    // (y=435.80) with a fresh render, the 10.35 value now overshot by 3.03pt.
-    y = sectionBottom + 7.32;
+    // +9.10 (was +7.32) — re-measured directly against a fresh render: the
+    // reference's Terms row top is y=435.80; after the item-Total→
+    // rightBoxTop and taxTableTop gap changes above, this landed at 435.10,
+    // so +0.70 more closes the remaining gap exactly.
+    y = sectionBottom + 9.1;
 
     // ── 6. Terms And Conditions row (full width — no separate Description
     // column any more; the sales-agent note moved into the item table, §4) ──
@@ -780,7 +810,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // below it — the grey fill alone only implies a boundary via color; the
     // reference draws an actual line there (matches the same treatment
     // added to Bank Details/For Company below).
-    doc.moveTo(tableX, y + 17).lineTo(tableX + CONTENT_WIDTH, y + 17).stroke(BORDER);
+    // 15.7 (was 17) — re-measured 2026-08-21 against a real generated PDF vs
+    // the reference: the reference's divider sits at y=451.5, 1.3pt above
+    // where +17 (matching the grey fill's own height) was landing — the
+    // fill height and the divider position aren't quite the same value in
+    // the reference.
+    doc.moveTo(tableX, y + 15.7).lineTo(tableX + CONTENT_WIDTH, y + 15.7).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     boldText('Terms And Conditions:', tableX + 2, y + 4);
     doc.font('Body').fontSize(8);
@@ -792,14 +827,20 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // ── 7. Bank Details / Signature row ──────────────────────────────────
     ensureSpace(80);
     const bsRowH = 80;
-    doc.rect(tableX, y, colWidth, bsRowH).stroke(BORDER);
-    doc.rect(tableX + colWidth, y, colWidth, bsRowH).stroke(BORDER);
+    // Grey fills drawn BEFORE the two rect() borders below — same fix as
+    // Bill To/Invoice Details above: fill() paints an opaque rectangle, so
+    // drawing the borders first let the fill blank out the portion of the
+    // shared vertical divider (between Bank Details and For <Company>) that
+    // fell inside the label band, making it look like the separator "didn't
+    // reach the top" of the row.
     doc.rect(tableX, y, colWidth, 17).fill(GREY);
     doc.rect(tableX + colWidth, y, colWidth, 17).fill(GREY);
+    doc.rect(tableX, y, colWidth, bsRowH).stroke(BORDER);
+    doc.rect(tableX + colWidth, y, colWidth, bsRowH).stroke(BORDER);
     // Same label/value divider treatment as Terms And Conditions above —
     // full width so it also crosses (and reinforces) the vertical divider
     // between the Bank Details and For <Company> columns.
-    doc.moveTo(tableX, y + 17).lineTo(tableX + CONTENT_WIDTH, y + 17).stroke(BORDER);
+    doc.moveTo(tableX, y + 15.7).lineTo(tableX + CONTENT_WIDTH, y + 15.7).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     boldText('Bank Details:', tableX + 2, y + 4);
     boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 6, y + 4);
