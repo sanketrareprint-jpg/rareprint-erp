@@ -311,32 +311,33 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // was missed in that pass since it's earlier in the document).
     doc.moveTo(PAGE_MARGIN, y + 17).lineTo(PAGE_MARGIN + CONTENT_WIDTH, y + 17).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
-    // Left-column text padding reduced from an earlier +8 to +2 — the
-    // reference's actual left-inset (measured from its text bbox x, ~1.9-
-    // 2.6pt from the border) is much tighter than that; +8 was visibly
-    // shifting the whole Bill To block right of the original in an overlay
-    // diff.
-    boldText('Bill To:', PAGE_MARGIN + 2, y + 5);
-    boldText('Invoice Details:', PAGE_MARGIN + colWidth + 5, y + 5);
+    // Left-column text padding: +8 -> +2 (an earlier pass) -> +3.2 (this
+    // one). Re-measured 2026-08-21 against a real generated PDF vs the
+    // reference via pdftotext xMin on every line in this column (label,
+    // customer name, address, contact, state) — all showed the exact same
+    // -1.19pt delta at +2, meaning the true inset is ~3.19, not ~1.9-2.6 as
+    // the earlier estimate had it.
+    boldText('Bill To:', PAGE_MARGIN + 3.2, y + 5);
+    boldText('Invoice Details:', PAGE_MARGIN + colWidth + 4.4, y + 5);
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
     doc.font('Body-Bold').fontSize(8).fillColor(BORDER);
-    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 2, y + 21, { width: colWidth - 10, height: 13, ellipsis: true });
+    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 21, { width: colWidth - 10, height: 13, ellipsis: true });
     doc.font('Body').fontSize(9);
-    doc.text(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 2, y + 34, { width: colWidth - 10, height: 16, ellipsis: true });
+    doc.text(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 34, { width: colWidth - 10, height: 16, ellipsis: true });
 
     const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
-    labelBoldValue('Contact No: ', sanitize(data.customerPhone) || '-', PAGE_MARGIN + 2, y + 51, 9);
+    labelBoldValue('Contact No: ', sanitize(data.customerPhone) || '-', PAGE_MARGIN + 3.2, y + 51, 9);
     doc.font('Body').fontSize(9).text('GSTIN Number:', gstinColX, y + 51, { width: colWidth / 2 - 6 });
     doc.font('Body-Bold').fontSize(9);
     boldText(sanitize(data.customerGstin) || '-', gstinColX, y + 61, { width: colWidth / 2 - 6 });
 
-    labelBoldValue('State: ', sanitize(data.customerState) || '-', PAGE_MARGIN + 2, y + 63, 9);
+    labelBoldValue('State: ', sanitize(data.customerState) || '-', PAGE_MARGIN + 3.2, y + 63, 9);
 
     // Invoice Details column.
-    labelBoldValue('No: ', sanitize(data.invoiceNumber), PAGE_MARGIN + colWidth + 5, y + 22, 9);
-    labelBoldValue('Date: ', sanitize(data.issueDate), PAGE_MARGIN + colWidth + 5, y + 34, 9);
-    labelBoldValue('Place of Supply: ', sanitize(data.customerState) || '-', PAGE_MARGIN + colWidth + 5, y + 46, 9);
+    labelBoldValue('No: ', sanitize(data.invoiceNumber), PAGE_MARGIN + colWidth + 4.4, y + 22, 9);
+    labelBoldValue('Date: ', sanitize(data.issueDate), PAGE_MARGIN + colWidth + 4.4, y + 34, 9);
+    labelBoldValue('Place of Supply: ', sanitize(data.customerState) || '-', PAGE_MARGIN + colWidth + 4.4, y + 46, 9);
 
     y += biRowHeight;
     // 6.0 (was 5.5) — re-measured 2026-08-21 against a real generated PDF vs
@@ -527,12 +528,21 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // tax-table rect() width (the "Tax Summary" section's outer left-table
     // rectangle is x=33.0..403.5, i.e. 370.5pt wide).
     const leftWidth = 370.5;
-    const GAP = 3;
+    // 2.08 (was 3) — re-measured 2026-08-21 against a real generated PDF vs
+    // the reference via pdftotext xMin: "Sub Total"/"Received"/every
+    // left-aligned label in this box shared the same +0.92pt delta at
+    // GAP=3, meaning the reference's actual rightX sits ~0.92pt further
+    // left (406.28 vs the 407.20 that GAP=3 produces).
+    const GAP = 2.08;
     // RIGHT_PAD keeps right-aligned values (Sub Total / Total / Balance /
     // etc.) from landing flush against the outer page border — without it,
     // rightX + rightWidth lands exactly on tableX + CONTENT_WIDTH, so
     // align:'right' text has zero clearance and visibly touches the border.
-    const RIGHT_PAD = 6;
+    // 2.92 (was 6) — re-measured 2026-08-21: every right-aligned value in
+    // this box (Sub Total, Total, Received, Balance, Previous/Current
+    // Balance) was landing a consistent 3.08pt short of the reference's
+    // actual xMax (559.88 vs 556.80), i.e. too far from the border.
+    const RIGHT_PAD = 2.92;
     const rightWidth = CONTENT_WIDTH - leftWidth - GAP - RIGHT_PAD;
     const rightX = tableX + leftWidth + GAP;
 
@@ -833,9 +843,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the reference.
     doc.moveTo(tableX, y + 15.7).lineTo(tableX + CONTENT_WIDTH, y + 15.7).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
-    boldText('Terms And Conditions:', tableX + 2, y + 4);
+    boldText('Terms And Conditions:', tableX + 3.2, y + 4);
     doc.font('Body').fontSize(8);
-    doc.text(sanitize(data.termsAndConditions) || '-', tableX + 2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
+    doc.text(sanitize(data.termsAndConditions) || '-', tableX + 3.2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
     y += termsRowH;
     // No gap here — in the reference, the Terms row's bottom border and the
     // Bank Details row's top border are the same line (adjacent boxes).
@@ -858,13 +868,16 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // between the Bank Details and For <Company> columns.
     doc.moveTo(tableX, y + 15.7).lineTo(tableX + CONTENT_WIDTH, y + 15.7).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
-    boldText('Bank Details:', tableX + 2, y + 4);
-    boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 6, y + 4);
+    boldText('Bank Details:', tableX + 3.2, y + 4);
+    // colWidth + 3.39 (was + 6) — re-measured 2026-08-21 against a real
+    // generated PDF vs the reference via pdftotext xMin (301.64 vs the
+    // 304.25 that +6 produces).
+    boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 3.39, y + 4);
 
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 2, y + 21, 8);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 2, y + 32, 8);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 2, y + 44, 8);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 2, y + 56, 8);
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 3.2, y + 21, 8);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 3.2, y + 32, 8);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 3.2, y + 44, 8);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 3.2, y + 56, 8);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
