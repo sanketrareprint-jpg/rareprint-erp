@@ -525,6 +525,8 @@ export default function AccountsPage() {
   const [pvSavingExpenseMonthId, setPvSavingExpenseMonthId] = useState<string | null>(null);
   const [pvPage, setPvPage] = useState(1);
   const [pvHistoryPage, setPvHistoryPage] = useState(1);
+  const [pvHistoryVendorId, setPvHistoryVendorId] = useState("");
+  const [pvHistoryExpenseCategoryId, setPvHistoryExpenseCategoryId] = useState("");
   const PV_PAGE_SIZE = 50;
   const [pvSelectedIds, setPvSelectedIds] = useState<Set<string>>(new Set());
   const [pvBulkProcessing, setPvBulkProcessing] = useState(false);
@@ -654,12 +656,25 @@ export default function AccountsPage() {
     setPvHistoryLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/payment-verification-history`, { headers: getAuthHeaders() });
+      const headers = getAuthHeaders();
+      const needVendors = vendors.length === 0;
+      const needCategories = expenseCategories.length === 0;
+      const params = new URLSearchParams();
+      if (pvHistoryVendorId) params.set("vendorId", pvHistoryVendorId);
+      if (pvHistoryExpenseCategoryId) params.set("expenseCategoryId", pvHistoryExpenseCategoryId);
+      const qs = params.toString();
+      const [res, vendorRes, categoryRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/payment-verification-history${qs ? `?${qs}` : ""}`, { headers }),
+        needVendors ? fetch(`${API_BASE_URL}/vendors`, { headers }) : Promise.resolve(null),
+        needCategories ? fetch(`${API_BASE_URL}/bank-statement/expense-categories`, { headers }) : Promise.resolve(null),
+      ]);
+      if (vendorRes?.ok) setVendors(await vendorRes.json());
+      if (categoryRes?.ok) setExpenseCategories(await categoryRes.json());
       if (res.ok) setPvHistory(await res.json());
     } catch (error) {
       handleLoadError("Payment history", error);
     } finally { setPvHistoryLoading(false); }
-  }, [handleLoadError]);
+  }, [handleLoadError, pvHistoryVendorId, pvHistoryExpenseCategoryId]);
 
   async function saveVerificationNote(id: string) {
     const note = pvNoteDrafts[id] ?? "";
@@ -4814,6 +4829,20 @@ export default function AccountsPage() {
           {/* ── PAYMENT HISTORY TAB ── */}
           {tab === "payment_history" && (
             <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <MobileSelect value={pvHistoryVendorId} onChange={v => { setPvHistoryVendorId(v); setPvHistoryPage(1); }}
+                  className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-slate-50"
+                  options={[{ value: "", label: "All Vendors" }, ...vendors.map(v => ({ value: v.id, label: v.name }))]} />
+                <MobileSelect value={pvHistoryExpenseCategoryId} onChange={v => { setPvHistoryExpenseCategoryId(v); setPvHistoryPage(1); }}
+                  className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-slate-50"
+                  options={[{ value: "", label: "All Expense Categories" }, ...expenseCategories.map(c => ({ value: c.id, label: c.name }))]} />
+                {(pvHistoryVendorId || pvHistoryExpenseCategoryId) && (
+                  <button onClick={() => { setPvHistoryVendorId(""); setPvHistoryExpenseCategoryId(""); setPvHistoryPage(1); }}
+                    className="text-xs text-slate-400 hover:text-slate-600">
+                    Clear
+                  </button>
+                )}
+              </div>
               {isNativeApp && pvHistory.length > 0 && (
                 <div className="flex items-center justify-end gap-1.5">
                   <span className="text-[11px] text-slate-400">{pvHistory.length} entries</span>
