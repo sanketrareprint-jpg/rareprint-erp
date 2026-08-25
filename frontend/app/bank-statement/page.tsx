@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
@@ -128,6 +129,8 @@ export default function BankStatementPage() {
   const [filterSearch, setFilterSearch] = useState("");
   const [filterFromDate, setFilterFromDate] = useState("2026-04-01");
   const [filterToDate, setFilterToDate] = useState("");
+  const [filterVendorId, setFilterVendorId] = useState("");
+  const [filterExpenseCategoryId, setFilterExpenseCategoryId] = useState("");
   const [expandedTxn, setExpandedTxn] = useState<string | null>(null);
 
   // ── Review Queue state ──
@@ -216,10 +219,12 @@ export default function BankStatementPage() {
       if (filterCrDr) params.set("crDr", filterCrDr);
       if (filterFromDate) params.set("fromDate", filterFromDate);
       if (filterToDate) params.set("toDate", filterToDate);
+      if (filterVendorId) params.set("vendorId", filterVendorId);
+      if (filterExpenseCategoryId) params.set("expenseCategoryId", filterExpenseCategoryId);
       const data = await apiFetch(`/bank-statement/transactions?${params}`);
       if (data) { setTxns(data.data); setTxnTotal(data.total); setTxnPage(page); }
     } finally { setLoadingTxns(false); }
-  }, [apiFetch, selectedAccount, filterStatus, filterCrDr, filterFromDate, filterToDate]);
+  }, [apiFetch, selectedAccount, filterStatus, filterCrDr, filterFromDate, filterToDate, filterVendorId, filterExpenseCategoryId]);
 
   const loadVendorKeywords = useCallback(async () => {
     const [vks, vs] = await Promise.all([
@@ -265,7 +270,7 @@ export default function BankStatementPage() {
 
   useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  useEffect(() => { if (activeTab === "ledger") loadTxns(1); }, [activeTab, selectedAccount, filterStatus, filterCrDr, loadTxns]);
+  useEffect(() => { if (activeTab === "ledger") loadTxns(1); }, [activeTab, selectedAccount, filterStatus, filterCrDr, filterVendorId, filterExpenseCategoryId, loadTxns]);
   useEffect(() => { if (activeTab === "review") loadReviewQueue(1); }, [activeTab, selectedAccount, reviewFilterCrDr, loadReviewQueue]);
   useEffect(() => { loadVendorKeywords(); }, [loadVendorKeywords]);
   useEffect(() => { loadExpenseCategories(); }, [loadExpenseCategories]);
@@ -459,17 +464,12 @@ export default function BankStatementPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <MobileSelect
               value={selectedAccount}
-              onChange={(e) => { setSelectedAccount(e.target.value); setTxnPage(1); }}
+              onChange={(v) => { setSelectedAccount(v); setTxnPage(1); }}
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none focus:border-blue-400"
-            >
-              {bankAccounts.map((account) => (
-                <option key={account.accountNumber} value={account.accountNumber}>
-                  {account.label} · {account.accountNumber}
-                </option>
-              ))}
-            </select>
+              options={bankAccounts.map((account) => ({ value: account.accountNumber, label: `${account.label} · ${account.accountNumber}` }))}
+            />
             <button
               onClick={handleRematch}
               disabled={rematching}
@@ -574,25 +574,42 @@ export default function BankStatementPage() {
                   onChange={(e) => setFilterSearch(e.target.value)}
                 />
               </div>
-              <select
+              <MobileSelect
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as any)}
+                onChange={(v) => setFilterStatus(v as any)}
                 className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50"
-              >
-                <option value="">All Statuses</option>
-                {Object.entries(STATUS_META).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
-                ))}
-              </select>
-              <select
+                options={[{ value: "", label: "All Statuses" }, ...Object.entries(STATUS_META).map(([k, v]) => ({ value: k, label: v.label }))]}
+              />
+              <MobileSelect
                 value={filterCrDr}
-                onChange={(e) => setFilterCrDr(e.target.value as any)}
+                onChange={(v) => setFilterCrDr(v as any)}
                 className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50"
-              >
-                <option value="">CR + DR</option>
-                <option value="CR">Credits only</option>
-                <option value="DR">Debits only</option>
-              </select>
+                options={[
+                  { value: "", label: "CR + DR" },
+                  { value: "CR", label: "Credits only" },
+                  { value: "DR", label: "Debits only" },
+                ]}
+              />
+              <MobileSelect
+                value={filterVendorId}
+                onChange={(v) => setFilterVendorId(v)}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50"
+                options={[{ value: "", label: "All Vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+              />
+              <MobileSelect
+                value={filterExpenseCategoryId}
+                onChange={(v) => setFilterExpenseCategoryId(v)}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50"
+                options={[{ value: "", label: "All Expense Categories" }, ...expenseCategories.map((c) => ({ value: c.id, label: c.name }))]}
+              />
+              {(filterVendorId || filterExpenseCategoryId) && (
+                <button
+                  onClick={() => { setFilterVendorId(""); setFilterExpenseCategoryId(""); }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Clear vendor/expense
+                </button>
+              )}
               <label className="flex items-center gap-1.5 text-xs text-gray-500">
                 From
                 <DateInput
@@ -797,14 +814,12 @@ export default function BankStatementPage() {
                   value={newVkKeyword}
                   onChange={(e) => setNewVkKeyword(e.target.value)}
                 />
-                <select
+                <MobileSelect
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-48"
                   value={newVkVendorId}
-                  onChange={(e) => setNewVkVendorId(e.target.value)}
-                >
-                  <option value="">Select vendor…</option>
-                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                  onChange={setNewVkVendorId}
+                  options={[{ value: "", label: "Select vendor…" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+                />
                 <button
                   onClick={addVendorKeyword}
                   disabled={vkLoading || !newVkKeyword.trim() || !newVkVendorId}
@@ -856,14 +871,12 @@ export default function BankStatementPage() {
                   value={newUkKeyword}
                   onChange={(e) => setNewUkKeyword(e.target.value)}
                 />
-                <select
+                <MobileSelect
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-48"
                   value={newUkUserId}
-                  onChange={(e) => setNewUkUserId(e.target.value)}
-                >
-                  <option value="">Select employee…</option>
-                  {staffUsers.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
-                </select>
+                  onChange={setNewUkUserId}
+                  options={[{ value: "", label: "Select employee…" }, ...staffUsers.map((u) => ({ value: u.id, label: u.fullName }))]}
+                />
                 <button
                   onClick={addUserKeyword}
                   disabled={ukLoading || !newUkKeyword.trim() || !newUkUserId}
@@ -935,14 +948,12 @@ export default function BankStatementPage() {
                   value={newExpKeyword}
                   onChange={(e) => setNewExpKeyword(e.target.value)}
                 />
-                <select
+                <MobileSelect
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-48"
                   value={newExpCatId}
-                  onChange={(e) => setNewExpCatId(e.target.value)}
-                >
-                  <option value="">Select category…</option>
-                  {expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                  onChange={setNewExpCatId}
+                  options={[{ value: "", label: "Select category…" }, ...expenseCategories.map((c) => ({ value: c.id, label: c.name }))]}
+                />
                 <button
                   onClick={addExpenseKeyword}
                   disabled={expLoading || !newExpKeyword.trim() || !newExpCatId}
@@ -1045,15 +1056,12 @@ export default function BankStatementPage() {
                 </div>
                 {reconcileForm.reconcileStatus === "MATCHED_VENDOR" && (
                   <div className="p-3 bg-white">
-                    <select
-                      autoFocus
+                    <MobileSelect
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-blue-400 outline-none"
                       value={reconcileForm.matchedVendorId}
-                      onChange={(e) => setReconcileForm((f) => ({ ...f, matchedVendorId: e.target.value }))}
-                    >
-                      <option value="">Select vendor…</option>
-                      {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
+                      onChange={(v) => setReconcileForm((f) => ({ ...f, matchedVendorId: v }))}
+                      options={[{ value: "", label: "Select vendor…" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+                    />
                     {reconcileForm.matchedVendorId && (
                       <p className="text-xs text-blue-600 mt-1.5 font-medium">
                         ✓ Will be posted to vendor account
@@ -1082,15 +1090,12 @@ export default function BankStatementPage() {
                 </div>
                 {reconcileForm.reconcileStatus === "MATCHED_EXPENSE" && (
                   <div className="p-3 bg-white">
-                    <select
-                      autoFocus
+                    <MobileSelect
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-purple-400 outline-none"
                       value={reconcileForm.expenseCategoryId}
-                      onChange={(e) => setReconcileForm((f) => ({ ...f, expenseCategoryId: e.target.value }))}
-                    >
-                      <option value="">Select category…</option>
-                      {expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                      onChange={(v) => setReconcileForm((f) => ({ ...f, expenseCategoryId: v }))}
+                      options={[{ value: "", label: "Select category…" }, ...expenseCategories.map((c) => ({ value: c.id, label: c.name }))]}
+                    />
                     {reconcileForm.expenseCategoryId && (
                       <p className="text-xs text-purple-600 mt-1.5 font-medium">
                         ✓ Will be posted to expense account
