@@ -16,6 +16,19 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const OCCASION_TYPES = ['BIRTHDAY', 'ANNIVERSARY', 'FESTIVAL'] as const;
 export type OccasionType = (typeof OCCASION_TYPES)[number];
 
+/** "1st"/"2nd"/"3rd"/"4th"... — used to fold anniversary years into the
+ *  WhatsApp template's occasion-label variable, e.g. "5th Anniversary". */
+function ordinalSuffix(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  switch (n % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
 interface RawFieldInput {
   key?: unknown; label?: unknown; type?: unknown;
   x?: unknown; y?: unknown; w?: unknown; h?: unknown;
@@ -405,7 +418,19 @@ export class EventsService {
     const token = this.signPublicToken(sendLogId, expiresAt);
     const imageUrl = `${publicBaseUrl.replace(/\/$/, '')}/events/flyer/${sendLogId}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
 
-    const occasionLabel = params.occasionType === 'BIRTHDAY' ? 'Birthday' : params.occasionType === 'ANNIVERSARY' ? 'Anniversary' : 'Festival';
+    // Anniversary years fold directly into the occasion label (e.g. "5th
+    // Anniversary") rather than a separate template variable — the real
+    // approved AiSensy template only has 3 body variables and the 3rd one
+    // is the "Warm wishes from {{3}}" sign-off, not a years line. See
+    // WhatsAppService.sendEventWish's header comment for the full template
+    // variable mapping (confirmed 2026-08-25 against the actual approved
+    // template).
+    const occasionLabel =
+      params.occasionType === 'BIRTHDAY'
+        ? 'Birthday'
+        : params.occasionType === 'ANNIVERSARY'
+          ? (values.years ? `${values.years}${ordinalSuffix(Number(values.years))} Anniversary` : 'Anniversary')
+          : 'Festival';
     // Sent to BOTH the person themselves AND the owner's own WhatsApp, per
     // the original request ("sent to the owner and to whose birthday or
     // anniversary is") — see WhatsAppService.sendEventWish.
@@ -414,7 +439,6 @@ export class EventsService {
       customerPhone: params.person.whatsappNumber,
       imageUrl,
       occasionLabel,
-      customMessage: values.years ? `${values.years} years` : occasionLabel,
     });
 
     if (sendLogId) {

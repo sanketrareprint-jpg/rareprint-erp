@@ -653,30 +653,36 @@ export class WhatsAppService {
   // ── Events module (birthday / anniversary / festival flyer wishes) ───────
   // One shared AiSensy WhatsApp template is reused for every occasion type
   // (birthday, anniversary, every festival) — Sanket's choice, to minimise
-  // how many separate templates need Meta/AiSensy approval. That template
-  // MUST be created once in the AiSensy dashboard with an IMAGE header (the
-  // generated flyer is passed as `media.url`, exactly like
-  // sendDeliveryReviewRequest above — AiSensy fetches the image from that
-  // URL itself, it is never uploaded directly) and three body variables:
+  // how many separate templates need Meta/AiSensy approval. The real,
+  // approved template (created + approved 2026-08-25, name "hellomomentwishes"
+  // in AiSensy — set AISENSY_EVENTS_CAMPAIGN to that exact name, the
+  // 'events_wish_erp' fallback below is just a pre-approval placeholder and
+  // will never match a real template) has an IMAGE header (the generated
+  // flyer, passed as `media.url` — AiSensy fetches it itself, never
+  // uploaded directly) and three body variables, confirmed against the
+  // actual approved template text ("Warm Wishes, {{1}}! ... Happy {{2}}! ...
+  // Warm wishes from {{3}}"):
   //   {{1}} person's name
-  //   {{2}} occasion label ("Birthday" / "Anniversary" / "Festival")
-  //   {{3}} a short extra line (years married/old if known, else repeats the
-  //         occasion label) — e.g. body text like:
-  //   "🎉 Happy {{2}}, {{1}}! {{3}} — Team RarePrint wishes you all the best."
-  // Set AISENSY_EVENTS_CAMPAIGN to whatever name that template is saved
-  // under in AiSensy (defaults to 'events_wish_erp'). Until that template
-  // exists and is approved, every call here will fail at AiSensy with an
-  // "unknown campaign" style error — this method still returns cleanly
-  // (sentToPerson/sentToOwner both false) rather than throwing, so a missing
-  // template never breaks the scheduler run for every other person that day.
+  //   {{2}} occasion label — "Birthday", "5th Anniversary" (years folded in
+  //         when known, see EventsService.renderAndSend), or "Festival"
+  //   {{3}} sign-off name shown as "Warm wishes from {{3}}" — hardcoded
+  //         below as SIGNOFF_NAME, Sanket's explicit choice (2026-08-25) was
+  //         "RarePrint", matching the OWNER_PHONE hardcoding convention
+  //         already used in this method rather than pulling from
+  //         SystemConfig/BusinessRules.
+  // Until the template exists and is approved, every call here will fail at
+  // AiSensy with an "unknown campaign" style error — this method still
+  // returns cleanly (sentToPerson/sentToOwner both false) rather than
+  // throwing, so a missing template never breaks the scheduler run for
+  // every other person that day.
   async sendEventWish(params: {
     customerName: string;
     customerPhone: string;
     imageUrl: string;
     occasionLabel: string;
-    customMessage: string;
   }): Promise<{ sentToPerson: boolean; sentToOwner: boolean }> {
     const OWNER_PHONE = '919637318960';
+    const SIGNOFF_NAME = 'RarePrint';
     const campaignName = process.env.AISENSY_EVENTS_CAMPAIGN ?? 'events_wish_erp';
     const personPhone = this.normalizePhone(params.customerPhone);
 
@@ -694,7 +700,7 @@ export class WhatsAppService {
         campaignName,
         destination: dest.phone,
         userName: params.customerName,
-        templateParams: [params.customerName, params.occasionLabel, params.customMessage],
+        templateParams: [params.customerName, params.occasionLabel, SIGNOFF_NAME],
         source: 'rareprint-erp',
         media: { url: params.imageUrl, filename: 'flyer.jpg' },
         buttons: [],
