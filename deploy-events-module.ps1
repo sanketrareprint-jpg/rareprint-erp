@@ -33,6 +33,15 @@
 # Until both are set, every send will fail gracefully (logged, no crash) --
 # safe to deploy and test the People/Templates/Festivals CRUD UI first, wire
 # up AiSensy after.
+#
+# IMPORTANT -- migrations do NOT run automatically on deploy on this Railway
+# setup, by design (see docs/Events_Module_Context.md's "Railway never runs
+# migrations at boot" section). Step 3 below is what actually applies the
+# two pending Festival migrations to production -- it is not optional this
+# time, unlike a normal deploy where only code changed. You need your
+# production DATABASE_URL for it: Railway dashboard -> Postgres service ->
+# Variables tab -> copy the DATABASE_URL value (or DATABASE_PUBLIC_URL if
+# that's what's shown for external/local connections).
 
 $repo = "C:\Users\ASUS\Downloads\rareprint-erp"
 
@@ -50,35 +59,48 @@ npm install
 npm run build
 if ($LASTEXITCODE -ne 0) { throw "Frontend build failed -- fix the errors above before continuing (do NOT push broken code)." }
 
-# 3. Apply the pending migrations to the database right now, if this
-#    machine has a DATABASE_URL configured (it doesn't, by default -- this
-#    repo's local backend/.env intentionally has no DATABASE_URL, since
-#    there's no separate dev database, only production). If it's not set,
-#    this step is skipped -- Railway's own start script
-#    (scripts/railway-migrate.js) runs `prisma migrate deploy` automatically
-#    on every deploy, so step 6 (push) is what actually applies these.
+# 3. Apply the two pending Festival migrations to production RIGHT NOW.
+#    This is the step that actually fixes the live "Festival.month does not
+#    exist" P2022 error -- Railway's backend startCommand is deliberately
+#    plain "node dist/src/main.js" (no migration step) because wiring
+#    migrations into the boot command caused a full outage back on
+#    2026-08-07 (the migrate step's ~40-47s ate into Railway's boot/
+#    healthcheck budget and the app never got a chance to print its first
+#    log line -- see project memory / docs/Events_Module_Context.md for the
+#    full incident). So this has to be run from here, against production,
+#    every time a schema change needs to ship -- it is not automatic and
+#    pushing code alone will NOT apply it.
+#
+#    Set DATABASE_URL to your production connection string before running
+#    this script, e.g. in this same PowerShell window:
+#      $env:DATABASE_URL = "postgresql://...."
+#    If it's not set, this step is skipped with a warning -- the app will
+#    keep 500ing on Festival/History until you come back and run it.
 Set-Location "$repo\backend"
 if ($env:DATABASE_URL) {
-  npx prisma migrate deploy
+  node scripts/railway-migrate.js
+  if ($LASTEXITCODE -ne 0) { throw "railway-migrate.js failed -- check the output above before continuing. Do not push if the migration itself errored (as opposed to a warning)." }
 
-  # 4. Quick sanity check: confirm the new/changed tables and columns exist
+  # Quick sanity check: confirm Festival now has month/day, not date/sentAt
   $sql = @"
-SELECT table_name, column_name FROM information_schema.columns
-WHERE table_name IN ('EventPerson','EventFlyerTemplate','Festival','EventSendLog')
-ORDER BY table_name, column_name;
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'Festival'
+ORDER BY column_name;
 "@
   $sql | npx prisma db execute --stdin
 } else {
-  Write-Host "DATABASE_URL is not set locally -- skipping local migrate/sanity-check. Railway will run the pending migrations automatically on the deploy triggered by step 6 below."
+  Write-Host "DATABASE_URL is not set -- SKIPPING the production migration. Festivals/History will keep 500ing (P2022) until you set DATABASE_URL to your production connection string and re-run this script, or run 'node scripts/railway-migrate.js' by hand from backend/ with it set." -ForegroundColor Yellow
 }
 
-# 5. Commit and push -- this is what actually triggers Railway to build
-#    and deploy both the backend and frontend (and, per step 3's note,
-#    apply any pending migrations).
+# 4. Commit and push -- this deploys the code (Vercel frontend + Railway
+#    backend, both auto-deploy on push to main). Does NOT apply migrations
+#    -- that already happened in step 3, or still needs to happen by hand
+#    if step 3 was skipped.
 Set-Location $repo
 git add backend/prisma/schema.prisma
 git add backend/prisma/migrations/20260824090000_add_events_module
 git add backend/prisma/migrations/20260825120000_events_recurring_festivals
+git add backend/scripts/ensure-all-columns.js
 git add backend/src/app.module.ts
 git add backend/src/events
 git add backend/src/whatsapp/whatsapp.service.ts
@@ -92,7 +114,7 @@ git add deploy-events-module.ps1
 git commit -m "Events module: recurring festivals (month/day) + fix migration checksum drift"
 git push
 
-# 6. Reminder: after Railway finishes deploying, go set
+# 5. Reminder: after Railway finishes deploying, go set
 #    AISENSY_EVENTS_CAMPAIGN and BACKEND_PUBLIC_URL in Railway's backend
 #    service > Variables, then use Events > People > "Bday"/"Anniv" test-send
 #    buttons to confirm a real WhatsApp message arrives before relying on

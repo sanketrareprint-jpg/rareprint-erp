@@ -698,6 +698,47 @@ async function main() {
       console.log('[ensure-all-columns] PaperPurchaseItem.ratePerUnit: added.');
     });
 
+    // ── Festival: date -> month/day (recurring) columns ────────────────────
+    // 2026-08-25 incident: this exact conversion was first shipped as an
+    // edit to an already-applied migration file, which `prisma migrate
+    // deploy` silently refused to apply (checksum drift) -- and separately,
+    // backend/railway.json's startCommand was found to bypass
+    // railway-migrate.js (and thus this whole file) entirely, so neither
+    // the migration nor this fallback ever ran. Both are now fixed; this
+    // block is the same belt-and-suspenders fallback as everything else
+    // here, so a future drift on this table self-heals instead of 500ing.
+    // See docs/Events_Module_Context.md.
+    await safely('Festival month/day columns', async () => {
+      const { rows: reg } = await client.query(`SELECT to_regclass('public."Festival"') AS reg`);
+      if (!reg[0]?.reg) {
+        console.log('[ensure-all-columns] Festival: table does not exist yet, skipping.');
+        return;
+      }
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns WHERE table_name = 'Festival'
+      `);
+      const existing = new Set(rows.map((r) => r.column_name));
+      if (existing.has('month') && existing.has('day')) {
+        console.log('[ensure-all-columns] Festival.month/day: already exist.');
+        return;
+      }
+      if (!existing.has('date')) {
+        console.log('[ensure-all-columns] Festival: neither date nor month/day found -- unexpected, leaving alone.');
+        return;
+      }
+      console.log('[ensure-all-columns] Festival: converting date -> month/day.');
+      await client.query(`ALTER TABLE "Festival" ADD COLUMN IF NOT EXISTS "month" INTEGER;`);
+      await client.query(`ALTER TABLE "Festival" ADD COLUMN IF NOT EXISTS "day" INTEGER;`);
+      await client.query(`UPDATE "Festival" SET "month" = EXTRACT(MONTH FROM "date")::INTEGER, "day" = EXTRACT(DAY FROM "date")::INTEGER WHERE "month" IS NULL;`);
+      await client.query(`ALTER TABLE "Festival" ALTER COLUMN "month" SET NOT NULL;`);
+      await client.query(`ALTER TABLE "Festival" ALTER COLUMN "day" SET NOT NULL;`);
+      await client.query(`ALTER TABLE "Festival" DROP COLUMN IF EXISTS "date";`);
+      await client.query(`ALTER TABLE "Festival" DROP COLUMN IF EXISTS "sentAt";`);
+      await client.query(`DROP INDEX IF EXISTS "Festival_date_idx";`);
+      await client.query(`CREATE INDEX IF NOT EXISTS "Festival_month_day_idx" ON "Festival"("month", "day");`);
+      console.log('[ensure-all-columns] Festival: converted to month/day.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();
