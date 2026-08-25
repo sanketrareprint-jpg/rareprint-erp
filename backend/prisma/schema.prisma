@@ -2894,8 +2894,14 @@ model CertificateJob {
 // and sent via WhatsAppService.sendEventWish — one shared AiSensy WhatsApp
 // template (AISENSY_EVENTS_CAMPAIGN) reused for birthdays, anniversaries, and
 // every festival, per Sanket's choice (least AiSensy/Meta approvals needed).
-// Images are stored as base64 data URIs, same convention as
-// CertificateTemplate.imageDataUrl / Order.dispatchProductPhoto.
+// Festivals recur by month/day (added once, fires every year), same as
+// birthdays/anniversaries — also Sanket's explicit choice, so festivals are
+// never re-added yearly. Images are stored as base64 data URIs, same
+// convention as CertificateTemplate.imageDataUrl / Order.dispatchProductPhoto.
+//
+// SHARED CONTEXT FOR FUTURE SESSIONS: read docs/Events_Module_Context.md
+// before changing anything in this module — it records these decisions plus
+// the ones below that aren't self-evident from the code.
 
 enum EventOccasionType {
   BIRTHDAY
@@ -2946,17 +2952,17 @@ model EventPerson {
 model Festival {
   id          String              @id @default(cuid())
   name        String
-  date        DateTime            @db.Date // one specific calendar occurrence — re-added each year since festival dates shift (lunar calendar etc.); see Festival dates decision in project memory
+  month       Int // 1-12 — recurring every year (added once, fires automatically each year; Sanket's explicit choice over re-adding an exact date yearly)
+  day         Int // 1-31, validated against month in the service layer; a Feb 29 festival simply doesn't fire on non-leap years
   templateId  String? // which flyer artwork to use for this specific festival (Diwali art vs. Christmas art) — nullable so a festival can be added before its template is designed; scheduler skips (and logs why) if still unset when the date arrives
   template    EventFlyerTemplate? @relation(fields: [templateId], references: [id])
   isActive    Boolean             @default(true)
-  sentAt      DateTime? // set once the scheduler has broadcast this occurrence, so a given row never sends twice
   createdById String
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   sendLogs    EventSendLog[]
 
-  @@index([date])
+  @@index([month, day])
   @@index([templateId])
 }
 
@@ -2969,7 +2975,7 @@ model EventSendLog {
   festivalId        String?
   festival          Festival?           @relation(fields: [festivalId], references: [id])
   occasionType      EventOccasionType
-  occasionYear      Int // calendar year this send covers — prevents re-sending the same birthday/anniversary twice in one year
+  occasionYear      Int // calendar year this send covers — prevents re-sending the same birthday/anniversary/festival twice in one year (0 = manual test send, excluded from that check)
   recipientPhone    String
   sentToOwner       Boolean             @default(false)
   flyerImageDataUrl String?             @db.Text // the generated flyer — kept for the History view and served (base64-decoded) by the public flyer-image route AiSensy fetches from

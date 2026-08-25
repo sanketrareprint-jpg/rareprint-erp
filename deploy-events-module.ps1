@@ -34,12 +34,14 @@ $repo = "C:\Users\ASUS\Downloads\rareprint-erp"
 Set-Location "$repo\backend"
 npm install
 npm run build
+if ($LASTEXITCODE -ne 0) { throw "Backend build failed — fix the errors above before continuing (do NOT push broken code)." }
 
 # 2. Frontend: build check — dashboard-shell.tsx and the new
 #    events/page.tsx changed.
 Set-Location "$repo\frontend"
 npm install
 npm run build
+if ($LASTEXITCODE -ne 0) { throw "Frontend build failed — fix the errors above before continuing (do NOT push broken code)." }
 
 # 3. Apply the new migration to the database right now.
 #    (Optional — Railway's start script runs `prisma migrate deploy`
@@ -63,6 +65,8 @@ git add backend/prisma/migrations/20260824090000_add_events_module
 git add backend/src/app.module.ts
 git add backend/src/events
 git add backend/src/whatsapp/whatsapp.service.ts
+git add backend/package.json
+git add backend/package-lock.json
 git add frontend/app/events
 git add frontend/components/dashboard-shell.tsx
 git add docs/Events_Module_Setup.md

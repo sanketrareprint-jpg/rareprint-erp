@@ -6,157 +6,156 @@ import type { Request, Response } from 'express';
 import { EventsService } from './events.service';
 
 type JwtUser = { id: string; role: string };
-const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 @Controller('events')
 export class EventsController {
   constructor(private readonly service: EventsService) {}
 
-  // ── Contacts ──
+  // ── Flyer templates ──
 
-  @UseGuards(AuthGuard('jwt'))
-  @Post('contacts')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES } }))
-  createContact(@Body() body: Record<string, string>, @UploadedFile() file: Express.Multer.File, @Req() req: Request & { user: JwtUser }) {
-    return this.service.createContact(body, file, req.user.id);
-  }
-
-  @UseGuards(AuthGuard('jwt'))
-  @Get('contacts')
-  listContacts(@Query('search') search?: string) {
-    return this.service.listContacts(search);
-  }
-
-  @UseGuards(AuthGuard('jwt'))
-  @Get('contacts/:id')
-  getContact(@Param('id') id: string) {
-    return this.service.getContact(id);
-  }
-
-  @UseGuards(AuthGuard('jwt'))
-  @Patch('contacts/:id')
-  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES } }))
-  updateContact(@Param('id') id: string, @Body() body: Record<string, string>, @UploadedFile() file: Express.Multer.File) {
-    return this.service.updateContact(id, body, file);
-  }
-
-  @UseGuards(AuthGuard('jwt'))
-  @Delete('contacts/:id')
-  deleteContact(@Param('id') id: string) {
-    return this.service.deleteContact(id);
-  }
-
-  // ── Templates ──
-
-  @UseGuards(AuthGuard('jwt'))
   @Post('templates')
-  @UseInterceptors(FileInterceptor('background', { limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES } }))
-  createTemplate(@Body() body: Record<string, string>, @UploadedFile() file: Express.Multer.File, @Req() req: Request & { user: JwtUser }) {
-    return this.service.createTemplate(body, file, req.user.id);
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  createTemplate(
+    @Body() body: { name: string; occasionType: string; fields: string },
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.service.createTemplate({ name: body.name, occasionType: body.occasionType, fields: body.fields, file, userId: req.user.id });
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Get('templates')
+  @UseGuards(AuthGuard('jwt'))
   listTemplates(@Query('occasionType') occasionType?: string) {
     return this.service.listTemplates(occasionType);
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Get('templates/:id')
+  @UseGuards(AuthGuard('jwt'))
   getTemplate(@Param('id') id: string) {
     return this.service.getTemplate(id);
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Patch('templates/:id')
-  @UseInterceptors(FileInterceptor('background', { limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES } }))
-  updateTemplate(@Param('id') id: string, @Body() body: Record<string, string>, @UploadedFile() file: Express.Multer.File) {
-    return this.service.updateTemplate(id, body, file);
+  @UseGuards(AuthGuard('jwt'))
+  updateTemplate(@Param('id') id: string, @Body() body: { name?: string; fields?: unknown; isActive?: boolean }) {
+    return this.service.updateTemplate(id, body);
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Delete('templates/:id')
+  @UseGuards(AuthGuard('jwt'))
   deleteTemplate(@Param('id') id: string) {
     return this.service.deleteTemplate(id);
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Post('templates/:id/preview')
-  async previewTemplate(@Param('id') id: string, @Body() body: { contactId?: string }, @Res() res: Response) {
-    const buffer = await this.service.previewFlyer(id, body?.contactId);
+  @UseGuards(AuthGuard('jwt'))
+  async previewTemplate(@Param('id') id: string, @Body() body: { values?: Record<string, string>; photoDataUrl?: string }, @Res() res: Response) {
+    const buffer = await this.service.previewTemplate(id, body?.values ?? {}, body?.photoDataUrl);
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Disposition', 'inline; filename="preview.jpg"');
     res.send(buffer);
+  }
+
+  // ── People ──
+
+  @Post('people')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  createPerson(
+    @Body() body: { name: string; whatsappNumber: string; relation?: string; dob?: string; anniversaryDate?: string; notes?: string },
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.service.createPerson({ ...body, file, userId: req.user.id });
+  }
+
+  @Get('people')
+  @UseGuards(AuthGuard('jwt'))
+  listPeople() {
+    return this.service.listPeople();
+  }
+
+  @Get('people/:id')
+  @UseGuards(AuthGuard('jwt'))
+  getPerson(@Param('id') id: string) {
+    return this.service.getPerson(id);
+  }
+
+  @Patch('people/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  updatePerson(
+    @Param('id') id: string,
+    @Body() body: { name?: string; whatsappNumber?: string; relation?: string; dob?: string; anniversaryDate?: string; notes?: string; isActive?: string },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.service.updatePerson(id, {
+      ...body,
+      isActive: body.isActive === undefined ? undefined : body.isActive === 'true',
+      file,
+    });
+  }
+
+  @Delete('people/:id')
+  @UseGuards(AuthGuard('jwt'))
+  deletePerson(@Param('id') id: string) {
+    return this.service.deletePerson(id);
+  }
+
+  @Post('people/:id/send-test')
+  @UseGuards(AuthGuard('jwt'))
+  sendTest(@Param('id') id: string, @Body() body: { occasionType: string; templateId?: string }) {
+    return this.service.sendTestWish(id, body.occasionType, body.templateId);
   }
 
   // ── Festivals ──
 
-  @UseGuards(AuthGuard('jwt'))
   @Post('festivals')
-  createFestival(@Body() body: { name: string; month: string; day: string; templateId: string }, @Req() req: Request & { user: JwtUser }) {
-    return this.service.createFestival(body, req.user.id);
+  @UseGuards(AuthGuard('jwt'))
+  createFestival(@Body() body: { name: string; month: number; day: number; templateId?: string }, @Req() req: Request & { user: JwtUser }) {
+    return this.service.createFestival({ ...body, userId: req.user.id });
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Get('festivals')
+  @UseGuards(AuthGuard('jwt'))
   listFestivals() {
     return this.service.listFestivals();
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Patch('festivals/:id')
-  updateFestival(@Param('id') id: string, @Body() body: { name?: string; month?: string; day?: string; templateId?: string; isActive?: boolean }) {
+  @UseGuards(AuthGuard('jwt'))
+  updateFestival(@Param('id') id: string, @Body() body: { name?: string; month?: number; day?: number; templateId?: string | null; isActive?: boolean }) {
     return this.service.updateFestival(id, body);
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Delete('festivals/:id')
+  @UseGuards(AuthGuard('jwt'))
   deleteFestival(@Param('id') id: string) {
     return this.service.deleteFestival(id);
   }
 
-  // ── Sending ──
+  // ── History ──
 
+  @Get('logs')
   @UseGuards(AuthGuard('jwt'))
-  @Post('contacts/:id/send-now')
-  sendNow(@Param('id') id: string, @Body() body: { occasionType: 'BIRTHDAY' | 'ANNIVERSARY' | 'FESTIVAL'; festivalId?: string }, @Req() req: Request & { user: JwtUser }) {
-    return this.service.sendNow(id, body.occasionType, body.festivalId, req.user.id);
+  listLogs(@Query('personId') personId?: string, @Query('limit') limit?: string) {
+    return this.service.listLogs({ personId, limit: limit ? Number(limit) : undefined });
   }
 
-  @UseGuards(AuthGuard('jwt'))
-  @Post('contacts/:id/send-test')
-  sendTest(@Param('id') id: string, @Body() body: { occasionType: 'BIRTHDAY' | 'ANNIVERSARY' | 'FESTIVAL'; festivalId?: string }, @Req() req: Request & { user: JwtUser }) {
-    return this.service.sendTest(id, body.occasionType, body.festivalId, req.user.id);
-  }
+  // ── Public flyer image — fetched by AiSensy itself, no login, so NOT
+  // guarded like every route above. Access is instead controlled by the
+  // short-lived signed token in the query string (see
+  // EventsService.signPublicToken / verifyPublicToken), the same scheme
+  // BillingController's GET invoices/:id/pdf/public route already uses. ──
 
-  @UseGuards(AuthGuard('jwt'))
-  @Post('run-now')
-  runNow() {
-    return this.service.triggerDailyCheckNow();
-  }
-
-  @UseGuards(AuthGuard('jwt'))
-  @Get('messages')
-  listMessages(
-    @Query('status') status?: string,
-    @Query('occasionType') occasionType?: string,
-    @Query('contactId') contactId?: string,
-    @Query('skip') skip?: string,
-    @Query('take') take?: string,
-  ) {
-    return this.service.listMessages({ status, occasionType, contactId, skip: skip ? Number(skip) : undefined, take: take ? Number(take) : undefined });
-  }
-
-  // Unauthenticated but token-gated — this is the URL handed to AiSensy for
-  // the WhatsApp image attachment (see EventsService.buildPublicImageUrl).
-  // Same pattern as billing.controller.ts's invoices/:id/pdf/public.
-  @Get('messages/:id/image/public')
-  async getMessageImagePublic(@Param('id') id: string, @Query('token') token: string, @Res() res: Response) {
-    if (!this.service.verifyPublicToken(id, token)) {
-      res.status(403).json({ message: 'Invalid or expired link' });
+  @Get('flyer/:id')
+  async getFlyerImage(@Param('id') id: string, @Query('token') token: string, @Query('expires') expires: string, @Res() res: Response) {
+    if (!this.service.verifyPublicToken(id, token, expires)) {
+      res.status(403).send('Invalid or expired link');
       return;
     }
-    const buffer = await this.service.getMessageImageBuffer(id);
+    const buffer = await this.service.getFlyerImageForPublicRoute(id);
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', 'no-store');
     res.send(buffer);

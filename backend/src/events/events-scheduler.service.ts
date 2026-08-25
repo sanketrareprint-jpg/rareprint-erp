@@ -1,16 +1,16 @@
 // backend/src/events/events-scheduler.service.ts
 //
 // Daily job: for every active EventPerson, check whether today (in
-// Asia/Kolkata) is their birthday or anniversary; for every active,
-// not-yet-sent Festival, check whether today is its date. Each match
-// renders a flyer and sends it via WhatsAppService.sendEventWish (to the
-// person and to the owner), logging the result to EventSendLog.
+// Asia/Kolkata) is their birthday or anniversary; for every active Festival,
+// check whether today matches its recurring month/day. Each match renders a
+// flyer and sends it via WhatsAppService.sendEventWish (to the person and to
+// the owner), logging the result to EventSendLog.
 //
-// Idempotency: birthdays/anniversaries are guarded by "does a SUCCESS
-// EventSendLog already exist for this person+occasion+calendar year?" so a
-// server restart mid-day (or the job somehow firing twice) never double-
-// sends. Festivals are guarded by their own `sentAt` column instead, since a
-// festival occurrence is a single dated row, not a yearly-recurring check.
+// Idempotency: birthdays, anniversaries, AND festivals are all guarded the
+// same way — "does a SUCCESS EventSendLog already exist for this
+// person+occasion(+festival)+calendar year?" — so a server restart mid-day,
+// or the job firing twice, never double-sends, and a festival's month/day
+// naturally fires again next year with no re-adding required.
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,10 +53,10 @@ export class EventsSchedulerService {
     return { year: get('year'), month: get('month'), day: get('day') };
   }
 
-  // dob/anniversaryDate/Festival.date are all @db.Date columns — Prisma
-  // returns these as a UTC-midnight Date representing the calendar date, so
-  // month/day must be read with the UTC getters here, not the local ones
-  // (which would shift the day depending on the server's own timezone).
+  // dob/anniversaryDate are @db.Date columns — Prisma returns these as a
+  // UTC-midnight Date representing the calendar date, so month/day must be
+  // read with the UTC getters here, not the local ones (which would shift
+  // the day depending on the server's own timezone).
   private matchesMonthDay(date: Date | null, month: number, day: number): boolean {
     if (!date) return false;
     return date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
@@ -108,9 +108,8 @@ export class EventsSchedulerService {
   }
 
   private async sendFestivals(): Promise<void> {
-    const { month, day } = this.todayIST();
-    const candidates = await this.prisma.festival.findMany({ where: { isActive: true, sentAt: null } });
-    const todaysFestivals = candidates.filter((f) => this.matchesMonthDay(f.date, month, day));
+    const { month, day, year } = this.todayIST();
+    const todaysFestivals = await this.prisma.festival.findMany({ where: { isActive: true, month, day } });
     if (!todaysFestivals.length) return;
 
     const people = await this.prisma.eventPerson.findMany({ where: { isActive: true } });
@@ -126,27 +125,30 @@ export class EventsSchedulerService {
         continue;
       }
 
+      // festival.month/day recur every year, so — same as birthdays/
+      // anniversaries — dedup per (person, festival, calendar year) rather
+      // than a one-time "sentAt" flag on the Festival row itself, which
+      // would have blocked it from ever firing again next year.
+      const festivalDate = new Date(Date.UTC(year, festival.month - 1, festival.day));
       for (const person of people) {
+        const already = await this.prisma.eventSendLog.findFirst({
+          where: { personId: person.id, festivalId: festival.id, occasionYear: year, status: 'SUCCESS' },
+        });
+        if (already) continue;
         try {
-          await this.eventsService.renderAndSend({
+          const result = await this.eventsService.renderAndSend({
             person,
             occasionType: 'FESTIVAL',
             template,
             festivalId: festival.id,
-            festivalDate: festival.date,
+            festivalDate,
             persist: true,
           });
+          if (!result.sent) this.logger.warn(`Festival "${festival.name}" wish to ${person.name} did not reach them: ${result.errorMessage ?? 'unknown reason'}`);
         } catch (err) {
           this.logger.error(`Failed sending festival "${festival.name}" wish to ${person.name}: ${err instanceof Error ? err.message : err}`);
         }
       }
-
-      // Marked sent even if some individual sends above failed — this row
-      // represents "today's broadcast already ran", not "every recipient
-      // succeeded" (per-recipient outcomes are in EventSendLog). Retrying a
-      // partially-failed festival broadcast is a manual admin action, same
-      // as any other WhatsApp send failure in this app.
-      await this.prisma.festival.update({ where: { id: festival.id }, data: { sentAt: new Date() } });
     }
   }
 }

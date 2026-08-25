@@ -250,15 +250,28 @@ export class EventsService {
   }
 
   // ───────────────────────── Festivals ─────────────────────────
+  // Recurring by month/day (added once, fires every year) — not a one-off
+  // date re-added yearly. See docs/Events_Module_Context.md.
 
-  async createFestival(params: { name: string; date: string; templateId?: string; userId: string }) {
+  private static readonly DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]; // Feb allows 29 so leap-year festivals can be entered; the scheduler simply won't match on non-leap Feb 29s
+
+  private validateMonthDay(month: unknown, day: unknown): { month: number; day: number } {
+    const m = Number(month);
+    const d = Number(day);
+    if (!Number.isInteger(m) || m < 1 || m > 12) throw new BadRequestException('month must be an integer 1-12');
+    if (!Number.isInteger(d) || d < 1 || d > EventsService.DAYS_IN_MONTH[m - 1]) throw new BadRequestException(`day must be an integer 1-${EventsService.DAYS_IN_MONTH[m - 1]} for the given month`);
+    return { month: m, day: d };
+  }
+
+  async createFestival(params: { name: string; month: unknown; day: unknown; templateId?: string; userId: string }) {
     if (!params.name?.trim()) throw new BadRequestException('name is required');
-    if (!params.date) throw new BadRequestException('date is required');
+    const { month, day } = this.validateMonthDay(params.month, params.day);
     if (params.templateId) await this.getTemplate(params.templateId);
     return this.prisma.festival.create({
       data: {
         name: params.name.trim(),
-        date: new Date(params.date),
+        month,
+        day,
         templateId: params.templateId || null,
         createdById: params.userId,
       },
@@ -266,15 +279,19 @@ export class EventsService {
   }
 
   listFestivals() {
-    return this.prisma.festival.findMany({ orderBy: { date: 'asc' } });
+    return this.prisma.festival.findMany({ orderBy: [{ month: 'asc' }, { day: 'asc' }] });
   }
 
-  async updateFestival(id: string, params: { name?: string; date?: string; templateId?: string | null; isActive?: boolean }) {
+  async updateFestival(id: string, params: { name?: string; month?: unknown; day?: unknown; templateId?: string | null; isActive?: boolean }) {
     const existing = await this.prisma.festival.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Festival not found');
     const data: Record<string, unknown> = {};
     if (typeof params.name === 'string' && params.name.trim()) data.name = params.name.trim();
-    if (params.date) data.date = new Date(params.date);
+    if (params.month !== undefined || params.day !== undefined) {
+      const { month, day } = this.validateMonthDay(params.month ?? existing.month, params.day ?? existing.day);
+      data.month = month;
+      data.day = day;
+    }
     if (params.templateId !== undefined) {
       if (params.templateId) await this.getTemplate(params.templateId);
       data.templateId = params.templateId || null;
