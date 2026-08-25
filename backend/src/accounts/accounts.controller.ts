@@ -281,8 +281,11 @@ export class AccountsController {
   }
 
   @Get('payment-verification-history')
-  getPaymentVerificationHistory() {
-    return this.accountsService.getPaymentVerificationHistory();
+  getPaymentVerificationHistory(
+    @Query('vendorId') vendorId?: string,
+    @Query('expenseCategoryId') expenseCategoryId?: string,
+  ) {
+    return this.accountsService.getPaymentVerificationHistory({ vendorId, expenseCategoryId });
   }
 
   @Patch('payment-verification/:id/note')

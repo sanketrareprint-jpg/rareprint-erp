@@ -2191,13 +2191,17 @@ export class AccountsService {
   }
 
   /** GET /accounts/payment-verification-history — entries Sanket has rechecked, most recently rechecked first. */
-  async getPaymentVerificationHistory() {
+  async getPaymentVerificationHistory(filters?: { vendorId?: string; expenseCategoryId?: string }) {
+    const where: any = {
+      crDr: 'DR',
+      reconcileStatus: { in: this.paymentVerificationStatuses },
+      recheckedAt: { not: null },
+    };
+    if (filters?.vendorId) where.matchedVendorId = filters.vendorId;
+    if (filters?.expenseCategoryId) where.expenseCategoryId = filters.expenseCategoryId;
+
     const txns = await this.prisma.bankTransaction.findMany({
-      where: {
-        crDr: 'DR',
-        reconcileStatus: { in: this.paymentVerificationStatuses },
-        recheckedAt: { not: null },
-      },
+      where,
       orderBy: [{ recheckedAt: 'desc' }],
       include: this.paymentVerificationInclude,
     });
