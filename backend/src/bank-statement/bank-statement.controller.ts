@@ -47,6 +47,8 @@ export class BankStatementController {
     @Query('toDate') toDate?: string,
     @Query('amountMin') amountMin?: string,
     @Query('amountMax') amountMax?: string,
+    @Query('vendorId') vendorId?: string,
+    @Query('expenseCategoryId') expenseCategoryId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -59,6 +61,8 @@ export class BankStatementController {
       toDate,
       amountMin: amountMin ? parseFloat(amountMin) : undefined,
       amountMax: amountMax ? parseFloat(amountMax) : undefined,
+      vendorId,
+      expenseCategoryId,
       page: page ? parseInt(page) : undefined,
       limit: limit ? parseInt(limit) : undefined,
     });

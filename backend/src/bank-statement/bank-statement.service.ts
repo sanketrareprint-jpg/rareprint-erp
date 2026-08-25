@@ -453,6 +453,8 @@ export class BankStatementService {
     toDate?: string;
     amountMin?: number;
     amountMax?: number;
+    vendorId?: string;
+    expenseCategoryId?: string;
     page?: number;
     limit?: number;
   }) {
@@ -482,6 +484,8 @@ export class BankStatementService {
       if (filters.amountMax !== undefined)
         (where.amount as any).lte = filters.amountMax;
     }
+    if (filters.vendorId) where.matchedVendorId = filters.vendorId;
+    if (filters.expenseCategoryId) where.expenseCategoryId = filters.expenseCategoryId;
 
     const [total, data] = await Promise.all([
       this.prisma.bankTransaction.count({ where }),
