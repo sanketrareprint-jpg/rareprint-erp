@@ -40,10 +40,26 @@
 # two pending Festival migrations to production -- it is not optional this
 # time, unlike a normal deploy where only code changed. You need your
 # production DATABASE_URL for it: Railway dashboard -> Postgres service ->
-# Variables tab -> copy the DATABASE_URL value (or DATABASE_PUBLIC_URL if
-# that's what's shown for external/local connections).
+# Variables tab -> click DATABASE_URL (or DATABASE_PUBLIC_URL if that's what
+# shows for external/local connections) -> copy its VALUE, which looks like:
+#   postgresql://postgres:SomeRealPassword123@monorail.proxy.rlwy.net:12345/railway
+# Then, in this PowerShell window, BEFORE running this script, paste your
+# actual copied value (not the example above, and not these instructions)
+# into a command shaped exactly like this:
+#   $env:DATABASE_URL = "postgresql://postgres:SomeRealPassword123@monorail.proxy.rlwy.net:12345/railway"
+# The whole postgresql://... string goes inside the quotes, nothing else.
 
 $repo = "C:\Users\ASUS\Downloads\rareprint-erp"
+
+# 0. Sanity-check DATABASE_URL's shape before doing anything else, so a
+#    mistake here (e.g. pasting a placeholder or instructions by accident)
+#    fails immediately and clearly instead of after a 5-minute build, or
+#    worse, silently -- railway-migrate.js below always exits 0 by design
+#    (so it can never block the app from booting), so a malformed URL
+#    inside it would NOT otherwise be caught by a normal exit-code check.
+if ($env:DATABASE_URL -and ($env:DATABASE_URL -notmatch '^postgres(ql)?://')) {
+  throw "DATABASE_URL is set but does not look like a real Postgres connection string (it should start with postgresql://). Current value starts with: '$($env:DATABASE_URL.Substring(0, [Math]::Min(30, $env:DATABASE_URL.Length)))...' -- copy the actual value from Railway's Postgres service > Variables tab, not a placeholder or these instructions."
+}
 
 # 1. Backend: local build check -- this also runs `prisma generate`,
 #    which will fail loudly here if the new schema has a mistake.
@@ -70,24 +86,29 @@ if ($LASTEXITCODE -ne 0) { throw "Frontend build failed -- fix the errors above 
 #    full incident). So this has to be run from here, against production,
 #    every time a schema change needs to ship -- it is not automatic and
 #    pushing code alone will NOT apply it.
-#
-#    Set DATABASE_URL to your production connection string before running
-#    this script, e.g. in this same PowerShell window:
-#      $env:DATABASE_URL = "postgresql://...."
-#    If it's not set, this step is skipped with a warning -- the app will
-#    keep 500ing on Festival/History until you come back and run it.
 Set-Location "$repo\backend"
 if ($env:DATABASE_URL) {
   node scripts/railway-migrate.js
-  if ($LASTEXITCODE -ne 0) { throw "railway-migrate.js failed -- check the output above before continuing. Do not push if the migration itself errored (as opposed to a warning)." }
-
-  # Quick sanity check: confirm Festival now has month/day, not date/sentAt
-  $sql = @"
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'Festival'
-ORDER BY column_name;
-"@
-  $sql | npx prisma db execute --stdin
+  # NOTE: railway-migrate.js always exits 0 by design (so a migration
+  # problem never blocks the app from booting on Railway) -- so its own
+  # exit code proves nothing here. The real check is the assertion query
+  # below: it fails loudly (nonzero exit, caught immediately) if
+  # Festival.month still doesn't exist after the step above, instead of
+  # silently falling through to git push like last time.
+  $assertSql = @'
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'Festival' AND column_name = 'month'
+  ) THEN
+    RAISE EXCEPTION 'Festival.month still does not exist -- the migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
+  END IF;
+END $$;
+'@
+  $assertSql | npx prisma db execute --stdin
+  if ($LASTEXITCODE -ne 0) { throw "Migration verification failed -- Festival.month still does not exist in the database. Do NOT continue to push. See the error above (likely DATABASE_URL is wrong, or the DB is unreachable from this machine)." }
+  Write-Host "Festival.month/day confirmed present in the database -- migration applied successfully." -ForegroundColor Green
 } else {
   Write-Host "DATABASE_URL is not set -- SKIPPING the production migration. Festivals/History will keep 500ing (P2022) until you set DATABASE_URL to your production connection string and re-run this script, or run 'node scripts/railway-migrate.js' by hand from backend/ with it set." -ForegroundColor Yellow
 }
