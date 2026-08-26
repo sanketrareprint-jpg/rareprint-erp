@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PoliciesWidget } from "@/components/PoliciesWidget";
 import DateInput from "@/components/DateInput";
 import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
@@ -1062,6 +1063,8 @@ export default function ProductionPage() {
               <button onClick={() => loadAll()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
             </div>
           </div>
+
+          <PoliciesWidget moduleTag="PRODUCTION" />
 
           {/* Search */}
           <div className="relative max-w-xs">

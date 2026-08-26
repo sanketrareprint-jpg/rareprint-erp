@@ -46,6 +46,7 @@ import { MachineReadingsModule } from './machine-readings/machine-readings.modul
 import { BillingModule } from './billing/billing.module';
 import { CertificateGeneratorModule } from './certificate-generator/certificate-generator.module';
 import { EventsModule } from './events/events.module';
+import { PoliciesModule } from './policies/policies.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { EventsModule } from './events/events.module';
     BillingModule,
     CertificateGeneratorModule,
     EventsModule,
+    PoliciesModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],

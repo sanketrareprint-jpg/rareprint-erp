@@ -205,6 +205,37 @@ async function main() {
       console.log('[ensure-all-columns] UserPaymentKeyword: created.');
     });
 
+    // ── PolicyDocument table (Policies/SOPs module) ─────────────────────────
+    await safely('PolicyDocument', async () => {
+      const { rows } = await client.query(`SELECT to_regclass('public."PolicyDocument"') AS reg`);
+      if (rows[0]?.reg) {
+        console.log('[ensure-all-columns] PolicyDocument: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] PolicyDocument: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "PolicyDocument" (
+          "id"          TEXT NOT NULL,
+          "title"       TEXT NOT NULL,
+          "content"     TEXT NOT NULL,
+          "modules"     TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+          "isActive"    BOOLEAN NOT NULL DEFAULT true,
+          "createdById" TEXT NOT NULL,
+          "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt"   TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "PolicyDocument_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS "PolicyDocument_isActive_idx" ON "PolicyDocument"("isActive");`);
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE "PolicyDocument" ADD CONSTRAINT "PolicyDocument_createdById_fkey"
+          FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+        EXCEPTION WHEN duplicate_object THEN null; END $$;
+      `);
+      console.log('[ensure-all-columns] PolicyDocument: created.');
+    });
+
     // ── AttendanceImportSession.isFinal column ────────────────────────────
     await safely('AttendanceImportSession.isFinal', async () => {
       const { rows } = await client.query(`

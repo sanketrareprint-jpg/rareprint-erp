@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PoliciesWidget } from "@/components/PoliciesWidget";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
@@ -1963,6 +1964,8 @@ export default function AccountsPage() {
             <h1 className="text-xl font-bold text-slate-900">Accounts</h1>
             <p className="text-xs text-slate-500 mt-0.5">Approve orders, dispatch, and manage vendor payments.</p>
           </div>
+
+          <PoliciesWidget moduleTag="ACCOUNTS" />
 
           {loadError && (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

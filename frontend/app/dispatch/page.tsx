@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PoliciesWidget } from "@/components/PoliciesWidget";
 import { MobileSelect } from "@/components/MobileSelect";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { API_BASE_URL } from "@/lib/api";
@@ -847,6 +848,7 @@ export default function DispatchPage() {
     <DashboardShell>
       <div className="p-6 lg:p-8">
         <div className="mx-auto max-w-full space-y-5">
+          <PoliciesWidget moduleTag="DISPATCH" />
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">Dispatch</h1>

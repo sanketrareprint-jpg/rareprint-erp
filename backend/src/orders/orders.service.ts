@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -13,6 +14,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+
+// Same convention as AccountsService — Sanket is the super-admin, identified
+// by email rather than a Role enum value, since this app has never had a
+// distinct SUPER_ADMIN role. Reused here for the item-lock-override feature.
+const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 
 function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -898,6 +904,117 @@ export class OrdersService {
     });
 
     return { success: true };
+  }
+
+  // Super-admin-only correction window: once an order is approved and in
+  // production, quantity/price/product-details are normally locked (they
+  // drive production sheet nesting, invoicing, commission). This lets
+  // Sanket fix a genuine mistake (wrong quantity/GSM entered, price typo)
+  // right up until the item actually starts printing -- after that, sheets
+  // may already be nested/cut against the old numbers, so it's blocked.
+  // Every edit recalculates the order's subtotal/grandTotal/paymentStatus
+  // (same formula as create()) and is logged to StatusLog for audit, per
+  // Sanket's explicit confirmation (2026-08-19).
+  async superAdminEditItem(
+    itemId: string,
+    body: { quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
+    user: { id: string; email: string },
+  ) {
+    if (user.email !== SUPER_ADMIN_EMAIL) {
+      throw new ForbiddenException('Only the super-admin can edit an item after it has been approved');
+    }
+
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { order: { include: { payments: true, items: true } }, product: true },
+    });
+    if (!item) throw new NotFoundException('Order item not found');
+    if (item.cancelledAt) throw new BadRequestException('This item was cancelled — nothing to edit');
+    if (item.itemProductionStage !== OrderProductionStage.NOT_PRINTED) {
+      throw new BadRequestException(
+        `Cannot edit — this item is already ${item.itemProductionStage.replace(/_/g, ' ').toLowerCase()}. Edits are only allowed before printing starts.`,
+      );
+    }
+
+    // productionNotes carries the free-text "Size: X, GSM: Y, Paper: Z,
+    // Sides: W" details set at order-create time (see
+    // frontend/app/orders/create/page.tsx) -- parse the existing string,
+    // overlay whichever fields were submitted, and rebuild it in the exact
+    // same format everything else (production, dispatch, sheets) expects.
+    const notes = item.productionNotes ?? '';
+    const currentSize  = notes.match(/Size[\s:]+([^\n,]+)/i)?.[1]?.trim() ?? '';
+    const currentGsm   = notes.match(/GSM[\s:]+([^,\n\s]+)/i)?.[1]?.trim() ?? '';
+    const currentPaper = notes.match(/Paper[\s:]+([^,\n]+)/i)?.[1]?.trim() ?? '';
+    const currentSides = notes.match(/Sides[\s:]+([^,\n\s]+)/i)?.[1]?.trim() ?? '';
+
+    const size  = body.size  ?? currentSize;
+    const gsm   = body.gsm   ?? currentGsm;
+    const paper = body.paperType ?? currentPaper;
+    const sides = body.sides ?? currentSides;
+    const productionNotes = `Size: ${size}, GSM: ${gsm}${paper ? `, Paper: ${paper}` : ''}, Sides: ${sides}`;
+
+    const quantity  = body.quantity  ?? item.quantity;
+    const unitPrice = body.unitPrice ?? Number(item.unitPrice);
+    if (quantity <= 0) throw new BadRequestException('Quantity must be greater than 0');
+    if (unitPrice < 0) throw new BadRequestException('Amount cannot be negative');
+    const lineTotal = quantity * unitPrice;
+
+    const before = {
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice),
+      lineTotal: Number(item.lineTotal),
+      productionNotes: item.productionNotes,
+    };
+
+    const order = item.order;
+    const totalPaid = order.payments.reduce((s, p) => s + Number(p.amount), 0);
+    const subtotal = order.items.reduce(
+      (s, i) => s + (i.id === itemId ? lineTotal : (i.cancelledAt ? 0 : Number(i.lineTotal))),
+      0,
+    );
+    const grandTotal = subtotal;
+    let paymentStatus: PaymentStatus = PaymentStatus.PENDING;
+    if (totalPaid > 0) {
+      paymentStatus = totalPaid >= grandTotal ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orderItem.update({
+        where: { id: itemId },
+        data: {
+          quantity,
+          unitPrice: new Prisma.Decimal(unitPrice),
+          lineTotal: new Prisma.Decimal(lineTotal),
+          productionNotes,
+        },
+      });
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          subtotal: new Prisma.Decimal(subtotal),
+          grandTotal: new Prisma.Decimal(grandTotal),
+          paymentStatus,
+        },
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId: order.id,
+          fromStatus: order.status,
+          toStatus: order.status,
+          changedById: user.id,
+          reason: `Super-admin edit: ${item.product.name} — before ${JSON.stringify(before)} → after ${JSON.stringify({ quantity, unitPrice, lineTotal, productionNotes })}`,
+          metadata: {
+            eventType: 'SUPERADMIN_ITEM_EDIT',
+            itemId,
+            productName: item.product.name,
+            before,
+            after: { quantity, unitPrice, lineTotal, productionNotes },
+          },
+        },
+      });
+    });
+
+    return { success: true, quantity, unitPrice, lineTotal, productionNotes, grandTotal, paymentStatus };
   }
 
   // isAdmin lets ADMIN-role users force-delete an order in any status, not

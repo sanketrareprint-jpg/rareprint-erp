@@ -1,13 +1,14 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PoliciesWidget } from "@/components/PoliciesWidget";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import {
   Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp,
   Truck, CheckSquare, Square, AlertTriangle, Search,
-  Paperclip, Upload, FileText, Trash2,
+  Paperclip, Upload, FileText, Trash2, Edit2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
@@ -193,6 +194,11 @@ export default function OrdersPage() {
   const [orderJourneys, setOrderJourneys] = useState<Record<string, any[]>>({});
   const [orderPayments, setOrderPayments] = useState<Record<string, Payment[]>>({});
   const [paymentModal, setPaymentModal] = useState<Order | null>(null);
+  // Super-admin-only: correct quantity/quality/amount on an item before it
+  // starts printing (see backend OrdersService.superAdminEditItem).
+  const [superEditItem, setSuperEditItem] = useState<{ orderId: string; item: ItemDetail } | null>(null);
+  const [superEditForm, setSuperEditForm] = useState({ quantity: "", unitPrice: "", size: "", gsm: "", sides: "" });
+  const [superEditSaving, setSuperEditSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Admin force-delete (order past PENDING_APPROVAL) — gated behind typing
@@ -458,6 +464,40 @@ export default function OrdersPage() {
     const res = await fetch(`${API_BASE_URL}/orders/${orderId}/status-logs`, { headers: getAuthHeaders() });
     const data = res.ok ? await res.json() : [];
     setOrderJourneys(p => ({ ...p, [orderId]: data }));
+  }
+
+  function openSuperEdit(orderId: string, item: ItemDetail) {
+    setSuperEditItem({ orderId, item });
+    setSuperEditForm({
+      quantity: String(item.quantity ?? ""),
+      unitPrice: String(item.unitPrice ?? ""),
+      size: item.size ?? "",
+      gsm: item.gsm ?? "",
+      sides: item.sides ?? "",
+    });
+  }
+
+  async function submitSuperEdit() {
+    if (!superEditItem?.item.id) return;
+    setSuperEditSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/items/${superEditItem.item.id}/superadmin-edit`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantity: superEditForm.quantity ? Number(superEditForm.quantity) : undefined,
+          unitPrice: superEditForm.unitPrice ? Number(superEditForm.unitPrice) : undefined,
+          size: superEditForm.size || undefined,
+          gsm: superEditForm.gsm || undefined,
+          sides: superEditForm.sides || undefined,
+        }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Edit failed"); return; }
+      setSuperEditItem(null);
+      await load();
+    } finally {
+      setSuperEditSaving(false);
+    }
   }
 
   async function submitPayment() {
@@ -836,6 +876,7 @@ export default function OrdersPage() {
       <DashboardShell>
         <div className="p-4 lg:p-5">
           <div className="space-y-3">
+            <PoliciesWidget moduleTag="ORDERS" />
             {/* Header */}
             <div className="flex items-center justify-between">
               <div>
@@ -1086,7 +1127,15 @@ export default function OrdersPage() {
                           <div key={idx} className={cx("rounded-lg border border-slate-100 bg-slate-50 px-3 py-2", "rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5")}>
                             <div className="flex items-start justify-between gap-2">
                               <p className={cx("truncate font-bold text-slate-900", "truncate text-sm font-bold text-slate-900")}>{item.productName}</p>
-                              {item.itemProductionStage && <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>{itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}</span>}
+                              <div className="flex shrink-0 items-center gap-1">
+                                {currentUser?.fullName === "Sanket Admin" && item.id && item.itemProductionStage === "NOT_PRINTED" && !item.cancelledAt && (
+                                  <button title="Super-admin edit (quantity/quality/amount)" onClick={() => openSuperEdit(o.id, item)}
+                                    className="rounded-full border border-amber-200 bg-amber-50 p-1 text-amber-700 hover:bg-amber-100">
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {item.itemProductionStage && <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"}`}>{itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}</span>}
+                              </div>
                             </div>
                             <div className={cx("mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500", "mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500")}>
                               {item.size && <span>{item.size}</span>}
@@ -1840,6 +1889,58 @@ export default function OrdersPage() {
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
                 Save Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Super-admin item edit modal ──────────────────────────────────── */}
+      {superEditItem && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
+          <div style={{ width: "100%", maxWidth: "26rem", background: "white", borderRadius: "1rem", border: "1px solid #fbbf24", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Super-admin Edit</h2>
+                <p className="text-sm text-slate-500">{superEditItem.item.productName}</p>
+              </div>
+              <button onClick={() => setSuperEditItem(null)}><X className="h-5 w-5 text-slate-400" /></button>
+            </div>
+            <p className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              Only allowed before this item starts printing. Changing quantity/amount recalculates the order total and payment status, and is logged for audit.
+            </p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Quantity</label>
+                  <input type="number" value={superEditForm.quantity} onChange={e => setSuperEditForm(f => ({ ...f, quantity: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Amount / Unit (₹)</label>
+                  <input type="number" value={superEditForm.unitPrice} onChange={e => setSuperEditForm(f => ({ ...f, unitPrice: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Size</label>
+                  <input type="text" value={superEditForm.size} onChange={e => setSuperEditForm(f => ({ ...f, size: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">GSM</label>
+                  <input type="text" value={superEditForm.gsm} onChange={e => setSuperEditForm(f => ({ ...f, gsm: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Sides</label>
+                  <input type="text" value={superEditForm.sides} onChange={e => setSuperEditForm(f => ({ ...f, sides: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setSuperEditItem(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button onClick={submitSuperEdit} disabled={superEditSaving}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60">
+                {superEditSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Edit2 className="h-4 w-4" />}
+                Save
               </button>
             </div>
           </div>

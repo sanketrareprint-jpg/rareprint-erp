@@ -9,7 +9,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -57,6 +57,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Manage Academy", href: "/admin/sales-learning", icon: BookOpen },
     { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Complaints", href: "/complaints",       icon: MessageSquareWarning },
+    { label: "Policies",   href: "/policies",         icon: FileText },
     { label: "Settings",   href: "/settings",         icon: Settings },
     { label: "Activity",   href: "/admin/activity",   icon: Activity },
     { label: "Biz Rules",  href: "/business-rules",   icon: Shield },
@@ -76,6 +77,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "CRM", href: "/crm", icon: BarChart2 },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
+    { label: "Policies", href: "/policies", icon: FileText },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],
   SALES_AGENT: [
@@ -93,6 +95,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
     { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
+    { label: "Policies", href: "/policies", icon: FileText },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],
   ACCOUNTS: [
@@ -109,6 +112,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Reports", href: "/reports", icon: FileSpreadsheet },
     { label: "Loyalty", href: "/loyalty", icon: Gift },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
+    { label: "Policies", href: "/policies", icon: FileText },
     { label: "HR",         href: "/hr",               icon: Briefcase },
     { label: "Attendance", href: "/attendance",       icon: CalendarClock },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
@@ -123,6 +127,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Storefront", href: "/storefront",         icon: Printer },
     { label: "Design",     href: "/design-studio",     icon: Palette },
     { label: "Complaints", href: "/complaints",         icon: MessageSquareWarning },
+    { label: "Policies", href: "/policies", icon: FileText },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],
   DISPATCH: [
@@ -131,6 +136,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
     { label: "Storefront", href: "/storefront", icon: Printer },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
+    { label: "Policies", href: "/policies", icon: FileText },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],
   DESIGNER: [

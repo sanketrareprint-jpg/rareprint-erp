@@ -1,6 +1,8 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PoliciesWidget } from "@/components/PoliciesWidget";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { getStoredUser, getAuthHeaders } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
@@ -361,6 +363,7 @@ export default function HrPage() {
   return (
     <DashboardShell>
       <div className="p-4 lg:p-6 space-y-4 max-w-6xl mx-auto">
+        <PoliciesWidget moduleTag="HR" />
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -469,18 +472,17 @@ export default function HrPage() {
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-slate-500 uppercase">Status</label>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
-                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  <option value="">All</option>
-                </select>
+                <MobileSelect value={statusFilter} onChange={setStatusFilter} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                  options={[...STATUS_OPTIONS.map((s) => ({ value: s, label: s })), { value: "", label: "All" }]} />
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-slate-500 uppercase">Payroll approval</label>
-                <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
-                  <option value="">All</option>
-                  <option value="approved">Approved</option>
-                  <option value="pending">Not approved</option>
-                </select>
+                <MobileSelect value={approvalFilter} onChange={(v) => setApprovalFilter(v as typeof approvalFilter)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                  options={[
+                    { value: "", label: "All" },
+                    { value: "approved", label: "Approved" },
+                    { value: "pending", label: "Not approved" },
+                  ]} />
               </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden overflow-x-auto">
@@ -591,9 +593,8 @@ export default function HrPage() {
                 <DropdownField label="Designation" required value={form.designation} onChange={(v) => setForm({ ...form, designation: v })} options={DESIGNATIONS} otherPlaceholder="Type designation" />
                 <DropdownField label="Department" value={form.department} onChange={(v) => setForm({ ...form, department: v })} options={DEPARTMENTS} otherPlaceholder="Type department" />
                 <Field label="Status">
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={INPUT_CLS}>
-                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <MobileSelect value={form.status} onChange={(v) => setForm({ ...form, status: v })} className={INPUT_CLS}
+                    options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))} />
                 </Field>
                 <Field label="Base Salary (monthly) *"><input type="number" value={form.baseSalary} onChange={(e) => setForm({ ...form, baseSalary: e.target.value })} className={INPUT_CLS} /></Field>
                 <Field label="Working Hours / Day"><input type="number" value={form.workingHoursPerDay} onChange={(e) => setForm({ ...form, workingHoursPerDay: e.target.value })} className={INPUT_CLS} /></Field>
@@ -606,10 +607,8 @@ export default function HrPage() {
                   </label>
                 </Field>
                 <Field label="Sales Incentive Plan">
-                  <select value={form.incentivePlanId} onChange={(e) => setForm({ ...form, incentivePlanId: e.target.value })} className={INPUT_CLS}>
-                    <option value="">None</option>
-                    {incentivePlans.map((p) => <option key={p.id} value={p.id}>{p.label} — {Number(p.incentivePct)}% of sales, target {fmtMoney(p.monthlyTarget)}</option>)}
-                  </select>
+                  <MobileSelect value={form.incentivePlanId} onChange={(v) => setForm({ ...form, incentivePlanId: v })} className={INPUT_CLS}
+                    options={[{ value: "", label: "None" }, ...incentivePlans.map((p) => ({ value: p.id, label: `${p.label} — ${Number(p.incentivePct)}% of sales, target ${fmtMoney(p.monthlyTarget)}` }))]} />
                 </Field>
                 <Field label="Petrol Allowance (monthly)"><input type="number" value={form.petrolAllowance} onChange={(e) => setForm({ ...form, petrolAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
                 <Field label="SIM Recharge Allowance (monthly)"><input type="number" value={form.simAllowance} onChange={(e) => setForm({ ...form, simAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
@@ -679,21 +678,24 @@ export default function HrPage() {
                     {detail.kras.length === 0 && <div className="text-xs text-slate-400">None recorded yet.</div>}
                   </div>
                   <div className="flex flex-wrap gap-2 items-end pt-2 border-t border-slate-100">
-                    <select value={kraForm.type} onChange={(e) => { setKraForm({ ...kraForm, type: e.target.value, title: "" }); setRespOtherMode(false); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
-                      <option value="KRA">KRA</option>
-                      <option value="RESPONSIBILITY">Responsibility</option>
-                    </select>
+                    <MobileSelect value={kraForm.type} onChange={(v) => { setKraForm({ ...kraForm, type: v, title: "" }); setRespOtherMode(false); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs"
+                      options={[
+                        { value: "KRA", label: "KRA" },
+                        { value: "RESPONSIBILITY", label: "Responsibility" },
+                      ]} />
                     {kraForm.type === "RESPONSIBILITY" ? (
                       respOtherMode ? (
                         <input value={kraForm.title} onChange={(e) => setKraForm({ ...kraForm, title: e.target.value })} placeholder="Type responsibility" className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]" />
                       ) : (
-                        <select value={kraForm.title}
-                          onChange={(e) => { if (e.target.value === "__OTHER__") { setRespOtherMode(true); setKraForm({ ...kraForm, title: "" }); } else setKraForm({ ...kraForm, title: e.target.value }); }}
-                          className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]">
-                          <option value="">— Select responsibility —</option>
-                          {RESPONSIBILITY_TITLES.map((t) => <option key={t} value={t}>{t}</option>)}
-                          <option value="__OTHER__">Other (type manually)</option>
-                        </select>
+                        <MobileSelect value={kraForm.title}
+                          onChange={(v) => { if (v === "__OTHER__") { setRespOtherMode(true); setKraForm({ ...kraForm, title: "" }); } else setKraForm({ ...kraForm, title: v }); }}
+                          className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]"
+                          placeholder="— Select responsibility —"
+                          options={[
+                            { value: "", label: "— Select responsibility —" },
+                            ...RESPONSIBILITY_TITLES.map((t) => ({ value: t, label: t })),
+                            { value: "__OTHER__", label: "Other (type manually)" },
+                          ]} />
                       )
                     ) : (
                       <input value={kraForm.title} onChange={(e) => setKraForm({ ...kraForm, title: e.target.value })} placeholder="Title" className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[140px]" />
@@ -741,9 +743,8 @@ export default function HrPage() {
                   </table>
                   <div className="flex flex-wrap gap-2 items-end pt-2 border-t border-slate-100">
                     <DateInput value={leaveForm.date} onChange={(e) => setLeaveForm({ ...leaveForm, date: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
-                    <select value={leaveForm.type} onChange={(e) => setLeaveForm({ ...leaveForm, type: e.target.value })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
-                      {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                    <MobileSelect value={leaveForm.type} onChange={(v) => setLeaveForm({ ...leaveForm, type: v })} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs"
+                      options={LEAVE_TYPES.map((t) => ({ value: t, label: t }))} />
                     <input type="number" step="0.5" value={leaveForm.days} onChange={(e) => setLeaveForm({ ...leaveForm, days: e.target.value })} className="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-xs" />
                     <input value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} placeholder='Reason (e.g. "Marriage", "Family function")' className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs flex-1 min-w-[160px]" />
                     <button onClick={handleAddLeave} className="text-xs font-semibold bg-slate-800 text-white rounded-lg px-3 py-1.5">Add</button>
@@ -789,18 +790,20 @@ function DropdownField({
           <button type="button" onClick={() => { setCustomMode(false); onChange(""); }} title="Pick from list instead" className="text-xs text-blue-600 whitespace-nowrap px-1">list</button>
         </div>
       ) : (
-        <select
+        <MobileSelect
           value={options.includes(value) ? value : ""}
-          onChange={(e) => {
-            if (e.target.value === "__OTHER__") { setCustomMode(true); onChange(""); }
-            else onChange(e.target.value);
+          onChange={(v) => {
+            if (v === "__OTHER__") { setCustomMode(true); onChange(""); }
+            else onChange(v);
           }}
           className={INPUT_CLS}
-        >
-          <option value="">— Select —</option>
-          {options.map((o) => <option key={o} value={o}>{o}</option>)}
-          <option value="__OTHER__">Other (type manually)</option>
-        </select>
+          placeholder="— Select —"
+          options={[
+            { value: "", label: "— Select —" },
+            ...options.map((o) => ({ value: o, label: o })),
+            { value: "__OTHER__", label: "Other (type manually)" },
+          ]}
+        />
       )}
     </Field>
   );

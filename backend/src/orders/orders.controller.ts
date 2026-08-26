@@ -23,7 +23,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-type JwtUser = { id: string; role: string };
+type JwtUser = { id: string; role: string; email: string };
 type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number; base64?: string; mimeType?: string };
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads', 'designs');
@@ -133,6 +133,19 @@ export class OrdersController {
   @UseGuards(AuthGuard('jwt'))
   create(@Req() req: Request & { user: JwtUser }, @Body() dto: CreateOrderDto) {
     return this.ordersService.create(dto, req.user.id);
+  }
+
+  // Super-admin-only: correct quantity/quality/amount on an item before it
+  // starts printing. See OrdersService.superAdminEditItem for the guard,
+  // recalculation, and audit-log details.
+  @Patch('items/:itemId/superadmin-edit')
+  @UseGuards(AuthGuard('jwt'))
+  superAdminEditItem(
+    @Param('itemId') itemId: string,
+    @Req() req: Request & { user: JwtUser },
+    @Body() body: { quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
+  ) {
+    return this.ordersService.superAdminEditItem(itemId, body, req.user);
   }
 
   @Post('test')
