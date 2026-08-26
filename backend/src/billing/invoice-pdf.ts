@@ -396,7 +396,18 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     drawItemRowDividers(y, headerRowH);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
     for (const col of cols) {
-      boldText(col.key, colX + 3, y + 4, { width: col.width - 6, height: 9, ellipsis: true, align: col.numeric ? 'right' : 'left' });
+      // Left/right text insets split by alignment (was a flat +3/-6 for
+      // both) — re-measured 2026-08-26 via pdftotext against scenario-A:
+      // left-aligned headers ("Item name"/"HSN/ SAC") sat ~1.2-1.8pt too
+      // far LEFT (need MORE left padding), right-aligned ones (Quantity/
+      // Price/GST/Amount) sat ~1.0-2.5pt too far RIGHT (need MORE right
+      // padding) — a first pass here had both directions backwards, made
+      // worse, caught by re-measuring after. The column dividers themselves
+      // are already correct (verified separately), so this only touches
+      // text padding within each cell, not the boundaries.
+      const leftPad = col.numeric ? 3 : 4.3;
+      const rightPad = col.numeric ? 4 : 3;
+      boldText(col.key, colX + leftPad, y + 4, { width: col.width - leftPad - rightPad, height: 9, ellipsis: true, align: col.numeric ? 'right' : 'left' });
       colX += col.width;
     }
     y += headerRowH;
@@ -659,37 +670,45 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.3);
 
     let hx = tableX;
-    // HSN/SAC — merged, vertically centered.
-    boldText('HSN/ SAC', hx + 2, taxTableTop + taxHeaderH / 2 - 3, { width: hsnW - 4, align: 'center' });
+    // HSN/SAC — merged, vertically centered. "-4.45" (was "-3") — re-measured
+    // 2026-08-26 via pdftotext against a scenario-A render: this label (and
+    // "Total Tax(₹)" below, which shares this exact formula) both landed
+    // 1.45pt lower than the reference.
+    boldText('HSN/ SAC', hx + 2, taxTableTop + taxHeaderH / 2 - 4.45, { width: hsnW - 4, align: 'center' });
     hx += hsnW;
     doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
 
-    // Taxable amount (₹) — merged, two lines, vertically centered. +7.4/+17.4
-    // (was +4/+14) — measured 3.42pt lower than the other same-row headers.
-    boldText('Taxable amount', hx + 2, taxTableTop + 7.4, { width: taxableW - 4, align: 'center' });
-    boldText('(₹)', hx + 2, taxTableTop + 17.4, { width: taxableW - 4, align: 'center' });
+    // Taxable amount (₹) — merged, two lines, vertically centered. +5.65/
+    // +15.65 (was +7.4/+17.4) — re-measured 2026-08-26: landed 1.75pt lower
+    // than the reference.
+    boldText('Taxable amount', hx + 2, taxTableTop + 5.65, { width: taxableW - 4, align: 'center' });
+    boldText('(₹)', hx + 2, taxTableTop + 15.65, { width: taxableW - 4, align: 'center' });
     hx += taxableW;
     doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
 
     // CGST/SGST or IGST spanning groups.
     for (const group of spanGroups) {
       doc.font('Body-Bold').fontSize(6.5);
-      boldText(group.label, hx, taxTableTop + 3, { width: group.width, align: 'center' });
+      // +2.65 (was +3) — re-measured 2026-08-26: landed 0.35pt lower than
+      // the reference.
+      boldText(group.label, hx, taxTableTop + 2.65, { width: group.width, align: 'center' });
       // Horizontal divider under the group label, only within this group's width.
       doc.moveTo(hx, taxTableTop + taxRow1H).lineTo(hx + group.width, taxTableTop + taxRow1H).stroke(BORDER);
-      // Sub-headers.
+      // Sub-headers. +3.05 (was +4) — re-measured 2026-08-26: landed 0.95pt
+      // lower than the reference.
       doc.font('Body-Bold').fontSize(5.5);
-      boldText('Rate (%)', hx + 1, taxTableTop + taxRow1H + 4, { width: group.subWidths[0] - 2, align: 'center' });
-      boldText('Amt (₹)', hx + group.subWidths[0] + 1, taxTableTop + taxRow1H + 4, { width: group.subWidths[1] - 2, align: 'center' });
+      boldText('Rate (%)', hx + 1, taxTableTop + taxRow1H + 3.05, { width: group.subWidths[0] - 2, align: 'center' });
+      boldText('Amt (₹)', hx + group.subWidths[0] + 1, taxTableTop + taxRow1H + 3.05, { width: group.subWidths[1] - 2, align: 'center' });
       // Vertical divider between the group's two sub-columns (row 2 only).
       doc.moveTo(hx + group.subWidths[0], taxTableTop + taxRow1H).lineTo(hx + group.subWidths[0], taxTableTop + taxHeaderH).stroke(BORDER);
       hx += group.width;
       doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
     }
 
-    // Total Tax(₹) — merged, vertically centered.
+    // Total Tax(₹) — merged, vertically centered. Shares HSN/SAC's formula
+    // and correction above.
     doc.font('Body-Bold').fontSize(6.3);
-    boldText('Total Tax(₹)', hx + 2, taxTableTop + taxHeaderH / 2 - 3, { width: totalTaxW - 4, align: 'center' });
+    boldText('Total Tax(₹)', hx + 2, taxTableTop + taxHeaderH / 2 - 4.45, { width: totalTaxW - 4, align: 'center' });
 
     // Column x-offsets for data rows, matching the header widths exactly.
     const dataColWidths = [hsnW, taxableW, ...spanGroups.flatMap((g) => g.subWidths), totalTaxW];
@@ -967,10 +986,19 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // 304.25 that +6 produces).
     boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 3.39, y + 4);
 
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 3.2, y + 21, 8);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 3.2, y + 32, 8);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 3.2, y + 44, 8);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 3.2, y + 56, 8);
+    // x = tableX + 4.98 (was + 3.2) and the y offsets below re-measured
+    // 2026-08-26 via pikepdf/pdftotext against a scenario-A render (uses the
+    // reference's own data) — the reference's own "Account No.:"/"IFSC
+    // code:"/"Account Holder's Name:" rows all start at the same x=38.68,
+    // 1.78pt right of what +3.2 was producing; "Name:" (bank name) alone
+    // sits ~1pt left of that in the reference (37.64) — a reference-side
+    // quirk on that one row alone, not chased further since 3 of 4 rows
+    // agree exactly. Row pitch corrected too: the reference's row1->row2
+    // gap is 10.5, not 11 (rows 2-3 and 3-4 were already exactly 12).
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 20.68, 8);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 31.18, 8);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 43.18, 8);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 55.18, 8);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
@@ -1005,7 +1033,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // ignore corrupt signature image
       }
     }
-    doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', tableX + colWidth + 6, y + 66, { width: colWidth - 12, align: 'center' });
+    // Box left nudged +6 -> +2.82 (re-measured 2026-08-26): the centered
+    // text's own center point landed 3.18pt right of the reference's actual
+    // center (this render's font metrics make the string ~3pt narrower than
+    // the reference's, which shifts a center-aligned box further under
+    // asymmetric centering — corrected by shifting the box itself, not by
+    // fighting the font). y+66 -> +65.68 for the same 0.32pt the rest of
+    // this row's text was measured off by.
+    doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', tableX + colWidth + 2.82, y + 65.68, { width: colWidth - 12, align: 'center' });
 
     y += bsRowH;
 
