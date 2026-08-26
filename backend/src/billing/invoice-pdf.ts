@@ -520,9 +520,22 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // before the small gap this section's rightBoxTop adds) rather than at
     // y itself, so the top of this vertical line actually touches the
     // horizontal line above it instead of floating 2.69pt below it.
-    // x = tableX + 369.0 (was + 370.5) — see the `leftWidth` comment below;
-    // kept in sync with it manually since that const isn't declared yet here.
-    doc.moveTo(tableX + 369.0, group2Top).lineTo(tableX + 369.0, y + 13.88).stroke(BORDER);
+    // x = tableX + 369.75 — see the `leftWidth` comment below; kept in sync
+    // with it manually since that const isn't declared yet here. THIS was
+    // the actual cause of "the separator got to a bit right nudge" still
+    // being reported after the leftWidth 370.5->369.0 pass: this specific
+    // line is hardcoded (declared before `leftWidth` exists) and was never
+    // updated when leftWidth moved, so it silently stayed at the old value
+    // while every other use of leftWidth in this section moved correctly.
+    doc.moveTo(tableX + 369.75, group2Top).lineTo(tableX + 369.75, y + 13.88).stroke(BORDER);
+    // Left edge of this same label row — the right-side line above has
+    // always existed, but this row (group2Top to taxTableTop) never had a
+    // LEFT border of its own. It used to be covered incidentally by the old
+    // continuous outer box; removing that box (2026-08-21, to split the
+    // document into separate groups per the reference) left this one row
+    // with no left edge at all, reported as "the vertical line to the left
+    // of tax summary is missing".
+    doc.moveTo(tableX, group2Top).lineTo(tableX, y + 13.88).stroke(BORDER);
     // 13.88 (was 13.78) — re-tuned along with the gap above so taxTableTop
     // (the two-tier header's actual top) still lands on its verified target
     // (312.8).
@@ -536,21 +549,25 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // The 58% guess put the whole right-side summary box ~55pt too far
     // left, consistently, across every row — confirmed by diffing this
     // render's exact text coordinates against the reference's.
-    // 369.0 (was 370.5) — re-measured 2026-08-21: the tax table's own fill
-    // rect is genuinely 370.5 wide in the reference (x=33.0..403.5), but the
-    // reference draws its column-divider/connecting lines ~0.8-1.5pt inset
-    // from that rect edge (measured via the reference's actual thin divider
-    // lines, x=402.7, not 403.5/404.2) — reported as "the vertical line
-    // between Total Tax and Sub Total is nudged right" against a real
-    // generated PDF. Using 369.0 here (rather than keeping 370.5 and only
-    // moving the extra divider lines) keeps the tax table's own right
-    // border, its dividers, and the right-box boundary all colinear instead
-    // of introducing a visible 1.5pt zigzag where they'd otherwise meet.
-    const leftWidth = 369.0;
-    // 3.58 (was 2.08) — increased by the same 1.5 leftWidth was reduced by,
-    // so rightX (and therefore every already-verified-exact right-box text
-    // position) stays exactly where it was.
-    const GAP = 3.58;
+    // 369.75 (was 369.0, before that 370.5) — re-measured 2026-08-26 via a
+    // full pikepdf content-stream extraction of the reference's actual thin
+    // rects (not eyeballed): the reference's own tax-table rect is
+    // x=[33.0,403.5], w=370.5, but its stroke fills are drawn as 0.75pt-wide
+    // rects with the visible line CENTERED partway across that width —
+    // e.g. its right border is the rect x=[402.75,403.5], center=403.125.
+    // PDFKit's stroke() also centers a line on the coordinate given, so the
+    // correct target for `tableX + leftWidth` is that center, 403.125, not
+    // the rect's left edge (402.7) — the previous pass matched the edge,
+    // not the center, which is what still read as "nudged" after that fix.
+    // leftWidth = 403.125 - tableX(33.7) = 369.425, rounded to 369.75 to
+    // match the sum of the individually re-measured column widths below
+    // (hsnW+taxableW+2*pairW+totalTaxW) exactly rather than introducing a
+    // separate rounding source.
+    const leftWidth = 369.75;
+    // 2.83 (was 3.58) — reduced by the same 0.75 leftWidth increased by, so
+    // rightX (where "Sub Total" etc. start, verified via pdftotext against
+    // the reference at x=406.28) stays exactly where it already was.
+    const GAP = 2.83;
     // RIGHT_PAD keeps right-aligned values (Sub Total / Total / Balance /
     // etc.) from landing flush against the outer page border — without it,
     // rightX + rightWidth lands exactly on tableX + CONTENT_WIDTH, so
@@ -613,11 +630,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // their real drawn width, not a fractional-split guess).
     const hsnW = 59.2;
     const taxableW = 70.5;
-    // 78.7 (was 80.2) — reduced by the same 1.5 leftWidth was reduced by
-    // above (this is the rightmost tax-table column, so it absorbs the
-    // change without touching hsnW/taxableW/CGST/SGST, which were already
-    // independently verified correct).
-    const totalTaxW = 78.7;
+    // 80.25 (was 78.7, before that 80.2) — re-measured 2026-08-26 via
+    // pikepdf: the reference's "Total Tax(₹)" cell rect is
+    // x=[323.25,403.50], w=80.25 exactly. Cross-checked against pdftotext's
+    // text bbox for the "Total Tax(₹)" header label itself, which centers
+    // at x≈363.27 in the reference — with hsnW+taxableW+2*pairW=289.5
+    // before this column starts, this width centers that label at 363.325,
+    // a 0.05pt match.
+    const totalTaxW = 80.25;
     // Rate(%)/Amt(₹) sub-column split within each CGST/SGST pair — measured
     // 41.77:38.21 (~52.2%:47.8%). The previous 0.44/0.56 had this backwards
     // (Amt wider than Rate), which it isn't in the reference.
@@ -830,34 +850,51 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // earlier pass did) left ry pointing ~18pt past the last visible text,
     // which pushed Terms And Conditions down by that same amount — this
     // was the actual bug behind the growing gap the user found by
-    // overlaying the two PDFs, not accumulated rounding drift. +10.52 (was
-    // +10) covers this row's own text height, matching where its bottom
-    // actually sits — nudged +0.52 after this closing line measured 0.52pt
-    // too high (428.48) against the reference's actual y=429.0.
-    ry += 10.52;
+    // overlaying the two PDFs, not accumulated rounding drift. Reverted to
+    // +10 (was briefly +10.52) — that +0.52 was meant only to nudge the
+    // closing line's own drawn position, but since Terms/Bank Details below
+    // are positioned off of `sectionBottom` (which `ry` feeds into), it also
+    // dragged Terms And Conditions/Bank Details down by the same 0.52pt —
+    // reported as "the one above bank details header is a bit down than the
+    // original". See `closingLineY` below for the decoupled fix.
+    ry += 10;
 
     // Reference invoice leaves the tax-summary table bordered down to the
     // same bottom edge as the right-side summary box, even though the table
     // itself has no more data rows there — an empty bordered cell, not a
     // gap. Reproduce it so the two blocks end flush.
     const sectionBottom = Math.max(ty, ry);
-    if (sectionBottom > ty) {
-      doc.rect(tableX, ty, leftWidth, sectionBottom - ty).stroke(BORDER);
+    // The closing line/rect are drawn lower than `sectionBottom` itself —
+    // re-measured 2026-08-26 via pikepdf against a scenario-A render using
+    // the reference's own data (invoice #1263/POSH PHARMA): rightBoxTop and
+    // every row pitch through Current Balance already land within 0.03pt of
+    // the reference (Current Balance text itself is correctly positioned,
+    // confirming the row is fine), but this render's closing line landed at
+    // y=427.16 vs the reference's actual y=429.0-429.75 (rect center
+    // 429.375) — a 2.22pt shortfall, not the 0.52pt an earlier pass assumed
+    // without being able to render/measure. Deliberately kept separate from
+    // `sectionBottom`, which Terms And Conditions/Bank Details below anchor
+    // to via `y = sectionBottom + 9.1` (independently verified exact,
+    // 435.74 vs reference's 435.75) — nudging `sectionBottom` directly (as
+    // a previous pass did) moved those rows too, which they shouldn't.
+    const closingLineY = sectionBottom + 2.22;
+    if (closingLineY > ty) {
+      doc.rect(tableX, ty, leftWidth, closingLineY - ty).stroke(BORDER);
     }
     // The reference's closing line at this level runs the FULL content
     // width (528.7 wide, verified via its own re() rect), not just under
     // the tax table — it continues across the right-side summary box too,
     // closing that box off from the Terms row below. The rect above only
     // covers the tax table's own leftWidth; this line completes the rest.
-    doc.moveTo(rightDividerX0, sectionBottom).lineTo(tableX + CONTENT_WIDTH, sectionBottom).stroke(BORDER);
+    doc.moveTo(rightDividerX0, closingLineY).lineTo(tableX + CONTENT_WIDTH, closingLineY).stroke(BORDER);
     // Right-side outer edge for this whole "Tax Summary + right box" group
     // — the right box has no rect() of its own (text-only), so unlike every
     // other group in this document it has no right border at all unless
     // drawn explicitly. The reference has exactly this one line, spanning
-    // only this group's own height (group2Top to sectionBottom) — NOT the
+    // only this group's own height (group2Top to closingLineY) — NOT the
     // whole document — which is part of why the reference reads as three
     // visually separate groups instead of one continuous frame.
-    doc.moveTo(tableX + CONTENT_WIDTH, group2Top).lineTo(tableX + CONTENT_WIDTH, sectionBottom).stroke(BORDER);
+    doc.moveTo(tableX + CONTENT_WIDTH, group2Top).lineTo(tableX + CONTENT_WIDTH, closingLineY).stroke(BORDER);
 
     // +9.10 (was +7.32) — re-measured directly against a fresh render: the
     // reference's Terms row top is y=435.80; after the item-Total→
@@ -869,8 +906,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // column any more; the sales-agent note moved into the item table, §4) ──
     ensureSpace(33);
     const termsRowH = 33;
-    doc.rect(tableX, y, CONTENT_WIDTH, termsRowH).stroke(BORDER);
+    // Grey fill drawn BEFORE the border stroke — same fix already applied to
+    // Bank Details below (see its comment): fill() paints an opaque
+    // rectangle, so stroking the border first let the fill immediately
+    // overpaint the portion of the top border inside the label band,
+    // leaving only a partial/anti-aliased sliver of it visible — reported
+    // as "the line above terms and conditions is a bit thin". Terms was the
+    // one row that still had the old (wrong) order.
     doc.rect(tableX, y, CONTENT_WIDTH, 17).fill(GREY);
+    doc.rect(tableX, y, CONTENT_WIDTH, termsRowH).stroke(BORDER);
     // Divider between the "Terms And Conditions:" label and the value text
     // below it — the grey fill alone only implies a boundary via color; the
     // reference draws an actual line there (matches the same treatment
@@ -879,8 +923,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the reference: the reference's divider sits at y=451.5, 1.3pt above
     // where +17 (matching the grey fill's own height) was landing — the
     // fill height and the divider position aren't quite the same value in
-    // the reference.
-    doc.moveTo(tableX, y + 15.7).lineTo(tableX + CONTENT_WIDTH, y + 15.7).stroke(BORDER);
+    // the reference. 16.13 (was 15.7) — re-measured 2026-08-26 via pikepdf:
+    // the reference's actual divider rect is y=[451.5,452.25] (center
+    // 451.875), and this row's own top border lands at y=435.75 in the
+    // reference, giving a true offset of 16.125.
+    doc.moveTo(tableX, y + 16.13).lineTo(tableX + CONTENT_WIDTH, y + 16.13).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     boldText('Terms And Conditions:', tableX + 3.2, y + 4);
     doc.font('Body').fontSize(8);
@@ -905,11 +952,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // Same label/value divider treatment as Terms And Conditions above —
     // full width so it also crosses (and reinforces) the vertical divider
     // between the Bank Details and For <Company> columns.
-    // 16.5 (was 15.7, matching Terms) — reported as sitting a bit too high
-    // against the reference; unlike Terms And Conditions this row's label
-    // divider apparently isn't at the exact same offset in the reference,
-    // nudged down slightly.
-    doc.moveTo(tableX, y + 16.5).lineTo(tableX + CONTENT_WIDTH, y + 16.5).stroke(BORDER);
+    // 17.63 (was 16.1/16.5/15.7 across earlier guesses) — re-measured
+    // 2026-08-26 via pikepdf: the reference's divider rect is
+    // y=[485.25,486.00] (center 485.625), and this row's own top border
+    // lands at y=468.00 in the reference, giving a true offset of 17.625 —
+    // notably different from Terms' 16.125 despite the visually similar
+    // label-row treatment, confirmed independently via the actual reference
+    // geometry rather than another blind nudge.
+    doc.moveTo(tableX, y + 17.63).lineTo(tableX + CONTENT_WIDTH, y + 17.63).stroke(BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
     boldText('Bank Details:', tableX + 3.2, y + 4);
     // colWidth + 3.39 (was + 6) — re-measured 2026-08-21 against a real
