@@ -16,7 +16,15 @@ import { join } from 'path';
 
 const FONTS_DIR = join(process.cwd(), 'assets', 'fonts');
 
-export type FlyerFontFamily = 'DejaVu Sans' | 'Segoe UI';
+// 2026-08-26: added four more families (Poppins, Montserrat, Playfair
+// Display, Dancing Script) alongside the original two, for flyer variety —
+// same self-contained embedding scheme as DejaVu Sans/Segoe UI below, so
+// there's still no dependency on what's installed on the Railway container.
+// Font files came from the @fontsource/* npm packages (OFL-licensed Google
+// Fonts, redistributed as npm packages) — those ship WOFF/WOFF2 only, so
+// each was converted to TTF with fonttools to match this file's existing
+// "TTF bytes embedded as a base64 @font-face data: URI" approach.
+export type FlyerFontFamily = 'DejaVu Sans' | 'Segoe UI' | 'Poppins' | 'Montserrat' | 'Playfair Display' | 'Dancing Script';
 
 const FONT_FILES: Record<FlyerFontFamily, { regular: string; bold: string; cssName: string }> = {
   'DejaVu Sans': {
@@ -29,12 +37,32 @@ const FONT_FILES: Record<FlyerFontFamily, { regular: string; bold: string; cssNa
     bold: join(FONTS_DIR, 'SegoeUI-Bold.ttf'),
     cssName: 'EventsFlyerSegoeUI',
   },
+  'Poppins': {
+    regular: join(FONTS_DIR, 'Poppins-Regular.ttf'),
+    bold: join(FONTS_DIR, 'Poppins-Bold.ttf'),
+    cssName: 'EventsFlyerPoppins',
+  },
+  'Montserrat': {
+    regular: join(FONTS_DIR, 'Montserrat-Regular.ttf'),
+    bold: join(FONTS_DIR, 'Montserrat-Bold.ttf'),
+    cssName: 'EventsFlyerMontserrat',
+  },
+  'Playfair Display': {
+    regular: join(FONTS_DIR, 'PlayfairDisplay-Regular.ttf'),
+    bold: join(FONTS_DIR, 'PlayfairDisplay-Bold.ttf'),
+    cssName: 'EventsFlyerPlayfairDisplay',
+  },
+  'Dancing Script': {
+    regular: join(FONTS_DIR, 'DancingScript-Regular.ttf'),
+    bold: join(FONTS_DIR, 'DancingScript-Bold.ttf'),
+    cssName: 'EventsFlyerDancingScript',
+  },
 };
 
-export const FLYER_FONT_FAMILIES: FlyerFontFamily[] = ['DejaVu Sans', 'Segoe UI'];
+export const FLYER_FONT_FAMILIES: FlyerFontFamily[] = ['DejaVu Sans', 'Segoe UI', 'Poppins', 'Montserrat', 'Playfair Display', 'Dancing Script'];
 
 export function isFlyerFontFamily(value: unknown): value is FlyerFontFamily {
-  return value === 'DejaVu Sans' || value === 'Segoe UI';
+  return (FLYER_FONT_FAMILIES as string[]).includes(value as string);
 }
 
 /** SVG font-family name to use in a <text> element for this family+weight. */

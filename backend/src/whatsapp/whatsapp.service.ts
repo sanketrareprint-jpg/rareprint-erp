@@ -680,7 +680,7 @@ export class WhatsAppService {
     customerPhone: string;
     imageUrl: string;
     occasionLabel: string;
-  }): Promise<{ sentToPerson: boolean; sentToOwner: boolean }> {
+  }): Promise<{ sentToPerson: boolean; sentToOwner: boolean; personError?: string; ownerError?: string }> {
     const OWNER_PHONE = '919637318960';
     const SIGNOFF_NAME = 'RarePrint';
     const campaignName = process.env.AISENSY_EVENTS_CAMPAIGN ?? 'events_wish_erp';
@@ -693,6 +693,15 @@ export class WhatsAppService {
 
     let sentToPerson = false;
     let sentToOwner = false;
+    // 2026-08-25: previously this method only logged the real AiSensy
+    // rejection reason server-side (Railway logs) and returned nothing —
+    // callers (EventsService.renderAndSend, then the frontend) had no way
+    // to show *why* a send failed, only a generic fallback message. Now the
+    // actual reason from AiSensy's own response (or the fetch error) is
+    // captured and returned so it reaches the History tab / test-send
+    // banner directly instead of requiring a trip through Railway logs.
+    let personError: string | undefined;
+    let ownerError: string | undefined;
 
     for (const dest of destinations) {
       const body = {
@@ -718,13 +727,17 @@ export class WhatsAppService {
           if (dest.isOwner) sentToOwner = true; else sentToPerson = true;
           this.logger.log(`✅ Event wish (${params.occasionLabel}) sent to ${dest.phone}${dest.isOwner ? ' (owner)' : ''} for ${params.customerName}`);
         } else {
+          const reason = (data && (data.message || data.error)) || `AiSensy HTTP ${res.status}: ${JSON.stringify(data)}`;
           this.logger.error(`❌ Event wish (${params.occasionLabel}) failed for ${dest.phone}: ${JSON.stringify(data)}`);
+          if (dest.isOwner) ownerError = reason; else personError = reason;
         }
       } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
         this.logger.error(`❌ Event wish (${params.occasionLabel}) error for ${dest.phone}: ${err}`);
+        if (dest.isOwner) ownerError = reason; else personError = reason;
       }
     }
 
-    return { sentToPerson, sentToOwner };
+    return { sentToPerson, sentToOwner, personError, ownerError };
   }
 }

@@ -125,6 +125,7 @@ git add backend/scripts/ensure-all-columns.js
 git add backend/src/app.module.ts
 git add backend/src/events
 git add backend/src/whatsapp/whatsapp.service.ts
+git add backend/assets/fonts
 git add backend/package.json
 git add backend/package-lock.json
 git add frontend/app/events
@@ -132,7 +133,7 @@ git add frontend/components/dashboard-shell.tsx
 git add docs/Events_Module_Setup.md
 git add docs/Events_Module_Context.md
 git add deploy-events-module.ps1
-git commit -m "Events module: recurring festivals (month/day) + fix migration checksum drift"
+git commit -m "Events module: fix WhatsApp template variable mapping + surface real AiSensy errors, add 4 flyer fonts, fix field-key editor losing focus"
 git push
 
 # 5. Reminder: after Railway finishes deploying, go set

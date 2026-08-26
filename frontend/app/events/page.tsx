@@ -9,7 +9,7 @@ import {
 
 // ─────────────────────────── Types ───────────────────────────
 
-const FONT_FAMILIES = ["DejaVu Sans", "Segoe UI"] as const;
+const FONT_FAMILIES = ["DejaVu Sans", "Segoe UI", "Poppins", "Montserrat", "Playfair Display", "Dancing Script"] as const;
 type FontFamily = (typeof FONT_FAMILIES)[number];
 type Align = "left" | "center" | "right";
 type VAlign = "top" | "middle" | "bottom";
@@ -634,7 +634,20 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
           <div className="space-y-2 border-t pt-2">
             <div>
               <label className="text-xs text-slate-500">Key (used as {`{{key}}`})</label>
-              <input value={selected.key} onChange={(e) => updateSelected({ key: slugKey(e.target.value, fields.filter((f) => f.key !== selected.key).map((f) => f.key)) })} className="w-full border rounded px-2 py-1 text-sm" />
+              <input value={selected.key} onChange={(e) => {
+                // `selected` is looked up by matching selectedKey against
+                // fields[].key (see `const selected = ...find(...)` above).
+                // Renaming the key here without also updating selectedKey
+                // left selectedKey pointing at a key that no longer existed
+                // in `fields` after the very next render, so `selected`
+                // became null and this whole panel disappeared — which is
+                // why every keystroke looked like it "lost" the field and
+                // had to be reselected before you could type the next
+                // character. Updating both together keeps the lookup valid.
+                const newKey = slugKey(e.target.value, fields.filter((f) => f.key !== selected.key).map((f) => f.key));
+                updateSelected({ key: newKey });
+                setSelectedKey(newKey);
+              }} className="w-full border rounded px-2 py-1 text-sm" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>

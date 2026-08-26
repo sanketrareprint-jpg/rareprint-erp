@@ -441,16 +441,30 @@ export class EventsService {
       occasionLabel,
     });
 
+    // 2026-08-25: result.personError now carries the actual reason AiSensy
+    // (or the fetch call) gave for the failure — see
+    // WhatsAppService.sendEventWish. Previously this fell back to a generic
+    // "see backend logs" message and never returned anything to the caller
+    // at all, so the frontend's test-send banner always showed its own
+    // generic fallback text no matter what actually went wrong.
+    const failureMessage = result.personError
+      ? `AiSensy: ${result.personError}`
+      : 'AiSensy send to the person failed — see backend logs';
+
     if (sendLogId) {
       await this.prisma.eventSendLog.update({
         where: { id: sendLogId },
         data: result.sentToPerson
           ? { sentToOwner: result.sentToOwner }
-          : { status: 'FAILED', errorMessage: 'AiSensy send to the person failed — see backend logs', sentToOwner: result.sentToOwner },
+          : { status: 'FAILED', errorMessage: failureMessage, sentToOwner: result.sentToOwner },
       });
     }
 
-    return { sent: result.sentToPerson, sentToOwner: result.sentToOwner };
+    return {
+      sent: result.sentToPerson,
+      sentToOwner: result.sentToOwner,
+      errorMessage: result.sentToPerson ? undefined : failureMessage,
+    };
   }
 
   private async logSend(params: {
