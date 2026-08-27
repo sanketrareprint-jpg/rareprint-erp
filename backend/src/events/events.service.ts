@@ -546,7 +546,6 @@ export class EventsService {
       customerPhone: params.person.whatsappNumber,
       imageUrl,
       occasionLabel,
-      customMessage: values.years ? `${values.years} years` : occasionLabel,
     });
 
     if (sendLogId) {

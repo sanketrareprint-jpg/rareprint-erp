@@ -83,6 +83,7 @@ model User {
   callLogRecords       CallLogRecord[]         @relation("CallLogRecordAgent")
   contactImportsMade   ContactImport[]         @relation("ContactImportedBy")
   importedContacts     ImportedContact[]       @relation("ImportedContactAgent")
+  policiesCreated      PolicyDocument[]        @relation("PolicyDocumentCreatedBy")
 }
 
 model Customer {
@@ -923,6 +924,28 @@ model CompanyTerms {
 
   createdBy   User?      @relation("CompanyTermsCreatedBy", fields: [createdById], references: [id])
   employees   Employee[]
+
+  @@index([isActive])
+}
+
+// Super-admin-authored office policies / department rules / SOPs. Write
+// access (create/edit/delete) is restricted to the super-admin
+// (SUPER_ADMIN_EMAIL, see orders.service.ts / accounts.service.ts for the
+// existing convention this reuses) at the service layer -- read access is
+// open to every authenticated user. `modules` tags which module pages/tabs
+// this should surface in (e.g. ["PRODUCTION","DISPATCH"]); an empty array
+// means "show everywhere".
+model PolicyDocument {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  modules     String[] @default([])
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy   User     @relation("PolicyDocumentCreatedBy", fields: [createdById], references: [id])
 
   @@index([isActive])
 }
