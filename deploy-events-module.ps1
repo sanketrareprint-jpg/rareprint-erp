@@ -104,11 +104,20 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Festival.month still does not exist -- the migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'Festival' AND column_name = 'isRecurring'
+  ) THEN
+    RAISE EXCEPTION 'Festival.isRecurring still does not exist -- the 2026-08-27 brand-profile/one-time-festival migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
+  END IF;
+  IF to_regclass('public."EventBrandProfile"') IS NULL THEN
+    RAISE EXCEPTION 'EventBrandProfile table still does not exist -- the 2026-08-27 migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
+  END IF;
 END $$;
 '@
   $assertSql | npx prisma db execute --stdin
-  if ($LASTEXITCODE -ne 0) { throw "Migration verification failed -- Festival.month still does not exist in the database. Do NOT continue to push. See the error above (likely DATABASE_URL is wrong, or the DB is unreachable from this machine)." }
-  Write-Host "Festival.month/day confirmed present in the database -- migration applied successfully." -ForegroundColor Green
+  if ($LASTEXITCODE -ne 0) { throw "Migration verification failed -- Festival.month/isRecurring or EventBrandProfile still missing from the database. Do NOT continue to push. See the error above (likely DATABASE_URL is wrong, or the DB is unreachable from this machine)." }
+  Write-Host "Festival.month/day/isRecurring and EventBrandProfile confirmed present in the database -- migrations applied successfully." -ForegroundColor Green
 } else {
   Write-Host "DATABASE_URL is not set -- SKIPPING the production migration. Festivals/History will keep 500ing (P2022) until you set DATABASE_URL to your production connection string and re-run this script, or run 'node scripts/railway-migrate.js' by hand from backend/ with it set." -ForegroundColor Yellow
 }
@@ -121,6 +130,7 @@ Set-Location $repo
 git add backend/prisma/schema.prisma
 git add backend/prisma/migrations/20260824090000_add_events_module
 git add backend/prisma/migrations/20260825120000_events_recurring_festivals
+git add backend/prisma/migrations/20260827130000_events_brand_and_onetime_festivals
 git add backend/scripts/ensure-all-columns.js
 git add backend/src/app.module.ts
 git add backend/src/events
@@ -133,7 +143,7 @@ git add frontend/components/dashboard-shell.tsx
 git add docs/Events_Module_Setup.md
 git add docs/Events_Module_Context.md
 git add deploy-events-module.ps1
-git commit -m "Events module: fix WhatsApp template variable mapping + surface real AiSensy errors, add 4 flyer fonts, fix field-key editor losing focus"
+git commit -m "Events module: reusable brand fields (logo/name/address/phone/email/website/products), one-time custom-date festivals, Devanagari (Marathi/Hindi) flyer font"
 git push
 
 # 5. Reminder: after Railway finishes deploying, go set

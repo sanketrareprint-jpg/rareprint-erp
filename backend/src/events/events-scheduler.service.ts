@@ -2,9 +2,10 @@
 //
 // Daily job: for every active EventPerson, check whether today (in
 // Asia/Kolkata) is their birthday or anniversary; for every active Festival,
-// check whether today matches its recurring month/day. Each match renders a
-// flyer and sends it via WhatsAppService.sendEventWish (to the person and to
-// the owner), logging the result to EventSendLog.
+// check whether today matches it — either its recurring month/day, or (for a
+// one-time "custom date" festival, added 2026-08-27) its exact oneTimeDate.
+// Each match renders a flyer and sends it via WhatsAppService.sendEventWish
+// (to the person and to the owner), logging the result to EventSendLog.
 //
 // Idempotency: birthdays, anniversaries, AND festivals are all guarded the
 // same way — "does a SUCCESS EventSendLog already exist for this
@@ -62,6 +63,14 @@ export class EventsSchedulerService {
     return date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
   }
 
+  // Same @db.Date / UTC-getter reasoning as matchesMonthDay, plus the year —
+  // a one-time festival must match the exact calendar date, not just the
+  // month/day, so it only ever fires once (never again next year).
+  private matchesOneTimeDate(date: Date | null, year: number, month: number, day: number): boolean {
+    if (!date) return false;
+    return date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
+  }
+
   private async sendBirthdaysAndAnniversaries(): Promise<void> {
     const { month, day, year } = this.todayIST();
     const people = await this.prisma.eventPerson.findMany({ where: { isActive: true } });
@@ -109,7 +118,10 @@ export class EventsSchedulerService {
 
   private async sendFestivals(): Promise<void> {
     const { month, day, year } = this.todayIST();
-    const todaysFestivals = await this.prisma.festival.findMany({ where: { isActive: true, month, day } });
+    const candidates = await this.prisma.festival.findMany({ where: { isActive: true } });
+    const todaysFestivals = candidates.filter((f) =>
+      f.isRecurring ? f.month === month && f.day === day : this.matchesOneTimeDate(f.oneTimeDate, year, month, day),
+    );
     if (!todaysFestivals.length) return;
 
     const people = await this.prisma.eventPerson.findMany({ where: { isActive: true } });
@@ -125,11 +137,15 @@ export class EventsSchedulerService {
         continue;
       }
 
-      // festival.month/day recur every year, so — same as birthdays/
-      // anniversaries — dedup per (person, festival, calendar year) rather
-      // than a one-time "sentAt" flag on the Festival row itself, which
-      // would have blocked it from ever firing again next year.
-      const festivalDate = new Date(Date.UTC(year, festival.month - 1, festival.day));
+      // Recurring festivals fire every year, and even a one-time festival's
+      // single occurrence could in principle be retried (server restart mid-
+      // day) — so both dedup per (person, festival, calendar year) via
+      // EventSendLog rather than a one-time "sentAt" flag on the Festival
+      // row, which would have blocked a recurring festival from ever firing
+      // again next year.
+      const festivalDate = festival.isRecurring
+        ? new Date(Date.UTC(year, (festival.month as number) - 1, festival.day as number))
+        : (festival.oneTimeDate as Date);
       for (const person of people) {
         const already = await this.prisma.eventSendLog.findFirst({
           where: { personId: person.id, festivalId: festival.id, occasionYear: year, status: 'SUCCESS' },

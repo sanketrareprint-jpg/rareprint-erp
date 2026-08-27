@@ -83,7 +83,6 @@ model User {
   callLogRecords       CallLogRecord[]         @relation("CallLogRecordAgent")
   contactImportsMade   ContactImport[]         @relation("ContactImportedBy")
   importedContacts     ImportedContact[]       @relation("ImportedContactAgent")
-  policiesCreated      PolicyDocument[]        @relation("PolicyDocumentCreatedBy")
 }
 
 model Customer {
@@ -924,28 +923,6 @@ model CompanyTerms {
 
   createdBy   User?      @relation("CompanyTermsCreatedBy", fields: [createdById], references: [id])
   employees   Employee[]
-
-  @@index([isActive])
-}
-
-// Super-admin-authored office policies / department rules / SOPs. Write
-// access (create/edit/delete) is restricted to the super-admin
-// (SUPER_ADMIN_EMAIL, see orders.service.ts / accounts.service.ts for the
-// existing convention this reuses) at the service layer -- read access is
-// open to every authenticated user. `modules` tags which module pages/tabs
-// this should surface in (e.g. ["PRODUCTION","DISPATCH"]); an empty array
-// means "show everywhere".
-model PolicyDocument {
-  id          String   @id @default(cuid())
-  title       String
-  content     String
-  modules     String[] @default([])
-  isActive    Boolean  @default(true)
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  createdBy   User     @relation("PolicyDocumentCreatedBy", fields: [createdById], references: [id])
 
   @@index([isActive])
 }
@@ -2975,8 +2952,10 @@ model EventPerson {
 model Festival {
   id          String              @id @default(cuid())
   name        String
-  month       Int // 1-12 — recurring every year (added once, fires automatically each year; Sanket's explicit choice over re-adding an exact date yearly)
-  day         Int // 1-31, validated against month in the service layer; a Feb 29 festival simply doesn't fire on non-leap years
+  isRecurring Boolean             @default(true) // true (default): month/day recur every year — added once, Sanket's original choice over re-adding an exact date yearly. false: a one-off custom-date festival — oneTimeDate fires once and is never matched again (added 2026-08-27, "custom date festival" request).
+  month       Int? // set when isRecurring=true; 1-12
+  day         Int? // set when isRecurring=true; 1-31, validated against month in the service layer; a Feb 29 festival simply doesn't fire on non-leap years
+  oneTimeDate DateTime?           @db.Date // set when isRecurring=false; an exact calendar date, matched on year+month+day so it only ever fires once
   templateId  String? // which flyer artwork to use for this specific festival (Diwali art vs. Christmas art) — nullable so a festival can be added before its template is designed; scheduler skips (and logs why) if still unset when the date arrives
   template    EventFlyerTemplate? @relation(fields: [templateId], references: [id])
   isActive    Boolean             @default(true)
@@ -2986,7 +2965,27 @@ model Festival {
   sendLogs    EventSendLog[]
 
   @@index([month, day])
+  @@index([oneTimeDate])
   @@index([templateId])
+}
+
+// Sanket's firm identity — logo, name, address, phone, products — set once
+// and reused across every flyer template via BRAND_LOGO/BRAND_TEXT fields
+// (see FlyerField in flyer-render.ts), instead of being baked into each
+// template's background image. Singleton row (fixed id) — one firm, no
+// per-user or per-template brand identity needed. Added 2026-08-27.
+model EventBrandProfile {
+  id          String   @id @default("singleton")
+  logoDataUrl String?  @db.Text
+  firmName    String?
+  address     String?  @db.Text
+  phone       String?
+  email       String?
+  website     String?
+  products    String?  @db.Text // free text — e.g. a short product list line for the flyer footer
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model EventSendLog {

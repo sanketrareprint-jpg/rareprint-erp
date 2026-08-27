@@ -16,15 +16,7 @@ import { join } from 'path';
 
 const FONTS_DIR = join(process.cwd(), 'assets', 'fonts');
 
-// 2026-08-26: added four more families (Poppins, Montserrat, Playfair
-// Display, Dancing Script) alongside the original two, for flyer variety —
-// same self-contained embedding scheme as DejaVu Sans/Segoe UI below, so
-// there's still no dependency on what's installed on the Railway container.
-// Font files came from the @fontsource/* npm packages (OFL-licensed Google
-// Fonts, redistributed as npm packages) — those ship WOFF/WOFF2 only, so
-// each was converted to TTF with fonttools to match this file's existing
-// "TTF bytes embedded as a base64 @font-face data: URI" approach.
-export type FlyerFontFamily = 'DejaVu Sans' | 'Segoe UI' | 'Poppins' | 'Montserrat' | 'Playfair Display' | 'Dancing Script';
+export type FlyerFontFamily = 'DejaVu Sans' | 'Segoe UI' | 'Noto Sans Devanagari';
 
 const FONT_FILES: Record<FlyerFontFamily, { regular: string; bold: string; cssName: string }> = {
   'DejaVu Sans': {
@@ -37,32 +29,27 @@ const FONT_FILES: Record<FlyerFontFamily, { regular: string; bold: string; cssNa
     bold: join(FONTS_DIR, 'SegoeUI-Bold.ttf'),
     cssName: 'EventsFlyerSegoeUI',
   },
-  'Poppins': {
-    regular: join(FONTS_DIR, 'Poppins-Regular.ttf'),
-    bold: join(FONTS_DIR, 'Poppins-Bold.ttf'),
-    cssName: 'EventsFlyerPoppins',
-  },
-  'Montserrat': {
-    regular: join(FONTS_DIR, 'Montserrat-Regular.ttf'),
-    bold: join(FONTS_DIR, 'Montserrat-Bold.ttf'),
-    cssName: 'EventsFlyerMontserrat',
-  },
-  'Playfair Display': {
-    regular: join(FONTS_DIR, 'PlayfairDisplay-Regular.ttf'),
-    bold: join(FONTS_DIR, 'PlayfairDisplay-Bold.ttf'),
-    cssName: 'EventsFlyerPlayfairDisplay',
-  },
-  'Dancing Script': {
-    regular: join(FONTS_DIR, 'DancingScript-Regular.ttf'),
-    bold: join(FONTS_DIR, 'DancingScript-Bold.ttf'),
-    cssName: 'EventsFlyerDancingScript',
+  // For Marathi/Hindi (Devanagari script) text — e.g. festival greetings like
+  // "पवित्र श्रावण". Covers Devanagari only (no Latin glyphs), but sharp/
+  // librsvg's bundled fontconfig falls back to a system font for any
+  // characters this one doesn't cover, so a field mixing Devanagari and
+  // English/digits (verified with "RarePrint.in 9637318960" alongside
+  // Devanagari text) still renders correctly — the fallback glyphs just
+  // won't visually match Noto's Latin design. Converted from the
+  // @fontsource/noto-sans-devanagari woff2 release to .ttf with fonttools so
+  // it embeds the same way as the other two families (SIL OFL 1.1 licensed,
+  // free to embed/redistribute).
+  'Noto Sans Devanagari': {
+    regular: join(FONTS_DIR, 'NotoSansDevanagari.ttf'),
+    bold: join(FONTS_DIR, 'NotoSansDevanagari-Bold.ttf'),
+    cssName: 'EventsFlyerNotoSansDevanagari',
   },
 };
 
-export const FLYER_FONT_FAMILIES: FlyerFontFamily[] = ['DejaVu Sans', 'Segoe UI', 'Poppins', 'Montserrat', 'Playfair Display', 'Dancing Script'];
+export const FLYER_FONT_FAMILIES: FlyerFontFamily[] = ['DejaVu Sans', 'Segoe UI', 'Noto Sans Devanagari'];
 
 export function isFlyerFontFamily(value: unknown): value is FlyerFontFamily {
-  return (FLYER_FONT_FAMILIES as string[]).includes(value as string);
+  return value === 'DejaVu Sans' || value === 'Segoe UI' || value === 'Noto Sans Devanagari';
 }
 
 /** SVG font-family name to use in a <text> element for this family+weight. */

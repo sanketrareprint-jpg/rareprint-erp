@@ -9,33 +9,27 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { renderFlyer, type FlyerField, type FlyerFieldAlign, type FlyerFieldVAlign } from './flyer-render';
+import { renderFlyer, type FlyerField, type FlyerFieldAlign, type FlyerFieldVAlign, type BrandKey } from './flyer-render';
 import { isFlyerFontFamily, FLYER_FONT_FAMILIES } from './fonts';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const OCCASION_TYPES = ['BIRTHDAY', 'ANNIVERSARY', 'FESTIVAL'] as const;
 export type OccasionType = (typeof OCCASION_TYPES)[number];
-
-/** "1st"/"2nd"/"3rd"/"4th"... — used to fold anniversary years into the
- *  WhatsApp template's occasion-label variable, e.g. "5th Anniversary". */
-function ordinalSuffix(n: number): string {
-  const rem100 = n % 100;
-  if (rem100 >= 11 && rem100 <= 13) return 'th';
-  switch (n % 10) {
-    case 1: return 'st';
-    case 2: return 'nd';
-    case 3: return 'rd';
-    default: return 'th';
-  }
-}
+const BRAND_KEYS: BrandKey[] = ['firmName', 'address', 'phone', 'email', 'website', 'products'];
 
 interface RawFieldInput {
   key?: unknown; label?: unknown; type?: unknown;
   x?: unknown; y?: unknown; w?: unknown; h?: unknown;
   fontFamily?: unknown; fontSizePt?: unknown; bold?: unknown; color?: unknown;
-  align?: unknown; verticalAlign?: unknown; circle?: unknown;
+  align?: unknown; verticalAlign?: unknown; circle?: unknown; brandKey?: unknown;
 }
 
+// BRAND_LOGO/BRAND_TEXT (added 2026-08-27) let a template reuse the firm's
+// logo/name/address/phone/products from EventBrandProfile — set once via
+// updateBrandProfile(), instead of a template designer re-typing them (or
+// baking them into the background image) for every template. Same box/font
+// controls as PHOTO/TEXT; the only difference is where the value comes from
+// at render time (see renderAndSend's brandValues/brandLogoBuffer below).
 function normalizeFields(input: unknown): FlyerField[] {
   if (!Array.isArray(input) || !input.length) throw new BadRequestException('At least one field is required');
   const seenKeys = new Set<string>();
@@ -46,7 +40,7 @@ function normalizeFields(input: unknown): FlyerField[] {
     if (seenKeys.has(key)) throw new BadRequestException(`Duplicate field key "${key}"`);
     seenKeys.add(key);
 
-    const type = f.type === 'PHOTO' ? 'PHOTO' : 'TEXT';
+    const type = f.type === 'PHOTO' ? 'PHOTO' : f.type === 'BRAND_LOGO' ? 'BRAND_LOGO' : f.type === 'BRAND_TEXT' ? 'BRAND_TEXT' : 'TEXT';
     const clamp01 = (v: unknown, fallback: number) => {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
@@ -62,7 +56,7 @@ function normalizeFields(input: unknown): FlyerField[] {
       h: Math.max(0.01, clamp01(f.h, 0.1)),
     };
 
-    if (type === 'PHOTO') {
+    if (type === 'PHOTO' || type === 'BRAND_LOGO') {
       base.circle = Boolean(f.circle);
       return base;
     }
@@ -70,7 +64,7 @@ function normalizeFields(input: unknown): FlyerField[] {
     const fontFamily = isFlyerFontFamily(f.fontFamily) ? f.fontFamily : FLYER_FONT_FAMILIES[0];
     const align: FlyerFieldAlign = f.align === 'center' || f.align === 'right' ? f.align : 'left';
     const verticalAlign: FlyerFieldVAlign = f.verticalAlign === 'middle' || f.verticalAlign === 'bottom' ? f.verticalAlign : 'top';
-    return {
+    const styled: FlyerField = {
       ...base,
       fontFamily,
       fontSizePt: Math.min(200, Math.max(6, Number(f.fontSizePt) || 32)),
@@ -79,6 +73,14 @@ function normalizeFields(input: unknown): FlyerField[] {
       align,
       verticalAlign,
     };
+
+    if (type === 'BRAND_TEXT') {
+      if (!BRAND_KEYS.includes(f.brandKey as BrandKey)) {
+        throw new BadRequestException(`fields[${i}]: a BRAND_TEXT field needs brandKey to be one of ${BRAND_KEYS.join(', ')}`);
+      }
+      styled.brandKey = f.brandKey as BrandKey;
+    }
+    return styled;
   });
 }
 
@@ -174,7 +176,77 @@ export class EventsService {
     const fields = template.fields as unknown as FlyerField[];
     const templateImage = dataUrlToBuffer(template.imageDataUrl);
     const photoBuffer = samplePhotoDataUrl ? dataUrlToBuffer(samplePhotoDataUrl) : null;
-    return renderFlyer({ templateImageBuffer: templateImage, fields, values: values ?? {}, photoBuffer });
+    const { brandValues, brandLogoBuffer } = await this.loadBrandForRender();
+    return renderFlyer({ templateImageBuffer: templateImage, fields, values: values ?? {}, photoBuffer, brandValues, brandLogoBuffer });
+  }
+
+  // ───────────────────────── Brand profile (logo/firm name/address/phone/products) ─────────────────────────
+  // Set once, reused by every template's BRAND_LOGO/BRAND_TEXT fields — see
+  // normalizeFields above and flyer-render.ts. Singleton row, fixed id.
+
+  async getBrandProfile() {
+    const profile = await this.prisma.eventBrandProfile.findUnique({ where: { id: 'singleton' } });
+    return (
+      profile ?? {
+        id: 'singleton',
+        logoDataUrl: null,
+        firmName: null,
+        address: null,
+        phone: null,
+        email: null,
+        website: null,
+        products: null,
+        updatedById: null,
+        createdAt: null,
+        updatedAt: null,
+      }
+    );
+  }
+
+  async updateBrandProfile(params: {
+    firmName?: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    products?: string;
+    file?: Express.Multer.File;
+    userId: string;
+  }) {
+    const data: Record<string, unknown> = { updatedById: params.userId };
+    if (typeof params.firmName === 'string') data.firmName = params.firmName.trim() || null;
+    if (typeof params.address === 'string') data.address = params.address.trim() || null;
+    if (typeof params.phone === 'string') data.phone = params.phone.trim() || null;
+    if (typeof params.email === 'string') data.email = params.email.trim() || null;
+    if (typeof params.website === 'string') data.website = params.website.trim() || null;
+    if (typeof params.products === 'string') data.products = params.products.trim() || null;
+    if (params.file) {
+      if (!params.file.mimetype?.startsWith('image/')) throw new BadRequestException('Logo must be an image file');
+      if (params.file.size > MAX_IMAGE_BYTES) throw new BadRequestException('Logo too large (max 8MB)');
+      data.logoDataUrl = fileToDataUrl(params.file);
+    }
+    return this.prisma.eventBrandProfile.upsert({
+      where: { id: 'singleton' },
+      create: { id: 'singleton', ...data },
+      update: data,
+    });
+  }
+
+  /** Shared by previewTemplate and renderAndSend — one DB read, converted into
+   *  the shapes flyer-render.ts wants (a plain string map + a decoded logo buffer). */
+  private async loadBrandForRender(): Promise<{ brandValues: Partial<Record<BrandKey, string>>; brandLogoBuffer: Buffer | null }> {
+    const profile = await this.getBrandProfile();
+    return {
+      brandValues: {
+        firmName: profile.firmName ?? '',
+        address: profile.address ?? '',
+        phone: profile.phone ?? '',
+        email: profile.email ?? '',
+        website: profile.website ?? '',
+        products: profile.products ?? '',
+      },
+      brandLogoBuffer: profile.logoDataUrl ? dataUrlToBuffer(profile.logoDataUrl) : null,
+    };
   }
 
   // ───────────────────────── People ─────────────────────────
@@ -276,15 +348,44 @@ export class EventsService {
     return { month: m, day: d };
   }
 
-  async createFestival(params: { name: string; month: unknown; day: unknown; templateId?: string; userId: string }) {
+  /** Parses+validates a oneTimeDate input (a plain yyyy-mm-dd string from the
+   *  date picker, or anything Date can parse) into a Date, or throws. */
+  private parseOneTimeDate(raw: unknown): Date {
+    if (!raw) throw new BadRequestException('oneTimeDate is required for a one-time (non-recurring) festival');
+    const d = new Date(raw as string);
+    if (Number.isNaN(d.getTime())) throw new BadRequestException('oneTimeDate is not a valid date');
+    return d;
+  }
+
+  async createFestival(params: {
+    name: string;
+    isRecurring?: unknown;
+    month?: unknown;
+    day?: unknown;
+    oneTimeDate?: unknown;
+    templateId?: string;
+    userId: string;
+  }) {
     if (!params.name?.trim()) throw new BadRequestException('name is required');
-    const { month, day } = this.validateMonthDay(params.month, params.day);
+    const isRecurring = params.isRecurring === undefined ? true : Boolean(params.isRecurring);
+    let month: number | null = null;
+    let day: number | null = null;
+    let oneTimeDate: Date | null = null;
+    if (isRecurring) {
+      const parsed = this.validateMonthDay(params.month, params.day);
+      month = parsed.month;
+      day = parsed.day;
+    } else {
+      oneTimeDate = this.parseOneTimeDate(params.oneTimeDate);
+    }
     if (params.templateId) await this.getTemplate(params.templateId);
     return this.prisma.festival.create({
       data: {
         name: params.name.trim(),
+        isRecurring,
         month,
         day,
+        oneTimeDate,
         templateId: params.templateId || null,
         createdById: params.userId,
       },
@@ -292,18 +393,35 @@ export class EventsService {
   }
 
   listFestivals() {
-    return this.prisma.festival.findMany({ orderBy: [{ month: 'asc' }, { day: 'asc' }] });
+    return this.prisma.festival.findMany({ orderBy: [{ isRecurring: 'desc' }, { month: 'asc' }, { day: 'asc' }, { oneTimeDate: 'asc' }] });
   }
 
-  async updateFestival(id: string, params: { name?: string; month?: unknown; day?: unknown; templateId?: string | null; isActive?: boolean }) {
+  async updateFestival(id: string, params: {
+    name?: string;
+    isRecurring?: unknown;
+    month?: unknown;
+    day?: unknown;
+    oneTimeDate?: unknown;
+    templateId?: string | null;
+    isActive?: boolean;
+  }) {
     const existing = await this.prisma.festival.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Festival not found');
     const data: Record<string, unknown> = {};
     if (typeof params.name === 'string' && params.name.trim()) data.name = params.name.trim();
-    if (params.month !== undefined || params.day !== undefined) {
-      const { month, day } = this.validateMonthDay(params.month ?? existing.month, params.day ?? existing.day);
-      data.month = month;
-      data.day = day;
+    if (params.isRecurring !== undefined || params.month !== undefined || params.day !== undefined || params.oneTimeDate !== undefined) {
+      const isRecurring = params.isRecurring === undefined ? existing.isRecurring : Boolean(params.isRecurring);
+      data.isRecurring = isRecurring;
+      if (isRecurring) {
+        const parsed = this.validateMonthDay(params.month ?? existing.month, params.day ?? existing.day);
+        data.month = parsed.month;
+        data.day = parsed.day;
+        data.oneTimeDate = null;
+      } else {
+        data.oneTimeDate = this.parseOneTimeDate(params.oneTimeDate !== undefined ? params.oneTimeDate : existing.oneTimeDate);
+        data.month = null;
+        data.day = null;
+      }
     }
     if (params.templateId !== undefined) {
       if (params.templateId) await this.getTemplate(params.templateId);
@@ -365,10 +483,11 @@ export class EventsService {
     const templateImage = dataUrlToBuffer(params.template.imageDataUrl);
     const photoBuffer = params.person.photoDataUrl ? dataUrlToBuffer(params.person.photoDataUrl) : null;
     const values = this.buildValuesForPerson(params.person, params.occasionType, params.festivalDate);
+    const { brandValues, brandLogoBuffer } = await this.loadBrandForRender();
 
     let flyerBuffer: Buffer;
     try {
-      flyerBuffer = await renderFlyer({ templateImageBuffer: templateImage, fields, values, photoBuffer });
+      flyerBuffer = await renderFlyer({ templateImageBuffer: templateImage, fields, values, photoBuffer, brandValues, brandLogoBuffer });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Flyer render failed for person ${params.person.id}: ${message}`);
@@ -418,19 +537,7 @@ export class EventsService {
     const token = this.signPublicToken(sendLogId, expiresAt);
     const imageUrl = `${publicBaseUrl.replace(/\/$/, '')}/events/flyer/${sendLogId}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
 
-    // Anniversary years fold directly into the occasion label (e.g. "5th
-    // Anniversary") rather than a separate template variable — the real
-    // approved AiSensy template only has 3 body variables and the 3rd one
-    // is the "Warm wishes from {{3}}" sign-off, not a years line. See
-    // WhatsAppService.sendEventWish's header comment for the full template
-    // variable mapping (confirmed 2026-08-25 against the actual approved
-    // template).
-    const occasionLabel =
-      params.occasionType === 'BIRTHDAY'
-        ? 'Birthday'
-        : params.occasionType === 'ANNIVERSARY'
-          ? (values.years ? `${values.years}${ordinalSuffix(Number(values.years))} Anniversary` : 'Anniversary')
-          : 'Festival';
+    const occasionLabel = params.occasionType === 'BIRTHDAY' ? 'Birthday' : params.occasionType === 'ANNIVERSARY' ? 'Anniversary' : 'Festival';
     // Sent to BOTH the person themselves AND the owner's own WhatsApp, per
     // the original request ("sent to the owner and to whose birthday or
     // anniversary is") — see WhatsAppService.sendEventWish.
@@ -439,32 +546,19 @@ export class EventsService {
       customerPhone: params.person.whatsappNumber,
       imageUrl,
       occasionLabel,
+      customMessage: values.years ? `${values.years} years` : occasionLabel,
     });
-
-    // 2026-08-25: result.personError now carries the actual reason AiSensy
-    // (or the fetch call) gave for the failure — see
-    // WhatsAppService.sendEventWish. Previously this fell back to a generic
-    // "see backend logs" message and never returned anything to the caller
-    // at all, so the frontend's test-send banner always showed its own
-    // generic fallback text no matter what actually went wrong.
-    const failureMessage = result.personError
-      ? `AiSensy: ${result.personError}`
-      : 'AiSensy send to the person failed — see backend logs';
 
     if (sendLogId) {
       await this.prisma.eventSendLog.update({
         where: { id: sendLogId },
         data: result.sentToPerson
           ? { sentToOwner: result.sentToOwner }
-          : { status: 'FAILED', errorMessage: failureMessage, sentToOwner: result.sentToOwner },
+          : { status: 'FAILED', errorMessage: 'AiSensy send to the person failed — see backend logs', sentToOwner: result.sentToOwner },
       });
     }
 
-    return {
-      sent: result.sentToPerson,
-      sentToOwner: result.sentToOwner,
-      errorMessage: result.sentToPerson ? undefined : failureMessage,
-    };
+    return { sent: result.sentToPerson, sentToOwner: result.sentToOwner };
   }
 
   private async logSend(params: {

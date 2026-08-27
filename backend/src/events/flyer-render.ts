@@ -11,17 +11,25 @@
 // the template image's own pixel dimensions, not inches, and the renderer is
 // sharp (raster compositing) instead of pdfkit (vector PDF drawing).
 //
-// Two kinds of layer are composited on top of the base template, in this
-// order: PHOTO fields first, then TEXT fields on top — fields are expected
-// to occupy separate, non-overlapping boxes on the template, so the order
-// mainly matters if a template designer places them overlapping on purpose
-// (then text wins, which is the safer default for legibility).
+// Four kinds of layer are composited on top of the base template, in this
+// order: PHOTO/BRAND_LOGO fields first, then TEXT/BRAND_TEXT fields on top —
+// fields are expected to occupy separate, non-overlapping boxes on the
+// template, so the order mainly matters if a template designer places them
+// overlapping on purpose (then text wins, which is the safer default for
+// legibility).
+//
+// BRAND_LOGO/BRAND_TEXT (added 2026-08-27) are the firm-identity counterparts
+// to PHOTO/TEXT: same rendering code path, but the value comes from
+// EventBrandProfile (set once, reused across every template) instead of from
+// the per-person `values`/`photoBuffer` — see brandLogoBuffer/brandValues
+// below and EventsService.buildBrandValues.
 import sharp from 'sharp';
 import { buildFontFaceCss, isFlyerFontFamily, resolveFlyerFontFamilyName, type FlyerFontFamily } from './fonts';
 
-export type FlyerFieldType = 'TEXT' | 'PHOTO';
+export type FlyerFieldType = 'TEXT' | 'PHOTO' | 'BRAND_LOGO' | 'BRAND_TEXT';
 export type FlyerFieldAlign = 'left' | 'center' | 'right';
 export type FlyerFieldVAlign = 'top' | 'middle' | 'bottom';
+export type BrandKey = 'firmName' | 'address' | 'phone' | 'email' | 'website' | 'products';
 
 export interface FlyerField {
   key: string;
@@ -32,15 +40,17 @@ export interface FlyerField {
   y: number;
   w: number;
   h: number;
-  // TEXT-only:
+  // TEXT/BRAND_TEXT:
   fontFamily?: FlyerFontFamily;
   fontSizePt?: number;
   bold?: boolean;
   color?: string; // hex, e.g. '#111111'
   align?: FlyerFieldAlign;
   verticalAlign?: FlyerFieldVAlign;
-  // PHOTO-only:
-  circle?: boolean; // crop the photo to an ellipse filling its box instead of a plain rectangle
+  // PHOTO/BRAND_LOGO:
+  circle?: boolean; // crop the photo/logo to an ellipse filling its box instead of a plain rectangle
+  // BRAND_TEXT-only: which EventBrandProfile column this field pulls its value from.
+  brandKey?: BrandKey;
 }
 
 function escapeXml(value: string): string {
@@ -117,6 +127,8 @@ export interface RenderFlyerParams {
   fields: FlyerField[];
   values: Record<string, string>; // fieldKey -> text value, for TEXT fields
   photoBuffer?: Buffer | null; // used for every PHOTO field (one photo per person, per project decision)
+  brandValues?: Partial<Record<BrandKey, string>> | null; // used for every BRAND_TEXT field, keyed by field.brandKey (not field.key)
+  brandLogoBuffer?: Buffer | null; // used for every BRAND_LOGO field
 }
 
 /** Renders the final flyer as a JPEG buffer. */
@@ -129,21 +141,24 @@ export async function renderFlyer(params: RenderFlyerParams): Promise<Buffer> {
     throw new Error('Could not read the template image dimensions');
   }
 
-  const photoFields = params.fields.filter((f) => f.type === 'PHOTO');
-  const textFields = params.fields.filter((f) => f.type === 'TEXT');
+  const photoFields = params.fields.filter((f) => f.type === 'PHOTO' || f.type === 'BRAND_LOGO');
+  const textFields = params.fields.filter((f) => f.type === 'TEXT' || f.type === 'BRAND_TEXT');
 
   const composites: sharp.OverlayOptions[] = [];
 
   for (const field of photoFields) {
-    if (!params.photoBuffer) continue; // no photo on file for this person — leave the template's own artwork showing through
+    const sourceBuffer = field.type === 'BRAND_LOGO' ? params.brandLogoBuffer : params.photoBuffer;
+    if (!sourceBuffer) continue; // no photo/logo on file — leave the template's own artwork showing through
     const boxWPx = Math.max(1, Math.round(field.w * widthPx));
     const boxHPx = Math.max(1, Math.round(field.h * heightPx));
-    const layer = await renderPhotoFieldBuffer(field, params.photoBuffer, boxWPx, boxHPx);
+    const layer = await renderPhotoFieldBuffer(field, sourceBuffer, boxWPx, boxHPx);
     composites.push({ input: layer, left: Math.round(field.x * widthPx), top: Math.round(field.y * heightPx) });
   }
 
   for (const field of textFields) {
-    const value = (params.values[field.key] ?? '').trim();
+    const value = (
+      field.type === 'BRAND_TEXT' ? params.brandValues?.[field.brandKey as BrandKey] ?? '' : params.values[field.key] ?? ''
+    ).trim();
     if (!value) continue;
     const boxWPx = Math.max(1, Math.round(field.w * widthPx));
     const boxHPx = Math.max(1, Math.round(field.h * heightPx));

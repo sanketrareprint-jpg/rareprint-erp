@@ -110,10 +110,15 @@ export class EventsController {
   }
 
   // ── Festivals ──
+  // isRecurring defaults true (month/day, fires every year) when omitted;
+  // pass isRecurring:false + oneTimeDate for a one-off custom-date festival.
 
   @Post('festivals')
   @UseGuards(AuthGuard('jwt'))
-  createFestival(@Body() body: { name: string; month: number; day: number; templateId?: string }, @Req() req: Request & { user: JwtUser }) {
+  createFestival(
+    @Body() body: { name: string; isRecurring?: boolean; month?: number; day?: number; oneTimeDate?: string; templateId?: string },
+    @Req() req: Request & { user: JwtUser },
+  ) {
     return this.service.createFestival({ ...body, userId: req.user.id });
   }
 
@@ -125,7 +130,10 @@ export class EventsController {
 
   @Patch('festivals/:id')
   @UseGuards(AuthGuard('jwt'))
-  updateFestival(@Param('id') id: string, @Body() body: { name?: string; month?: number; day?: number; templateId?: string | null; isActive?: boolean }) {
+  updateFestival(
+    @Param('id') id: string,
+    @Body() body: { name?: string; isRecurring?: boolean; month?: number; day?: number; oneTimeDate?: string; templateId?: string | null; isActive?: boolean },
+  ) {
     return this.service.updateFestival(id, body);
   }
 
@@ -133,6 +141,26 @@ export class EventsController {
   @UseGuards(AuthGuard('jwt'))
   deleteFestival(@Param('id') id: string) {
     return this.service.deleteFestival(id);
+  }
+
+  // ── Brand profile (logo/firm name/address/phone/products — set once,
+  // reused by every template's BRAND_LOGO/BRAND_TEXT fields) ──
+
+  @Get('brand-profile')
+  @UseGuards(AuthGuard('jwt'))
+  getBrandProfile() {
+    return this.service.getBrandProfile();
+  }
+
+  @Patch('brand-profile')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('logo', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  updateBrandProfile(
+    @Body() body: { firmName?: string; address?: string; phone?: string; email?: string; website?: string; products?: string },
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.service.updateBrandProfile({ ...body, file, userId: req.user.id });
   }
 
   // ── History ──

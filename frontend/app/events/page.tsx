@@ -4,22 +4,30 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
-  PartyPopper, Upload, Plus, Trash2, Loader2, AlertTriangle, CheckCircle2, Send, Pencil, X, Image as ImageIcon,
+  PartyPopper, Upload, Plus, Trash2, Loader2, AlertTriangle, CheckCircle2, Send, Pencil, X, Image as ImageIcon, Building2,
 } from "lucide-react";
 
 // ─────────────────────────── Types ───────────────────────────
 
-const FONT_FAMILIES = ["DejaVu Sans", "Segoe UI", "Poppins", "Montserrat", "Playfair Display", "Dancing Script"] as const;
+const FONT_FAMILIES = ["DejaVu Sans", "Segoe UI", "Noto Sans Devanagari"] as const;
 type FontFamily = (typeof FONT_FAMILIES)[number];
 type Align = "left" | "center" | "right";
 type VAlign = "top" | "middle" | "bottom";
-type FieldType = "TEXT" | "PHOTO";
+type FieldType = "TEXT" | "PHOTO" | "BRAND_LOGO" | "BRAND_TEXT";
 type OccasionType = "BIRTHDAY" | "ANNIVERSARY" | "FESTIVAL";
+type BrandKey = "firmName" | "address" | "phone" | "email" | "website" | "products";
+
+const BRAND_KEY_LABEL: Record<BrandKey, string> = {
+  firmName: "Firm name", address: "Address", phone: "Phone", email: "Email", website: "Website", products: "Products",
+};
 
 // x/y/w/h are FRACTIONS (0..1) of the template image's own width/height —
 // not inches or pixels, since a flyer is only ever a raster image, never
 // printed at a physical size (contrast with Certificate Generator's
-// inch-based fields).
+// inch-based fields). BRAND_LOGO/BRAND_TEXT (added 2026-08-27) are the same
+// as PHOTO/TEXT except their value comes from the Brand tab's saved firm
+// identity (set once, reused across every template) instead of per-person —
+// see brandKey below and the Brand tab further down this file.
 type FlyerField = {
   key: string;
   label: string;
@@ -32,6 +40,7 @@ type FlyerField = {
   align?: Align;
   verticalAlign?: VAlign;
   circle?: boolean;
+  brandKey?: BrandKey; // BRAND_TEXT only
 };
 
 type Template = {
@@ -58,15 +67,33 @@ type Person = {
 type Festival = {
   id: string;
   name: string;
-  month: number; // 1-12, recurring every year
-  day: number;
+  isRecurring: boolean; // true (default): month/day, recurs every year. false: one-time custom date, fires once.
+  month: number | null; // set when isRecurring=true
+  day: number | null;
+  oneTimeDate: string | null; // yyyy-mm-dd, set when isRecurring=false
   templateId: string | null;
   isActive: boolean;
+};
+
+type BrandProfile = {
+  id: string;
+  logoDataUrl: string | null;
+  firmName: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  products: string | null;
 };
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function formatMonthDay(month: number, day: number): string {
   return `${day} ${MONTH_NAMES[month - 1] ?? month}`;
+}
+function formatOneTimeDate(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return `${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 type SendLog = {
@@ -104,12 +131,13 @@ async function readErr(res: Response, fallback: string): Promise<string> {
 // ─────────────────────────── Page ───────────────────────────
 
 export default function EventsPage() {
-  const [tab, setTab] = useState<"people" | "templates" | "festivals" | "history">("people");
+  const [tab, setTab] = useState<"people" | "templates" | "brand" | "festivals" | "history">("people");
   const [error, setError] = useState<string | null>(null);
 
   const TABS: Array<[typeof tab, string]> = [
     ["people", "People"],
     ["templates", "Flyer Templates"],
+    ["brand", "Brand"],
     ["festivals", "Festivals"],
     ["history", "History"],
   ];
@@ -143,6 +171,7 @@ export default function EventsPage() {
 
         {tab === "people" && <PeopleTab setError={setError} />}
         {tab === "templates" && <TemplatesTab setError={setError} />}
+        {tab === "brand" && <BrandTab setError={setError} />}
         {tab === "festivals" && <FestivalsTab setError={setError} />}
         {tab === "history" && <HistoryTab setError={setError} />}
       </div>
@@ -487,11 +516,15 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
   const selected = fields.find((f) => f.key === selectedKey) ?? null;
 
   const addField = (type: FieldType) => {
-    const label = `${type === "PHOTO" ? "Photo" : "Field"} ${fields.length + 1}`;
-    const key = slugKey(type === "PHOTO" ? "photo" : label, fields.map((f) => f.key));
-    const f: FlyerField = type === "PHOTO"
-      ? { key, label, type, x: 0.3, y: 0.1, w: 0.4, h: 0.3, circle: true }
-      : { key, label, type, x: 0.1, y: 0.6, w: 0.8, h: 0.12, fontFamily: "DejaVu Sans", fontSizePt: 36, bold: true, color: "#111111", align: "center", verticalAlign: "middle" };
+    const labelBase = type === "PHOTO" ? "Photo" : type === "BRAND_LOGO" ? "Logo" : type === "BRAND_TEXT" ? "Brand text" : "Field";
+    const label = `${labelBase} ${fields.length + 1}`;
+    const key = slugKey(type === "PHOTO" ? "photo" : type === "BRAND_LOGO" ? "brand_logo" : label, fields.map((f) => f.key));
+    const f: FlyerField =
+      type === "PHOTO" || type === "BRAND_LOGO"
+        ? { key, label, type, x: 0.3, y: 0.1, w: 0.4, h: 0.3, circle: type === "BRAND_LOGO" ? false : true }
+        : type === "BRAND_TEXT"
+          ? { key, label, type, x: 0.1, y: 0.85, w: 0.8, h: 0.08, fontFamily: "DejaVu Sans", fontSizePt: 20, bold: false, color: "#111111", align: "center", verticalAlign: "middle", brandKey: "firmName" }
+          : { key, label, type, x: 0.1, y: 0.6, w: 0.8, h: 0.12, fontFamily: "DejaVu Sans", fontSizePt: 36, bold: true, color: "#111111", align: "center", verticalAlign: "middle" };
     setFields([...fields, f]);
     setSelectedKey(key);
   };
@@ -593,29 +626,35 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
                 position: "absolute",
                 left: f.x * canvasWpx, top: f.y * canvasHpx, width: f.w * canvasWpx, height: f.h * canvasHpx,
                 border: f.key === selectedKey ? "2px solid #d97706" : "1px dashed #64748b",
-                background: f.type === "PHOTO" ? "rgba(37,99,235,0.12)" : f.key === selectedKey ? "rgba(217,119,6,0.12)" : "rgba(100,116,139,0.08)",
-                borderRadius: f.type === "PHOTO" && f.circle ? "50%" : 0,
+                background: f.type === "PHOTO" || f.type === "BRAND_LOGO" ? "rgba(37,99,235,0.12)" : f.type === "BRAND_TEXT" ? "rgba(21,128,61,0.12)" : f.key === selectedKey ? "rgba(217,119,6,0.12)" : "rgba(100,116,139,0.08)",
+                borderRadius: (f.type === "PHOTO" || f.type === "BRAND_LOGO") && f.circle ? "50%" : 0,
                 cursor: "move",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 11, color: "#475569", overflow: "hidden", padding: 2,
               }}
             >
-              {f.type === "PHOTO" ? "📷 photo" : `{{${f.key}}}`}
+              {f.type === "PHOTO" ? "📷 photo" : f.type === "BRAND_LOGO" ? "🏢 logo" : f.type === "BRAND_TEXT" ? `{{brand:${f.brandKey}}}` : `{{${f.key}}}`}
               <div onMouseDown={(e) => onPointerDown(e, f, "resize")} style={{ position: "absolute", right: -4, bottom: -4, width: 10, height: 10, background: "#d97706", borderRadius: 2, cursor: "nwse-resize" }} />
             </div>
           ))}
         </div>
 
-        <div className="flex gap-2 mt-3">
+        <div className="flex gap-2 mt-3 flex-wrap">
           <button onClick={() => addField("TEXT")} className="flex items-center gap-2 px-3 py-1.5 rounded border text-sm font-semibold text-amber-700 border-amber-300 hover:bg-amber-50">
             <Plus size={14} /> Add text field
           </button>
           <button onClick={() => addField("PHOTO")} className="flex items-center gap-2 px-3 py-1.5 rounded border text-sm font-semibold text-blue-700 border-blue-300 hover:bg-blue-50">
             <Plus size={14} /> Add photo field
           </button>
+          <button onClick={() => addField("BRAND_LOGO")} className="flex items-center gap-2 px-3 py-1.5 rounded border text-sm font-semibold text-blue-700 border-blue-300 hover:bg-blue-50">
+            <Building2 size={14} /> Add brand logo field
+          </button>
+          <button onClick={() => addField("BRAND_TEXT")} className="flex items-center gap-2 px-3 py-1.5 rounded border text-sm font-semibold text-green-700 border-green-300 hover:bg-green-50">
+            <Building2 size={14} /> Add brand text field
+          </button>
         </div>
         <p className="text-xs text-slate-400 mt-2">
-          Use field key <code className="bg-slate-100 px-1 rounded">name</code> for the person's name, <code className="bg-slate-100 px-1 rounded">date</code> for their birthday/anniversary/festival date, and <code className="bg-slate-100 px-1 rounded">years</code> for years old/married (blank if unknown). Any photo field uses that person's stored photo.
+          Use field key <code className="bg-slate-100 px-1 rounded">name</code> for the person's name, <code className="bg-slate-100 px-1 rounded">date</code> for their birthday/anniversary/festival date, and <code className="bg-slate-100 px-1 rounded">years</code> for years old/married (blank if unknown). Any photo field uses that person's stored photo. Brand logo/text fields pull automatically from the values you set on the <span className="font-semibold">Brand</span> tab (logo, firm name, address, phone, email, website, products) — the same firm identity is reused across every template.
         </p>
       </div>
 
@@ -624,31 +663,27 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
         <div className="space-y-1 mb-3 max-h-40 overflow-y-auto">
           {fields.map((f) => (
             <button key={f.key} onClick={() => setSelectedKey(f.key)} className={`w-full text-left px-2 py-1 rounded text-xs flex justify-between items-center ${f.key === selectedKey ? "bg-amber-100 text-amber-800" : "hover:bg-slate-50"}`}>
-              <span>{f.label} <span className="text-slate-400">{f.type === "PHOTO" ? "(photo)" : `{{${f.key}}}`}</span></span>
+              <span>{f.label} <span className="text-slate-400">{f.type === "PHOTO" ? "(photo)" : f.type === "BRAND_LOGO" ? "(brand logo)" : f.type === "BRAND_TEXT" ? `(brand: ${BRAND_KEY_LABEL[f.brandKey ?? "firmName"]})` : `{{${f.key}}}`}</span></span>
               <Trash2 size={12} className="text-slate-400 hover:text-red-500" onClick={(e) => { e.stopPropagation(); setFields(fields.filter((x) => x.key !== f.key)); if (selectedKey === f.key) setSelectedKey(null); }} />
             </button>
           ))}
         </div>
 
-        {selected && selected.type === "TEXT" && (
+        {selected && (selected.type === "TEXT" || selected.type === "BRAND_TEXT") && (
           <div className="space-y-2 border-t pt-2">
-            <div>
-              <label className="text-xs text-slate-500">Key (used as {`{{key}}`})</label>
-              <input value={selected.key} onChange={(e) => {
-                // `selected` is looked up by matching selectedKey against
-                // fields[].key (see `const selected = ...find(...)` above).
-                // Renaming the key here without also updating selectedKey
-                // left selectedKey pointing at a key that no longer existed
-                // in `fields` after the very next render, so `selected`
-                // became null and this whole panel disappeared — which is
-                // why every keystroke looked like it "lost" the field and
-                // had to be reselected before you could type the next
-                // character. Updating both together keeps the lookup valid.
-                const newKey = slugKey(e.target.value, fields.filter((f) => f.key !== selected.key).map((f) => f.key));
-                updateSelected({ key: newKey });
-                setSelectedKey(newKey);
-              }} className="w-full border rounded px-2 py-1 text-sm" />
-            </div>
+            {selected.type === "BRAND_TEXT" ? (
+              <div>
+                <label className="text-xs text-slate-500">Brand field</label>
+                <select value={selected.brandKey ?? "firmName"} onChange={(e) => updateSelected({ brandKey: e.target.value as BrandKey })} className="w-full border rounded px-2 py-1 text-sm">
+                  {(Object.keys(BRAND_KEY_LABEL) as BrandKey[]).map((k) => <option key={k} value={k}>{BRAND_KEY_LABEL[k]}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs text-slate-500">Key (used as {`{{key}}`})</label>
+                <input value={selected.key} onChange={(e) => updateSelected({ key: slugKey(e.target.value, fields.filter((f) => f.key !== selected.key).map((f) => f.key)) })} className="w-full border rounded px-2 py-1 text-sm" />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-slate-500">Font</label>
@@ -683,7 +718,7 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
           </div>
         )}
 
-        {selected && selected.type === "PHOTO" && (
+        {selected && (selected.type === "PHOTO" || selected.type === "BRAND_LOGO") && (
           <div className="space-y-2 border-t pt-2">
             <label className="text-xs text-slate-500 flex items-center gap-1">
               <input type="checkbox" checked={selected.circle} onChange={(e) => updateSelected({ circle: e.target.checked })} /> Circular crop
@@ -702,6 +737,132 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
   );
 }
 
+// ─────────────────────────── Brand tab ───────────────────────────
+//
+// Firm identity — logo, name, address, phone, email, website, products — set
+// once here and reused by every template's BRAND_LOGO/BRAND_TEXT fields, so
+// designers don't have to bake branding into each uploaded background image.
+// Backed by the singleton EventBrandProfile row (GET/PATCH events/brand-profile).
+
+function BrandTab({ setError }: { setError: (s: string | null) => void }) {
+  const [profile, setProfile] = useState<BrandProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [firmName, setFirmName] = useState("");
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [website, setWebsite] = useState("");
+  const [products, setProducts] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/events/brand-profile`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error(await readErr(res, "Could not load brand profile"));
+      const p: BrandProfile = await res.json();
+      setProfile(p);
+      setFirmName(p.firmName ?? "");
+      setAddress(p.address ?? "");
+      setPhone(p.phone ?? "");
+      setEmail(p.email ?? "");
+      setWebsite(p.website ?? "");
+      setProducts(p.products ?? "");
+      setPreview(p.logoDataUrl ?? null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("firmName", firmName);
+      formData.append("address", address);
+      formData.append("phone", phone);
+      formData.append("email", email);
+      formData.append("website", website);
+      formData.append("products", products);
+      if (file) formData.append("logo", file);
+      const res = await fetch(`${API_BASE_URL}/events/brand-profile`, { method: "PATCH", headers: uploadHeaders(), body: formData });
+      if (!res.ok) throw new Error(await readErr(res, "Could not save brand profile"));
+      const p: BrandProfile = await res.json();
+      setProfile(p);
+      setFile(null);
+      setSaved(true);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <Loader2 className="animate-spin text-slate-400" size={20} />;
+
+  return (
+    <div className="max-w-lg">
+      <p className="text-sm text-slate-500 mb-3">
+        Set your firm's identity once here — logo, name, address, phone, email, website, products. Every flyer template can place "Brand" fields (via the template editor's brand-field buttons) that pull from these values automatically, so you don't need to redraw your branding into every uploaded background image.
+      </p>
+      <div className="border rounded-lg p-4 bg-white space-y-3">
+        <div className="flex items-center gap-3">
+          {preview ? <img src={preview} className="w-16 h-16 rounded object-contain border bg-slate-50" /> : <div className="w-16 h-16 rounded bg-slate-100 border flex items-center justify-center"><Building2 size={20} className="text-slate-300" /></div>}
+          <label className="text-xs px-3 py-1.5 rounded border text-amber-700 border-amber-300 hover:bg-amber-50 cursor-pointer">
+            Upload logo
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setFile(f);
+              if (f) setPreview(URL.createObjectURL(f));
+            }} />
+          </label>
+        </div>
+        <div>
+          <label className="text-xs text-slate-500">Firm name</label>
+          <input value={firmName} onChange={(e) => setFirmName(e.target.value)} placeholder="RAREPRINT" className="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500">Phone</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Email</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-slate-500">Address</label>
+          <textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={2} className="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500">Website</label>
+          <input value={website} onChange={(e) => setWebsite(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500">Available products (optional)</label>
+          <textarea value={products} onChange={(e) => setProducts(e.target.value)} rows={2} placeholder="e.g. Visiting cards, Banners, Flex printing" className="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div className="flex items-center gap-2 pt-2 border-t">
+          <button onClick={save} disabled={saving} className="px-3 py-2 rounded bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-1">
+            {saving ? <Loader2 className="animate-spin" size={14} /> : <CheckCircle2 size={14} />} Save
+          </button>
+          {saved && <span className="text-xs text-green-700 flex items-center gap-1"><CheckCircle2 size={12} /> Saved</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────── Festivals tab ───────────────────────────
 
 function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
@@ -710,7 +871,8 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [date, setDate] = useState(""); // yyyy-mm-dd from the picker — only month/day are kept, the year is discarded (festivals recur every year)
+  const [isRecurring, setIsRecurring] = useState(true);
+  const [date, setDate] = useState(""); // yyyy-mm-dd from the picker — for recurring festivals only month/day are kept (year discarded); for one-time festivals the full date is kept
   const [templateId, setTemplateId] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -736,15 +898,22 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
 
   const add = async () => {
     if (!name.trim() || !date) return setError("Festival name and date are required");
-    const [, monthStr, dayStr] = date.split("-"); // yyyy-mm-dd — year is discarded, this festival recurs every year from here on
     setSaving(true);
     setError(null);
     try {
+      const body: Record<string, unknown> = { name, isRecurring, templateId: templateId || undefined };
+      if (isRecurring) {
+        const [, monthStr, dayStr] = date.split("-"); // yyyy-mm-dd — year is discarded, this festival recurs every year from here on
+        body.month = Number(monthStr);
+        body.day = Number(dayStr);
+      } else {
+        body.oneTimeDate = date; // exact calendar date — this festival fires once and never again
+      }
       const res = await fetch(`${API_BASE_URL}/events/festivals`, {
-        method: "POST", headers: getAuthHeaders(), body: JSON.stringify({ name, month: Number(monthStr), day: Number(dayStr), templateId: templateId || undefined }),
+        method: "POST", headers: getAuthHeaders(), body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await readErr(res, "Could not add festival"));
-      setName(""); setDate(""); setTemplateId(""); setAdding(false);
+      setName(""); setDate(""); setTemplateId(""); setIsRecurring(true); setAdding(false);
       void load();
     } catch (e: any) {
       setError(e.message);
@@ -790,7 +959,7 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
   return (
     <div>
       <p className="text-sm text-slate-500 mb-3">
-        Add each festival once with its month and day — it recurs automatically every year, same as birthdays. (Pick any year in the date field below; only the month and day are kept.) Every active, registered person gets wished on that date, using the flyer template you assign here.
+        Add a festival either as recurring (its month and day repeat automatically every year, same as birthdays — pick any year in the date field, only the month and day are kept) or as a one-time custom date (fires once on that exact date and never again — useful for a special event that isn't a yearly festival). Every active, registered person gets wished on that date, using the flyer template you assign here.
       </p>
 
       {!adding ? (
@@ -800,6 +969,14 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
       ) : (
         <div className="mb-4 border rounded-lg p-3 max-w-lg flex flex-col gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Festival name (e.g. Diwali)" className="border rounded px-2 py-1.5 text-sm" />
+          <div className="flex gap-1">
+            <button type="button" onClick={() => { setIsRecurring(true); setDate(""); }} className={`flex-1 text-xs px-2 py-1.5 rounded border ${isRecurring ? "bg-amber-600 text-white border-amber-600" : "text-slate-600 border-slate-300 hover:bg-slate-50"}`}>
+              Recurring every year
+            </button>
+            <button type="button" onClick={() => { setIsRecurring(false); setDate(""); }} className={`flex-1 text-xs px-2 py-1.5 rounded border ${!isRecurring ? "bg-amber-600 text-white border-amber-600" : "text-slate-600 border-slate-300 hover:bg-slate-50"}`}>
+              One-time custom date
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border rounded px-2 py-1.5 text-sm" />
             <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="border rounded px-2 py-1.5 text-sm">
@@ -807,6 +984,7 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
               {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
+          {!isRecurring && <p className="text-xs text-slate-400">This will send once, on this exact date, then never fire again.</p>}
           <div className="flex gap-2">
             <button onClick={() => setAdding(false)} className="flex-1 px-3 py-1.5 rounded border text-sm">Cancel</button>
             <button onClick={add} disabled={saving} className="flex-1 px-3 py-1.5 rounded bg-amber-600 text-white text-sm font-semibold disabled:opacity-50">{saving ? "Saving…" : "Add"}</button>
@@ -834,7 +1012,9 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
               {festivals.map((f) => (
                 <tr key={f.id} className="border-t">
                   <td className="px-3 py-2 font-medium text-slate-800">{f.name}</td>
-                  <td className="px-3 py-2 text-slate-600">{formatMonthDay(f.month, f.day)} (every year)</td>
+                  <td className="px-3 py-2 text-slate-600">
+                    {f.isRecurring && f.month && f.day ? `${formatMonthDay(f.month, f.day)} (every year)` : f.oneTimeDate ? `${formatOneTimeDate(f.oneTimeDate)} (once)` : "—"}
+                  </td>
                   <td className="px-3 py-2">
                     <select value={f.templateId ?? ""} onChange={(e) => void setTemplateFor(f.id, e.target.value)} className="border rounded px-2 py-1 text-xs">
                       <option value="">No template yet</option>

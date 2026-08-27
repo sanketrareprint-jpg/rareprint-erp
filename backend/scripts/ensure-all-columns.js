@@ -770,6 +770,60 @@ async function main() {
       console.log('[ensure-all-columns] Festival: converted to month/day.');
     });
 
+    // ── Festival.isRecurring/oneTimeDate + EventBrandProfile table ─────────
+    // Added 2026-08-27 for one-time custom-date festivals (alongside the
+    // recurring month/day ones) and the reusable firm brand profile (logo/
+    // name/address/phone/email/website/products) used by BRAND_LOGO/
+    // BRAND_TEXT flyer fields. Shipped as its own migration (not an edit to
+    // an already-applied one — see the Festival month/day block above for
+    // why), and mirrored here as the same belt-and-suspenders fallback.
+    await safely('Festival.isRecurring/oneTimeDate + EventBrandProfile', async () => {
+      const { rows: reg } = await client.query(`SELECT to_regclass('public."Festival"') AS reg`);
+      if (!reg[0]?.reg) {
+        console.log('[ensure-all-columns] Festival: table does not exist yet, skipping isRecurring/oneTimeDate.');
+      } else {
+        const { rows } = await client.query(`
+          SELECT column_name FROM information_schema.columns WHERE table_name = 'Festival'
+        `);
+        const existing = new Set(rows.map((r) => r.column_name));
+        if (existing.has('isRecurring') && existing.has('oneTimeDate')) {
+          console.log('[ensure-all-columns] Festival.isRecurring/oneTimeDate: already exist.');
+        } else {
+          console.log('[ensure-all-columns] Festival.isRecurring/oneTimeDate: missing, adding.');
+          await client.query(`ALTER TABLE "Festival" ADD COLUMN IF NOT EXISTS "isRecurring" BOOLEAN NOT NULL DEFAULT true;`);
+          await client.query(`ALTER TABLE "Festival" ADD COLUMN IF NOT EXISTS "oneTimeDate" DATE;`);
+          await client.query(`ALTER TABLE "Festival" ALTER COLUMN "month" DROP NOT NULL;`);
+          await client.query(`ALTER TABLE "Festival" ALTER COLUMN "day" DROP NOT NULL;`);
+          await client.query(`CREATE INDEX IF NOT EXISTS "Festival_oneTimeDate_idx" ON "Festival"("oneTimeDate");`);
+          console.log('[ensure-all-columns] Festival.isRecurring/oneTimeDate: added.');
+        }
+      }
+
+      const { rows: brandReg } = await client.query(`SELECT to_regclass('public."EventBrandProfile"') AS reg`);
+      if (brandReg[0]?.reg) {
+        console.log('[ensure-all-columns] EventBrandProfile: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] EventBrandProfile: missing, creating.');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "EventBrandProfile" (
+          "id"          TEXT NOT NULL DEFAULT 'singleton',
+          "logoDataUrl" TEXT,
+          "firmName"    TEXT,
+          "address"     TEXT,
+          "phone"       TEXT,
+          "email"       TEXT,
+          "website"     TEXT,
+          "products"    TEXT,
+          "updatedById" TEXT,
+          "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt"   TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "EventBrandProfile_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      console.log('[ensure-all-columns] EventBrandProfile: created.');
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();
