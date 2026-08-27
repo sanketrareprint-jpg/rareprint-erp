@@ -50,8 +50,12 @@ export class EventsController {
 
   @Post('templates/:id/preview')
   @UseGuards(AuthGuard('jwt'))
-  async previewTemplate(@Param('id') id: string, @Body() body: { values?: Record<string, string>; photoDataUrl?: string }, @Res() res: Response) {
-    const buffer = await this.service.previewTemplate(id, body?.values ?? {}, body?.photoDataUrl);
+  async previewTemplate(
+    @Param('id') id: string,
+    @Body() body: { values?: Record<string, string>; photoDataUrl?: string; sampleClientBusinessId?: string },
+    @Res() res: Response,
+  ) {
+    const buffer = await this.service.previewTemplate(id, body?.values ?? {}, body?.photoDataUrl, body?.sampleClientBusinessId);
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Content-Disposition', 'inline; filename="preview.jpg"');
     res.send(buffer);
@@ -116,7 +120,7 @@ export class EventsController {
   @Post('festivals')
   @UseGuards(AuthGuard('jwt'))
   createFestival(
-    @Body() body: { name: string; isRecurring?: boolean; month?: number; day?: number; oneTimeDate?: string; templateId?: string },
+    @Body() body: { name: string; isRecurring?: boolean; month?: number; day?: number; oneTimeDate?: string; templateId?: string; clientTemplateId?: string },
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.service.createFestival({ ...body, userId: req.user.id });
@@ -132,7 +136,11 @@ export class EventsController {
   @UseGuards(AuthGuard('jwt'))
   updateFestival(
     @Param('id') id: string,
-    @Body() body: { name?: string; isRecurring?: boolean; month?: number; day?: number; oneTimeDate?: string; templateId?: string | null; isActive?: boolean },
+    @Body()
+    body: {
+      name?: string; isRecurring?: boolean; month?: number; day?: number; oneTimeDate?: string;
+      templateId?: string | null; clientTemplateId?: string | null; isActive?: boolean;
+    },
   ) {
     return this.service.updateFestival(id, body);
   }
@@ -163,12 +171,75 @@ export class EventsController {
     return this.service.updateBrandProfile({ ...body, file, userId: req.user.id });
   }
 
+  // ── Client businesses (added 2026-08-28) — RarePrint's own B2B customers
+  // who each get an auto-generated, self-branded festival wish card to
+  // forward to their own customers. NOT the Brand tab above (that's
+  // RarePrint's own singleton identity) and NOT People/EventPerson (that's
+  // RarePrint's own birthday/anniversary/festival contacts). See
+  // docs/Events_Module_Client_Wish_Cards_Build_Prompt.md. ──
+
+  @Post('client-businesses')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  createClientBusiness(
+    @Body() body: { businessName: string; whatsappNumber: string; phone?: string; address?: string; tagline?: string },
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.service.createClientBusiness({ ...body, file, userId: req.user.id });
+  }
+
+  @Get('client-businesses')
+  @UseGuards(AuthGuard('jwt'))
+  listClientBusinesses() {
+    return this.service.listClientBusinesses();
+  }
+
+  @Get('client-businesses/:id')
+  @UseGuards(AuthGuard('jwt'))
+  getClientBusiness(@Param('id') id: string) {
+    return this.service.getClientBusiness(id);
+  }
+
+  @Patch('client-businesses/:id')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  updateClientBusiness(
+    @Param('id') id: string,
+    @Body() body: { businessName?: string; whatsappNumber?: string; phone?: string; address?: string; tagline?: string; isActive?: string },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.service.updateClientBusiness(id, {
+      ...body,
+      isActive: body.isActive === undefined ? undefined : body.isActive === 'true',
+      file,
+    });
+  }
+
+  @Delete('client-businesses/:id')
+  @UseGuards(AuthGuard('jwt'))
+  deleteClientBusiness(@Param('id') id: string) {
+    return this.service.deleteClientBusiness(id);
+  }
+
+  @Post('client-businesses/:id/send-test')
+  @UseGuards(AuthGuard('jwt'))
+  sendTestClientWish(@Param('id') id: string, @Body() body: { festivalId: string }) {
+    return this.service.sendTestClientWish(id, body.festivalId);
+  }
+
   // ── History ──
 
   @Get('logs')
   @UseGuards(AuthGuard('jwt'))
   listLogs(@Query('personId') personId?: string, @Query('limit') limit?: string) {
     return this.service.listLogs({ personId, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('client-wish-logs')
+  @UseGuards(AuthGuard('jwt'))
+  listClientWishLogs(@Query('clientBusinessId') clientBusinessId?: string, @Query('limit') limit?: string) {
+    return this.service.listClientWishLogs({ clientBusinessId, limit: limit ? Number(limit) : undefined });
   }
 
   // ── Public flyer image — fetched by AiSensy itself, no login, so NOT

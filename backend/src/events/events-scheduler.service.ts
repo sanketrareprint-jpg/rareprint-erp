@@ -125,44 +125,80 @@ export class EventsSchedulerService {
     if (!todaysFestivals.length) return;
 
     const people = await this.prisma.eventPerson.findMany({ where: { isActive: true } });
+    // Only fetched if at least one of today's festivals actually has a
+    // clientTemplateId — most installs may never use this feature, so avoid
+    // an unconditional query against a table that could be empty/unused.
+    const clientBusinesses = todaysFestivals.some((f) => f.clientTemplateId)
+      ? await this.prisma.eventClientBusiness.findMany({ where: { isActive: true } })
+      : [];
 
     for (const festival of todaysFestivals) {
-      if (!festival.templateId) {
-        this.logger.warn(`Festival "${festival.name}" has no flyer template assigned — skipping today's send`);
-        continue;
-      }
-      const template = await this.prisma.eventFlyerTemplate.findUnique({ where: { id: festival.templateId } });
-      if (!template || !template.isActive) {
-        this.logger.warn(`Festival "${festival.name}"'s assigned template is missing or inactive — skipping today's send`);
-        continue;
-      }
-
       // Recurring festivals fire every year, and even a one-time festival's
       // single occurrence could in principle be retried (server restart mid-
-      // day) — so both dedup per (person, festival, calendar year) via
-      // EventSendLog rather than a one-time "sentAt" flag on the Festival
-      // row, which would have blocked a recurring festival from ever firing
-      // again next year.
+      // day) — so both dedup per (recipient, festival, calendar year) via
+      // EventSendLog/EventClientWishLog rather than a one-time "sentAt" flag
+      // on the Festival row, which would have blocked a recurring festival
+      // from ever firing again next year.
       const festivalDate = festival.isRecurring
         ? new Date(Date.UTC(year, (festival.month as number) - 1, festival.day as number))
         : (festival.oneTimeDate as Date);
-      for (const person of people) {
-        const already = await this.prisma.eventSendLog.findFirst({
-          where: { personId: person.id, festivalId: festival.id, occasionYear: year, status: 'SUCCESS' },
+
+      if (!festival.templateId) {
+        this.logger.warn(`Festival "${festival.name}" has no flyer template assigned — skipping today's own-customer send`);
+      } else {
+        const template = await this.prisma.eventFlyerTemplate.findUnique({ where: { id: festival.templateId } });
+        if (!template || !template.isActive) {
+          this.logger.warn(`Festival "${festival.name}"'s assigned template is missing or inactive — skipping today's own-customer send`);
+        } else {
+          for (const person of people) {
+            const already = await this.prisma.eventSendLog.findFirst({
+              where: { personId: person.id, festivalId: festival.id, occasionYear: year, status: 'SUCCESS' },
+            });
+            if (already) continue;
+            try {
+              const result = await this.eventsService.renderAndSend({
+                person,
+                occasionType: 'FESTIVAL',
+                template,
+                festivalId: festival.id,
+                festivalDate,
+                persist: true,
+              });
+              if (!result.sent) this.logger.warn(`Festival "${festival.name}" wish to ${person.name} did not reach them: ${result.errorMessage ?? 'unknown reason'}`);
+            } catch (err) {
+              this.logger.error(`Failed sending festival "${festival.name}" wish to ${person.name}: ${err instanceof Error ? err.message : err}`);
+            }
+          }
+        }
+      }
+
+      // Client business wish cards (added 2026-08-28) — a second, independent
+      // send per festival, gated by its own clientTemplateId. Deliberately
+      // just logs a warning (not a throw) on misconfiguration, same as the
+      // own-customer branch above, so one festival's missing template never
+      // blocks the daily job from moving on to the next festival.
+      if (!festival.clientTemplateId) continue;
+      const clientTemplate = await this.prisma.eventFlyerTemplate.findUnique({ where: { id: festival.clientTemplateId } });
+      if (!clientTemplate || !clientTemplate.isActive) {
+        this.logger.warn(`Festival "${festival.name}"'s assigned client wish card template is missing or inactive — skipping today's client-business send`);
+        continue;
+      }
+      for (const clientBusiness of clientBusinesses) {
+        const already = await this.prisma.eventClientWishLog.findFirst({
+          where: { clientBusinessId: clientBusiness.id, festivalId: festival.id, occasionYear: year, status: 'SUCCESS' },
         });
         if (already) continue;
         try {
-          const result = await this.eventsService.renderAndSend({
-            person,
-            occasionType: 'FESTIVAL',
-            template,
+          const result = await this.eventsService.renderAndSendClientWish({
+            clientBusiness,
+            template: clientTemplate,
             festivalId: festival.id,
-            festivalDate,
+            festivalName: festival.name,
             persist: true,
           });
-          if (!result.sent) this.logger.warn(`Festival "${festival.name}" wish to ${person.name} did not reach them: ${result.errorMessage ?? 'unknown reason'}`);
+          if (!result.sent) this.logger.warn(`Festival "${festival.name}" client wish card to ${clientBusiness.businessName} did not reach them: ${result.errorMessage ?? 'unknown reason'}`);
         } catch (err) {
-          this.logger.error(`Failed sending festival "${festival.name}" wish to ${person.name}: ${err instanceof Error ? err.message : err}`);
+          this.logger.error(`Failed sending festival "${festival.name}" client wish card to ${clientBusiness.businessName}: ${err instanceof Error ? err.message : err}`);
         }
       }
     }

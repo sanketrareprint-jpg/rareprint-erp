@@ -9,19 +9,29 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { renderFlyer, type FlyerField, type FlyerFieldAlign, type FlyerFieldVAlign, type BrandKey } from './flyer-render';
+import { renderFlyer, type FlyerField, type FlyerFieldAlign, type FlyerFieldVAlign, type BrandKey, type ClientKey } from './flyer-render';
 import { isFlyerFontFamily, FLYER_FONT_FAMILIES } from './fonts';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const OCCASION_TYPES = ['BIRTHDAY', 'ANNIVERSARY', 'FESTIVAL'] as const;
 export type OccasionType = (typeof OCCASION_TYPES)[number];
+// A template's occasionType additionally allows CLIENT_FESTIVAL (added
+// 2026-08-28) — templates designed to feature a client business's own
+// branding rather than RarePrint's own EventPerson contacts or brand
+// identity. CLIENT_FESTIVAL is deliberately NOT in OCCASION_TYPES above:
+// that list gates person-based flows (renderAndSend/sendTestWish/
+// buildValuesForPerson), which client wish cards never go through — see
+// renderAndSendClientWish/sendTestClientWish instead.
+const TEMPLATE_OCCASION_TYPES = ['BIRTHDAY', 'ANNIVERSARY', 'FESTIVAL', 'CLIENT_FESTIVAL'] as const;
+export type TemplateOccasionType = (typeof TEMPLATE_OCCASION_TYPES)[number];
 const BRAND_KEYS: BrandKey[] = ['firmName', 'address', 'phone', 'email', 'website', 'products'];
+const CLIENT_KEYS: ClientKey[] = ['businessName', 'phone', 'address', 'tagline'];
 
 interface RawFieldInput {
   key?: unknown; label?: unknown; type?: unknown;
   x?: unknown; y?: unknown; w?: unknown; h?: unknown;
   fontFamily?: unknown; fontSizePt?: unknown; bold?: unknown; color?: unknown;
-  align?: unknown; verticalAlign?: unknown; circle?: unknown; brandKey?: unknown;
+  align?: unknown; verticalAlign?: unknown; circle?: unknown; brandKey?: unknown; clientKey?: unknown;
 }
 
 // BRAND_LOGO/BRAND_TEXT (added 2026-08-27) let a template reuse the firm's
@@ -30,6 +40,9 @@ interface RawFieldInput {
 // baking them into the background image) for every template. Same box/font
 // controls as PHOTO/TEXT; the only difference is where the value comes from
 // at render time (see renderAndSend's brandValues/brandLogoBuffer below).
+// CLIENT_LOGO/CLIENT_TEXT (added 2026-08-28) are the same idea again, but for
+// ONE OF POTENTIALLY MANY client businesses (EventClientBusiness) instead of
+// RarePrint's own singleton identity — see renderAndSendClientWish below.
 function normalizeFields(input: unknown): FlyerField[] {
   if (!Array.isArray(input) || !input.length) throw new BadRequestException('At least one field is required');
   const seenKeys = new Set<string>();
@@ -40,7 +53,13 @@ function normalizeFields(input: unknown): FlyerField[] {
     if (seenKeys.has(key)) throw new BadRequestException(`Duplicate field key "${key}"`);
     seenKeys.add(key);
 
-    const type = f.type === 'PHOTO' ? 'PHOTO' : f.type === 'BRAND_LOGO' ? 'BRAND_LOGO' : f.type === 'BRAND_TEXT' ? 'BRAND_TEXT' : 'TEXT';
+    const type =
+      f.type === 'PHOTO' ? 'PHOTO'
+      : f.type === 'BRAND_LOGO' ? 'BRAND_LOGO'
+      : f.type === 'BRAND_TEXT' ? 'BRAND_TEXT'
+      : f.type === 'CLIENT_LOGO' ? 'CLIENT_LOGO'
+      : f.type === 'CLIENT_TEXT' ? 'CLIENT_TEXT'
+      : 'TEXT';
     const clamp01 = (v: unknown, fallback: number) => {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
@@ -56,7 +75,7 @@ function normalizeFields(input: unknown): FlyerField[] {
       h: Math.max(0.01, clamp01(f.h, 0.1)),
     };
 
-    if (type === 'PHOTO' || type === 'BRAND_LOGO') {
+    if (type === 'PHOTO' || type === 'BRAND_LOGO' || type === 'CLIENT_LOGO') {
       base.circle = Boolean(f.circle);
       return base;
     }
@@ -79,6 +98,12 @@ function normalizeFields(input: unknown): FlyerField[] {
         throw new BadRequestException(`fields[${i}]: a BRAND_TEXT field needs brandKey to be one of ${BRAND_KEYS.join(', ')}`);
       }
       styled.brandKey = f.brandKey as BrandKey;
+    }
+    if (type === 'CLIENT_TEXT') {
+      if (!CLIENT_KEYS.includes(f.clientKey as ClientKey)) {
+        throw new BadRequestException(`fields[${i}]: a CLIENT_TEXT field needs clientKey to be one of ${CLIENT_KEYS.join(', ')}`);
+      }
+      styled.clientKey = f.clientKey as ClientKey;
     }
     return styled;
   });
@@ -116,8 +141,8 @@ export class EventsService {
     userId: string;
   }) {
     if (!params.name?.trim()) throw new BadRequestException('name is required');
-    if (!OCCASION_TYPES.includes(params.occasionType as OccasionType)) {
-      throw new BadRequestException(`occasionType must be one of ${OCCASION_TYPES.join(', ')}`);
+    if (!TEMPLATE_OCCASION_TYPES.includes(params.occasionType as TemplateOccasionType)) {
+      throw new BadRequestException(`occasionType must be one of ${TEMPLATE_OCCASION_TYPES.join(', ')}`);
     }
     if (!params.file) throw new BadRequestException('Template image is required (field: file)');
     if (!params.file.mimetype?.startsWith('image/')) throw new BadRequestException('Template must be an image file (JPG/PNG)');
@@ -128,7 +153,7 @@ export class EventsService {
     return this.prisma.eventFlyerTemplate.create({
       data: {
         name: params.name.trim(),
-        occasionType: params.occasionType as OccasionType,
+        occasionType: params.occasionType as TemplateOccasionType,
         imageDataUrl: fileToDataUrl(params.file),
         fields: fields as unknown as object,
         createdById: params.userId,
@@ -138,7 +163,7 @@ export class EventsService {
 
   listTemplates(occasionType?: string) {
     return this.prisma.eventFlyerTemplate.findMany({
-      where: occasionType ? { occasionType: occasionType as OccasionType } : undefined,
+      where: occasionType ? { occasionType: occasionType as TemplateOccasionType } : undefined,
       orderBy: { createdAt: 'desc' },
       select: { id: true, name: true, occasionType: true, fields: true, isActive: true, createdAt: true, updatedAt: true },
     });
@@ -170,14 +195,29 @@ export class EventsService {
     return { ok: true };
   }
 
-  /** Preview render with arbitrary sample values (template designer "preview" button) — not tied to any real person. */
-  async previewTemplate(id: string, values: Record<string, string>, samplePhotoDataUrl?: string): Promise<Buffer> {
+  /** Preview render with arbitrary sample values (template designer "preview" button) — not tied to any real person.
+   *  sampleClientBusinessId (added 2026-08-28) is only meaningful for a CLIENT_FESTIVAL template — it lets the
+   *  template designer preview CLIENT_LOGO/CLIENT_TEXT fields filled with one real EventClientBusiness's data,
+   *  since there's no "sample client" concept worth inventing. Harmless to omit for any other template. */
+  async previewTemplate(id: string, values: Record<string, string>, samplePhotoDataUrl?: string, sampleClientBusinessId?: string): Promise<Buffer> {
     const template = await this.getTemplate(id);
     const fields = template.fields as unknown as FlyerField[];
     const templateImage = dataUrlToBuffer(template.imageDataUrl);
     const photoBuffer = samplePhotoDataUrl ? dataUrlToBuffer(samplePhotoDataUrl) : null;
     const { brandValues, brandLogoBuffer } = await this.loadBrandForRender();
-    return renderFlyer({ templateImageBuffer: templateImage, fields, values: values ?? {}, photoBuffer, brandValues, brandLogoBuffer });
+    const { clientValues, clientLogoBuffer } = sampleClientBusinessId
+      ? await this.loadClientForRender(sampleClientBusinessId)
+      : { clientValues: null, clientLogoBuffer: null };
+    return renderFlyer({
+      templateImageBuffer: templateImage,
+      fields,
+      values: values ?? {},
+      photoBuffer,
+      brandValues,
+      brandLogoBuffer,
+      clientValues,
+      clientLogoBuffer,
+    });
   }
 
   // ───────────────────────── Brand profile (logo/firm name/address/phone/products) ─────────────────────────
@@ -246,6 +286,104 @@ export class EventsService {
         products: profile.products ?? '',
       },
       brandLogoBuffer: profile.logoDataUrl ? dataUrlToBuffer(profile.logoDataUrl) : null,
+    };
+  }
+
+  // ───────────────────────── Client businesses (festival wish cards for RarePrint's own B2B customers) ─────────────────────────
+  // Added 2026-08-28. See docs/Events_Module_Client_Wish_Cards_Build_Prompt.md
+  // §0 for why this is a NEW, separate feature from the Brand tab above: the
+  // Brand tab is RarePrint's OWN singleton identity (used to brand flyers
+  // RarePrint sends to ITS OWN EventPerson contacts); this section is a LIST
+  // of RarePrint's client businesses (shops/clinics/firms who are RarePrint's
+  // printing/design customers), each of whom gets their own auto-generated,
+  // self-branded festival wish image to forward to their own customers. One
+  // EventClientBusiness row per client; not related to EventPerson at all.
+
+  async createClientBusiness(params: {
+    businessName: string;
+    whatsappNumber: string;
+    phone?: string;
+    address?: string;
+    tagline?: string;
+    file?: Express.Multer.File;
+    userId: string;
+  }) {
+    if (!params.businessName?.trim()) throw new BadRequestException('businessName is required');
+    const phone = this.whatsapp.normalizePhone(params.whatsappNumber ?? '');
+    if (!phone) throw new BadRequestException('A valid WhatsApp number is required — this is where the finished wish image gets delivered');
+    if (params.file) {
+      if (!params.file.mimetype?.startsWith('image/')) throw new BadRequestException('Logo must be an image file');
+      if (params.file.size > MAX_IMAGE_BYTES) throw new BadRequestException('Logo too large (max 8MB)');
+    }
+    return this.prisma.eventClientBusiness.create({
+      data: {
+        businessName: params.businessName.trim(),
+        whatsappNumber: phone,
+        phone: params.phone?.trim() || null,
+        address: params.address?.trim() || null,
+        tagline: params.tagline?.trim() || null,
+        logoDataUrl: params.file ? fileToDataUrl(params.file) : null,
+        createdById: params.userId,
+      },
+    });
+  }
+
+  listClientBusinesses() {
+    return this.prisma.eventClientBusiness.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async getClientBusiness(id: string) {
+    const business = await this.prisma.eventClientBusiness.findUnique({ where: { id } });
+    if (!business) throw new NotFoundException('Client business not found');
+    return business;
+  }
+
+  async updateClientBusiness(id: string, params: {
+    businessName?: string; whatsappNumber?: string; phone?: string; address?: string; tagline?: string;
+    isActive?: boolean; file?: Express.Multer.File;
+  }) {
+    await this.getClientBusiness(id);
+    const data: Record<string, unknown> = {};
+    if (typeof params.businessName === 'string' && params.businessName.trim()) data.businessName = params.businessName.trim();
+    if (typeof params.whatsappNumber === 'string' && params.whatsappNumber.trim()) {
+      const phone = this.whatsapp.normalizePhone(params.whatsappNumber);
+      if (!phone) throw new BadRequestException('A valid WhatsApp number is required');
+      data.whatsappNumber = phone;
+    }
+    if (typeof params.phone === 'string') data.phone = params.phone.trim() || null;
+    if (typeof params.address === 'string') data.address = params.address.trim() || null;
+    if (typeof params.tagline === 'string') data.tagline = params.tagline.trim() || null;
+    if (typeof params.isActive === 'boolean') data.isActive = params.isActive;
+    if (params.file) {
+      if (!params.file.mimetype?.startsWith('image/')) throw new BadRequestException('Logo must be an image file');
+      if (params.file.size > MAX_IMAGE_BYTES) throw new BadRequestException('Logo too large (max 8MB)');
+      data.logoDataUrl = fileToDataUrl(params.file);
+    }
+    return this.prisma.eventClientBusiness.update({ where: { id }, data });
+  }
+
+  async deleteClientBusiness(id: string) {
+    await this.getClientBusiness(id);
+    const logCount = await this.prisma.eventClientWishLog.count({ where: { clientBusinessId: id } });
+    if (logCount > 0) {
+      throw new BadRequestException('This client business has send history — deactivate it instead of deleting, so the history stays auditable');
+    }
+    await this.prisma.eventClientBusiness.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** Mirrors loadBrandForRender — one DB read, converted into the shapes
+   *  flyer-render.ts wants for THIS ONE client business's CLIENT_LOGO/CLIENT_TEXT fields. */
+  private async loadClientForRender(clientBusinessId: string): Promise<{ clientValues: Partial<Record<ClientKey, string>>; clientLogoBuffer: Buffer | null }> {
+    const business = await this.getClientBusiness(clientBusinessId);
+    return {
+      clientValues: {
+        businessName: business.businessName ?? '',
+        phone: business.phone ?? '',
+        address: business.address ?? '',
+        tagline: business.tagline ?? '',
+      },
+      clientLogoBuffer: business.logoDataUrl ? dataUrlToBuffer(business.logoDataUrl) : null,
     };
   }
 
@@ -357,6 +495,18 @@ export class EventsService {
     return d;
   }
 
+  /** Fetches+validates a clientTemplateId: it must reference an existing
+   *  template, and (unlike templateId, which can be any of BIRTHDAY/
+   *  ANNIVERSARY/FESTIVAL) it must specifically be a CLIENT_FESTIVAL template
+   *  — mixing them up would silently render client businesses' wish cards
+   *  using a template with no CLIENT_LOGO/CLIENT_TEXT fields, so catch it here. */
+  private async validateClientTemplateId(id: string): Promise<void> {
+    const template = await this.getTemplate(id);
+    if (template.occasionType !== 'CLIENT_FESTIVAL') {
+      throw new BadRequestException('clientTemplateId must reference a template whose occasionType is CLIENT_FESTIVAL');
+    }
+  }
+
   async createFestival(params: {
     name: string;
     isRecurring?: unknown;
@@ -364,6 +514,7 @@ export class EventsService {
     day?: unknown;
     oneTimeDate?: unknown;
     templateId?: string;
+    clientTemplateId?: string;
     userId: string;
   }) {
     if (!params.name?.trim()) throw new BadRequestException('name is required');
@@ -379,6 +530,7 @@ export class EventsService {
       oneTimeDate = this.parseOneTimeDate(params.oneTimeDate);
     }
     if (params.templateId) await this.getTemplate(params.templateId);
+    if (params.clientTemplateId) await this.validateClientTemplateId(params.clientTemplateId);
     return this.prisma.festival.create({
       data: {
         name: params.name.trim(),
@@ -387,6 +539,7 @@ export class EventsService {
         day,
         oneTimeDate,
         templateId: params.templateId || null,
+        clientTemplateId: params.clientTemplateId || null,
         createdById: params.userId,
       },
     });
@@ -403,6 +556,7 @@ export class EventsService {
     day?: unknown;
     oneTimeDate?: unknown;
     templateId?: string | null;
+    clientTemplateId?: string | null;
     isActive?: boolean;
   }) {
     const existing = await this.prisma.festival.findUnique({ where: { id } });
@@ -427,6 +581,10 @@ export class EventsService {
       if (params.templateId) await this.getTemplate(params.templateId);
       data.templateId = params.templateId || null;
     }
+    if (params.clientTemplateId !== undefined) {
+      if (params.clientTemplateId) await this.validateClientTemplateId(params.clientTemplateId);
+      data.clientTemplateId = params.clientTemplateId || null;
+    }
     if (typeof params.isActive === 'boolean') data.isActive = params.isActive;
     return this.prisma.festival.update({ where: { id }, data });
   }
@@ -449,6 +607,22 @@ export class EventsService {
         id: true, personId: true, templateId: true, festivalId: true, occasionType: true, occasionYear: true,
         recipientPhone: true, sentToOwner: true, status: true, errorMessage: true, createdAt: true,
         person: { select: { name: true } },
+        festival: { select: { name: true } },
+      },
+    });
+  }
+
+  /** History for the client-wish-cards feature — a separate table (see
+   *  EventClientWishLog's schema.prisma comment), so a separate listing. */
+  listClientWishLogs(params: { clientBusinessId?: string; limit?: number }) {
+    return this.prisma.eventClientWishLog.findMany({
+      where: params.clientBusinessId ? { clientBusinessId: params.clientBusinessId } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(200, Math.max(1, params.limit ?? 100)),
+      select: {
+        id: true, clientBusinessId: true, templateId: true, festivalId: true, occasionYear: true,
+        recipientPhone: true, status: true, errorMessage: true, createdAt: true,
+        clientBusiness: { select: { businessName: true } },
         festival: { select: { name: true } },
       },
     });
@@ -591,6 +765,138 @@ export class EventsService {
     });
   }
 
+  // ───────────────────────── Rendering + sending: client wish cards ─────────────────────────
+  // Parallel to renderAndSend/logSend above, not a branch inside them — a
+  // client wish card has no person, no BIRTHDAY/ANNIVERSARY concept, and (per
+  // the build prompt) is sent to exactly one recipient — the client business
+  // itself — never "also to the owner" the way renderAndSend does.
+
+  async renderAndSendClientWish(params: {
+    clientBusiness: { id: string; businessName: string; whatsappNumber: string; logoDataUrl: string | null; phone: string | null; address: string | null; tagline: string | null };
+    template: { id: string; imageDataUrl: string; fields: unknown };
+    festivalId: string;
+    festivalName?: string;
+    persist: boolean;
+  }): Promise<{ sent: boolean; errorMessage?: string }> {
+    const fields = params.template.fields as unknown as FlyerField[];
+    const templateImage = dataUrlToBuffer(params.template.imageDataUrl);
+    const clientLogoBuffer = params.clientBusiness.logoDataUrl ? dataUrlToBuffer(params.clientBusiness.logoDataUrl) : null;
+    const clientValues: Partial<Record<ClientKey, string>> = {
+      businessName: params.clientBusiness.businessName ?? '',
+      phone: params.clientBusiness.phone ?? '',
+      address: params.clientBusiness.address ?? '',
+      tagline: params.clientBusiness.tagline ?? '',
+    };
+    const { brandValues, brandLogoBuffer } = await this.loadBrandForRender();
+
+    let flyerBuffer: Buffer;
+    try {
+      flyerBuffer = await renderFlyer({
+        templateImageBuffer: templateImage,
+        fields,
+        values: {},
+        photoBuffer: null,
+        brandValues,
+        brandLogoBuffer,
+        clientValues,
+        clientLogoBuffer,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Client wish flyer render failed for client business ${params.clientBusiness.id}: ${message}`);
+      if (params.persist) {
+        await this.logClientWishSend({ ...params, flyerImageDataUrl: null, status: 'FAILED', errorMessage: message });
+      }
+      return { sent: false, errorMessage: message };
+    }
+
+    const flyerImageDataUrl = `data:image/jpeg;base64,${flyerBuffer.toString('base64')}`;
+    let logId: string | null = null;
+    if (params.persist) {
+      // Same optimistic-SUCCESS-then-downgrade-on-failure pattern as
+      // renderAndSend/logSend above — see that method's comment.
+      const log = await this.logClientWishSend({ ...params, flyerImageDataUrl, status: 'SUCCESS', errorMessage: null });
+      logId = log.id;
+    }
+
+    const publicBaseUrl = process.env.BACKEND_PUBLIC_URL?.trim();
+    if (!publicBaseUrl) {
+      const message = 'BACKEND_PUBLIC_URL is not set — cannot build a public image link for AiSensy to fetch the wish card from';
+      this.logger.warn(message);
+      if (logId) await this.prisma.eventClientWishLog.update({ where: { id: logId }, data: { status: 'FAILED', errorMessage: message } });
+      return { sent: false, errorMessage: message };
+    }
+
+    // Same test-send-still-persists-a-minimal-row reasoning as renderAndSend
+    // (the public flyer route needs a row to serve the image from).
+    if (!logId) {
+      const log = await this.logClientWishSend({ ...params, flyerImageDataUrl, status: 'SUCCESS', errorMessage: null, testSentinel: true });
+      logId = log.id;
+    }
+    if (!logId) throw new Error('Internal error: logId was not set before building the public flyer link');
+
+    // Reuses the SAME public /events/flyer/:id route and token scheme as
+    // renderAndSend — getFlyerImageForPublicRoute checks both EventSendLog
+    // and EventClientWishLog by id, so no second route is needed.
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const token = this.signPublicToken(logId, expiresAt);
+    const imageUrl = `${publicBaseUrl.replace(/\/$/, '')}/events/flyer/${logId}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
+
+    const result = await this.whatsapp.sendClientWishReady({
+      businessName: params.clientBusiness.businessName,
+      businessPhone: params.clientBusiness.whatsappNumber,
+      imageUrl,
+      occasionLabel: params.festivalName,
+    });
+
+    await this.prisma.eventClientWishLog.update({
+      where: { id: logId },
+      data: result.sent ? {} : { status: 'FAILED', errorMessage: 'AiSensy send to the client business failed — see backend logs' },
+    });
+
+    return { sent: result.sent };
+  }
+
+  private async logClientWishSend(params: {
+    clientBusiness: { id: string; whatsappNumber: string };
+    template: { id: string };
+    festivalId: string;
+    flyerImageDataUrl: string | null;
+    status: 'SUCCESS' | 'FAILED';
+    errorMessage: string | null;
+    testSentinel?: boolean;
+  }) {
+    return this.prisma.eventClientWishLog.create({
+      data: {
+        clientBusinessId: params.clientBusiness.id,
+        templateId: params.template.id,
+        festivalId: params.festivalId,
+        // occasionYear=0 sentinel, same idempotency-exclusion trick as logSend.
+        occasionYear: params.testSentinel ? 0 : new Date().getFullYear(),
+        recipientPhone: params.clientBusiness.whatsappNumber,
+        flyerImageDataUrl: params.flyerImageDataUrl,
+        status: params.status,
+        errorMessage: params.errorMessage,
+      },
+    });
+  }
+
+  async sendTestClientWish(clientBusinessId: string, festivalId: string) {
+    const clientBusiness = await this.getClientBusiness(clientBusinessId);
+    const festival = await this.prisma.festival.findUnique({ where: { id: festivalId } });
+    if (!festival) throw new NotFoundException('Festival not found');
+    if (!festival.clientTemplateId) throw new BadRequestException('This festival has no client wish card template assigned yet');
+    const template = await this.getTemplate(festival.clientTemplateId);
+
+    return this.renderAndSendClientWish({
+      clientBusiness,
+      template,
+      festivalId: festival.id,
+      festivalName: festival.name,
+      persist: false,
+    });
+  }
+
   // ───────────────────────── Manual "send test" ─────────────────────────
 
   async sendTestWish(personId: string, occasionType: string, templateId?: string) {
@@ -632,9 +938,14 @@ export class EventsService {
     return timingSafeEqual(a, b);
   }
 
+  /** Checks EventSendLog first (own-customer wishes), then EventClientWishLog
+   *  (client-business wish cards, added 2026-08-28) — one shared public route
+   *  serves both, since cuid ids can't collide between the two tables. */
   async getFlyerImageForPublicRoute(sendLogId: string): Promise<Buffer> {
     const log = await this.prisma.eventSendLog.findUnique({ where: { id: sendLogId }, select: { flyerImageDataUrl: true } });
-    if (!log?.flyerImageDataUrl) throw new NotFoundException('Flyer not found');
-    return dataUrlToBuffer(log.flyerImageDataUrl);
+    if (log?.flyerImageDataUrl) return dataUrlToBuffer(log.flyerImageDataUrl);
+    const clientLog = await this.prisma.eventClientWishLog.findUnique({ where: { id: sendLogId }, select: { flyerImageDataUrl: true } });
+    if (clientLog?.flyerImageDataUrl) return dataUrlToBuffer(clientLog.flyerImageDataUrl);
+    throw new NotFoundException('Flyer not found');
   }
 }

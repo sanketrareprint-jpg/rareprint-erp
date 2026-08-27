@@ -824,6 +824,119 @@ async function main() {
       console.log('[ensure-all-columns] EventBrandProfile: created.');
     });
 
+    // ── Client Business Festival Wish Cards ─────────────────────────────────
+    // Added 2026-08-28: 'CLIENT_FESTIVAL' occasion type, Festival.
+    // clientTemplateId, and the EventClientBusiness/EventClientWishLog
+    // tables. Shipped as its own migration (never an edit to an already-
+    // applied one — see the two Festival blocks above for why), mirrored
+    // here as the same belt-and-suspenders fallback.
+    await safely("EventOccasionType.CLIENT_FESTIVAL + Festival.clientTemplateId + EventClientBusiness/EventClientWishLog", async () => {
+      const { rows: enumRows } = await client.query(`
+        SELECT 1 FROM pg_type t
+        JOIN pg_enum e ON e.enumtypid = t.oid
+        WHERE t.typname = 'EventOccasionType' AND e.enumlabel = 'CLIENT_FESTIVAL'
+      `);
+      if (enumRows.length > 0) {
+        console.log('[ensure-all-columns] EventOccasionType.CLIENT_FESTIVAL: already exists.');
+      } else {
+        console.log('[ensure-all-columns] EventOccasionType.CLIENT_FESTIVAL: missing, adding.');
+        await client.query(`ALTER TYPE "EventOccasionType" ADD VALUE IF NOT EXISTS 'CLIENT_FESTIVAL';`);
+        console.log('[ensure-all-columns] EventOccasionType.CLIENT_FESTIVAL: added.');
+      }
+
+      const { rows: festReg } = await client.query(`SELECT to_regclass('public."Festival"') AS reg`);
+      if (!festReg[0]?.reg) {
+        console.log('[ensure-all-columns] Festival: table does not exist yet, skipping clientTemplateId.');
+      } else {
+        const { rows } = await client.query(`
+          SELECT column_name FROM information_schema.columns WHERE table_name = 'Festival' AND column_name = 'clientTemplateId'
+        `);
+        if (rows.length > 0) {
+          console.log('[ensure-all-columns] Festival.clientTemplateId: already exists.');
+        } else {
+          console.log('[ensure-all-columns] Festival.clientTemplateId: missing, adding.');
+          await client.query(`ALTER TABLE "Festival" ADD COLUMN IF NOT EXISTS "clientTemplateId" TEXT;`);
+          await client.query(`CREATE INDEX IF NOT EXISTS "Festival_clientTemplateId_idx" ON "Festival"("clientTemplateId");`);
+          await client.query(`
+            DO $$ BEGIN
+              ALTER TABLE "Festival" ADD CONSTRAINT "Festival_clientTemplateId_fkey"
+                FOREIGN KEY ("clientTemplateId") REFERENCES "EventFlyerTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          `);
+          console.log('[ensure-all-columns] Festival.clientTemplateId: added.');
+        }
+      }
+
+      const { rows: cbReg } = await client.query(`SELECT to_regclass('public."EventClientBusiness"') AS reg`);
+      if (!cbReg[0]?.reg) {
+        console.log('[ensure-all-columns] EventClientBusiness: missing, creating.');
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS "EventClientBusiness" (
+            "id"             TEXT NOT NULL,
+            "businessName"   TEXT NOT NULL,
+            "logoDataUrl"    TEXT,
+            "phone"          TEXT,
+            "address"        TEXT,
+            "tagline"        TEXT,
+            "whatsappNumber" TEXT NOT NULL,
+            "isActive"       BOOLEAN NOT NULL DEFAULT true,
+            "createdById"    TEXT NOT NULL,
+            "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt"      TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "EventClientBusiness_pkey" PRIMARY KEY ("id")
+          );
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS "EventClientBusiness_isActive_idx" ON "EventClientBusiness"("isActive");`);
+        console.log('[ensure-all-columns] EventClientBusiness: created.');
+      } else {
+        console.log('[ensure-all-columns] EventClientBusiness: already exists.');
+      }
+
+      const { rows: wishLogReg } = await client.query(`SELECT to_regclass('public."EventClientWishLog"') AS reg`);
+      if (!wishLogReg[0]?.reg) {
+        console.log('[ensure-all-columns] EventClientWishLog: missing, creating.');
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS "EventClientWishLog" (
+            "id"                TEXT NOT NULL,
+            "clientBusinessId"  TEXT NOT NULL,
+            "templateId"        TEXT,
+            "festivalId"        TEXT NOT NULL,
+            "occasionYear"      INTEGER NOT NULL,
+            "recipientPhone"    TEXT NOT NULL,
+            "flyerImageDataUrl" TEXT,
+            "status"            "EventSendStatus" NOT NULL,
+            "errorMessage"      TEXT,
+            "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "EventClientWishLog_pkey" PRIMARY KEY ("id")
+          );
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS "EventClientWishLog_clientBusinessId_festivalId_occasionYear_idx" ON "EventClientWishLog"("clientBusinessId", "festivalId", "occasionYear");`);
+        await client.query(`CREATE INDEX IF NOT EXISTS "EventClientWishLog_festivalId_idx" ON "EventClientWishLog"("festivalId");`);
+        await client.query(`CREATE INDEX IF NOT EXISTS "EventClientWishLog_createdAt_idx" ON "EventClientWishLog"("createdAt");`);
+        await client.query(`
+          DO $$ BEGIN
+            ALTER TABLE "EventClientWishLog" ADD CONSTRAINT "EventClientWishLog_clientBusinessId_fkey"
+              FOREIGN KEY ("clientBusinessId") REFERENCES "EventClientBusiness"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        `);
+        await client.query(`
+          DO $$ BEGIN
+            ALTER TABLE "EventClientWishLog" ADD CONSTRAINT "EventClientWishLog_templateId_fkey"
+              FOREIGN KEY ("templateId") REFERENCES "EventFlyerTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        `);
+        await client.query(`
+          DO $$ BEGIN
+            ALTER TABLE "EventClientWishLog" ADD CONSTRAINT "EventClientWishLog_festivalId_fkey"
+              FOREIGN KEY ("festivalId") REFERENCES "Festival"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        `);
+        console.log('[ensure-all-columns] EventClientWishLog: created.');
+      } else {
+        console.log('[ensure-all-columns] EventClientWishLog: already exists.');
+      }
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

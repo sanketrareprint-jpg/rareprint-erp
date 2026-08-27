@@ -61,3 +61,38 @@ AiSensy whenever the template is approved.
 Use Events → People → the "Bday" / "Anniv" buttons next to anyone with a
 DOB/anniversary on file to send a real test message immediately, before
 trusting the daily 8am IST automatic job.
+
+## 3. Client Wish Cards (added 2026-08-28) — a SEPARATE AiSensy template
+
+The "Client Businesses" tab is a different feature from the People/Templates/
+Festivals flow above — see
+[`Events_Module_Client_Wish_Cards_Build_Prompt.md`](./Events_Module_Client_Wish_Cards_Build_Prompt.md)
+for the full spec. It sends a fundamentally different message ("here's your
+ready-to-share wish card" to a B2B client, not a personal "Happy Birthday" to
+an individual), so **reusing the template from step 1 above will not work
+correctly** — it needs its own template submitted for approval.
+
+In your AiSensy dashboard, create a second template:
+
+- **Header**: Image
+- **Body** (2 variables, in this order):
+  ```
+  Hi {{1}}, here's your ready-to-share {{2}} wish card — download and share it with your customers!
+  ```
+  where `{{1}}` = the client business's name, `{{2}}` = the festival name.
+  Reword the surrounding copy freely — just keep the two `{{n}}` placeholders
+  in order, since `WhatsAppService.sendClientWishReady`
+  (`backend/src/whatsapp/whatsapp.service.ts`) sends them in that order.
+- Submit for approval.
+
+Once approved, set the campaign name in Railway:
+
+- Backend service → Variables → `AISENSY_CLIENT_WISH_CAMPAIGN` = that name
+  (if you don't set this, it defaults to `client_wish_card_erp` — only
+  useful if you happen to name your template exactly that; every send will
+  fail gracefully until this is set correctly, same as step 1).
+
+Once set, use Events → Client Businesses → the "Test" button next to any
+business (with a festival selected in the dropdown above the list, and that
+festival's Client Wish Card template assigned on the Festivals tab) to send
+a real test message immediately.

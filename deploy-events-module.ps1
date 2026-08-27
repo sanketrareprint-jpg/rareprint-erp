@@ -10,6 +10,17 @@
 # generates the flyer, and sends it via AiSensy WhatsApp to both the person
 # and to your own WhatsApp (owner copy).
 #
+# ALSO ships (2026-08-28): a "Client Businesses" tab -- RarePrint's own B2B
+# customers (shops/clinics/firms), each of whom can get an auto-generated,
+# self-branded festival wish card delivered to their own WhatsApp on any
+# festival that has a "Client Wish Card" template assigned (Festivals tab,
+# second dropdown). This is a SEPARATE feature from the Brand tab (which is
+# RarePrint's own singleton identity) -- see
+# docs/Events_Module_Client_Wish_Cards_Build_Prompt.md for the full spec.
+# It needs its OWN AiSensy WhatsApp template (see step 5 below) -- reusing
+# the birthday/anniversary/festival template would send the wrong message
+# copy to a client business.
+#
 # NOTE: this file must stay plain ASCII. Windows PowerShell 5.1 (the
 # built-in powershell.exe, as opposed to PowerShell 7 / pwsh) does not
 # reliably read UTF-8 .ps1 files without a BOM -- an em-dash or curly quote
@@ -113,11 +124,23 @@ BEGIN
   IF to_regclass('public."EventBrandProfile"') IS NULL THEN
     RAISE EXCEPTION 'EventBrandProfile table still does not exist -- the 2026-08-27 migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'Festival' AND column_name = 'clientTemplateId'
+  ) THEN
+    RAISE EXCEPTION 'Festival.clientTemplateId still does not exist -- the 2026-08-28 client-wish-cards migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
+  END IF;
+  IF to_regclass('public."EventClientBusiness"') IS NULL THEN
+    RAISE EXCEPTION 'EventClientBusiness table still does not exist -- the 2026-08-28 client-wish-cards migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
+  END IF;
+  IF to_regclass('public."EventClientWishLog"') IS NULL THEN
+    RAISE EXCEPTION 'EventClientWishLog table still does not exist -- the 2026-08-28 client-wish-cards migration did not apply. Check DATABASE_URL is correct and re-run this script, or run node scripts/railway-migrate.js by hand and read its output for the real error.';
+  END IF;
 END $$;
 '@
   $assertSql | npx prisma db execute --stdin
   if ($LASTEXITCODE -ne 0) { throw "Migration verification failed -- Festival.month/isRecurring or EventBrandProfile still missing from the database. Do NOT continue to push. See the error above (likely DATABASE_URL is wrong, or the DB is unreachable from this machine)." }
-  Write-Host "Festival.month/day/isRecurring and EventBrandProfile confirmed present in the database -- migrations applied successfully." -ForegroundColor Green
+  Write-Host "Festival.month/day/isRecurring, EventBrandProfile, Festival.clientTemplateId, EventClientBusiness, and EventClientWishLog confirmed present in the database -- migrations applied successfully." -ForegroundColor Green
 } else {
   Write-Host "DATABASE_URL is not set -- SKIPPING the production migration. Festivals/History will keep 500ing (P2022) until you set DATABASE_URL to your production connection string and re-run this script, or run 'node scripts/railway-migrate.js' by hand from backend/ with it set." -ForegroundColor Yellow
 }
@@ -131,6 +154,7 @@ git add backend/prisma/schema.prisma
 git add backend/prisma/migrations/20260824090000_add_events_module
 git add backend/prisma/migrations/20260825120000_events_recurring_festivals
 git add backend/prisma/migrations/20260827130000_events_brand_and_onetime_festivals
+git add backend/prisma/migrations/20260828100000_events_client_wish_cards
 git add backend/scripts/ensure-all-columns.js
 git add backend/src/app.module.ts
 git add backend/src/events
@@ -142,8 +166,9 @@ git add frontend/app/events
 git add frontend/components/dashboard-shell.tsx
 git add docs/Events_Module_Setup.md
 git add docs/Events_Module_Context.md
+git add docs/Events_Module_Client_Wish_Cards_Build_Prompt.md
 git add deploy-events-module.ps1
-git commit -m "Events module: reusable brand fields (logo/name/address/phone/email/website/products), one-time custom-date festivals, Devanagari (Marathi/Hindi) flyer font"
+git commit -m "Events module: reusable brand fields, one-time custom-date festivals, Devanagari flyer font, and client business festival wish cards"
 git push
 
 # 5. Reminder: after Railway finishes deploying, go set
@@ -151,3 +176,13 @@ git push
 #    service > Variables, then use Events > People > "Bday"/"Anniv" test-send
 #    buttons to confirm a real WhatsApp message arrives before relying on
 #    the automatic daily job.
+#
+#    For the NEW client wish cards feature: create + get approval for a
+#    SECOND AiSensy WhatsApp template (image header + 2 body variables --
+#    see the suggested copy in WhatsAppService.sendClientWishReady's own
+#    comment), then set AISENSY_CLIENT_WISH_CAMPAIGN in Railway's backend
+#    Variables to its exact approved name. Until that's done, Events >
+#    Client Businesses > "Test" will fail gracefully (logged, shown in the
+#    History tab's Client Wish Cards section as FAILED) -- safe to set up
+#    and test the Client Businesses/Festivals CRUD UI first, wire up
+#    AiSensy after, exactly like AISENSY_EVENTS_CAMPAIGN above.

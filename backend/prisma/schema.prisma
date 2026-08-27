@@ -2930,6 +2930,12 @@ enum EventOccasionType {
   BIRTHDAY
   ANNIVERSARY
   FESTIVAL
+  // A separate category from FESTIVAL (added 2026-08-28) for templates
+  // designed to feature a CLIENT BUSINESS's own branding (via CLIENT_LOGO/
+  // CLIENT_TEXT fields), not RarePrint's own EventPerson contacts or
+  // RarePrint's own brand identity — see EventClientBusiness below and
+  // docs/Events_Module_Context.md's "client wish cards" section.
+  CLIENT_FESTIVAL
 }
 
 enum EventSendStatus {
@@ -2942,13 +2948,19 @@ model EventFlyerTemplate {
   name         String
   occasionType EventOccasionType
   imageDataUrl String            @db.Text // base64 data: URI of the uploaded flyer background image
-  fields       Json // array of {key,label,type:'TEXT'|'PHOTO',x,y,w,h,fontFamily,fontSizePt,bold,color,align,verticalAlign,circle} — x/y/w/h are fractions (0..1) of the template image's own width/height, not pixels or inches
+  fields       Json // array of {key,label,type:'TEXT'|'PHOTO'|'BRAND_LOGO'|'BRAND_TEXT'|'CLIENT_LOGO'|'CLIENT_TEXT',x,y,w,h,fontFamily,fontSizePt,bold,color,align,verticalAlign,circle,brandKey,clientKey} — x/y/w/h are fractions (0..1) of the template image's own width/height, not pixels or inches
   isActive     Boolean           @default(true)
   createdById  String
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
   sendLogs     EventSendLog[]
   festivals    Festival[]
+  // Back-relation for Festival.clientTemplateId — a CLIENT_FESTIVAL template
+  // can be the "client wish card" template for one or more festivals, kept
+  // distinct from `festivals` above (which is the own-customer templateId
+  // relation) since a Festival links to two different templates now.
+  clientFestivals Festival[]        @relation("FestivalClientTemplate")
+  clientWishLogs  EventClientWishLog[]
 
   @@index([occasionType])
   @@index([createdById])
@@ -2981,15 +2993,26 @@ model Festival {
   oneTimeDate DateTime?           @db.Date // set when isRecurring=false; an exact calendar date, matched on year+month+day so it only ever fires once
   templateId  String? // which flyer artwork to use for this specific festival (Diwali art vs. Christmas art) — nullable so a festival can be added before its template is designed; scheduler skips (and logs why) if still unset when the date arrives
   template    EventFlyerTemplate? @relation(fields: [templateId], references: [id])
+  // Second, independent template link (added 2026-08-28) for the "client
+  // wish cards" feature — a CLIENT_FESTIVAL-type template whose CLIENT_LOGO/
+  // CLIENT_TEXT fields get filled in once per active EventClientBusiness,
+  // instead of once per EventPerson like `template` above. A festival can
+  // have either, both, or neither set independently; the scheduler skips
+  // (and logs why) whichever side has no template assigned — same "skip and
+  // warn, don't throw" behavior `templateId` already has.
+  clientTemplateId String?
+  clientTemplate    EventFlyerTemplate? @relation("FestivalClientTemplate", fields: [clientTemplateId], references: [id])
   isActive    Boolean             @default(true)
   createdById String
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   sendLogs    EventSendLog[]
+  clientWishLogs EventClientWishLog[]
 
   @@index([month, day])
   @@index([oneTimeDate])
   @@index([templateId])
+  @@index([clientTemplateId])
 }
 
 // Sanket's firm identity — logo, name, address, phone, products — set once
@@ -3009,6 +3032,62 @@ model EventBrandProfile {
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Client Business Festival Wish Cards (added 2026-08-28) — see
+// docs/Events_Module_Client_Wish_Cards_Build_Prompt.md and
+// docs/Events_Module_Context.md. Explicitly NOT the same thing as
+// EventBrandProfile above: EventBrandProfile is a SINGLETON holding
+// RarePrint's own identity, reused across RarePrint's own outbound wishes to
+// EventPerson contacts. EventClientBusiness is a LIST — one row per RarePrint
+// client (a shop/clinic/firm that is RarePrint's own printing/design
+// customer) — and each row gets its own generated festival wish image,
+// delivered to THAT business's own WhatsApp number so they can share it with
+// THEIR customers however they like (WhatsApp Status, forwarding, etc.).
+// RarePrint's involvement stops at delivering the image.
+model EventClientBusiness {
+  id             String   @id @default(cuid())
+  businessName   String
+  logoDataUrl    String?  @db.Text
+  phone          String? // shown on the wish image, if the template has a CLIENT_TEXT field for it — display only, not where the image is delivered
+  address        String?  @db.Text
+  tagline        String? // optional short category/slogan line for the wish image
+  whatsappNumber String // where the finished wish image is delivered — the business's OWN number, not their customers'
+  isActive       Boolean  @default(true) // paused businesses are skipped by the daily scheduler
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  wishLogs       EventClientWishLog[]
+
+  @@index([isActive])
+}
+
+// Parallel to EventSendLog, not a reuse of it — EventSendLog.personId is
+// relied on as non-null by existing queries (History tab, idempotency check,
+// public flyer route); adding a second nullable recipient shape to that
+// table risked those, so this is its own table instead. Same idempotency
+// convention as everywhere else in this module: a SUCCESS row for
+// (clientBusinessId, festivalId, occasionYear) means "already sent," not a
+// flag on EventClientBusiness or Festival — a recurring festival must still
+// fire again next year.
+model EventClientWishLog {
+  id                String               @id @default(cuid())
+  clientBusinessId  String
+  clientBusiness    EventClientBusiness  @relation(fields: [clientBusinessId], references: [id])
+  templateId        String?
+  template          EventFlyerTemplate?  @relation(fields: [templateId], references: [id])
+  festivalId        String
+  festival          Festival             @relation(fields: [festivalId], references: [id])
+  occasionYear      Int // same 0-sentinel-for-manual-test-send convention as EventSendLog.occasionYear
+  recipientPhone    String
+  flyerImageDataUrl String?              @db.Text
+  status            EventSendStatus
+  errorMessage      String?              @db.Text
+  createdAt         DateTime             @default(now())
+
+  @@index([clientBusinessId, festivalId, occasionYear])
+  @@index([festivalId])
+  @@index([createdAt])
 }
 
 model EventSendLog {

@@ -740,4 +740,68 @@ export class WhatsAppService {
 
     return { sentToPerson, sentToOwner, personError, ownerError };
   }
+
+  // ── Events module: client business festival wish cards (added 2026-08-28) ──
+  // A SEPARATE AiSensy campaign from sendEventWish above — the message copy
+  // here is fundamentally different ("here's your ready-to-share festival
+  // wish card" to a B2B client, not a personal "Warm Wishes, {{name}}!" to an
+  // individual), so it needs its own template submitted for Meta/AiSensy
+  // approval rather than reusing "hellomomentwishes". Until that template is
+  // created and approved in AiSensy, set AISENSY_CLIENT_WISH_CAMPAIGN to its
+  // exact approved name — the 'client_wish_card_erp' fallback below is a
+  // pre-approval placeholder and will never match a real template, so calls
+  // will fail cleanly (sent:false, logged) exactly like sendEventWish does
+  // before its own template exists. Suggested approval text (two body
+  // variables): "Hi {{1}}, here's your ready-to-share {{2}} wish card —
+  // download and share it with your customers!" — {{1}} businessName,
+  // {{2}} occasion/festival label. Sent to ONE recipient only (the client
+  // business's own WhatsApp) — no "and to the owner" branch like
+  // sendEventWish, since this isn't a personal wish, it's a business handing
+  // off a ready asset.
+  async sendClientWishReady(params: {
+    businessName: string;
+    businessPhone: string;
+    imageUrl: string;
+    occasionLabel?: string;
+  }): Promise<{ sent: boolean; errorMessage?: string }> {
+    const campaignName = process.env.AISENSY_CLIENT_WISH_CAMPAIGN ?? 'client_wish_card_erp';
+    const phone = this.normalizePhone(params.businessPhone);
+    if (!phone) {
+      const message = `Invalid/missing WhatsApp number "${params.businessPhone}" for ${params.businessName}`;
+      this.logger.warn(`sendClientWishReady: ${message}`);
+      return { sent: false, errorMessage: message };
+    }
+
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName,
+      destination: phone,
+      userName: params.businessName,
+      templateParams: [params.businessName, params.occasionLabel ?? 'Festival'],
+      source: 'rareprint-erp',
+      media: { url: params.imageUrl, filename: 'wish-card.jpg' },
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+    try {
+      const res = await fetch(AISENSY_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        this.logger.log(`✅ Client wish card sent to ${phone} (${params.businessName})`);
+        return { sent: true };
+      }
+      const reason = (data && (data.message || data.error)) || `AiSensy HTTP ${res.status}: ${JSON.stringify(data)}`;
+      this.logger.error(`❌ Client wish card failed for ${phone}: ${JSON.stringify(data)}`);
+      return { sent: false, errorMessage: reason };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(`❌ Client wish card error for ${phone}: ${err}`);
+      return { sent: false, errorMessage: reason };
+    }
+  }
 }
