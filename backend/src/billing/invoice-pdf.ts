@@ -209,10 +209,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // fontSize by this factor brings both dimensions much closer without
     // needing a separate (heavier) font file.
     doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
-    // y+8.4 (was y+7) — re-measured 2026-08-21 against a real generated PDF
-    // vs the reference via pdftotext bbox: reference title text top=42.10,
-    // ours was landing at 40.70 (1.4pt too high).
-    boldText('Invoice', PAGE_MARGIN, y + 8.4, { align: 'center', width: CONTENT_WIDTH });
+    // y+5.3 (was +8.4) — re-measured 2026-08-27 against ACTUAL RENDERED
+    // PIXELS (pdftoppm at 300dpi, ink centroid/bbox comparison), not
+    // pdftotext bbox — pdftotext's reported text yMin turned out to be
+    // based on font ascent metrics, not actual glyph ink, and was masking a
+    // real ~3.1pt-too-low rendering that only showed up once the two PDFs
+    // were rasterized and diffed pixel-for-pixel. Every other Y correction
+    // in this file that was verified via pdftotext bbox should be treated
+    // with the same suspicion if a visual mismatch is reported again.
+    boldText('Invoice', PAGE_MARGIN, y + 5.3, { align: 'center', width: CONTENT_WIDTH });
     // 34.9 (was 34) — re-measured 2026-08-21 against the reference's actual
     // header-box rect() top edge (y=68.6, via pikepdf content-stream
     // extraction) rather than a text-based estimate; this offset is the
@@ -1040,7 +1045,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // asymmetric centering — corrected by shifting the box itself, not by
     // fighting the font). y+66 -> +65.68 for the same 0.32pt the rest of
     // this row's text was measured off by.
-    doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', tableX + colWidth + 2.82, y + 65.68, { width: colWidth - 12, align: 'center' });
+    // y+63.78 (was +65.68) — re-measured 2026-08-27 against actual rendered
+    // pixels (see the "Invoice" title comment above for why pdftotext bbox
+    // wasn't catching this): landed ~1.9pt too low in the real render.
+    doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', tableX + colWidth + 2.82, y + 63.78, { width: colWidth - 12, align: 'center' });
 
     y += bsRowH;
 
