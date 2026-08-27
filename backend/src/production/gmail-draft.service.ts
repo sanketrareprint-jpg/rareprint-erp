@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
+import * as nodemailer from 'nodemailer';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -118,55 +119,60 @@ export class GmailDraftService {
     return { draftId: res.data.id ?? '' };
   }
 
+  private smtpTransporter: nodemailer.Transporter | null = null;
+
+  private getSmtpTransporter(): nodemailer.Transporter {
+    if (this.smtpTransporter) return this.smtpTransporter;
+    const user = this.config.get('GMAIL_FROM') ?? 'purchase.rareprint@gmail.com';
+    const pass = this.config.get('GMAIL_APP_PASSWORD');
+    if (!pass) {
+      throw new Error(
+        'GMAIL_APP_PASSWORD is not set — generate a Gmail App Password for the sending account ' +
+        '(Google Account > Security > 2-Step Verification > App passwords) and set it as an env var.',
+      );
+    }
+    this.smtpTransporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // STARTTLS on 587
+      auth: { user, pass },
+    });
+    return this.smtpTransporter;
+  }
+
   /**
    * Actually sends an email (not just a draft) — used for the HR agreement
-   * link, which needs to reach the employee's inbox without a human having
-   * to open Gmail and hit send.
+   * link and the forgot-password reset link, both of which need to reach
+   * the recipient's inbox without a human opening Gmail and hitting send.
    *
-   * Uses the Gmail API (HTTPS), not SMTP. Both SMTP ports (465 and 587), and
-   * a direct-IPv4 connection bypassing DNS entirely, all timed out on
-   * Railway — outbound SMTP is not reachable from this service regardless
-   * of plan tier. The Gmail API talks over regular HTTPS so it isn't
-   * affected. A transactional email API (Resend etc.) was also ruled out:
-   * those require a verified custom domain to send to arbitrary recipients,
-   * and RarePrint only has @gmail.com addresses.
+   * Sends over SMTP (smtp.gmail.com:587) via nodemailer, authenticated with
+   * a Gmail App Password — not the Gmail API/OAuth. This used to go through
+   * the Gmail API because outbound SMTP appeared blocked on Railway, but
+   * that was a lower-plan restriction: Railway only enables outbound SMTP
+   * (ports 465/587) on Pro and above (confirmed 2026-08 — see
+   * docs.railway.com/networking/outbound-networking). Now that this project
+   * is on Pro, SMTP + an App Password is the more reliable choice: App
+   * Passwords don't expire/rotate the way an OAuth "Testing" app's refresh
+   * token does (that was expiring every 7 days and failing with
+   * "invalid_grant"). A transactional email API (Resend etc.) was
+   * considered too, but those require a verified custom domain to send to
+   * arbitrary recipients, and RarePrint only has @gmail.com addresses.
    *
-   * GMAIL_REFRESH_TOKEN must belong to whichever account GMAIL_FROM is set
-   * to, and must have been authorized with a scope that permits sending
-   * (gmail.send or broader). If this fails with "invalid_grant", the token
-   * has expired/was revoked — regenerate via Google's OAuth Playground
-   * (add https://developers.google.com/oauthplayground as an authorized
-   * redirect URI on the GMAIL_CLIENT_ID OAuth Client first) signed in as
-   * the correct sending account. Tokens for apps still in "Testing"
-   * publishing status expire every 7 days regardless of use.
+   * Setup: the sending Gmail account (GMAIL_FROM) needs 2-Step Verification
+   * turned on, then generate an App Password under Google Account > Security
+   * > 2-Step Verification > App passwords, and set it as GMAIL_APP_PASSWORD.
+   *
+   * createDraft() above is deliberately left on the Gmail API — nodemailer
+   * can only send mail, it can't create a draft sitting in someone's Gmail
+   * account, which is what the PO-drafting flow actually needs.
    */
   async sendMail(to: string, subject: string, body: string): Promise<{ messageId: string }> {
-    const auth = this.getOAuth2Client();
-    const gmail = google.gmail({ version: 'v1', auth });
     const from = this.config.get('GMAIL_FROM') ?? 'purchase.rareprint@gmail.com';
+    const transporter = this.getSmtpTransporter();
 
-    const rawMessage = [
-      `From: ${from}`,
-      `To: ${to}`,
-      `Subject: ${subject}`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/plain; charset=utf-8`,
-      ``,
-      body,
-    ].join('\r\n');
+    const info = await transporter.sendMail({ from, to, subject, text: body });
 
-    const encoded = Buffer.from(rawMessage)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    const res = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw: encoded },
-    });
-
-    this.logger.log(`Gmail sent: ${res.data.id} → TO: ${to} | subject: ${subject}`);
-    return { messageId: res.data.id ?? '' };
+    this.logger.log(`Gmail sent (SMTP): ${info.messageId} → TO: ${to} | subject: ${subject}`);
+    return { messageId: info.messageId ?? '' };
   }
 }
