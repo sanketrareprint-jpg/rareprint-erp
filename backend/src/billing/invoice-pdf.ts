@@ -276,8 +276,16 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     const headerTextWidth = PAGE_MARGIN + CONTENT_WIDTH - headerTextX - 10;
-    doc.font('Body-Bold').fontSize(13).fillColor(BORDER);
-    boldText(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 9, { width: headerTextWidth });
+    // fontSize 15.46 (was 13) + local hscale 0.9035 (was the shared
+    // BOLD_HSCALE, 1.08) — re-measured 2026-08-27 against actual rendered
+    // pixels. This was one of the same 3 elements ("Invoice"/"RAREPRINT.IN"/
+    // "Tax Summary:") the original BOLD_HSCALE=1.08 was derived from via
+    // pdftotext cap-height, which — same root cause as the page title fix
+    // above — reports font-ascent-based height, not real ink: actual
+    // rendered height measured 8.88pt vs the reference's real 10.56pt, an
+    // 18% shortfall matching the title's own error almost exactly.
+    doc.font('Body-Bold').fontSize(15.46).fillColor(BORDER);
+    boldText(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 5.0, { width: headerTextWidth }, 0.9035);
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
     doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 29, { width: headerTextWidth, height: 22, ellipsis: true });
 
@@ -331,8 +339,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // customer name, address, contact, state) — all showed the exact same
     // -1.19pt delta at +2, meaning the true inset is ~3.19, not ~1.9-2.6 as
     // the earlier estimate had it.
-    boldText('Bill To:', PAGE_MARGIN + 3.2, y + 5);
-    boldText('Invoice Details:', PAGE_MARGIN + colWidth + 4.4, y + 5);
+    // y+2.84 (was +5) — re-measured 2026-08-27 against actual rendered
+    // pixels: both labels landed 2.16pt too low (x and width already
+    // matched, so unlike Invoice/RAREPRINT.IN/Tax Summary: above, this one
+    // only needed a y nudge, not a fontSize/hscale change).
+    boldText('Bill To:', PAGE_MARGIN + 3.2, y + 2.84);
+    boldText('Invoice Details:', PAGE_MARGIN + colWidth + 4.4, y + 2.84);
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
     doc.font('Body-Bold').fontSize(8).fillColor(BORDER);
@@ -529,8 +541,16 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the reference: this zone is its own separate bordered group, not
     // connected to the item table via a continuous outer frame).
     const group2Top = y - 2.69;
-    doc.font('Body-Bold').fontSize(7.3).fillColor(BORDER);
-    boldText('Tax Summary:', tableX, y);
+    // fontSize 8.92 (was 7.3) + local hscale 0.9172 (was shared BOLD_HSCALE
+    // 1.08) — re-measured 2026-08-27 against real rendered pixels, same fix
+    // as "Invoice"/"RAREPRINT.IN" above (this was the 3rd of the original 3
+    // elements the flawed pdftotext-based BOLD_HSCALE was derived from):
+    // real height measured 6.48pt vs reference's 7.92pt. x nudged
+    // tableX+2.16 (was tableX) — text itself was starting 2.16pt left of
+    // the reference's actual position (the border-line fix added earlier
+    // only touched the group's border, never this label's own inset).
+    doc.font('Body-Bold').fontSize(8.92).fillColor(BORDER);
+    boldText('Tax Summary:', tableX + 3.12, y - 1.78, undefined, 0.9172);
     // Vertical separator between the tax table and the right-side summary
     // box, extended UP to also cover this label row (previously only drawn
     // starting at taxTableTop below, so it visibly stopped short of "Tax
@@ -822,16 +842,23 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // other Body-Bold usage in this file — non-bold rows (Sub Total /
       // Received / etc.) measured correctly already and are left alone.
       const size = opts?.bold ? rawSize * 0.86 : rawSize;
+      // Bold rows only: ry-2.16 — re-measured 2026-08-27 against real
+      // rendered pixels (same method as the title/Bill To fixes above).
+      // Non-bold rows (Sub Total/Received/etc, plain doc.text, no boldText
+      // wrapper) weren't showing this offset, so it's scoped to the bold
+      // branch only, applied consistently to label/value/colon so all three
+      // stay vertically aligned with each other.
+      const boldY = ry - 2.16;
       doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size).fillColor(BORDER);
       if (opts?.bold) {
-        boldText(label, rightX, ry, { width: labelW });
-        boldText(value, rightX + labelW + 9, ry, { width: rightWidth - labelW - 9, align: 'right' });
+        boldText(label, rightX, boldY, { width: labelW });
+        boldText(value, rightX + labelW + 9, boldY, { width: rightWidth - labelW - 9, align: 'right' });
       } else {
         doc.text(label, rightX, ry, { width: labelW });
         doc.text(value, rightX + labelW + 9, ry, { width: rightWidth - labelW - 9, align: 'right' });
       }
       doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size);
-      doc.text(':', rightX + labelW, ry, { width: 10 });
+      doc.text(':', rightX + labelW, opts?.bold ? boldY : ry, { width: 10 });
     }
 
     // Divider lines between Sub Total / Total / Invoice Amount In Words —
@@ -1069,7 +1096,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // nearly identical to the pre-stretch error), meaning the earlier
     // "+2.82 compensates for narrow-text-centering" theory was wrong — it's
     // a real, independent x-offset unrelated to the stretch fix.
-    doc.translate(tableX + colWidth + 2.88, y + 63.78);
+    // +3.02/y+64.02 (was +2.88/+63.78) — final sub-quarter-point trim,
+    // 2026-08-27: last real-pixel check landed 0.14pt left and 0.24pt high.
+    doc.translate(tableX + colWidth + 3.02, y + 64.02);
     doc.scale(1.0456, 1);
     doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', 0, 0, { width: (colWidth - 12) / 1.0456, align: 'center' });
     doc.restore();
