@@ -16,7 +16,7 @@ import { MobileSelect } from "@/components/MobileSelect";
 
 type ItemDetail = {
   id?: string;
-  productName: string; size: string | null; gsm: string | null;
+  productName: string; size: string | null; gsm: string | null; paper?: string | null;
   sides: string | null; quantity: number; unitPrice: number;
   lineTotal: number; itemProductionStage: string;
   // Only meaningful when itemProductionStage is READY_FOR_DISPATCH -- tells
@@ -800,6 +800,7 @@ export default function OrdersPage() {
                 <span className="text-slate-800 font-medium" style={{ minWidth: "55px" }}>{item.productName}</span>
                 <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.size ?? "—"}</span>
                 <span className="text-slate-500" style={{ minWidth: "22px" }}>{item.gsm ?? "—"}</span>
+                <span className="text-slate-500" style={{ minWidth: "40px" }}>{item.paper ?? "—"}</span>
                 <span className="text-slate-500" style={{ minWidth: "28px" }}>{item.sides ?? "—"}</span>
                 <span className="text-slate-500" style={{ minWidth: "16px" }}>{item.quantity}</span>
                 <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "50px" }}>{fmt(item.lineTotal)}</span>
@@ -1140,6 +1141,7 @@ export default function OrdersPage() {
                             <div className={cx("mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500", "mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-semibold text-slate-500")}>
                               {item.size && <span>{item.size}</span>}
                               {item.gsm && <span>{item.gsm} GSM</span>}
+                              {item.paper && <span>{item.paper}</span>}
                               {item.sides && <span>{item.sides}</span>}
                               {!!item.quantity && <span>Qty: {item.quantity}</span>}
                               {!!item.lineTotal && <span className="text-emerald-700">{fmt(item.lineTotal)}</span>}
@@ -1201,6 +1203,7 @@ export default function OrdersPage() {
                           <span style={{ minWidth: "55px" }}>Product</span>
                           <span style={{ minWidth: "28px" }}>Size</span>
                           <span style={{ minWidth: "22px" }}>GSM</span>
+                          <span style={{ minWidth: "40px" }}>Paper</span>
                           <span style={{ minWidth: "28px" }}>Sides</span>
                           <span style={{ minWidth: "16px" }}>Qty</span>
                           <span style={{ minWidth: "50px" }}>Amt</span>
@@ -1251,8 +1254,8 @@ export default function OrdersPage() {
                             {o.isTest && <span className="ml-1 rounded-full bg-amber-100 text-amber-700 border border-amber-300 px-1 py-0 text-xs font-bold">TEST</span>}
                             {o.isParcelBooking && <span className="ml-1 rounded-full bg-sky-100 text-sky-700 border border-sky-300 px-1 py-0 text-xs font-bold">PARCEL</span>}
                           </td>
-                          <td className="px-1.5 py-1.5 text-slate-700 align-top" style={{ maxWidth: "80px" }}>
-                            <div style={{ wordBreak: "break-word", lineHeight: "1.3" }}>{o.customerName}</div>
+                          <td className="px-1.5 py-1.5 text-slate-700 align-top" style={{ maxWidth: "150px", minWidth: "120px" }}>
+                            <div style={{ wordBreak: "normal", overflowWrap: "break-word", lineHeight: "1.25", fontSize: "11px" }}>{o.customerName}</div>
                           </td>
                           <td className="px-1.5 py-1.5 text-slate-500 align-top whitespace-nowrap">{o.customerPhone ?? "—"}</td>
                           <td className="px-1.5 py-1.5 align-top" style={{ maxWidth: "100px" }}>

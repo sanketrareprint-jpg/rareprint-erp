@@ -58,7 +58,7 @@ function resolveLockedItemIds(order: {
 }
 
 function buildItemDetails(
-  items: Array<{ id: string; product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string; dispatchedAt?: Date | null; cancelledAt?: Date | null }>,
+  items: Array<{ id: string; product: { name: string; sizeInches?: string | null; gsm?: number | null; sides?: string | null; paperType?: string | null }; productionNotes?: string | null; quantity: number; unitPrice: Prisma.Decimal; lineTotal: Prisma.Decimal; itemProductionStage: string; dispatchedAt?: Date | null; cancelledAt?: Date | null }>,
   dispatchContext?: { lockedIds: Set<string>; orderStatus: string },
 ) {
   return items.map((i) => {
@@ -66,6 +66,7 @@ function buildItemDetails(
     let size = (i.productionNotes?.match(/Size[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
     let gsm = (i.productionNotes?.match(/GSM[\s:]+([^,\n\s]+)/i) ?? [])[1]?.trim() ?? null;
     let sidesRaw = (i.productionNotes?.match(/Sides[\s:]+([^,\n\s]+)/i) ?? [])[1]?.trim() ?? null;
+    let paper = (i.productionNotes?.match(/Paper[\s:]+([^\n,]+)/i) ?? [])[1]?.trim() ?? null;
 
     // Fall back to product's direct fields if not found in productionNotes
     if (!size && i.product.sizeInches) {
@@ -76,6 +77,9 @@ function buildItemDetails(
     }
     if (!sidesRaw && i.product.sides) {
       sidesRaw = i.product.sides;
+    }
+    if (!paper && i.product.paperType) {
+      paper = i.product.paperType;
     }
 
     // Convert sides to label
@@ -112,6 +116,7 @@ function buildItemDetails(
       dispatchStatus,
       size,
       gsm,
+      paper,
       sides: sidesLabel,
       cancelledAt: i.cancelledAt ?? null,
     };
@@ -430,6 +435,7 @@ export class OrdersService {
                 sizeInches: true,
                 gsm: true,
                 sides: true,
+                paperType: true,
                 category: true,
               }
             },
@@ -1854,6 +1860,7 @@ export class OrdersService {
                 sizeInches: true,
                 gsm: true,
                 sides: true,
+                paperType: true,
                 category: true,
               }
             },
