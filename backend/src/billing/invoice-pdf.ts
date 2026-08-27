@@ -172,11 +172,16 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // save()/restore() pair around a continued-chain call would break
     // PDFKit's internal cursor tracking between the chained pieces.
     const BOLD_HSCALE = 1.08;
-    function boldText(str: string, x: number, y0: number, opts?: PDFKit.Mixins.TextOptions) {
+    // Optional hscale param — lets individual call sites (the page title
+    // below) override the shared BOLD_HSCALE with a value re-measured
+    // against actual rendered pixels, without changing every other
+    // boldText() call that was tuned against the (now known unreliable, see
+    // the title's own comment) pdftotext-bbox-based BOLD_HSCALE.
+    function boldText(str: string, x: number, y0: number, opts?: PDFKit.Mixins.TextOptions, hscale: number = BOLD_HSCALE) {
       doc.save();
       doc.translate(x, y0);
-      doc.scale(BOLD_HSCALE, 1);
-      const scaledOpts = opts?.width !== undefined ? { ...opts, width: opts.width / BOLD_HSCALE } : opts;
+      doc.scale(hscale, 1);
+      const scaledOpts = opts?.width !== undefined ? { ...opts, width: opts.width / hscale } : opts;
       doc.text(str, 0, 0, scaledOpts);
       doc.restore();
     }
@@ -198,26 +203,30 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     // ── 1. Page title ────────────────────────────────────────────────────
-    // fontSize correction (also applied to every other Body-Bold size below,
-    // factor ~0.8): our SegoeUI-Bold.ttf renders ~25% taller and ~15% wider
-    // per point than the reference's actual bold weight — confirmed via
-    // pdftotext -bbox-layout cap-height/width measurements on 3 independent
-    // bold elements ("Invoice" 18pt, "RAREPRINT.IN" 16pt, "Tax Summary:" 9pt
-    // all showed the same ~1.25x inflation), and visually (rendered "Invoice"
-    // /company name looked noticeably heavier+wider than the reference when
-    // the user overlaid both PDFs). Reducing every explicit Body-Bold
-    // fontSize by this factor brings both dimensions much closer without
-    // needing a separate (heavier) font file.
-    doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
-    // y+5.3 (was +8.4) — re-measured 2026-08-27 against ACTUAL RENDERED
-    // PIXELS (pdftoppm at 300dpi, ink centroid/bbox comparison), not
-    // pdftotext bbox — pdftotext's reported text yMin turned out to be
-    // based on font ascent metrics, not actual glyph ink, and was masking a
-    // real ~3.1pt-too-low rendering that only showed up once the two PDFs
-    // were rasterized and diffed pixel-for-pixel. Every other Y correction
-    // in this file that was verified via pdftotext bbox should be treated
-    // with the same suspicion if a visual mismatch is reported again.
-    boldText('Invoice', PAGE_MARGIN, y + 5.3, { align: 'center', width: CONTENT_WIDTH });
+    // fontSize 17.14 (was 14.5) + hscale 0.918 (was the shared BOLD_HSCALE,
+    // 1.08) — re-measured 2026-08-27 against ACTUAL RENDERED PIXELS
+    // (pdftoppm at 300dpi, ink bbox), not pdftotext bbox. The previous
+    // 14.5/1.08 pair was tuned against pdftotext's reported cap-height,
+    // which (like its yMin — see the y-offset comment below) turns out to
+    // be based on font ascent metrics, not real glyph ink: real rendered
+    // cap-height was measured at 10.56pt against the reference's actual
+    // 12.48pt — 18% short, not "already matched" as the old analysis
+    // concluded. Recomputed cleanly from the reference's true pixel
+    // dimensions (width=51.12pt, height=12.48pt): fontSize scales height
+    // directly (14.5 * 12.48/10.56 = 17.14), then hscale is solved against
+    // the new fontSize's natural (unstretched) width to hit the target
+    // width (51.12/((50.88/1.08)*(17.14/14.5)) = 0.918). This uses a local
+    // hscale override (see boldText's new 5th param) rather than changing
+    // the shared BOLD_HSCALE, since every other bold element that was tuned
+    // against the same flawed pdftotext method hasn't been re-verified
+    // against real pixels yet and shouldn't be touched blind.
+    doc.font('Body-Bold').fontSize(17.14).fillColor(BORDER);
+    // y+4.4 (was +5.3 at fontSize 14.5) — re-measured against real pixels
+    // at the new, larger fontSize (a bigger font pushes the glyph ink
+    // further down below the same nominal "top" y, so this needed
+    // re-tuning together with the fontSize change, not kept as-is). Width
+    // now lands exactly on the reference's 51.12pt.
+    boldText('Invoice', PAGE_MARGIN, y + 4.4, { align: 'center', width: CONTENT_WIDTH }, 0.918);
     // 34.9 (was 34) — re-measured 2026-08-21 against the reference's actual
     // header-box rect() top edge (y=68.6, via pikepdf content-stream
     // extraction) rather than a text-based estimate; this offset is the
@@ -1038,17 +1047,32 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // ignore corrupt signature image
       }
     }
-    // Box left nudged +6 -> +2.82 (re-measured 2026-08-26): the centered
-    // text's own center point landed 3.18pt right of the reference's actual
-    // center (this render's font metrics make the string ~3pt narrower than
-    // the reference's, which shifts a center-aligned box further under
-    // asymmetric centering — corrected by shifting the box itself, not by
-    // fighting the font). y+66 -> +65.68 for the same 0.32pt the rest of
-    // this row's text was measured off by.
-    // y+63.78 (was +65.68) — re-measured 2026-08-27 against actual rendered
-    // pixels (see the "Invoice" title comment above for why pdftotext bbox
-    // wasn't catching this): landed ~1.9pt too low in the real render.
-    doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', tableX + colWidth + 2.82, y + 63.78, { width: colWidth - 12, align: 'center' });
+    // y+63.78 — re-measured 2026-08-27 against actual rendered pixels (see
+    // the "Invoice" title comment above for why pdftotext bbox wasn't
+    // catching this): landed ~1.9pt too low in the real render.
+    //
+    // hscale 1.0456 — re-measured 2026-08-27 against real pixels: this
+    // string rendered 3.36pt narrower than the reference's actual width
+    // (73.68pt vs 77.04pt), same underlying font-metric mismatch as the
+    // page title above, just not previously caught here since this call
+    // never had a stretch correction applied (only Body-Bold text did).
+    // That narrower width is also *why* the box needed the "+2.82" left
+    // nudge a previous pass added — centering an already-too-narrow string
+    // in a fixed box lands its visual center off no matter where the box
+    // starts. Stretching the text back to the correct width first (this
+    // fix) means the box can go back to its original, symmetric +6 inset
+    // rather than compensating with an off-center box.
+    doc.save();
+    // +2.88 (not the box's plain +6) — even after stretching the text back
+    // to the reference's true width, re-measuring showed the box still
+    // needed roughly the same left nudge as before (+3.12 residual at +6,
+    // nearly identical to the pre-stretch error), meaning the earlier
+    // "+2.82 compensates for narrow-text-centering" theory was wrong — it's
+    // a real, independent x-offset unrelated to the stretch fix.
+    doc.translate(tableX + colWidth + 2.88, y + 63.78);
+    doc.scale(1.0456, 1);
+    doc.font('Body').fontSize(8).fillColor(BORDER).text('Authorized Signatory', 0, 0, { width: (colWidth - 12) / 1.0456, align: 'center' });
+    doc.restore();
 
     y += bsRowH;
 
