@@ -476,39 +476,68 @@ export class BillingService {
     return timingSafeEqual(a, b);
   }
 
-  // Sends the existing text-only WhatsApp invoice notification, and — only if
-  // BACKEND_PUBLIC_URL and an AiSensy document-header template are configured
-  // — attaches the actual PDF via a signed public link. Without those two
-  // things (neither exists in this deployment yet), this gracefully falls
-  // back to the same text notification the system already sends on approval,
-  // so calling this endpoint is never a regression. See
-  // docs/Billing_Module_Build_Prompt.md §7 phase 6 for what's still needed
-  // externally (a WhatsApp Business template with a document header,
-  // approved on Meta/AiSensy's side) to make the PDF attachment actually go out.
+  // Signed, short-lived (15 min) public URL AiSensy's servers can fetch the
+  // invoice PDF from — null when BACKEND_PUBLIC_URL isn't configured, so
+  // callers can gate on it instead of building a broken link.
+  getSignedInvoicePdfUrl(invoiceId: string): string | null {
+    const publicBaseUrl = process.env.BACKEND_PUBLIC_URL?.trim();
+    if (!publicBaseUrl) return null;
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+    const token = this.signPublicToken(invoiceId, expiresAt);
+    return `${publicBaseUrl.replace(/\/$/, '')}/billing/invoices/${invoiceId}/pdf/public?token=${encodeURIComponent(token)}`;
+  }
+
+  // Sends the invoice PDF as a WhatsApp document attachment (see
+  // WhatsAppService.sendInvoiceDocument). Requires BACKEND_PUBLIC_URL and
+  // AISENSY_INVOICE_PDF_CAMPAIGN (an AiSensy WhatsApp template with a
+  // Document header, approved by Meta) — neither is set in this deployment
+  // yet, so today this returns {sent:false, skipped:'...'} without throwing.
+  // Deliberately never throws: this is called fire-and-forget from order
+  // approval (see AccountsService.approveOrder) and must never be able to
+  // fail that flow. See docs/Billing_Module_Build_Prompt.md §7 phase 6.
+  async sendInvoicePdfDocument(
+    invoiceId: string,
+    customerName: string,
+    customerPhone: string,
+  ): Promise<{ sent: boolean; skipped?: string; errorMessage?: string }> {
+    try {
+      if (!customerPhone) return { sent: false, skipped: 'customer has no phone number on file' };
+      const pdfUrl = this.getSignedInvoicePdfUrl(invoiceId);
+      if (!pdfUrl) return { sent: false, skipped: 'BACKEND_PUBLIC_URL not configured' };
+
+      const invoice = await this.loadInvoiceForPdf(invoiceId);
+      const result = await this.whatsapp.sendInvoiceDocument({
+        customerName,
+        customerPhone,
+        invoiceNumber: invoice.invoiceNumber,
+        pdfUrl,
+      });
+      return result;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(`sendInvoicePdfDocument failed for invoice ${invoiceId}: ${reason}`);
+      return { sent: false, errorMessage: reason };
+    }
+  }
+
+  // Manual "Share via WhatsApp" button: sends the invoice PDF as a document
+  // attachment when configured (see sendInvoicePdfDocument above), otherwise
+  // falls back to the same text-only notification the system already sends
+  // automatically on approval — so this button always does *something*
+  // useful, even before the AiSensy document template exists.
   async shareInvoiceViaWhatsapp(invoiceId: string): Promise<{ sent: boolean; withPdf: boolean }> {
     const invoice = await this.loadInvoiceForPdf(invoiceId);
     const customer = invoice.order.customer;
     if (!customer.phone) throw new BadRequestException('Customer has no phone number on file');
 
-    const publicBaseUrl = process.env.BACKEND_PUBLIC_URL?.trim();
-    const pdfCampaign = process.env.AISENSY_INVOICE_PDF_CAMPAIGN;
-    let withPdf = false;
-
-    if (publicBaseUrl && pdfCampaign) {
-      const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
-      const token = this.signPublicToken(invoiceId, expiresAt);
-      const pdfUrl = `${publicBaseUrl.replace(/\/$/, '')}/billing/invoices/${invoiceId}/pdf/public?token=${encodeURIComponent(token)}`;
-      withPdf = true;
-      this.logger.log(`Sharing invoice ${invoice.invoiceNumber} PDF via WhatsApp: ${pdfUrl}`);
-      // Document-header campaigns aren't modelled by WhatsAppService.sendCampaign's
-      // current callers (all use image/no media) — this is the plumbing the
-      // build prompt asked for; wiring it into WhatsAppService itself is a
-      // small follow-up once the AiSensy template actually exists.
-    } else {
-      this.logger.warn(
-        `BACKEND_PUBLIC_URL or AISENSY_INVOICE_PDF_CAMPAIGN not set — sending text-only invoice notification for ${invoice.invoiceNumber} (no PDF attachment). ` +
-        `See docs/Billing_Module_Build_Prompt.md §7 phase 6.`,
-      );
+    const pdfResult = await this.sendInvoicePdfDocument(invoiceId, customer.businessName, customer.phone);
+    if (pdfResult.sent) {
+      return { sent: true, withPdf: true };
+    }
+    if (pdfResult.skipped) {
+      this.logger.warn(`Invoice ${invoice.invoiceNumber}: WhatsApp PDF skipped (${pdfResult.skipped}) — sending text-only notification instead.`);
+    } else if (pdfResult.errorMessage) {
+      this.logger.warn(`Invoice ${invoice.invoiceNumber}: WhatsApp PDF failed (${pdfResult.errorMessage}) — sending text-only notification instead.`);
     }
 
     const sent = await this.whatsapp.sendInvoiceGenerated({
@@ -522,6 +551,6 @@ export class BillingService {
       agentName: invoice.order.salesAgent?.fullName ?? 'Rareprint Team',
     });
 
-    return { sent, withPdf: withPdf && sent };
+    return { sent, withPdf: false };
   }
 }

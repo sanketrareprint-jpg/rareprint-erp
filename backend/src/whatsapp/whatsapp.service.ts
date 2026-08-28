@@ -245,6 +245,75 @@ export class WhatsAppService {
     });
   }
 
+  // ── Invoice PDF as a WhatsApp document attachment (added 2026-08-28) ──
+  // sendInvoiceGenerated() above is a plain text notification; this sends the
+  // actual invoice PDF as the message itself, via a WhatsApp Business
+  // template whose HEADER TYPE is "Document" (not the "Image" header used by
+  // sendEventWish/sendClientWishReady). That template does not exist in
+  // AiSensy/Meta yet as of this writing — until it's created and approved,
+  // set AISENSY_INVOICE_PDF_CAMPAIGN and this method fails cleanly
+  // (sent:false, errorMessage explaining why) rather than throwing, so it's
+  // always safe to call from the order-approval flow.
+  //
+  // To set this up in AiSensy: create a new WhatsApp template with a
+  // Document header (no image/video), submit for Meta approval, then set
+  // AISENSY_INVOICE_PDF_CAMPAIGN to its exact approved campaign name.
+  // Suggested body copy (two body variables): "Hi {{1}}, your invoice
+  // {{2}} is attached. Thank you for your business!" — {{1}} customerName,
+  // {{2}} invoiceNumber. templateParams below must match whatever variables
+  // the approved template actually declares, in order.
+  async sendInvoiceDocument(params: {
+    customerName: string;
+    customerPhone: string;
+    invoiceNumber: string;
+    pdfUrl: string;
+  }): Promise<{ sent: boolean; errorMessage?: string }> {
+    const campaignName = process.env.AISENSY_INVOICE_PDF_CAMPAIGN;
+    if (!campaignName) {
+      return { sent: false, errorMessage: 'AISENSY_INVOICE_PDF_CAMPAIGN not configured — WhatsApp document template not set up yet' };
+    }
+
+    const phone = this.normalizePhone(params.customerPhone);
+    if (!phone) {
+      const message = `Invalid/missing WhatsApp number "${params.customerPhone}" for ${params.customerName}`;
+      this.logger.warn(`sendInvoiceDocument: ${message}`);
+      return { sent: false, errorMessage: message };
+    }
+
+    const body = {
+      apiKey: AISENSY_API_KEY,
+      campaignName,
+      destination: phone,
+      userName: params.customerName,
+      templateParams: [params.customerName || 'Customer', params.invoiceNumber],
+      source: 'rareprint-erp',
+      media: { url: params.pdfUrl, filename: `Invoice_${params.invoiceNumber}.pdf` },
+      buttons: [],
+      carouselCards: [],
+      location: {},
+    };
+
+    try {
+      const res = await fetch(AISENSY_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        this.logger.log(`✅ Invoice PDF document sent to ${phone} for invoice ${params.invoiceNumber}`);
+        return { sent: true };
+      }
+      const reason = (data && (data.message || data.error)) || `AiSensy HTTP ${res.status}: ${JSON.stringify(data)}`;
+      this.logger.error(`❌ Invoice PDF document failed for ${phone}: ${JSON.stringify(data)}`);
+      return { sent: false, errorMessage: reason };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(`❌ Invoice PDF document error for ${phone}: ${err}`);
+      return { sent: false, errorMessage: reason };
+    }
+  }
+
   // ── Complaint/ticket updates — three distinct templates (assigned,
   // resolved, new reply) rather than one generic wrapper, so each reads
   // naturally instead of forcing unrelated events through the same copy.

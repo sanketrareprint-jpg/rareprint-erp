@@ -22,6 +22,7 @@ import { CostTableService } from '../cost-table/cost-table.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { BillingService } from '../billing/billing.service';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -89,6 +90,7 @@ export class AccountsService {
     private loyalty: LoyaltyService,
     private hr: HrService,
     private notifications: NotificationsService,
+    private billing: BillingService,
   ) {}
 
   private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
@@ -591,6 +593,18 @@ export class AccountsService {
         whatsappError: sent ? null : 'AiSensy invoice message failed or customer phone missing',
       },
     }).catch(() => undefined));
+
+    // Send the invoice PDF itself as a WhatsApp document attachment — the
+    // call above is a text-only notification, this is the actual bill PDF
+    // going out "as soon as the order is approved and invoice is generated"
+    // per the Billing module requirement. Gracefully no-ops until an AiSensy
+    // WhatsApp document-header template is created/approved and
+    // AISENSY_INVOICE_PDF_CAMPAIGN + BACKEND_PUBLIC_URL are set (see
+    // BillingService.sendInvoicePdfDocument) — fire-and-forget, never
+    // throws, so it can't regress order approval either way.
+    this.billing
+      .sendInvoicePdfDocument(result.invoice.id, order.customer.businessName, order.customer.phone ?? '')
+      .catch((err) => console.error(`Invoice PDF WhatsApp send failed for order ${orderId}:`, err));
 
     // Loyalty points earn on invoicing. Fire-and-forget with its own catch so
     // a loyalty bug never blocks order approval — the order/invoice are
