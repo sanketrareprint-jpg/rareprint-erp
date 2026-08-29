@@ -99,11 +99,26 @@ function splitAddressForShiprocket(customer: {
   return { line, city, state, pincode: pin };
 }
 
-function parseProductionNotes(notes?: string | null) {
-  if (!notes) return { size: null, gsm: null, sides: null };
-  const size  = notes.match(/Size:\s*([^,|]+)/)?.[1]?.trim() ?? null;
-  const gsm   = notes.match(/GSM:\s*([^,|]+)/)?.[1]?.trim() ?? null;
-  const sides = notes.match(/Sides:\s*([^,|]+)/)?.[1]?.trim() ?? null;
+// Falls back to the linked Product's own sizeInches/gsm/sides when an item's
+// free-text productionNotes doesn't have one (or has no notes at all) --
+// older/certain order-creation paths never wrote productionNotes, which was
+// leaving Dispatch's item cards showing only Qty/Wt for those items even
+// though the product's own catalog record has the missing details. Mirrors
+// resolveItemDetails() in production.service.ts, which already does the
+// same fallback for the Production page.
+function parseProductionNotes(
+  notes: string | null | undefined,
+  product: { sizeInches?: string | null; gsm?: number | null; sides?: string | null },
+) {
+  const text = notes ?? '';
+  let size  = text.match(/Size:\s*([^,|]+)/)?.[1]?.trim() ?? null;
+  let gsm   = text.match(/GSM:\s*([^,|]+)/)?.[1]?.trim() ?? null;
+  let sides = text.match(/Sides:\s*([^,|]+)/)?.[1]?.trim() ?? null;
+
+  if (!size && product.sizeInches) size = product.sizeInches;
+  if (!gsm && product.gsm != null) gsm = String(product.gsm);
+  if (!sides && product.sides) sides = product.sides;
+
   return { size, gsm, sides };
 }
 
@@ -570,7 +585,7 @@ export class DispatchService {
         samplePaymentType,
         latestShipment: o.shipments[0] ?? null,
         readyItems: readyItems.map((i) => {
-          const { size, gsm, sides } = parseProductionNotes(i.productionNotes);
+          const { size, gsm, sides } = parseProductionNotes(i.productionNotes, i.product);
           return {
             id: i.id, productName: i.product.name, sku: i.product.sku,
             quantity: i.quantity, productionNotes: i.productionNotes,
@@ -1057,7 +1072,7 @@ export class DispatchService {
         const fs = await this.fship.createForwardOrder({
           customerName,
           customerMobile: customerPhone,
-          customerEmail: order.customer.email ?? undefined,
+          customerEmail: order.customer.email ?? 'noreply@example.com',
           address: addr.line,
           addressType: 'Home',
           pincode: addr.pincode,

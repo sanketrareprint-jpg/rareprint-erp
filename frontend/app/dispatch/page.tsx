@@ -9,7 +9,11 @@ import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck, IndianRupee, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; };
+// size/gsm/sides come pre-resolved from the backend (parseProductionNotes in
+// dispatch.service.ts) -- it already falls back to the linked Product's own
+// sizeInches/gsm/sides when an item's free-text productionNotes doesn't have
+// one, so use these directly instead of re-parsing productionNotes here.
+type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; size?: string | null; gsm?: string | null; sides?: string | null; };
 type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 
 type ShipmentHistory = {
@@ -83,14 +87,6 @@ function pickupAddressText(warehouse?: Warehouse) {
     .filter(Boolean)
     .join(", ");
 }
-function parseNotes(notes?: string) {
-  if (!notes) return {};
-  const size = notes.match(/Size:\s*([^,]+)/)?.[1]?.trim();
-  const gsm = notes.match(/GSM:\s*([^,]+)/)?.[1]?.trim();
-  const sides = notes.match(/Sides:\s*([^,]+)/)?.[1]?.trim();
-  return { size, gsm, sides };
-}
-
 function defaultPackageBox(weightKg: number): PackageBoxForm {
   return { noOfBoxes: "1", length: "20", breadth: "15", height: "10", weight: Math.max(0.1, weightKg).toFixed(2) };
 }
@@ -1390,7 +1386,7 @@ export default function DispatchPage() {
                       </div>
                       <div className="space-y-1">
                         {o.readyItems.map((item, idx) => {
-                          const { size, gsm, sides } = parseNotes(item.productionNotes);
+                          const { size, gsm, sides } = item;
                           const isSelected = orderSelected.has(item.id);
                           return (
                             <div key={item.id} onClick={() => toggleItem(o.id, item.id)}
