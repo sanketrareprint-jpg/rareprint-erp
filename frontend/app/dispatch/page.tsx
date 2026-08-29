@@ -14,12 +14,12 @@ import { useRouter } from "next/navigation";
 // back to the linked Product's own sizeInches/gsm/paperType/sides when an
 // item's free-text productionNotes doesn't have one, so use these directly
 // instead of re-parsing productionNotes here.
-type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; size?: string | null; gsm?: string | null; paper?: string | null; sides?: string | null; };
+type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; size?: string | null; gsm?: string | null; paper?: string | null; sides?: string | null; printingType?: string | null; };
 // Item breakdown attached to History/Delivered rows -- see dispatch.service.ts's
 // getShipmentHistory() header comment: a Shipment isn't linked to specific
 // OrderItems, so this is the order's full (non-cancelled) item list, not a
 // precise "what rode in this exact shipment" breakdown.
-type HistoryItem = { id: string; productName: string; sku: string; quantity: number; size?: string | null; gsm?: string | null; paper?: string | null; sides?: string | null; };
+type HistoryItem = { id: string; productName: string; sku: string; quantity: number; size?: string | null; gsm?: string | null; paper?: string | null; sides?: string | null; printingType?: string | null; };
 type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 
 type ShipmentHistory = {
@@ -97,6 +97,7 @@ function formatHistoryItem(item: HistoryItem): string {
     item.gsm ? `${item.gsm}GSM` : null,
     item.paper || null,
     item.sides === "SINGLE_SIDE" ? "1S" : item.sides === "DOUBLE_SIDE" ? "2S" : item.sides || null,
+    item.printingType || null,
   ].filter(Boolean).join(", ");
   return `${item.productName}${specs ? ` (${specs})` : ""} x${item.quantity}`;
 }
@@ -1425,7 +1426,7 @@ export default function DispatchPage() {
                       </div>
                       <div className="space-y-1">
                         {o.readyItems.map((item, idx) => {
-                          const { size, gsm, paper, sides } = item;
+                          const { size, gsm, paper, sides, printingType } = item;
                           const isSelected = orderSelected.has(item.id);
                           return (
                             <div key={item.id} onClick={() => toggleItem(o.id, item.id)}
@@ -1440,6 +1441,7 @@ export default function DispatchPage() {
                                 {gsm && <span>GSM <strong>{gsm}</strong></span>}
                                 {paper && <span>Paper <strong>{paper}</strong></span>}
                                 {sides && <span>Sides <strong>{sides === "SINGLE_SIDE" ? "S" : sides === "DOUBLE_SIDE" ? "D" : sides}</strong></span>}
+                                {printingType && <span>Print <strong>{printingType}</strong></span>}
                                 <span>Wt <strong>{item.weightKg.toFixed(2)}kg</strong></span>
                               </span>
                             </div>

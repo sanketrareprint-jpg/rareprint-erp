@@ -487,6 +487,7 @@ export class DispatchService {
         id: string; productName: string; sku: string; quantity: number;
         productionNotes: string | null; weightKg: number;
         size: string | null; gsm: string | null; paper: string | null; sides: string | null;
+        printingType: string | null;
       }>;
     }> = [];
 
@@ -563,11 +564,11 @@ export class DispatchService {
         samplePaymentType,
         latestShipment: o.shipments[0] ?? null,
         readyItems: readyItems.map((i) => {
-          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
+          const { size, gsm, paper, sides, printingType } = resolveItemDetails(i.productionNotes, i.product);
           return {
             id: i.id, productName: i.product.name, sku: i.product.sku,
             quantity: i.quantity, productionNotes: i.productionNotes,
-            weightKg: this.weightKgFromItems([i]), size, gsm, paper, sides,
+            weightKg: this.weightKgFromItems([i]), size, gsm, paper, sides, printingType,
           };
         }),
       });
@@ -1536,10 +1537,10 @@ export class DispatchService {
       const items = s.order.items
         .filter((i) => !i.cancelledAt)
         .map((i) => {
-          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
+          const { size, gsm, paper, sides, printingType } = resolveItemDetails(i.productionNotes, i.product);
           return {
             id: i.id, productName: i.product.name, sku: i.product.sku,
-            quantity: i.quantity, size, gsm, paper, sides,
+            quantity: i.quantity, size, gsm, paper, sides, printingType,
           };
         });
 
@@ -2261,8 +2262,8 @@ export class DispatchService {
         const items = s.order.items
           .filter((i) => !i.cancelledAt)
           .map((i) => {
-            const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
-            return { id: i.id, productName: i.product.name, sku: i.product.sku, quantity: i.quantity, size, gsm, paper, sides };
+            const { size, gsm, paper, sides, printingType } = resolveItemDetails(i.productionNotes, i.product);
+            return { id: i.id, productName: i.product.name, sku: i.product.sku, quantity: i.quantity, size, gsm, paper, sides, printingType };
           });
         return {
           shipmentId: s.id,

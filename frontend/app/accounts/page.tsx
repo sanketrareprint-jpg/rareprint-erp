@@ -23,6 +23,7 @@ type OrderItem = {
   gsm?: number | string | null;
   paper?: string | null;
   sides?: string | null;
+  printingType?: string | null;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
@@ -2932,6 +2933,7 @@ export default function AccountsPage() {
                           <th className="pb-1 text-left font-medium">GSM</th>
                           <th className="pb-1 text-left font-medium">Paper</th>
                           <th className="pb-1 text-left font-medium">Sides</th>
+                          <th className="pb-1 text-left font-medium">Print</th>
                           <th className="pb-1 text-right font-medium">Qty</th>
                           <th className="pb-1 text-right font-medium">Amount</th>
                         </tr></thead>
@@ -2943,6 +2945,7 @@ export default function AccountsPage() {
                               <td className="py-1 text-slate-600">{item.gsm || "—"}</td>
                               <td className="py-1 text-slate-600">{item.paper || "—"}</td>
                               <td className="py-1 text-slate-600">{item.sides === "SINGLE_SIDE" ? "Single" : item.sides === "DOUBLE_SIDE" ? "Double" : item.sides || "—"}</td>
+                              <td className="py-1 text-slate-600">{item.printingType || "—"}</td>
                               <td className="py-1 text-right text-slate-600">{item.quantity}</td>
                               <td className="py-1 text-right text-slate-800">{fmt(item.lineTotal)}</td>
                             </tr>

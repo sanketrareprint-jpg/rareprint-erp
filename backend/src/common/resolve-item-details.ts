@@ -20,6 +20,7 @@ export interface ResolvableProduct {
   gsm?: number | null;
   paperType?: string | null;
   sides?: string | null;
+  printingType?: string | null;
 }
 
 export interface ResolvedItemDetails {
@@ -27,6 +28,10 @@ export interface ResolvedItemDetails {
   gsm: string | null;
   paper: string | null;
   sides: string | null;
+  // Printing method (OFFSET/DIGITAL/SCREEN/FLEX) -- always comes straight
+  // from the Product catalog (productionNotes never encodes this), so
+  // there's no notes-parsing branch for it like the other four fields.
+  printingType: string | null;
 }
 
 export function resolveItemDetails(
@@ -46,5 +51,7 @@ export function resolveItemDetails(
   if (!paper && product.paperType) paper = product.paperType;
   if (!sides && product.sides) sides = product.sides;
 
-  return { size, gsm, paper, sides };
+  const printingType = product.printingType ?? null;
+
+  return { size, gsm, paper, sides, printingType };
 }

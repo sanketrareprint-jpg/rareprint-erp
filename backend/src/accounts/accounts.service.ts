@@ -427,7 +427,7 @@ export class AccountsService {
           // product's own sizeInches/gsm/paperType/sides otherwise -- this
           // tab used to only ever show the product's defaults, ignoring any
           // per-order override, and never showed Paper at all.
-          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
+          const { size, gsm, paper, sides, printingType } = resolveItemDetails(i.productionNotes, i.product);
           return {
             productName:     i.product.name,
             productDescription: i.product.description,
@@ -436,6 +436,7 @@ export class AccountsService {
             gsm,
             paper,
             sides,
+            printingType,
             quantity:        i.quantity,
             unitPrice:       Number(i.unitPrice),
             lineTotal:       Number(i.lineTotal),
