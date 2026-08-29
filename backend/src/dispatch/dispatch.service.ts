@@ -18,6 +18,7 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 // quirks (RP-prefixed channel ids, stray leading zeros, .0 suffix on
 // numeric-looking AWBs pulled from Excel, etc.).
 import { sheetToObjects, normalizeAwb, deriveOrderNumberCandidates, normalizeMobile, parseFlexibleDate } from '../remittance/remittance.service';
+import { resolveItemDetails } from '../common/resolve-item-details';
 
 type LocalRateQuote = {
   rateId: string;
@@ -97,29 +98,6 @@ function splitAddressForShiprocket(customer: {
   // Use the raw address as the line (strip pincode if present)
   const line = raw.replace(/\b\d{6}\b/, '').replace(/,\s*$/, '').trim() || 'Address';
   return { line, city, state, pincode: pin };
-}
-
-// Falls back to the linked Product's own sizeInches/gsm/sides when an item's
-// free-text productionNotes doesn't have one (or has no notes at all) --
-// older/certain order-creation paths never wrote productionNotes, which was
-// leaving Dispatch's item cards showing only Qty/Wt for those items even
-// though the product's own catalog record has the missing details. Mirrors
-// resolveItemDetails() in production.service.ts, which already does the
-// same fallback for the Production page.
-function parseProductionNotes(
-  notes: string | null | undefined,
-  product: { sizeInches?: string | null; gsm?: number | null; sides?: string | null },
-) {
-  const text = notes ?? '';
-  let size  = text.match(/Size:\s*([^,|]+)/)?.[1]?.trim() ?? null;
-  let gsm   = text.match(/GSM:\s*([^,|]+)/)?.[1]?.trim() ?? null;
-  let sides = text.match(/Sides:\s*([^,|]+)/)?.[1]?.trim() ?? null;
-
-  if (!size && product.sizeInches) size = product.sizeInches;
-  if (!gsm && product.gsm != null) gsm = String(product.gsm);
-  if (!sides && product.sides) sides = product.sides;
-
-  return { size, gsm, sides };
 }
 
 function parseDispatchType(notes?: string | null): 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED' {
@@ -508,7 +486,7 @@ export class DispatchService {
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
         productionNotes: string | null; weightKg: number;
-        size: string | null; gsm: string | null; sides: string | null;
+        size: string | null; gsm: string | null; paper: string | null; sides: string | null;
       }>;
     }> = [];
 
@@ -585,11 +563,11 @@ export class DispatchService {
         samplePaymentType,
         latestShipment: o.shipments[0] ?? null,
         readyItems: readyItems.map((i) => {
-          const { size, gsm, sides } = parseProductionNotes(i.productionNotes, i.product);
+          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
           return {
             id: i.id, productName: i.product.name, sku: i.product.sku,
             quantity: i.quantity, productionNotes: i.productionNotes,
-            weightKg: this.weightKgFromItems([i]), size, gsm, sides,
+            weightKg: this.weightKgFromItems([i]), size, gsm, paper, sides,
           };
         }),
       });
@@ -1537,6 +1515,7 @@ export class DispatchService {
           include: {
             customer: { select: { businessName: true, phone: true, shippingAddress: true, billingAddress: true } },
             salesAgent: { select: { fullName: true } },
+            items: { include: { product: true } },
           },
         },
       },
@@ -1547,6 +1526,22 @@ export class DispatchService {
       const isCod = /\bCOD[:\s]/i.test(orderNotes);
       const codAmountMatch = orderNotes.match(/COD(?:\s+amount)?:\s*₹?(\d+)/i);
       const codAmount = codAmountMatch ? Number(codAmountMatch[1]) : null;
+      // Shipment isn't linked to specific OrderItems (no shipmentId on
+      // OrderItem) -- for a split/partial dispatch, an order can have more
+      // than one shipment, and there's no reliable way to say which items
+      // rode in THIS one specifically. Showing the order's full (non-
+      // cancelled) item list here is the closest available answer; it may
+      // over-show items that actually went out in a sibling shipment for
+      // the same order.
+      const items = s.order.items
+        .filter((i) => !i.cancelledAt)
+        .map((i) => {
+          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
+          return {
+            id: i.id, productName: i.product.name, sku: i.product.sku,
+            quantity: i.quantity, size, gsm, paper, sides,
+          };
+        });
 
       return {
         id: s.id,
@@ -1573,6 +1568,7 @@ export class DispatchService {
         bigshipOrderId: (s as any).bigshipOrderId ?? null,
         bigshipStatus: (s as any).bigshipStatus ?? null,
         bigshipSyncedAt: (s as any).bigshipSyncedAt ? new Date((s as any).bigshipSyncedAt).toISOString() : null,
+        items,
       };
     });
   }
@@ -2218,6 +2214,7 @@ export class DispatchService {
           include: {
             customer: { select: { businessName: true, phone: true } },
             salesAgent: { select: { fullName: true } },
+            items: { include: { product: true } },
           },
         },
       },
@@ -2257,6 +2254,16 @@ export class DispatchService {
           : null;
         const taken = (s as any).courierChargeCollected != null ? Number((s as any).courierChargeCollected) : null;
         const net = actual != null && taken != null ? taken - actual : null;
+        // Same caveat as getShipmentHistory: Shipment isn't linked to
+        // specific OrderItems, so for a split-dispatch order this shows
+        // every (non-cancelled) item on the order, not just what rode in
+        // this particular shipment.
+        const items = s.order.items
+          .filter((i) => !i.cancelledAt)
+          .map((i) => {
+            const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
+            return { id: i.id, productName: i.product.name, sku: i.product.sku, quantity: i.quantity, size, gsm, paper, sides };
+          });
         return {
           shipmentId: s.id,
           orderId: s.orderId,
@@ -2273,6 +2280,7 @@ export class DispatchService {
           taken,
           net,
           hasReportData: !!chargeRecord,
+          items,
         };
       })
       .filter((r) => !/cancel/i.test(r.parcelStatus ?? ''));

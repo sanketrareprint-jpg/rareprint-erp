@@ -18,6 +18,7 @@ import {
   PurchaseBillStatus,
 } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { resolveItemDetails } from '../common/resolve-item-details';
 import { CostTableService } from '../cost-table/cost-table.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
@@ -420,19 +421,28 @@ export class AccountsService {
         customerEmail: order.customer.email,
         shippingAddress: order.customer.shippingAddress ?? order.customer.billingAddress ?? null,
         salesAgentName: order.salesAgent?.fullName ?? null,
-        items: itemsForApproval.map((i) => ({
-          productName:     i.product.name,
-          productDescription: i.product.description,
-          sku:             i.product.sku,
-          sizeInches:      i.product.sizeInches,
-          gsm:             i.product.gsm,
-          sides:           i.product.sides,
-          quantity:        i.quantity,
-          unitPrice:       Number(i.unitPrice),
-          lineTotal:       Number(i.lineTotal),
-          productionNotes: i.productionNotes,
-          artworkNotes:    i.artworkNotes,
-        })),
+        items: itemsForApproval.map((i) => {
+          // Prefer the item's own productionNotes (an order can override the
+          // product's catalog defaults per-line) and fall back to the
+          // product's own sizeInches/gsm/paperType/sides otherwise -- this
+          // tab used to only ever show the product's defaults, ignoring any
+          // per-order override, and never showed Paper at all.
+          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
+          return {
+            productName:     i.product.name,
+            productDescription: i.product.description,
+            sku:             i.product.sku,
+            sizeInches:      size,
+            gsm,
+            paper,
+            sides,
+            quantity:        i.quantity,
+            unitPrice:       Number(i.unitPrice),
+            lineTotal:       Number(i.lineTotal),
+            productionNotes: i.productionNotes,
+            artworkNotes:    i.artworkNotes,
+          };
+        }),
         totalAmount: grandTotal,
         totalPaid,
         balanceDue,

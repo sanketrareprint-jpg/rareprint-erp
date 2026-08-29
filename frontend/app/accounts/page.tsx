@@ -20,7 +20,8 @@ type OrderItem = {
   productDescription?: string | null;
   sku: string;
   sizeInches?: string | null;
-  gsm?: number | null;
+  gsm?: number | string | null;
+  paper?: string | null;
   sides?: string | null;
   quantity: number;
   unitPrice: number;
@@ -452,6 +453,7 @@ export default function AccountsPage() {
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
   const [receiptHistory, setReceiptHistory] = useState<ReceiptHistory[]>([]);
+  const [receiptHistorySearch, setReceiptHistorySearch] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [verifyUtrId, setVerifyUtrId] = useState<string | null>(null);
@@ -1928,6 +1930,19 @@ export default function AccountsPage() {
       await loadVendors();
     } finally { setMarkingGroupPaid(null); }
   }
+  const filteredReceiptHistory = useMemo(() => {
+    const q = receiptHistorySearch.trim().toLowerCase();
+    if (!q) return receiptHistory;
+    return receiptHistory.filter(p =>
+      p.orderNo.toLowerCase().includes(q) ||
+      p.customerName.toLowerCase().includes(q) ||
+      p.customerPhone?.toLowerCase().includes(q) ||
+      p.salesAgentName?.toLowerCase().includes(q) ||
+      p.referenceNumber?.toLowerCase().includes(q) ||
+      p.paymentAccountName?.toLowerCase().includes(q) ||
+      p.verifiedByName?.toLowerCase().includes(q)
+    );
+  }, [receiptHistory, receiptHistorySearch]);
   const filteredOutstanding = useMemo(() => {
     const q = outstandingSearch.trim().toLowerCase();
     return outstanding.filter(row =>
@@ -2913,6 +2928,10 @@ export default function AccountsPage() {
                       <table className="w-full text-xs">
                         <thead><tr className="border-b border-slate-100 text-slate-500">
                           <th className="pb-1 text-left font-medium">Product</th>
+                          <th className="pb-1 text-left font-medium">Size</th>
+                          <th className="pb-1 text-left font-medium">GSM</th>
+                          <th className="pb-1 text-left font-medium">Paper</th>
+                          <th className="pb-1 text-left font-medium">Sides</th>
                           <th className="pb-1 text-right font-medium">Qty</th>
                           <th className="pb-1 text-right font-medium">Amount</th>
                         </tr></thead>
@@ -2920,6 +2939,10 @@ export default function AccountsPage() {
                           {order.items.map((item, i) => (
                             <tr key={i} className="border-b border-slate-50">
                               <td className="py-1 font-medium text-slate-800">{item.productName}</td>
+                              <td className="py-1 text-slate-600">{item.sizeInches || "—"}</td>
+                              <td className="py-1 text-slate-600">{item.gsm || "—"}</td>
+                              <td className="py-1 text-slate-600">{item.paper || "—"}</td>
+                              <td className="py-1 text-slate-600">{item.sides === "SINGLE_SIDE" ? "Single" : item.sides === "DOUBLE_SIDE" ? "Double" : item.sides || "—"}</td>
                               <td className="py-1 text-right text-slate-600">{item.quantity}</td>
                               <td className="py-1 text-right text-slate-800">{fmt(item.lineTotal)}</td>
                             </tr>
@@ -3405,9 +3428,23 @@ export default function AccountsPage() {
           {/* ── VENDOR STATEMENTS TAB ── */}
           {tab === "receipt_history" && (
                 <div className="space-y-3">
-                  {isNativeApp && receiptHistory.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                      <input value={receiptHistorySearch} onChange={e => setReceiptHistorySearch(e.target.value)}
+                        placeholder="Search order, customer, phone, agent, ref..."
+                        className="pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-md outline-none focus:border-blue-400 w-64" />
+                    </div>
+                    {receiptHistorySearch && (
+                      <button onClick={() => setReceiptHistorySearch("")}
+                        className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1">
+                        <X className="h-3 w-3" /> Clear
+                      </button>
+                    )}
+                    <span className="text-xs text-slate-400 ml-auto">{filteredReceiptHistory.length} receipts</span>
+                  </div>
+                  {isNativeApp && filteredReceiptHistory.length > 0 && (
                     <div className="flex items-center justify-end gap-1.5">
-                      <span className="text-[11px] text-slate-400">{receiptHistory.length} receipts</span>
                       <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
                         <button onClick={() => setReceiptHistoryCompact(true)}
                           className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${receiptHistoryCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
@@ -3422,11 +3459,11 @@ export default function AccountsPage() {
                   )}
                   {historyLoading ? (
                     <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
-                  ) : receiptHistory.length === 0 ? (
-                    <div className="text-center py-8 text-slate-400 text-sm">No verified receipts yet.</div>
+                  ) : filteredReceiptHistory.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-sm">{receiptHistorySearch ? "No matching receipts." : "No verified receipts yet."}</div>
                   ) : isNativeApp && receiptHistoryCompact ? (
                     <div className="space-y-2">
-                      {receiptHistory.map(p => (
+                      {filteredReceiptHistory.map(p => (
                         <div key={p.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -3454,8 +3491,8 @@ export default function AccountsPage() {
                         </div>
                       ))}
                       <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center justify-between text-xs font-semibold text-slate-600">
-                        <span>Total Verified ({receiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</span>
-                        <span className="text-green-700 font-bold">{fmt(receiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</span>
+                        <span>Total Verified ({filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</span>
+                        <span className="text-green-700 font-bold">{fmt(filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</span>
                       </div>
                     </div>
                   ) : (
@@ -3477,7 +3514,7 @@ export default function AccountsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {receiptHistory.map(p => (
+                        {filteredReceiptHistory.map(p => (
                           <tr key={p.id} className="hover:bg-slate-50">
                             <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(p.paymentDate).toLocaleDateString("en-IN")}</td>
                             <td className="px-3 py-2 font-bold text-blue-700">{p.orderNo}</td>
@@ -3502,8 +3539,8 @@ export default function AccountsPage() {
                       </tbody>
                       <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                         <tr>
-                          <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({receiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</td>
-                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(receiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</td>
+                          <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</td>
                           <td colSpan={3} />
                         </tr>
                       </tfoot>

@@ -9,11 +9,17 @@ import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck, IndianRupee, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-// size/gsm/sides come pre-resolved from the backend (parseProductionNotes in
-// dispatch.service.ts) -- it already falls back to the linked Product's own
-// sizeInches/gsm/sides when an item's free-text productionNotes doesn't have
-// one, so use these directly instead of re-parsing productionNotes here.
-type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; size?: string | null; gsm?: string | null; sides?: string | null; };
+// size/gsm/paper/sides come pre-resolved from the backend
+// (resolveItemDetails in common/resolve-item-details.ts) -- it already falls
+// back to the linked Product's own sizeInches/gsm/paperType/sides when an
+// item's free-text productionNotes doesn't have one, so use these directly
+// instead of re-parsing productionNotes here.
+type ReadyItem = { id: string; productName: string; sku: string; quantity: number; productionNotes?: string; weightKg: number; size?: string | null; gsm?: string | null; paper?: string | null; sides?: string | null; };
+// Item breakdown attached to History/Delivered rows -- see dispatch.service.ts's
+// getShipmentHistory() header comment: a Shipment isn't linked to specific
+// OrderItems, so this is the order's full (non-cancelled) item list, not a
+// precise "what rode in this exact shipment" breakdown.
+type HistoryItem = { id: string; productName: string; sku: string; quantity: number; size?: string | null; gsm?: string | null; paper?: string | null; sides?: string | null; };
 type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
 
 type ShipmentHistory = {
@@ -25,6 +31,7 @@ type ShipmentHistory = {
   customerName: string; customerPhone: string | null;
   shippingAddress: string | null; salesAgentName: string | null; notes: string | null;
   bigshipOrderId: string | null; bigshipStatus: string | null; bigshipSyncedAt: string | null;
+  items: HistoryItem[];
 };
 
 type DeliveredReportCandidate = {
@@ -50,6 +57,7 @@ type CourierChargeRow = {
   parcelStatus: string | null;
   actual: number | null; taken: number | null; net: number | null;
   hasReportData: boolean;
+  items: HistoryItem[];
 };
 type CourierChargeTotals = { actual: number; taken: number; net: number };
 type DeliveredReportPreview = {
@@ -79,6 +87,18 @@ type PackageBoxForm = { noOfBoxes: string; length: string; breadth: string; heig
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
+}
+// Compact one-line "ProductName (Size, GSM, Paper, Sides) x Qty" summary for
+// History/Delivered rows — see the HistoryItem type's comment for why this is
+// the order's full item list rather than a precise per-shipment breakdown.
+function formatHistoryItem(item: HistoryItem): string {
+  const specs = [
+    item.size ? `${item.size}"` : null,
+    item.gsm ? `${item.gsm}GSM` : null,
+    item.paper || null,
+    item.sides === "SINGLE_SIDE" ? "1S" : item.sides === "DOUBLE_SIDE" ? "2S" : item.sides || null,
+  ].filter(Boolean).join(", ");
+  return `${item.productName}${specs ? ` (${specs})` : ""} x${item.quantity}`;
 }
 function pickupAddressText(warehouse?: Warehouse) {
   if (!warehouse) return "";
@@ -958,6 +978,9 @@ export default function DispatchPage() {
                       {(h.trackingNumber || h.awbNumber) && (
                         <p className="mt-1 text-[11px] font-mono text-blue-700">{h.trackingNumber ? h.trackingNumber : `AWB: ${h.awbNumber}`}</p>
                       )}
+                      {h.items.length > 0 && (
+                        <p className="mt-1 text-[11px] text-slate-500">{h.items.map(formatHistoryItem).join(" · ")}</p>
+                      )}
                       {h.shippingAddress && <p className="mt-1 text-[11px] text-slate-400 truncate" title={h.shippingAddress}>{h.shippingAddress}</p>}
                       {h.bigshipStatus && (
                         <p className="mt-0.5 text-[10px] text-slate-500" title="Live status as reported by Bigship">{h.bigshipStatus}</p>
@@ -1010,6 +1033,7 @@ export default function DispatchPage() {
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Date</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Order</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Customer</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Items</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Ship To</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Courier / Method</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Tracking</th>
@@ -1027,6 +1051,13 @@ export default function DispatchPage() {
                           <td className="px-4 py-2.5">
                             <p className="font-medium text-slate-800">{h.customerName}</p>
                             {h.customerPhone && <p className="text-slate-400">{h.customerPhone}</p>}
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-600 max-w-[220px]">
+                            {h.items.length > 0 ? (
+                              <span title={h.items.map(formatHistoryItem).join(", ")} className="block truncate">
+                                {h.items.map(formatHistoryItem).join(", ")}
+                              </span>
+                            ) : "—"}
                           </td>
                           <td className="px-4 py-2.5 text-slate-600 max-w-[160px]">
                             {h.shippingAddress ? (
@@ -1155,6 +1186,7 @@ export default function DispatchPage() {
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-3 py-2 font-semibold text-slate-600">Order</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Customer</th>
+                        <th className="px-3 py-2 font-semibold text-slate-600">Items</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Dispatched</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">AWB / Mode</th>
                         <th className="px-3 py-2 font-semibold text-slate-600">Status</th>
@@ -1171,6 +1203,13 @@ export default function DispatchPage() {
                             {row.salesAgentName && <p className="text-slate-400">{row.salesAgentName}</p>}
                           </td>
                           <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{row.customerName}</td>
+                          <td className="px-3 py-2 text-slate-600 max-w-[220px]">
+                            {row.items.length > 0 ? (
+                              <span title={row.items.map(formatHistoryItem).join(", ")} className="block truncate">
+                                {row.items.map(formatHistoryItem).join(", ")}
+                              </span>
+                            ) : "—"}
+                          </td>
                           <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{new Date(row.dispatchDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</td>
                           <td className="px-3 py-2 whitespace-nowrap">
                             {row.dispatchType === "COURIER" ? (
@@ -1386,7 +1425,7 @@ export default function DispatchPage() {
                       </div>
                       <div className="space-y-1">
                         {o.readyItems.map((item, idx) => {
-                          const { size, gsm, sides } = item;
+                          const { size, gsm, paper, sides } = item;
                           const isSelected = orderSelected.has(item.id);
                           return (
                             <div key={item.id} onClick={() => toggleItem(o.id, item.id)}
@@ -1399,6 +1438,7 @@ export default function DispatchPage() {
                                 <span>Qty <strong>{item.quantity}</strong></span>
                                 {size && <span>Size <strong>{size}</strong></span>}
                                 {gsm && <span>GSM <strong>{gsm}</strong></span>}
+                                {paper && <span>Paper <strong>{paper}</strong></span>}
                                 {sides && <span>Sides <strong>{sides === "SINGLE_SIDE" ? "S" : sides === "DOUBLE_SIDE" ? "D" : sides}</strong></span>}
                                 <span>Wt <strong>{item.weightKg.toFixed(2)}kg</strong></span>
                               </span>
