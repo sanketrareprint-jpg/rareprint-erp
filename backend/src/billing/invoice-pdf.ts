@@ -18,7 +18,7 @@
 import PDFDocument from 'pdfkit';
 import { amountInWords } from './amount-in-words';
 import { registerInvoiceFonts } from './pdf-fonts';
-import { INVOICE_GLYPHS } from './invoice-glyphs';
+import { INVOICE_GLYPHS, INVOICE_GLYPHS_F8 } from './invoice-glyphs';
 
 export interface InvoicePdfCompanyProfile {
   companyName: string;
@@ -203,11 +203,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // own Tf font size × its content-stream cm scale, extracted via pikepdf
     // 2026-08-29 — both "Invoice" and "RAREPRINT.IN" use a uniform 0.75
     // scale on both axes: 22.4*0.75=16.8 and 19.6*0.75=14.7 respectively).
-    function drawGlyphString(chars: string, xPositions: number[], baselineY: number, scale: number) {
+    function drawGlyphString(chars: string, xPositions: number[], baselineY: number, scale: number, glyphMap: Record<string, typeof INVOICE_GLYPHS[string]> = INVOICE_GLYPHS) {
       doc.save();
       doc.fillColor(BORDER);
       for (let i = 0; i < chars.length; i++) {
-        const path = INVOICE_GLYPHS[chars[i]];
+        const path = glyphMap[chars[i]];
         if (!path) continue;
         const ox = xPositions[i];
         for (const subpath of path) {
@@ -990,6 +990,25 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the old labelW=110 (sized for the old, wrong rightX) would have left
     // too little room for the value column against the new, wider rightWidth.
     const labelW = 93;
+    // Exact reference glyph positions for this box's fixed labels (Sub
+    // Total / Total / Received / Balance / Previous Balance / Current
+    // Balance) — same technique as every other section header, extracted
+    // 2026-08-29 via pikepdf against Sale_1263_23-06-2026.pdf. "Total" is
+    // set in /F5 (same bold Type3 font as the other headers, reuses
+    // INVOICE_GLYPHS); the other five + the shared ":" are set in /F8, a
+    // different Type3 font under the same glyph names — confirmed by
+    // reading each row's actual Tf operand, not assumed from how the row
+    // looks. Colon is included at the end of `chars`/`x` (its own real
+    // measured x=499.781) rather than drawn separately, matching how
+    // "Invoice Amount In Words :" already handles its own colon above.
+    const summaryLabelGlyphs: Record<string, { chars: string; x: number[]; font: 'F5' | 'F8' }> = {
+      'Sub Total': { chars: 'Sub Total:', x: [406.277, 411.259, 415.885, 420.596, 422.513, 427.114, 431.899, 434.644, 439.208, 499.781], font: 'F8' },
+      Total: { chars: 'Total:', x: [406.277, 410.878, 415.663, 418.408, 422.972, 499.781], font: 'F5' },
+      Received: { chars: 'Received:', x: [406.277, 411.448, 415.897, 420.289, 424.738, 426.779, 430.79, 435.239, 499.781], font: 'F8' },
+      Balance: { chars: 'Balance:', x: [406.277, 411.505, 416.069, 418.109, 422.673, 427.307, 431.699, 499.781], font: 'F8' },
+      'Previous Balance': { chars: 'Previous Balance:', x: [406.277, 411.571, 414.336, 418.732, 422.796, 424.837, 429.622, 434.247, 438.578, 440.659, 445.887, 450.451, 452.491, 457.055, 461.689, 466.081, 499.781], font: 'F8' },
+      'Current Balance': { chars: 'Current Balance:', x: [406.277, 411.739, 416.364, 419.207, 421.973, 426.422, 431.056, 433.801, 435.882, 441.11, 445.674, 447.714, 452.278, 456.912, 461.304, 499.781], font: 'F8' },
+    };
     function summaryRow(label: string, value: string, opts?: { bold?: boolean; size?: number }) {
       const rawSize = opts?.size ?? 8.5;
       // Bold rows (Total / Balance) get the same height correction as every
@@ -1001,18 +1020,33 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // Non-bold rows (Sub Total/Received/etc, plain doc.text, no boldText
       // wrapper) weren't showing this offset, so it's scoped to the bold
       // branch only, applied consistently to label/value/colon so all three
-      // stay vertically aligned with each other.
+      // stay vertically aligned with each other. (Doesn't affect the
+      // glyphSpec branch below, which draws its own baseline directly.)
       const boldY = ry - 2.16;
       doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size).fillColor(BORDER);
-      if (opts?.bold) {
+      const glyphSpec = summaryLabelGlyphs[label];
+      if (glyphSpec) {
+        // ry+7.11 is the same constant already established for "Invoice
+        // Amount In Words :" a few lines below — verified against every row
+        // in this box (2026-08-29): the row pitch is fixed and both this
+        // file's `ry` cursor and the reference's own y advance by the exact
+        // same amount per row, so the offset from `ry` to the reference's
+        // real baseline stays constant across all six rows.
+        drawGlyphString(glyphSpec.chars, glyphSpec.x, ry + 7.11, 8.4, glyphSpec.font === 'F8' ? INVOICE_GLYPHS_F8 : INVOICE_GLYPHS);
+      } else if (opts?.bold) {
         boldText(label, rightX, boldY, { width: labelW });
-        boldText(value, rightX + labelW + 9, boldY, { width: rightWidth - labelW - 9, align: 'right' });
       } else {
         doc.text(label, rightX, ry, { width: labelW });
+      }
+      if (opts?.bold) {
+        boldText(value, rightX + labelW + 9, boldY, { width: rightWidth - labelW - 9, align: 'right' });
+      } else {
         doc.text(value, rightX + labelW + 9, ry, { width: rightWidth - labelW - 9, align: 'right' });
       }
-      doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size);
-      doc.text(':', rightX + labelW, opts?.bold ? boldY : ry, { width: 10 });
+      if (!glyphSpec) {
+        doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size);
+        doc.text(':', rightX + labelW, opts?.bold ? boldY : ry, { width: 10 });
+      }
     }
 
     // Divider lines between Sub Total / Total / Invoice Amount In Words —
