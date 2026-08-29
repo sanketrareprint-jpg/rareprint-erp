@@ -240,12 +240,29 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // bold value from that exact x with the same horizontal correction.
     // Every call site this replaces was a single, non-wrapping line, so
     // lineBreak:false (no continued:true) is safe here.
-    function labelBoldValue(label: string, value: string, x: number, y0: number, size: number) {
+    // labelHscale/valueHscale: optional local overrides, default to
+    // unscaled label / BOLD_HSCALE value (i.e. every pre-existing call site
+    // is unaffected). Added 2026-08-29 for the company header row (Phone/
+    // Email/GSTIN/State) specifically, where real-pixel measurement showed
+    // BOLD_HSCALE=1.08 (tuned against much larger elements — the title,
+    // company name) badly overshoots at this small size/weight: reference
+    // values measured 6-14% NARROWER than ours at hscale 1.08, not wider.
+    function labelBoldValue(label: string, value: string, x: number, y0: number, size: number, labelHscale = 1, valueHscale: number = BOLD_HSCALE) {
       doc.font('Body').fontSize(size);
-      doc.text(label, x, y0, { lineBreak: false });
-      const labelW = doc.widthOfString(label);
+      let labelW: number;
+      if (labelHscale === 1) {
+        doc.text(label, x, y0, { lineBreak: false });
+        labelW = doc.widthOfString(label);
+      } else {
+        doc.save();
+        doc.translate(x, y0);
+        doc.scale(labelHscale, 1);
+        doc.text(label, 0, 0, { lineBreak: false });
+        doc.restore();
+        labelW = doc.widthOfString(label) * labelHscale;
+      }
       doc.font('Body-Bold').fontSize(size);
-      boldText(value, x + labelW, y0, { lineBreak: false });
+      boldText(value, x + labelW, y0, { lineBreak: false }, valueHscale);
     }
 
     // ── 1. Page title ────────────────────────────────────────────────────
@@ -372,7 +389,32 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       boldText(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 5.0, { width: headerTextWidth }, 0.9035);
     }
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
-    doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 29, { width: headerTextWidth, height: 22, ellipsis: true });
+    // lineGap:-1.5556 + height:24 (was unset/22) — root cause of the
+    // reported overlap bug (2026-08-29): at the real headerTextWidth
+    // (432.8pt, only reached with a logo present — headerTextX=120; the
+    // test harness's no-logo default used a much wider 507.1pt box that
+    // masked this), this address needs 2 lines. lineGap:-1.5556 tightens
+    // the line pitch to the reference's own measured 9.75pt line spacing
+    // (pikepdf-verified, 2026-08-29) — the two lines only occupy ~19.5pt
+    // once rendered. But PDFKit's internal "does the next line still fit"
+    // check for the height/ellipsis cutoff (unlike heightOfString(), which
+    // does respect the tightened lineGap) still measures against something
+    // closer to the font's *natural* ~11.3pt line height when deciding
+    // whether to truncate — empirically, height:20/21 still dropped the
+    // whole 2nd line ("MAHARASHTRA 442401") behind an ellipsis even though
+    // the tightened text only needs 19.5pt; height:22 was the actual
+    // measured threshold where PDFKit stopped truncating. height:24 keeps
+    // a safety margin above that threshold (for slightly longer company
+    // addresses on other tenants) without pushing into rowY1 below, since
+    // the real rendered block still only occupies ~19.5-22.6pt regardless
+    // of this cap.
+    // y+27.32 (was +29) — re-measured against real rendered pixels
+    // (pdftoppm 300dpi, ink-row detection) once the 2-line wrap above was
+    // fixed: the block was landing 1.68pt too low vs the reference's own
+    // measured line bands, same verification method as every other element
+    // in this file. Inter-line spacing itself already matches (9.84pt vs
+    // reference's 9.84pt) — only the block's start position needed this.
+    doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 27.32, { width: headerTextWidth, height: 24, lineGap: -1.5556, ellipsis: true });
 
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
     // Right-half column starts at headerTextX+220.5 — measured from the
@@ -380,13 +422,47 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // a ~219pt gap), not an exact half of headerTextWidth as an earlier
     // pass assumed (that landed ~5pt too far left).
     const rightColX = headerTextX + 220.5;
-    const rowY1 = y + 53;
-    labelBoldValue('Phone: ', sanitize(data.company.companyPhone) || '-', headerTextX, rowY1, 8.5);
-    labelBoldValue('Email: ', sanitize(data.company.companyEmail) || '-', rightColX, rowY1, 8.5);
+    // rowY1/rowY2: +50.6/+63.12 (was +53/+66) — re-measured 2026-08-29
+    // against real rendered pixels the same way as the address fix above,
+    // now that the address block's 2-line wrap is fixed and these two rows
+    // sit right below it. Previously untouched because the address bug
+    // masked the real target position (it collided with these rows rather
+    // than landing where a correctly-wrapped address would).
+    const rowY1 = y + 50.6;
+    // valueHscale 0.9698 (was default BOLD_HSCALE=1.08) — re-measured
+    // 2026-08-29 against real rendered pixels: at this row's small size
+    // (8.5pt), BOLD_HSCALE (tuned for the much larger title/company name)
+    // overshoots — Phone/GSTIN/Email/State values measured 6-14% NARROWER
+    // in the reference than our rendering at hscale=1.08. 0.9698 = 1.08 ×
+    // 0.898, where 0.898 is the char-count-weighted average of the four
+    // measured ref/mine width ratios (0.893/0.940/0.899/0.855) — i.e. the
+    // actual correction needed relative to a neutral (unscaled) hscale of 1
+    // is only a mild ~3% compression, not the ~10% a naive read of those
+    // ratios would suggest (they were measured against the already-1.08
+    // -stretched render, not against unscaled text).
+    // Phone:/Email:/GSTIN:/State: labels are fixed strings (unlike the
+    // values next to them, which are per-company data) — drawn with the
+    // reference's own exact F8 glyph outlines instead of boldText's
+    // hscale approximation, same reasoning as every other fixed label in
+    // this file. Positions/baseline (128.25/141.0) and scale (8.4 =
+    // 11.2 Tf × 0.75 cm) extracted via pikepdf 2026-08-29. Values keep the
+    // hscale-based approximation (can't hardcode outlines for arbitrary
+    // per-company phone/GSTIN/email/state text) but now start at the
+    // reference's own exact measured x instead of a computed labelW.
+    drawGlyphString('Phone:', [121.758, 127.051, 131.673, 136.458, 141.091, 145.541], 128.25, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.5);
+    boldText(sanitize(data.company.companyPhone) || '-', 149.66, rowY1, { lineBreak: false }, 0.9698);
+    drawGlyphString('Email:', [340.488, 345.257, 352.615, 357.179, 359.220, 361.260], 128.25, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.5);
+    boldText(sanitize(data.company.companyEmail) || '-', 365.379, rowY1, { lineBreak: false }, 0.9698);
 
-    const rowY2 = y + 66;
-    labelBoldValue('GSTIN: ', sanitize(data.company.companyGstin) || '-', headerTextX, rowY2, 8.5);
-    labelBoldValue('State: ', sanitize(data.company.companyState) || '-', rightColX, rowY2, 8.5);
+    const rowY2 = y + 63.12;
+    drawGlyphString('GSTIN:', [121.758, 127.473, 132.455, 137.462, 139.744, 145.729], 141.0, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.5);
+    boldText(sanitize(data.company.companyGstin) || '-', 149.848, rowY2, { lineBreak: false }, 0.9698);
+    drawGlyphString('State:', [340.488, 345.470, 348.215, 352.779, 355.524, 359.974], 141.0, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.5);
+    boldText(sanitize(data.company.companyState) || '-', 364.090, rowY2, { lineBreak: false }, 0.9698);
 
     y += headerHeight;
     // 0.4pt gap — the reference's header box and Bill To/Invoice Details box
