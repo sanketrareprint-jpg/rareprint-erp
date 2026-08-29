@@ -18,6 +18,7 @@
 import PDFDocument from 'pdfkit';
 import { amountInWords } from './amount-in-words';
 import { registerInvoiceFonts } from './pdf-fonts';
+import { INVOICE_GLYPHS } from './invoice-glyphs';
 
 export interface InvoicePdfCompanyProfile {
   companyName: string;
@@ -186,6 +187,51 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.restore();
     }
 
+    // Draws a string using the reference invoice's OWN exact glyph outlines
+    // (see invoice-glyphs.ts) instead of our SegoeUI-Bold.ttf — for the two
+    // fixed strings ("Invoice" title, "RAREPRINT.IN" company name) where
+    // matching position+width alone (boldText's per-character hscale, still
+    // used elsewhere) left a ~1px anti-aliasing fringe under pixel-diff
+    // comparison, because our font's actual glyph shapes aren't
+    // byte-identical to whatever produced the reference's Type3 font.
+    // xPositions are each character's absolute baseline-origin x (PDFKit
+    // page coords, same coordinate frame the reference's own content stream
+    // uses — confirmed transferable, see Bill To:/RAREPRINT.IN position
+    // fixes above); baselineY is the shared text baseline (NOT PDFKit's
+    // usual "top of box" y — this draws raw vector paths, not doc.text());
+    // scale converts the glyphs' em-fraction units to pt (= the reference's
+    // own Tf font size × its content-stream cm scale, extracted via pikepdf
+    // 2026-08-29 — both "Invoice" and "RAREPRINT.IN" use a uniform 0.75
+    // scale on both axes: 22.4*0.75=16.8 and 19.6*0.75=14.7 respectively).
+    function drawGlyphString(chars: string, xPositions: number[], baselineY: number, scale: number) {
+      doc.save();
+      doc.fillColor(BORDER);
+      for (let i = 0; i < chars.length; i++) {
+        const path = INVOICE_GLYPHS[chars[i]];
+        if (!path) continue;
+        const ox = xPositions[i];
+        for (const subpath of path) {
+          for (const seg of subpath) {
+            if (seg[0] === 'm') {
+              doc.moveTo(ox + seg[1] * scale, baselineY - seg[2] * scale);
+            } else if (seg[0] === 'l') {
+              doc.lineTo(ox + seg[1] * scale, baselineY - seg[2] * scale);
+            } else if (seg[0] === 'c') {
+              doc.bezierCurveTo(
+                ox + seg[1] * scale, baselineY - seg[2] * scale,
+                ox + seg[3] * scale, baselineY - seg[4] * scale,
+                ox + seg[5] * scale, baselineY - seg[6] * scale,
+              );
+            } else if (seg[0] === 'h') {
+              doc.closePath();
+            }
+          }
+        }
+      }
+      doc.fill();
+      doc.restore();
+    }
+
     // For inline "Label: value" pairs where the value is bold — these were
     // built with continued:true chains, which can't use boldText() above
     // (the save/scale/restore desyncs PDFKit's internal text-flow cursor
@@ -220,13 +266,32 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the shared BOLD_HSCALE, since every other bold element that was tuned
     // against the same flawed pdftotext method hasn't been re-verified
     // against real pixels yet and shouldn't be touched blind.
-    doc.font('Body-Bold').fontSize(17.14).fillColor(BORDER);
-    // y+4.4 (was +5.3 at fontSize 14.5) — re-measured against real pixels
-    // at the new, larger fontSize (a bigger font pushes the glyph ink
-    // further down below the same nominal "top" y, so this needed
-    // re-tuning together with the fontSize change, not kept as-is). Width
-    // now lands exactly on the reference's 51.12pt.
-    boldText('Invoice', PAGE_MARGIN, y + 4.4, { align: 'center', width: CONTENT_WIDTH }, 0.918);
+    // Drawn with the reference's own exact glyph outlines (drawGlyphString,
+    // see its comment above) rather than our SegoeUI-Bold.ttf — root cause
+    // found 2026-08-29 via pikepdf: the reference draws "Invoice" as 7
+    // individually-positioned Type3 glyphs (hand-authored bezier outlines,
+    // not a normal embedded TrueType program) inside a `cm` of
+    // [0.75 0 0 -0.75 ...], i.e. a uniform 75% scale on both axes. An
+    // earlier pass tried matching our own font's glyphs to the reference's
+    // per-character positions/widths (still used for "RAREPRINT.IN" below,
+    // where it's a good enough match) but for this title a byte-for-byte
+    // outline comparison still showed a ~1px anti-aliasing fringe — our
+    // font's curves aren't quite the same shape as the reference's. Using
+    // the reference's own path data sidesteps that entirely: this is a
+    // pixel-exact reproduction, not an approximation. Baseline y = 56.25
+    // (PAGE_MARGIN + 22.55) and scale = 22.4 * 0.75 = 16.8 come directly
+    // from the reference's Tf/Tm/cm operators, not a re-derived estimate.
+    // y+22.46 (was +22.31) — sub-pixel ink-centroid comparison (not just
+    // bbox, which can't see offsets smaller than 1px) showed all 7 letters
+    // consistently sitting ~0.15pt too high vs the reference, same
+    // direction and magnitude across every letter (not noise — noise would
+    // vary sign/magnitude randomly per letter, this didn't).
+    drawGlyphString(
+      'Invoice',
+      [271.512, 276.079, 285.353, 293.364, 302.941, 307.025, 315.815],
+      y + 22.46,
+      16.8,
+    );
     // 34.9 (was 34) — re-measured 2026-08-21 against the reference's actual
     // header-box rect() top edge (y=68.6, via pikepdf content-stream
     // extraction) rather than a text-based estimate; this offset is the
@@ -285,7 +350,27 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // rendered height measured 8.88pt vs the reference's real 10.56pt, an
     // 18% shortfall matching the title's own error almost exactly.
     doc.font('Body-Bold').fontSize(15.46).fillColor(BORDER);
-    boldText(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 5.0, { width: headerTextWidth }, 0.9035);
+    // Drawn with the reference's own exact glyph outlines (drawGlyphString),
+    // same fix/reasoning as the title above — company name is always
+    // "RAREPRINT.IN" for this tenant, so hardcoding the reference's own
+    // path data is safe. Falls back to the old uniform-hscale boldText call
+    // for any other company name (SaaS conversion, or if this profile
+    // field ever changes, in which case we don't have reference glyph data
+    // for arbitrary letters anyway). Baseline y = 90.0 (boxTop + 21.4) and
+    // scale = 19.6 * 0.75 = 14.7 come directly from the reference's
+    // Tf/Tm/cm operators.
+    if (sanitize(data.company.companyName) === 'RAREPRINT.IN') {
+      // y+21.16 (was +21.4) — same -0.24pt (1px @300dpi) nudge as the title
+      // above, for the same reason.
+      drawGlyphString(
+        'RAREPRINT.IN',
+        [119.8008, 128.8562, 138.4426, 147.498, 155.8502, 165.1209, 174.1763, 178.173, 188.4482, 195.6518, 199.5266, 203.5233],
+        y + 21.16,
+        14.7,
+      );
+    } else {
+      boldText(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 5.0, { width: headerTextWidth }, 0.9035);
+    }
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
     doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 29, { width: headerTextWidth, height: 22, ellipsis: true });
 
@@ -343,7 +428,18 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // pixels: both labels landed 2.16pt too low (x and width already
     // matched, so unlike Invoice/RAREPRINT.IN/Tax Summary: above, this one
     // only needed a y nudge, not a fontSize/hscale change).
-    boldText('Bill To:', PAGE_MARGIN + 3.2, y + 2.84);
+    // Exact per-character positions for "Bill To:" (not a stretched
+    // boldText call) — same fix/reasoning as "Invoice"/"RAREPRINT.IN"
+    // above: the reference draws this as 8 separate Tj operators with their
+    // own explicit x positions. "Bill To:" is a fixed label, always exactly
+    // this text, so hardcoding is safe.
+    {
+      const billToCharX = [36.891, 42.118, 44.159, 46.199, 48.239, 50.156, 54.757, 59.542];
+      const billToLabel = 'Bill To:';
+      for (let i = 0; i < billToLabel.length; i++) {
+        doc.text(billToLabel[i], billToCharX[i], y + 2.84, { lineBreak: false });
+      }
+    }
     boldText('Invoice Details:', PAGE_MARGIN + colWidth + 4.4, y + 2.84);
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
