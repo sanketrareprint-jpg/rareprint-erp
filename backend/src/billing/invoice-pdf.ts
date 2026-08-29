@@ -428,19 +428,32 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // pixels: both labels landed 2.16pt too low (x and width already
     // matched, so unlike Invoice/RAREPRINT.IN/Tax Summary: above, this one
     // only needed a y nudge, not a fontSize/hscale change).
-    // Exact per-character positions for "Bill To:" (not a stretched
-    // boldText call) — same fix/reasoning as "Invoice"/"RAREPRINT.IN"
-    // above: the reference draws this as 8 separate Tj operators with their
-    // own explicit x positions. "Bill To:" is a fixed label, always exactly
-    // this text, so hardcoding is safe.
-    {
-      const billToCharX = [36.891, 42.118, 44.159, 46.199, 48.239, 50.156, 54.757, 59.542];
-      const billToLabel = 'Bill To:';
-      for (let i = 0; i < billToLabel.length; i++) {
-        doc.text(billToLabel[i], billToCharX[i], y + 2.84, { lineBreak: false });
-      }
-    }
-    boldText('Invoice Details:', PAGE_MARGIN + colWidth + 4.4, y + 2.84);
+    // Upgraded to the reference's own exact glyph outlines (drawGlyphString)
+    // — the per-character-position-only version above (kept working via
+    // our own font) still had the same ~1px outline-shape fringe the
+    // title/company name had before their own outline upgrade. Same fix,
+    // same HEADER_GLYPH_SCALE=8.4 as the other section headers below.
+    drawGlyphString(
+      'Bill To:',
+      [36.891, 42.118, 44.159, 46.199, 48.239, 50.156, 54.757, 59.542],
+      y + 11.25,
+      8.4,
+    );
+    // Drawn with the reference's own exact glyph outlines (drawGlyphString),
+    // same treatment as the title/company-name/Bill-To fixes above, now
+    // extended to the rest of the document's fixed bold section-header
+    // labels — 2026-08-29. Every one of these headers uses the SAME font
+    // (F5) at the SAME size (11.2) and the SAME uniform 0.75 cm-scale in
+    // the reference (verified via pikepdf across all of them, not assumed
+    // from the title/company case), so they all share one constant:
+    // HEADER_GLYPH_SCALE = 11.2 * 0.75 = 8.4. y+11.25 — reference baseline
+    // 165.75 minus this row's y (154.5 in scenario A).
+    drawGlyphString(
+      'Invoice Details:',
+      [301.641, 303.923, 308.556, 312.559, 317.344, 319.385, 323.777, 328.226, 330.307, 335.813, 340.263, 343.008, 347.572, 349.612, 351.652, 355.983],
+      y + 11.25,
+      8.4,
+    );
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
     doc.font('Body-Bold').fontSize(8).fillColor(BORDER);
@@ -517,19 +530,41 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(tableX, y, CONTENT_WIDTH, headerRowH).fillAndStroke(GREY, BORDER);
     drawItemRowDividers(y, headerRowH);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
+    // Exact reference glyph positions for each fixed column header — same
+    // outline-fidelity fix as the other section headers (drawGlyphString,
+    // HEADER_GLYPH_SCALE=8.4), 2026-08-29. Baseline y = row's own y + 11.2
+    // (reference 247.50 minus this row's y, 236.3, in scenario A).
+    const itemHeaderCharX: Record<string, number[]> = {
+      '#': [36.375],
+      'Item name': [58.559, 60.841, 63.586, 68.035, 75.393, 77.474, 82.108, 86.672, 94.030],
+      'HSN/ SAC': [198.059, 204.044, 209.026, 215.012, 218.474, 220.555, 225.537, 230.966],
+      'Quantity': [281.437, 287.210, 291.836, 296.400, 301.033, 303.778, 305.819, 308.564],
+      'Unit': [354.738, 360.179, 364.813, 366.853],
+      'Price/ Unit (₹)': [381.375, 386.668, 389.512, 391.552, 395.944, 400.393, 403.855, 405.936, 411.377, 416.011, 418.051, 420.796, 422.877, 425.749, 430.088],
+      'GST(₹)': [470.590, 476.305, 481.287, 486.294, 489.166, 493.504],
+      'Amount(₹)': [520.113, 525.587, 532.945, 537.730, 542.356, 546.989, 549.734, 552.606, 556.945],
+    };
     for (const col of cols) {
-      // Left/right text insets split by alignment (was a flat +3/-6 for
-      // both) — re-measured 2026-08-26 via pdftotext against scenario-A:
-      // left-aligned headers ("Item name"/"HSN/ SAC") sat ~1.2-1.8pt too
-      // far LEFT (need MORE left padding), right-aligned ones (Quantity/
-      // Price/GST/Amount) sat ~1.0-2.5pt too far RIGHT (need MORE right
-      // padding) — a first pass here had both directions backwards, made
-      // worse, caught by re-measuring after. The column dividers themselves
-      // are already correct (verified separately), so this only touches
-      // text padding within each cell, not the boundaries.
-      const leftPad = col.numeric ? 3 : 4.3;
-      const rightPad = col.numeric ? 4 : 3;
-      boldText(col.key, colX + leftPad, y + 4, { width: col.width - leftPad - rightPad, height: 9, ellipsis: true, align: col.numeric ? 'right' : 'left' });
+      const charX = itemHeaderCharX[col.key];
+      if (charX) {
+        drawGlyphString(col.key, charX, y + 11.2, 8.4);
+      } else {
+        // Left/right text insets split by alignment (was a flat +3/-6 for
+        // both) — re-measured 2026-08-26 via pdftotext against scenario-A:
+        // left-aligned headers ("Item name"/"HSN/ SAC") sat ~1.2-1.8pt too
+        // far LEFT (need MORE left padding), right-aligned ones (Quantity/
+        // Price/GST/Amount) sat ~1.0-2.5pt too far RIGHT (need MORE right
+        // padding) — a first pass here had both directions backwards, made
+        // worse, caught by re-measuring after. The column dividers themselves
+        // are already correct (verified separately), so this only touches
+        // text padding within each cell, not the boundaries. Kept as a
+        // fallback for any column key not in the lookup above (there
+        // shouldn't be any today, but a future column addition would fall
+        // through here rather than crash).
+        const leftPad = col.numeric ? 3 : 4.3;
+        const rightPad = col.numeric ? 4 : 3;
+        boldText(col.key, colX + leftPad, y + 4, { width: col.width - leftPad - rightPad, height: 9, ellipsis: true, align: col.numeric ? 'right' : 'left' });
+      }
       colX += col.width;
     }
     y += headerRowH;
@@ -599,7 +634,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // 'Total' starts past the '#' column (tableX+cols[0].width+3), not at the
     // very left edge — reference measured x≈58.56 vs tableX+3=38, a ~20.5pt
     // gap matching exactly one '#' column width (21pt).
-    boldText('Total', tableX + cols[0].width + 3, y + 3, { width: cols[1].width + cols[2].width - 6, height: 11, ellipsis: true });
+    // Exact reference glyph positions — same fix as the header row above.
+    // y+10.5 (reference baseline 291.00 minus this row's y, 280.5, in
+    // scenario A).
+    drawGlyphString('Total', [58.559, 63.159, 67.944, 70.689, 75.253], y + 10.5, 8.4);
     boldText(
       String(totalQty),
       tableX + cols[0].width + cols[1].width + cols[2].width + 3,
@@ -645,8 +683,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // tableX+2.16 (was tableX) — text itself was starting 2.16pt left of
     // the reference's actual position (the border-line fix added earlier
     // only touched the group's border, never this label's own inset).
-    doc.font('Body-Bold').fontSize(8.92).fillColor(BORDER);
-    boldText('Tax Summary:', tableX + 3.12, y - 1.78, undefined, 0.9172);
+    // Exact reference glyph positions — same fix as the other section
+    // headers. y+7.86 (reference baseline 306.75 minus this row's y, 298.89,
+    // in scenario A).
+    drawGlyphString(
+      'Tax Summary:',
+      [36.891, 41.434, 45.998, 50.160, 52.242, 57.223, 61.849, 69.207, 76.565, 81.129, 84.046, 88.016],
+      y + 7.86,
+      8.4,
+    );
     // Vertical separator between the tax table and the right-side summary
     // box, extended UP to also cover this label row (previously only drawn
     // starting at taxTableTop below, so it visibly stopped short of "Tax
@@ -799,46 +844,59 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     doc.rect(tableX, taxTableTop, leftWidth, taxHeaderH).fillAndStroke(GREY, BORDER);
     doc.fillColor(BORDER).font('Body-Bold').fontSize(6.3);
 
+    // Exact reference glyph positions for the tax table headers — same
+    // outline-fidelity fix as the other section headers (drawGlyphString,
+    // HEADER_GLYPH_SCALE=8.4), 2026-08-29. All y offsets below are relative
+    // to taxTableTop (reference baselines minus this table's taxTableTop,
+    // 312.77, in scenario A). Only covers the INTRA_STATE (CGST/SGST) case,
+    // which is what the reference invoice this was measured against uses —
+    // IGST (inter-state) falls through to the original boldText rendering
+    // below since there's no reference ground truth for that layout.
     let hx = tableX;
-    // HSN/SAC — merged, vertically centered. "-4.45" (was "-3") — re-measured
-    // 2026-08-26 via pdftotext against a scenario-A render: this label (and
-    // "Total Tax(₹)" below, which shares this exact formula) both landed
-    // 1.45pt lower than the reference.
-    boldText('HSN/ SAC', hx + 2, taxTableTop + taxHeaderH / 2 - 4.45, { width: hsnW - 4, align: 'center' });
+    // HSN/SAC — merged, vertically centered.
+    drawGlyphString('HSN/ SAC', [44.168, 50.154, 55.136, 61.121, 64.583, 66.665, 71.646, 77.075], taxTableTop + 17.98, 8.4);
     hx += hsnW;
     doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
 
-    // Taxable amount (₹) — merged, two lines, vertically centered. +5.65/
-    // +15.65 (was +7.4/+17.4) — re-measured 2026-08-26: landed 1.75pt lower
-    // than the reference.
-    boldText('Taxable amount', hx + 2, taxTableTop + 5.65, { width: taxableW - 4, align: 'center' });
-    boldText('(₹)', hx + 2, taxTableTop + 15.65, { width: taxableW - 4, align: 'center' });
+    // Taxable amount (₹) — merged, two lines, vertically centered.
+    drawGlyphString('Taxable amount', [98.414, 102.957, 107.521, 111.684, 116.248, 120.959, 123.000, 127.449, 129.530, 134.094, 141.452, 146.238, 150.863, 155.497], taxTableTop + 12.73, 8.4);
+    drawGlyphString('(₹)', [123.270, 126.142, 130.480], taxTableTop + 22.48, 8.4);
     hx += taxableW;
     doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
 
     // CGST/SGST or IGST spanning groups.
+    const groupCharX: Record<string, { label: number[]; rate: number[]; amt: number[] }> = {
+      CGST: { label: [192.715, 198.176, 203.891, 208.873], rate: [168.727, 173.897, 178.461, 181.206, 185.655, 187.737, 190.609, 196.754], amt: [210.293, 215.767, 223.125, 225.870, 227.951, 230.823, 235.162] },
+      SGST: { label: [272.930, 277.912, 283.627, 288.609], rate: [248.695, 253.866, 258.430, 261.175, 265.624, 267.705, 270.577, 276.723], amt: [290.262, 295.735, 303.093, 305.838, 307.920, 310.792, 315.130] },
+    };
     for (const group of spanGroups) {
-      doc.font('Body-Bold').fontSize(6.5);
-      // +2.65 (was +3) — re-measured 2026-08-26: landed 0.35pt lower than
-      // the reference.
-      boldText(group.label, hx, taxTableTop + 2.65, { width: group.width, align: 'center' });
+      const gcx = groupCharX[group.label];
+      if (gcx) {
+        drawGlyphString(group.label, gcx.label, taxTableTop + 9.73, 8.4);
+        drawGlyphString('Rate (%)', gcx.rate, taxTableTop + 25.48, 8.4);
+        drawGlyphString('Amt (₹)', gcx.amt, taxTableTop + 25.48, 8.4);
+      } else {
+        doc.font('Body-Bold').fontSize(6.5);
+        // +2.65 (was +3) — re-measured 2026-08-26: landed 0.35pt lower than
+        // the reference.
+        boldText(group.label, hx, taxTableTop + 2.65, { width: group.width, align: 'center' });
+        doc.font('Body-Bold').fontSize(5.5);
+        // Sub-headers. +3.05 (was +4) — re-measured 2026-08-26: landed
+        // 0.95pt lower than the reference.
+        boldText('Rate (%)', hx + 1, taxTableTop + taxRow1H + 3.05, { width: group.subWidths[0] - 2, align: 'center' });
+        boldText('Amt (₹)', hx + group.subWidths[0] + 1, taxTableTop + taxRow1H + 3.05, { width: group.subWidths[1] - 2, align: 'center' });
+      }
       // Horizontal divider under the group label, only within this group's width.
       doc.moveTo(hx, taxTableTop + taxRow1H).lineTo(hx + group.width, taxTableTop + taxRow1H).stroke(BORDER);
-      // Sub-headers. +3.05 (was +4) — re-measured 2026-08-26: landed 0.95pt
-      // lower than the reference.
-      doc.font('Body-Bold').fontSize(5.5);
-      boldText('Rate (%)', hx + 1, taxTableTop + taxRow1H + 3.05, { width: group.subWidths[0] - 2, align: 'center' });
-      boldText('Amt (₹)', hx + group.subWidths[0] + 1, taxTableTop + taxRow1H + 3.05, { width: group.subWidths[1] - 2, align: 'center' });
       // Vertical divider between the group's two sub-columns (row 2 only).
       doc.moveTo(hx + group.subWidths[0], taxTableTop + taxRow1H).lineTo(hx + group.subWidths[0], taxTableTop + taxHeaderH).stroke(BORDER);
       hx += group.width;
       doc.moveTo(hx, taxTableTop).lineTo(hx, taxTableTop + taxHeaderH).stroke(BORDER);
     }
 
-    // Total Tax(₹) — merged, vertically centered. Shares HSN/SAC's formula
-    // and correction above.
-    doc.font('Body-Bold').fontSize(6.3);
-    boldText('Total Tax(₹)', hx + 2, taxTableTop + taxHeaderH / 2 - 4.45, { width: totalTaxW - 4, align: 'center' });
+    // Total Tax(₹) — merged, vertically centered. Shares HSN/SAC's baseline
+    // offset above (both are the two-tier merged-cell headers).
+    drawGlyphString('Total Tax(₹)', [341.238, 345.839, 350.624, 353.369, 357.933, 359.973, 361.891, 366.434, 370.998, 375.160, 378.032, 382.371], taxTableTop + 17.98, 8.4);
 
     // Column x-offsets for data rows, matching the header widths exactly.
     const dataColWidths = [hsnW, taxableW, ...spanGroups.flatMap((g) => g.subWidths), totalTaxW];
@@ -983,8 +1041,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     summaryRow('Total', rupee(data.totalAmount), { bold: true, size: 9.5 });
     ry += 15.75;
     rightDivider(ry);
-    doc.font('Body-Bold').fontSize(7.3).fillColor(BORDER);
-    boldText('Invoice Amount In Words :', rightX, ry, { width: rightWidth });
+    // Exact reference glyph positions — same fix as the other section
+    // headers. ry+7.11 (reference baseline 337.50 minus this row's ry,
+    // 330.39, in scenario A).
+    drawGlyphString(
+      'Invoice Amount In Words :',
+      [406.277, 408.559, 413.193, 417.196, 421.981, 424.021, 428.413, 432.863, 434.944, 440.417, 447.776, 452.561, 457.186, 461.820, 464.565, 466.646, 468.928, 473.562, 475.643, 482.960, 487.746, 490.511, 495.243, 499.574, 501.655],
+      ry + 7.11,
+      8.4,
+    );
     ry += 15.75;
     rightDivider(ry);
     doc.font('Body').fontSize(7.5).text(amountInWords(data.totalAmount), rightX, ry, { width: rightWidth, height: 24 });
@@ -1084,8 +1149,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // 451.875), and this row's own top border lands at y=435.75 in the
     // reference, giving a true offset of 16.125.
     doc.moveTo(tableX, y + 16.13).lineTo(tableX + CONTENT_WIDTH, y + 16.13).stroke(BORDER);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
-    boldText('Terms And Conditions:', tableX + 3.2, y + 4);
+    // Exact reference glyph positions — same fix as the other section
+    // headers. y+10.51 (reference baseline 446.25 minus this row's y,
+    // 435.74, in scenario A).
+    drawGlyphString(
+      'Terms And Conditions:',
+      [36.891, 41.491, 45.940, 48.784, 56.142, 60.472, 62.554, 68.027, 72.661, 77.393, 79.474, 84.936, 89.721, 94.354, 99.086, 101.127, 103.872, 105.912, 110.697, 115.331, 119.662],
+      y + 10.51,
+      8.4,
+    );
     doc.font('Body').fontSize(8);
     doc.text(sanitize(data.termsAndConditions) || '-', tableX + 3.2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
     y += termsRowH;
@@ -1116,12 +1188,33 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // label-row treatment, confirmed independently via the actual reference
     // geometry rather than another blind nudge.
     doc.moveTo(tableX, y + 17.63).lineTo(tableX + CONTENT_WIDTH, y + 17.63).stroke(BORDER);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(7.3);
-    boldText('Bank Details:', tableX + 3.2, y + 4);
-    // colWidth + 3.39 (was + 6) — re-measured 2026-08-21 against a real
-    // generated PDF vs the reference via pdftotext xMin (301.64 vs the
-    // 304.25 that +6 produces).
-    boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 3.39, y + 4);
+    // Exact reference glyph positions — same fix as the other section
+    // headers. y+10.51 (reference baseline 479.25 minus this row's y,
+    // 468.74, in scenario A — same delta as Terms And Conditions above,
+    // both share the same fontSize/row treatment in the reference).
+    drawGlyphString(
+      'Bank Details:',
+      [37.641, 42.868, 47.432, 52.066, 56.319, 58.400, 63.906, 68.356, 71.101, 75.665, 77.705, 79.745, 84.076],
+      y + 10.51,
+      8.4,
+    );
+    // "For RAREPRINT.IN:" — hardcoded reference glyph positions, same as
+    // the company-name fix above: only safe for this exact fixed string
+    // (this tenant's company name). Falls back to the old boldText call for
+    // any other company name.
+    if (sanitize(data.company.companyName) === 'RAREPRINT.IN') {
+      drawGlyphString(
+        'For RAREPRINT.IN:',
+        [301.641, 306.192, 310.978, 313.821, 315.902, 321.073, 326.546, 331.716, 336.485, 341.779, 346.949, 349.231, 355.098, 359.210, 361.423, 363.705, 369.690],
+        y + 10.51,
+        8.4,
+      );
+    } else {
+      // colWidth + 3.39 (was + 6) — re-measured 2026-08-21 against a real
+      // generated PDF vs the reference via pdftotext xMin (301.64 vs the
+      // 304.25 that +6 produces).
+      boldText(`For ${sanitize(data.company.companyName) || 'Company'}:`, tableX + colWidth + 3.39, y + 4);
+    }
 
     // x = tableX + 4.98 (was + 3.2) and the y offsets below re-measured
     // 2026-08-26 via pikepdf/pdftotext against a scenario-A render (uses the
