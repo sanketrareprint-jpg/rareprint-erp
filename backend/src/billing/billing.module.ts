@@ -18,5 +18,15 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
   imports: [PrismaModule, WhatsAppModule, MulterModule.register({ storage: memoryStorage() })],
   controllers: [BillingController],
   providers: [BillingService],
+  // Exported so AccountsModule (Accounts > Dispatch Approval flow, which
+  // injects BillingService to generate/send the invoice PDF on order
+  // approval — see AccountsService's constructor) can actually resolve it.
+  // Without this, importing BillingModule alone isn't enough: Nest only
+  // makes a module's *exported* providers visible to consumers, so
+  // AccountsService failed to boot with "Nest can't resolve dependencies of
+  // AccountsService ... BillingService ... is available in the
+  // AccountsModule module" even though BillingModule was already in
+  // AccountsModule's imports — 2026-08-29, surfaced on deploy.
+  exports: [BillingService],
 })
 export class BillingModule {}
