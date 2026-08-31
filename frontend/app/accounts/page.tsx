@@ -3508,12 +3508,12 @@ export default function AccountsPage() {
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Customer</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Agent</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Method</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Account</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-600">UTR / Ref No</th>
-                          <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Status</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Verified By</th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-600">Verified At</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">Account</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-600">UTR / Ref No</th>
+                          <th className="px-3 py-2 text-right font-semibold text-slate-600">Amount</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -3527,9 +3527,6 @@ export default function AccountsPage() {
                             </td>
                             <td className="px-3 py-2 text-slate-600">{p.salesAgentName || "—"}</td>
                             <td className="px-3 py-2"><span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-semibold">{p.method}</span></td>
-                            <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
-                            <td className="px-3 py-2 font-mono text-slate-500 text-xs">{p.referenceNumber || "—"}</td>
-                            <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
                             <td className="px-3 py-2">
                               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${p.verificationStatus === "VERIFIED" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                                 {p.verificationStatus}
@@ -3537,14 +3534,17 @@ export default function AccountsPage() {
                             </td>
                             <td className="px-3 py-2 text-slate-600 text-xs">{p.verifiedByName || "—"}</td>
                             <td className="px-3 py-2 text-slate-400 text-xs whitespace-nowrap">{p.verifiedAt ? new Date(p.verifiedAt).toLocaleString("en-IN", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }) : "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{p.paymentAccountName}</td>
+                            <td className="px-3 py-2 font-mono text-slate-500 text-xs">{p.referenceNumber || "—"}</td>
+                            <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(p.amount)}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                         <tr>
-                          <td colSpan={7} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</td>
+                          <td colSpan={8} className="px-3 py-2 text-xs font-semibold text-slate-600">Total Verified ({filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").length} receipts)</td>
+                          <td colSpan={2} />
                           <td className="px-3 py-2 text-right font-bold text-green-700">{fmt(filteredReceiptHistory.filter(p => p.verificationStatus === "VERIFIED").reduce((s, p) => s + p.amount, 0))}</td>
-                          <td colSpan={3} />
                         </tr>
                       </tfoot>
                     </table>
