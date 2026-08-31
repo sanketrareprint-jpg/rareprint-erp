@@ -482,6 +482,10 @@ export class DispatchService {
       paymentType: 'COD' | 'PREPAID';
       isCod: boolean; codAmount: number | null; balanceDue: number;
       isSample: boolean; samplePaymentType: string | null;
+      // Courier charge the sales agent entered while submitting this batch
+      // for dispatch (see OrdersService.submitForDispatch/submitDispatchBatch)
+      // -- distinct from the amount Dispatch itself later books/collects.
+      courierChargeQuoted: number | null;
       latestShipment: { awbNumber: string | null; carrierName: string | null; trackingNumber: string | null; notes: string | null } | null;
       readyItems: Array<{
         id: string; productName: string; sku: string; quantity: number;
@@ -562,6 +566,7 @@ export class DispatchService {
         balanceDue: paymentInfo.balanceDue,
         isSample,
         samplePaymentType,
+        courierChargeQuoted: (o as any).courierChargeQuoted != null ? Number((o as any).courierChargeQuoted) : null,
         latestShipment: o.shipments[0] ?? null,
         readyItems: readyItems.map((i) => {
           const { size, gsm, paper, sides, printingType } = resolveItemDetails(i.productionNotes, i.product);
@@ -577,7 +582,7 @@ export class DispatchService {
     return result;
   }
 
-  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[], carrierOverride?: 'bigship' | 'shiprocket' | 'fship') {
+  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[], carrierOverride?: 'bigship' | 'shiprocket' | 'fship' | 'compare') {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -675,6 +680,90 @@ export class DispatchService {
     // docs/Fship_Integration_Build_Prompt.md §0. Falls back to the global
     // default when not provided, so existing callers are unaffected.
     const activeCarrier = carrierOverride ?? this.carrierConfig.getActiveCarrier();
+
+    // ── Compare (Bigship + Fship side by side) ──────────────────────────────
+    // Fetches both providers in parallel and merges their rates into one
+    // list, cheapest first, each tagged with which provider it came from.
+    // Reuses the exact same request-building each provider's own branch
+    // below already uses, so a rate picked from this combined list carries
+    // the same bs-/fs- prefixed rateId bookItems already knows how to route
+    // -- no changes needed to booking itself.
+    if (activeCarrier === 'compare') {
+      const isB2B = bigshipTotalBoxCount(normalizedBoxes) > 1;
+      const [bigshipResult, fshipResult] = await Promise.allSettled([
+        this.bigship.isConfigured()
+          ? (isB2B
+              ? this.bigship.fetchB2BCourierRates({
+                  pickupPostcode: pickup,
+                  deliveryPostcode: delivery,
+                  weightKg,
+                  orderNumber: order.orderNumber,
+                  invoiceAmount: dispatchInvoiceAmount,
+                  shippingName: order.customer.businessName,
+                  shippingMobile: order.customer.phone ?? undefined,
+                  shippingEmail: order.customer.email ?? undefined,
+                  shippingAddress: addr.line,
+                  isCod: orderIsCod,
+                  codAmount: orderCodAmt,
+                  pickupWarehouseId: (warehouse as Record<string, unknown>).bigshipWarehouseId as number | undefined
+                    ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined),
+                  packageBoxes: normalizedBoxes,
+                })
+              : this.bigship.fetchCourierRates({
+                  pickupPostcode: pickup,
+                  deliveryPostcode: delivery,
+                  weightKg,
+                  orderNumber: order.orderNumber,
+                  invoiceAmount: Number(order.grandTotal),
+                  shippingName: order.customer.businessName,
+                  shippingMobile: order.customer.phone ?? undefined,
+                  shippingEmail: order.customer.email ?? undefined,
+                  shippingAddress: addr.line,
+                  shippingCity: addr.city,
+                  shippingState: addr.state,
+                  isCod: orderIsCod,
+                  codAmount: orderCodAmt,
+                  pickupWarehouseId: (warehouse as Record<string, unknown>).bigshipWarehouseId as number | undefined
+                    ?? (warehouseId && /^\d+$/.test(warehouseId) ? parseInt(warehouseId, 10) : undefined),
+                  packageBoxes: normalizedBoxes,
+                }))
+          : Promise.resolve([]),
+        this.fship.isConfigured()
+          ? this.fship.fetchRates({
+              pickupPincode: this.carrierConfig.getConfig().fship.pickupPincode || pickup,
+              deliveryPincode: delivery,
+              weightKg,
+              lengthCm: normalizedBoxes?.[0]?.length,
+              widthCm: normalizedBoxes?.[0]?.breadth,
+              heightCm: normalizedBoxes?.[0]?.height,
+              isCod: orderIsCod,
+              amount: dispatchInvoiceAmount,
+            })
+          : Promise.resolve([]),
+      ]);
+      const bigshipRates = bigshipResult.status === 'fulfilled' ? bigshipResult.value : [];
+      if (bigshipResult.status === 'rejected') this.logger.warn(`Compare: Bigship rates failed: ${bigshipResult.reason}`);
+      const fshipRates = fshipResult.status === 'fulfilled' ? fshipResult.value : [];
+      if (fshipResult.status === 'rejected') this.logger.warn(`Compare: Fship rates failed: ${fshipResult.reason}`);
+
+      const combined = [
+        ...bigshipRates.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
+          rateId, carrierName, amount, currency, estimatedDays, provider: 'bigship' as const,
+        })),
+        ...fshipRates.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
+          rateId, carrierName, amount, currency, estimatedDays, provider: 'fship' as const,
+        })),
+      ].sort((a, b) => a.amount - b.amount);
+
+      return {
+        orderId: order.id, orderNo: order.orderNumber,
+        destination: order.customer.businessName,
+        weightKg, deliveryPincode: delivery, pickupPincode: pickup,
+        warehouseId: warehouse.id, warehouseName: warehouse.name,
+        source: 'compare',
+        rates: combined,
+      };
+    }
 
     // ── BigShip ───────────────────────────────────────────────────────────
     if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {

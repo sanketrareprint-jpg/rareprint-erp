@@ -76,10 +76,13 @@ type DispatchOrder = {
   paymentType?: "COD" | "PREPAID";
   isCod: boolean; codAmount: number | null;
   isSample?: boolean; samplePaymentType?: string | null;
+  // Courier charge the sales agent entered while submitting this batch for
+  // dispatch — distinct from whatever Dispatch itself later books/collects.
+  courierChargeQuoted?: number | null;
   latestShipment: { awbNumber: string | null; carrierName: string | null; trackingNumber: string | null; notes: string | null } | null;
 };
 
-type RateQuote = { rateId: string; carrierName: string; amount: number; currency: string; estimatedDays: number; };
+type RateQuote = { rateId: string; carrierName: string; amount: number; currency: string; estimatedDays: number; provider?: "bigship" | "fship"; };
 type DispatchMethod = "COURIER" | "TRANSPORT" | "BY_HAND" | "SELF_COLLECTED";
 type TransportForm = { transportName: string; lrNumber: string; transportChargesType: "TOPAY" | "PREPAID"; transportBy: string; totalTransportCharges: string; notes: string };
 type DirectForm = { deliveryBoyName: string; collectedByName: string; collectedByPhone: string; otp: string };
@@ -1357,6 +1360,11 @@ export default function DispatchPage() {
                       <div className="flex items-center gap-3 text-[10px] text-slate-500 shrink-0">
                         <span>Items <strong className="text-emerald-600">{o.readyItems.length}/{o.totalItems}</strong></span>
                         <span>Wt <strong className="text-slate-700">{selectedWeight.toFixed(2)}kg</strong></span>
+                        {o.courierChargeQuoted != null && (
+                          <span title="Courier charge entered by the sales agent when this order was submitted for dispatch">
+                            Quoted <strong className="text-slate-700">{fmt(o.courierChargeQuoted)}</strong>
+                          </span>
+                        )}
                         {activeWarehouse && (
                           <span className="flex items-center gap-0.5">
                             <Building2 className="h-2.5 w-2.5 shrink-0" />
@@ -1499,6 +1507,7 @@ export default function DispatchPage() {
                             { value: "bigship", label: "Bigship" },
                             { value: "fship", label: "Fship" },
                             { value: "shiprocket", label: "Shiprocket" },
+                            { value: "compare", label: "Compare Bigship + Fship" },
                           ]} />
                         <button onClick={() => fetchRates(o.id)} disabled={ratesLoading === o.id || !someSelected}
                           className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50">
@@ -1614,7 +1623,14 @@ export default function DispatchPage() {
                                     checked={selectedRate[o.id] === r.rateId}
                                     onChange={() => setSelectedRate(prev => ({ ...prev, [o.id]: r.rateId }))} />
                                   <div className="min-w-0">
-                                    <p className="text-[11px] font-semibold text-slate-800 truncate">{r.carrierName}</p>
+                                    <p className="text-[11px] font-semibold text-slate-800 truncate">
+                                      {r.carrierName}
+                                      {r.provider && (
+                                        <span className={`ml-1 rounded px-1 py-0.5 text-[9px] font-bold uppercase ${r.provider === "bigship" ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"}`}>
+                                          {r.provider}
+                                        </span>
+                                      )}
+                                    </p>
                                     <p className="text-xs font-bold text-blue-700">{fmt(r.amount)} <span className="text-[10px] font-normal text-slate-400">~{r.estimatedDays}d</span></p>
                                   </div>
                                 </label>

@@ -71,7 +71,7 @@ export class DispatchController {
   ) {
     const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
     const itemIds = itemIdsRaw ? itemIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
-    const carrierOverride = carrier === 'bigship' || carrier === 'shiprocket' || carrier === 'fship' ? carrier : undefined;
+    const carrierOverride = carrier === 'bigship' || carrier === 'shiprocket' || carrier === 'fship' || carrier === 'compare' ? carrier : undefined;
     return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride, {
       name: pickupName,
       pincode: pickupPincode,
