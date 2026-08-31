@@ -973,6 +973,26 @@ export class OrdersService {
     };
 
     const order = item.order;
+    // A quantity/price/spec change this late invalidates whatever Accounts
+    // already approved, so send the order back through approval rather than
+    // letting production continue against numbers nobody has re-checked.
+    // Guarded against orders that have already shipped (in whole or in
+    // part) -- reverting THOSE to "pending approval" would be actively
+    // misleading (Accounts would see a "new" order to approve while a
+    // sibling item is already out the door), so those are blocked outright
+    // rather than silently mishandled.
+    const blockedStatuses: OrderStatus[] = [
+      OrderStatus.PARTIALLY_DISPATCHED,
+      OrderStatus.DISPATCHED,
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
+    ];
+    if (blockedStatuses.includes(order.status) || order.items.some((i) => (i as any).dispatchedAt)) {
+      throw new BadRequestException(
+        'This order already has dispatched item(s) — editing it here and reopening it for approval would conflict with what has already shipped. Contact support if this genuinely needs correcting.',
+      );
+    }
+    const previousOrderStatus = order.status;
     const totalPaid = order.payments.reduce((s, p) => s + Number(p.amount), 0);
     const subtotal = order.items.reduce(
       (s, i) => s + (i.id === itemId ? lineTotal : (i.cancelledAt ? 0 : Number(i.lineTotal))),
@@ -1000,27 +1020,29 @@ export class OrdersService {
           subtotal: new Prisma.Decimal(subtotal),
           grandTotal: new Prisma.Decimal(grandTotal),
           paymentStatus,
+          status: OrderStatus.PENDING_APPROVAL,
         },
       });
       await tx.statusLog.create({
         data: {
           orderId: order.id,
-          fromStatus: order.status,
-          toStatus: order.status,
+          fromStatus: previousOrderStatus,
+          toStatus: OrderStatus.PENDING_APPROVAL,
           changedById: user.id,
-          reason: `Super-admin edit: ${item.product.name} — before ${JSON.stringify(before)} → after ${JSON.stringify({ quantity, unitPrice, lineTotal, productionNotes })}`,
+          reason: `Super-admin edit: ${item.product.name} — before ${JSON.stringify(before)} → after ${JSON.stringify({ quantity, unitPrice, lineTotal, productionNotes })}. Sent back to Accounts for re-approval.`,
           metadata: {
             eventType: 'SUPERADMIN_ITEM_EDIT',
             itemId,
             productName: item.product.name,
             before,
             after: { quantity, unitPrice, lineTotal, productionNotes },
+            previousOrderStatus,
           },
         },
       });
     });
 
-    return { success: true, quantity, unitPrice, lineTotal, productionNotes, grandTotal, paymentStatus };
+    return { success: true, quantity, unitPrice, lineTotal, productionNotes, grandTotal, paymentStatus, orderStatus: OrderStatus.PENDING_APPROVAL };
   }
 
   // isAdmin lets ADMIN-role users force-delete an order in any status, not

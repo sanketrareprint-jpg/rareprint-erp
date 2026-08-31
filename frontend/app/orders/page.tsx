@@ -503,6 +503,7 @@ export default function OrdersPage() {
       if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.message || "Edit failed"); return; }
       setSuperEditItem(null);
       await load();
+      alert("Item updated. This order has been sent back to Accounts for re-approval.");
     } finally {
       setSuperEditSaving(false);
     }
@@ -1915,46 +1916,58 @@ export default function OrdersPage() {
       {/* ── Super-admin item edit modal ──────────────────────────────────── */}
       {superEditItem && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.6)", padding: "1rem" }}>
-          <div style={{ width: "100%", maxWidth: "26rem", background: "white", borderRadius: "1rem", border: "1px solid #fbbf24", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
-            <div className="flex items-center justify-between mb-4">
+          <div style={{ width: "100%", maxWidth: "760px", background: "white", borderRadius: "0.75rem", border: "1px solid #e2e8f0", padding: "20px 24px", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-center justify-between mb-1">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Super-admin Edit</h2>
-                <p className="text-sm text-slate-500">{superEditItem.item.productName}</p>
+                <h2 className="text-lg font-bold text-slate-900">Super-admin Edit — Order #{orders.find(o => o.id === superEditItem.orderId)?.orderNo ?? ""}</h2>
+                <p className="text-xs text-slate-500">Only editable before this item starts printing.</p>
               </div>
               <button onClick={() => setSuperEditItem(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
-            <p className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-              Only allowed before this item starts printing. Changing quantity/amount recalculates the order total and payment status, and is logged for audit.
+            <p className="my-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              Changing quantity/amount/quality recalculates the order total and payment status, and sends the whole order back to Accounts for re-approval. Every edit is logged for audit.
             </p>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Quantity</label>
-                  <input type="number" value={superEditForm.quantity} onChange={e => setSuperEditForm(f => ({ ...f, quantity: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Amount / Unit (₹)</label>
-                  <input type="number" value={superEditForm.unitPrice} onChange={e => setSuperEditForm(f => ({ ...f, unitPrice: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Size</label>
-                  <input type="text" value={superEditForm.size} onChange={e => setSuperEditForm(f => ({ ...f, size: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">GSM</label>
-                  <input type="text" value={superEditForm.gsm} onChange={e => setSuperEditForm(f => ({ ...f, gsm: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Paper</label>
-                  <input type="text" value={superEditForm.paper} onChange={e => setSuperEditForm(f => ({ ...f, paper: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Sides</label>
-                  <input type="text" value={superEditForm.sides} onChange={e => setSuperEditForm(f => ({ ...f, sides: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-              </div>
+            <div className="rounded-lg border border-slate-200 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">Product</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">Size</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">GSM</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">Paper</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">Sides</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">Qty</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wide">Rate/Unit</th>
+                    <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wide">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="px-3 py-2 align-top font-semibold text-slate-800">{superEditItem.item.productName}</td>
+                    <td className="px-3 py-2 align-top">
+                      <input type="text" value={superEditForm.size} onChange={e => setSuperEditForm(f => ({ ...f, size: e.target.value }))} className="w-20 rounded-md border border-slate-200 px-2 py-1.5 text-xs" />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <input type="text" value={superEditForm.gsm} onChange={e => setSuperEditForm(f => ({ ...f, gsm: e.target.value }))} className="w-16 rounded-md border border-slate-200 px-2 py-1.5 text-xs" />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <input type="text" value={superEditForm.paper} onChange={e => setSuperEditForm(f => ({ ...f, paper: e.target.value }))} className="w-20 rounded-md border border-slate-200 px-2 py-1.5 text-xs" />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <input type="text" value={superEditForm.sides} onChange={e => setSuperEditForm(f => ({ ...f, sides: e.target.value }))} className="w-20 rounded-md border border-slate-200 px-2 py-1.5 text-xs" />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <input type="number" value={superEditForm.quantity} onChange={e => setSuperEditForm(f => ({ ...f, quantity: e.target.value }))} className="w-20 rounded-md border border-slate-200 px-2 py-1.5 text-xs" />
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <input type="number" value={superEditForm.unitPrice} onChange={e => setSuperEditForm(f => ({ ...f, unitPrice: e.target.value }))} className="w-20 rounded-md border border-slate-200 px-2 py-1.5 text-xs" />
+                    </td>
+                    <td className="px-3 py-2 align-top text-right font-semibold text-slate-800 whitespace-nowrap">
+                      {fmt((Number(superEditForm.quantity) || 0) * (Number(superEditForm.unitPrice) || 0))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setSuperEditItem(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
