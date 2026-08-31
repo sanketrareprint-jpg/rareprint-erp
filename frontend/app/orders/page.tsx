@@ -817,6 +817,12 @@ export default function OrdersPage() {
                 }`}>
                   {item.cancelledAt ? "Cancelled" : (item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
                 </span>
+                {isSuperAdminUser && item.id && item.itemProductionStage === "NOT_PRINTED" && !item.cancelledAt && (
+                  <button title="Super-admin edit (quantity/quality/amount)" onClick={() => openSuperEdit(o.id, item)}
+                    className="shrink-0 rounded-full border border-amber-200 bg-amber-50 p-0.5 text-amber-700 hover:bg-amber-100">
+                    <Edit2 className="h-2.5 w-2.5" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
