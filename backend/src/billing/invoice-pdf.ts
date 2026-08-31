@@ -545,23 +545,47 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     );
 
     // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
-    doc.font('Body-Bold').fontSize(8).fillColor(BORDER);
-    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 21, { width: colWidth - 10, height: 13, ellipsis: true });
-    doc.font('Body').fontSize(9);
-    doc.text(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 34, { width: colWidth - 10, height: 16, ellipsis: true });
+    // fontSize 8.4 (was 8/9 below) — root-caused 2026-08-29 via pikepdf
+    // content-stream matrix tracking: every text run in this row uses the
+    // SAME Tf 11.2 × cm 0.75 = 8.4 the header block/section headers use,
+    // not 8 or 9. The old 9 was ~7% too big on BOTH axes (not just an
+    // hscale problem), which is what made this section look badly
+    // "stretched"/doubled when overlaid against the reference — much
+    // worse than the header block's pure-hscale issue, because here the
+    // base size itself was wrong. Fixed labels (Contact No:/GSTIN Number:/
+    // State:/No:/Date:/Place of Supply:) now use the reference's own exact
+    // glyph outlines (drawGlyphString) like every other fixed label in this
+    // file; values (customer name/address/phone/GSTIN/state, invoice no/
+    // date) stay hscale-approximated since they're per-invoice dynamic
+    // data — hscale constants reused from the equivalent header-block
+    // fields (0.9698 for digit-heavy, 0.928 for mixed letters/hyphen).
+    doc.font('Body-Bold').fontSize(8.4).fillColor(BORDER);
+    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 19.35, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9698);
+    doc.font('Body').fontSize(8.4);
+    boldText(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 32.1, { width: colWidth - 10, height: 16, ellipsis: true }, 1.01);
 
     const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
-    labelBoldValue('Contact No: ', sanitize(data.customerPhone) || '-', PAGE_MARGIN + 3.2, y + 51, 9);
-    doc.font('Body').fontSize(9).text('GSTIN Number:', gstinColX, y + 51, { width: colWidth / 2 - 6 });
-    doc.font('Body-Bold').fontSize(9);
-    boldText(sanitize(data.customerGstin) || '-', gstinColX, y + 61, { width: colWidth / 2 - 6 });
+    drawGlyphString('Contact No:', [36.891, 42.352, 47.137, 51.771, 54.516, 59.08, 63.472, 66.217, 68.298, 74.284, 79.069], 212.25, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.4);
+    boldText(sanitize(data.customerPhone) || '-', 83.191, y + 49.35, { lineBreak: false }, 0.9698);
+    drawGlyphString('GSTIN Number:', [165.75, 171.465, 176.447, 181.454, 183.736, 189.721, 191.803, 197.788, 202.414, 209.772, 214.484, 218.933, 221.776], 212.25, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.4);
+    boldText(sanitize(data.customerGstin) || '-', 165.75, y + 59.1, { width: colWidth / 2 - 6 }, 0.9698);
 
-    labelBoldValue('State: ', sanitize(data.customerState) || '-', PAGE_MARGIN + 3.2, y + 63, 9);
+    drawGlyphString('State:', [36.891, 41.873, 44.618, 49.182, 51.927, 56.376], 224.25, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.4);
+    boldText(sanitize(data.customerState) || '-', 60.492, y + 61.35, { lineBreak: false }, 0.928);
 
     // Invoice Details column.
-    labelBoldValue('No: ', sanitize(data.invoiceNumber), PAGE_MARGIN + colWidth + 4.4, y + 22, 9);
-    labelBoldValue('Date: ', sanitize(data.issueDate), PAGE_MARGIN + colWidth + 4.4, y + 34, 9);
-    labelBoldValue('Place of Supply: ', sanitize(data.customerState) || '-', PAGE_MARGIN + colWidth + 4.4, y + 46, 9);
+    drawGlyphString('No:', [302.684, 308.669, 313.455], 183.0, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.4);
+    boldText(sanitize(data.invoiceNumber), 317.578, y + 20.1, { lineBreak: false }, 0.9698);
+    drawGlyphString('Date:', [302.684, 308.19, 312.754, 315.499, 319.948], 195.0, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.4);
+    boldText(sanitize(data.issueDate), 324.07, y + 32.1, { lineBreak: false }, 0.9698);
+    drawGlyphString('Place of Supply:', [302.684, 307.977, 310.017, 314.581, 318.973, 323.423, 325.504, 330.289, 333.206, 335.287, 340.269, 344.895, 349.606, 354.318, 356.358, 360.328], 207.0, 8.4, INVOICE_GLYPHS_F8);
+    doc.font('Body-Bold').fontSize(8.4);
+    boldText(sanitize(data.customerState) || '-', 364.453, y + 44.1, { lineBreak: false }, 0.928);
 
     y += biRowHeight;
     // 6.0 (was 5.5) — re-measured 2026-08-21 against a real generated PDF vs
