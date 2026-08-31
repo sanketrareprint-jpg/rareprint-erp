@@ -197,7 +197,7 @@ export default function OrdersPage() {
   // Super-admin-only: correct quantity/quality/amount on an item before it
   // starts printing (see backend OrdersService.superAdminEditItem).
   const [superEditItem, setSuperEditItem] = useState<{ orderId: string; item: ItemDetail } | null>(null);
-  const [superEditForm, setSuperEditForm] = useState({ quantity: "", unitPrice: "", size: "", gsm: "", sides: "" });
+  const [superEditForm, setSuperEditForm] = useState({ quantity: "", unitPrice: "", size: "", gsm: "", paper: "", sides: "" });
   const [superEditSaving, setSuperEditSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -300,7 +300,13 @@ export default function OrdersPage() {
     if (typeof window === "undefined") return null;
     try { const r = localStorage.getItem("rareprint_user"); return r ? JSON.parse(r) : null; } catch { return null; }
   }, []);
-  const canViewMargin = currentUser?.fullName === "Sanket Admin";
+  // Email match, not fullName -- fullName is a display string that can drift
+  // (renamed account, trailing space, casing) and would silently break every
+  // one of these gates with no error, since they'd just evaluate false.
+  // Matches the backend's own SUPER_ADMIN_EMAIL convention (see
+  // orders.service.ts / accounts.service.ts) exactly.
+  const isSuperAdminUser = currentUser?.email?.toLowerCase?.() === "sanket.rareprint@gmail.com";
+  const canViewMargin = isSuperAdminUser;
   // Commission is now visible to every seller (sales agent) and admin, not
   // just the owner — Margin stays owner-only (canViewMargin above) since it
   // exposes cost/profitability, which is more sensitive than an agent's own
@@ -310,7 +316,7 @@ export default function OrdersPage() {
   // but the super admin still needs a way to correct a genuine mistake (e.g.
   // a bank reference pasted onto the wrong order), so allow delete-only,
   // with an extra-explicit confirmation, once a payment is verified.
-  const canManageVerifiedPayments = currentUser?.fullName === "Sanket Admin";
+  const canManageVerifiedPayments = isSuperAdminUser;
 
   // File upload
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
@@ -473,6 +479,7 @@ export default function OrdersPage() {
       unitPrice: String(item.unitPrice ?? ""),
       size: item.size ?? "",
       gsm: item.gsm ?? "",
+      paper: item.paper ?? "",
       sides: item.sides ?? "",
     });
   }
@@ -489,6 +496,7 @@ export default function OrdersPage() {
           unitPrice: superEditForm.unitPrice ? Number(superEditForm.unitPrice) : undefined,
           size: superEditForm.size || undefined,
           gsm: superEditForm.gsm || undefined,
+          paperType: superEditForm.paper || undefined,
           sides: superEditForm.sides || undefined,
         }),
       });
@@ -1129,7 +1137,7 @@ export default function OrdersPage() {
                             <div className="flex items-start justify-between gap-2">
                               <p className={cx("truncate font-bold text-slate-900", "truncate text-sm font-bold text-slate-900")}>{item.productName}</p>
                               <div className="flex shrink-0 items-center gap-1">
-                                {currentUser?.fullName === "Sanket Admin" && item.id && item.itemProductionStage === "NOT_PRINTED" && !item.cancelledAt && (
+                                {isSuperAdminUser && item.id && item.itemProductionStage === "NOT_PRINTED" && !item.cancelledAt && (
                                   <button title="Super-admin edit (quantity/quality/amount)" onClick={() => openSuperEdit(o.id, item)}
                                     className="rounded-full border border-amber-200 bg-amber-50 p-1 text-amber-700 hover:bg-amber-100">
                                     <Edit2 className="h-3 w-3" />
@@ -1923,7 +1931,7 @@ export default function OrdersPage() {
                   <input type="number" value={superEditForm.unitPrice} onChange={e => setSuperEditForm(f => ({ ...f, unitPrice: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Size</label>
                   <input type="text" value={superEditForm.size} onChange={e => setSuperEditForm(f => ({ ...f, size: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
@@ -1931,6 +1939,10 @@ export default function OrdersPage() {
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">GSM</label>
                   <input type="text" value={superEditForm.gsm} onChange={e => setSuperEditForm(f => ({ ...f, gsm: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Paper</label>
+                  <input type="text" value={superEditForm.paper} onChange={e => setSuperEditForm(f => ({ ...f, paper: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Sides</label>
