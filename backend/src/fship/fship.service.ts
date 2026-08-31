@@ -259,12 +259,18 @@ export class FshipService {
   async getShipmentStatus(waybill: string): Promise<{ status?: string; location?: string; remark?: string } | null> {
     if (!this.isConfigured()) return null;
     try {
-      const { data } = await this.client().post('/api/shipmentsummary', { waybill });
+      // Fship support (2026-08-31) confirmed the real endpoint is
+      // /api/shipmentcurrentstatus -- the PDF's documented
+      // /api/shipmentsummary 404s. Payload/response shape is unchanged per
+      // their confirmation.
+      const { data } = await this.client().post('/api/shipmentcurrentstatus', { waybill });
       if (data?.status === true && data?.summary) {
         return {
           status: data.summary.status ? String(data.summary.status) : undefined,
           location: data.summary.location ? String(data.summary.location) : undefined,
-          remark: data.summary.remark ? String(data.summary.remark) : undefined,
+          // Real response field is "remarks" (plural) -- confirmed against a
+          // live staging call 2026-08-31; the PDF's sample used "remark".
+          remark: data.summary.remarks ? String(data.summary.remarks) : undefined,
         };
       }
       return null;
