@@ -414,7 +414,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // measured line bands, same verification method as every other element
     // in this file. Inter-line spacing itself already matches (9.84pt vs
     // reference's 9.84pt) — only the block's start position needed this.
-    doc.text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 27.32, { width: headerTextWidth, height: 24, lineGap: -1.5556, ellipsis: true });
+    // hscale 1.01 — re-measured 2026-08-29 against real rendered pixels:
+    // this address is long enough (2 full lines, ~90 chars) that even the
+    // small ~0.6-1.4% per-line width gap between our SegoeUI approximation
+    // and the reference's own font compounds into a visibly "doubled"/
+    // stretched look under close inspection, reported after the previous
+    // fixes. boldText() is reused here despite the name — it's just a
+    // generic hscale-wrapped text draw (save/translate/scale/restore) and
+    // doesn't force bold; current font ('Body') is already set above.
+    boldText(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 27.32, { width: headerTextWidth, height: 24, lineGap: -1.5556, ellipsis: true }, 1.01);
 
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
     // Right-half column starts at headerTextX+220.5 — measured from the
@@ -454,7 +462,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     boldText(sanitize(data.company.companyPhone) || '-', 149.66, rowY1, { lineBreak: false }, 0.9698);
     drawGlyphString('Email:', [340.488, 345.257, 352.615, 357.179, 359.220, 361.260], 128.25, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.5);
-    boldText(sanitize(data.company.companyEmail) || '-', 365.379, rowY1, { lineBreak: false }, 0.9698);
+    // 0.939 (not the shared 0.9698) — lowercase-letter/symbol strings
+    // (email, state name below) diverge from Segoe UI Bold vs the
+    // reference's font more than all-digit strings (phone, GSTIN) do at
+    // this hscale; re-measured individually against real pixels.
+    boldText(sanitize(data.company.companyEmail) || '-', 365.379, rowY1, { lineBreak: false }, 0.939);
 
     const rowY2 = y + 63.12;
     drawGlyphString('GSTIN:', [121.758, 127.473, 132.455, 137.462, 139.744, 145.729], 141.0, 8.4, INVOICE_GLYPHS_F8);
@@ -462,7 +474,8 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     boldText(sanitize(data.company.companyGstin) || '-', 149.848, rowY2, { lineBreak: false }, 0.9698);
     drawGlyphString('State:', [340.488, 345.470, 348.215, 352.779, 355.524, 359.974], 141.0, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.5);
-    boldText(sanitize(data.company.companyState) || '-', 364.090, rowY2, { lineBreak: false }, 0.9698);
+    // 0.928 — same reasoning as Email above (mixed letters/digits/'-').
+    boldText(sanitize(data.company.companyState) || '-', 364.090, rowY2, { lineBreak: false }, 0.928);
 
     y += headerHeight;
     // 0.4pt gap — the reference's header box and Bill To/Invoice Details box
