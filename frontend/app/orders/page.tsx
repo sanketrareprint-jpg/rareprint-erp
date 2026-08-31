@@ -818,7 +818,7 @@ export default function OrdersPage() {
                 }`}>
                   {item.cancelledAt ? "Cancelled" : (item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
                 </span>
-                {isSuperAdminUser && item.id && item.itemProductionStage === "NOT_PRINTED" && !item.cancelledAt && (
+                {isSuperAdminUser && item.id && item.dispatchStatus !== "DISPATCHED" && !item.cancelledAt && (
                   <button title="Super-admin edit (quantity/quality/amount)" onClick={() => openSuperEdit(o.id, item)}
                     className="shrink-0 rounded-full border border-amber-200 bg-amber-50 p-0.5 text-amber-700 hover:bg-amber-100">
                     <Edit2 className="h-2.5 w-2.5" />
@@ -1144,7 +1144,7 @@ export default function OrdersPage() {
                             <div className="flex items-start justify-between gap-2">
                               <p className={cx("truncate font-bold text-slate-900", "truncate text-sm font-bold text-slate-900")}>{item.productName}</p>
                               <div className="flex shrink-0 items-center gap-1">
-                                {isSuperAdminUser && item.id && item.itemProductionStage === "NOT_PRINTED" && !item.cancelledAt && (
+                                {isSuperAdminUser && item.id && item.dispatchStatus !== "DISPATCHED" && !item.cancelledAt && (
                                   <button title="Super-admin edit (quantity/quality/amount)" onClick={() => openSuperEdit(o.id, item)}
                                     className="rounded-full border border-amber-200 bg-amber-50 p-1 text-amber-700 hover:bg-amber-100">
                                     <Edit2 className="h-3 w-3" />
@@ -1920,7 +1920,7 @@ export default function OrdersPage() {
             <div className="flex items-center justify-between mb-1">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Super-admin Edit — Order #{orders.find(o => o.id === superEditItem.orderId)?.orderNo ?? ""}</h2>
-                <p className="text-xs text-slate-500">Only editable before this item starts printing.</p>
+                <p className="text-xs text-slate-500">Editable any time before this item is dispatched.</p>
               </div>
               <button onClick={() => setSuperEditItem(null)}><X className="h-5 w-5 text-slate-400" /></button>
             </div>

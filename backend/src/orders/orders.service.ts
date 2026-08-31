@@ -936,11 +936,10 @@ export class OrdersService {
     });
     if (!item) throw new NotFoundException('Order item not found');
     if (item.cancelledAt) throw new BadRequestException('This item was cancelled — nothing to edit');
-    if (item.itemProductionStage !== OrderProductionStage.NOT_PRINTED) {
-      throw new BadRequestException(
-        `Cannot edit — this item is already ${item.itemProductionStage.replace(/_/g, ' ').toLowerCase()}. Edits are only allowed before printing starts.`,
-      );
-    }
+    // Editable through NOT_PRINTED / PRINTING / PROCESSING / READY_FOR_DISPATCH --
+    // any point before the item has actually been dispatched. The dispatch-safety
+    // check below (blockedStatuses + per-item dispatchedAt) is what actually
+    // guards against editing something that's already shipped.
 
     // productionNotes carries the free-text "Size: X, GSM: Y, Paper: Z,
     // Sides: W" details set at order-create time (see
