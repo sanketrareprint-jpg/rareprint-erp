@@ -477,10 +477,12 @@ export class BillingService {
   }
 
   // Signed, short-lived (15 min) public URL AiSensy's servers can fetch the
-  // invoice PDF from — null when BACKEND_PUBLIC_URL isn't configured, so
-  // callers can gate on it instead of building a broken link.
+  // invoice PDF from. Defaults to the known production backend domain
+  // (matches the fallback already used across frontend/lib/api.ts etc.) so
+  // this works without any extra Railway env var; BACKEND_PUBLIC_URL can
+  // still override it (e.g. for a staging deploy).
   getSignedInvoicePdfUrl(invoiceId: string): string | null {
-    const publicBaseUrl = process.env.BACKEND_PUBLIC_URL?.trim();
+    const publicBaseUrl = (process.env.BACKEND_PUBLIC_URL ?? 'https://rareprint-erp-production.up.railway.app').trim();
     if (!publicBaseUrl) return null;
     const expiresAt = Date.now() + 15 * 60 * 1000;
     const token = this.signPublicToken(invoiceId, expiresAt);
@@ -488,13 +490,12 @@ export class BillingService {
   }
 
   // Sends the invoice PDF as a WhatsApp document attachment (see
-  // WhatsAppService.sendInvoiceDocument). Requires BACKEND_PUBLIC_URL and
-  // AISENSY_INVOICE_PDF_CAMPAIGN (an AiSensy WhatsApp template with a
-  // Document header, approved by Meta) — neither is set in this deployment
-  // yet, so today this returns {sent:false, skipped:'...'} without throwing.
-  // Deliberately never throws: this is called fire-and-forget from order
-  // approval (see AccountsService.approveOrder) and must never be able to
-  // fail that flow. See docs/Billing_Module_Build_Prompt.md §7 phase 6.
+  // WhatsAppService.sendInvoiceDocument) using the approved "invoice_pdf_erp"
+  // AiSensy template (2026-08-29). Deliberately never throws: this is
+  // called fire-and-forget from order approval (see
+  // AccountsService.approveOrder) and must never be able to fail that flow
+  // — a missing phone number or an AiSensy-side rejection just comes back
+  // as {sent:false, skipped/errorMessage} instead of throwing.
   async sendInvoicePdfDocument(
     invoiceId: string,
     customerName: string,

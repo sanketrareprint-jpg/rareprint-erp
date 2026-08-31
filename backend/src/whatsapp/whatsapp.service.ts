@@ -249,18 +249,12 @@ export class WhatsAppService {
   // sendInvoiceGenerated() above is a plain text notification; this sends the
   // actual invoice PDF as the message itself, via a WhatsApp Business
   // template whose HEADER TYPE is "Document" (not the "Image" header used by
-  // sendEventWish/sendClientWishReady). That template does not exist in
-  // AiSensy/Meta yet as of this writing — until it's created and approved,
-  // set AISENSY_INVOICE_PDF_CAMPAIGN and this method fails cleanly
-  // (sent:false, errorMessage explaining why) rather than throwing, so it's
-  // always safe to call from the order-approval flow.
-  //
-  // To set this up in AiSensy: create a new WhatsApp template with a
-  // Document header (no image/video), submit for Meta approval, then set
-  // AISENSY_INVOICE_PDF_CAMPAIGN to its exact approved campaign name.
-  // Suggested body copy (two body variables): "Hi {{1}}, your invoice
-  // {{2}} is attached. Thank you for your business!" — {{1}} customerName,
-  // {{2}} invoiceNumber. templateParams below must match whatever variables
+  // sendEventWish/sendClientWishReady). Template approved by Meta 2026-08-29
+  // as "invoice_pdf_erp" (Utility category, Document/FILE header, body:
+  // "Hi {{1}}, your invoice {{2}} is attached. Thank you for your business!"
+  // — {{1}} customerName, {{2}} invoiceNumber). AISENSY_INVOICE_PDF_CAMPAIGN
+  // can override the campaign name if it's ever recreated under a different
+  // name; templateParams below must stay in sync with whatever variables
   // the approved template actually declares, in order.
   async sendInvoiceDocument(params: {
     customerName: string;
@@ -268,10 +262,7 @@ export class WhatsAppService {
     invoiceNumber: string;
     pdfUrl: string;
   }): Promise<{ sent: boolean; errorMessage?: string }> {
-    const campaignName = process.env.AISENSY_INVOICE_PDF_CAMPAIGN;
-    if (!campaignName) {
-      return { sent: false, errorMessage: 'AISENSY_INVOICE_PDF_CAMPAIGN not configured — WhatsApp document template not set up yet' };
-    }
+    const campaignName = process.env.AISENSY_INVOICE_PDF_CAMPAIGN ?? 'invoice_pdf_erp';
 
     const phone = this.normalizePhone(params.customerPhone);
     if (!phone) {

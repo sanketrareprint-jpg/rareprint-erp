@@ -608,11 +608,10 @@ export class AccountsService {
     // Send the invoice PDF itself as a WhatsApp document attachment — the
     // call above is a text-only notification, this is the actual bill PDF
     // going out "as soon as the order is approved and invoice is generated"
-    // per the Billing module requirement. Gracefully no-ops until an AiSensy
-    // WhatsApp document-header template is created/approved and
-    // AISENSY_INVOICE_PDF_CAMPAIGN + BACKEND_PUBLIC_URL are set (see
-    // BillingService.sendInvoicePdfDocument) — fire-and-forget, never
-    // throws, so it can't regress order approval either way.
+    // per the Billing module requirement. Uses the approved "invoice_pdf_erp"
+    // AiSensy template (2026-08-29) via BillingService.sendInvoicePdfDocument
+    // — fire-and-forget, never throws, so it can't regress order approval
+    // even if AiSensy is down or the customer has no phone on file.
     this.billing
       .sendInvoicePdfDocument(result.invoice.id, order.customer.businessName, order.customer.phone ?? '')
       .catch((err) => console.error(`Invoice PDF WhatsApp send failed for order ${orderId}:`, err));
