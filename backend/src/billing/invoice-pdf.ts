@@ -559,33 +559,40 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // date) stay hscale-approximated since they're per-invoice dynamic
     // data — hscale constants reused from the equivalent header-block
     // fields (0.9698 for digit-heavy, 0.928 for mixed letters/hyphen).
+    // All 8 value y-offsets below carry a uniform +1.32 vs. the previous
+    // pass — re-measured 2026-08-31 via pdftotext bbox against the reference
+    // (Sale_1263): every one of these values sat exactly 1.32pt too HIGH
+    // (label glyphs, drawn separately via drawGlyphString at their own
+    // absolute y, were already exact — only these dynamic-value offsets were
+    // off, uniformly). Reported as "invoice details/bill to values need a
+    // nudge" from an opacity-overlay comparison against the reference PDF.
     doc.font('Body-Bold').fontSize(8.4).fillColor(BORDER);
-    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 19.35, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9698);
+    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 20.67, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9698);
     doc.font('Body').fontSize(8.4);
-    boldText(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 32.1, { width: colWidth - 10, height: 16, ellipsis: true }, 1.01);
+    boldText(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 33.42, { width: colWidth - 10, height: 16, ellipsis: true }, 1.01);
 
     const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
     drawGlyphString('Contact No:', [36.891, 42.352, 47.137, 51.771, 54.516, 59.08, 63.472, 66.217, 68.298, 74.284, 79.069], 212.25, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
-    boldText(sanitize(data.customerPhone) || '-', 83.191, y + 49.35, { lineBreak: false }, 0.9698);
+    boldText(sanitize(data.customerPhone) || '-', 83.191, y + 50.67, { lineBreak: false }, 0.9698);
     drawGlyphString('GSTIN Number:', [165.75, 171.465, 176.447, 181.454, 183.736, 189.721, 191.803, 197.788, 202.414, 209.772, 214.484, 218.933, 221.776], 212.25, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
-    boldText(sanitize(data.customerGstin) || '-', 165.75, y + 59.1, { width: colWidth / 2 - 6 }, 0.9698);
+    boldText(sanitize(data.customerGstin) || '-', 165.75, y + 60.42, { width: colWidth / 2 - 6 }, 0.9698);
 
     drawGlyphString('State:', [36.891, 41.873, 44.618, 49.182, 51.927, 56.376], 224.25, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
-    boldText(sanitize(data.customerState) || '-', 60.492, y + 61.35, { lineBreak: false }, 0.928);
+    boldText(sanitize(data.customerState) || '-', 60.492, y + 62.67, { lineBreak: false }, 0.928);
 
     // Invoice Details column.
     drawGlyphString('No:', [302.684, 308.669, 313.455], 183.0, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
-    boldText(sanitize(data.invoiceNumber), 317.578, y + 20.1, { lineBreak: false }, 0.9698);
+    boldText(sanitize(data.invoiceNumber), 317.578, y + 21.42, { lineBreak: false }, 0.9698);
     drawGlyphString('Date:', [302.684, 308.19, 312.754, 315.499, 319.948], 195.0, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
-    boldText(sanitize(data.issueDate), 324.07, y + 32.1, { lineBreak: false }, 0.9698);
+    boldText(sanitize(data.issueDate), 324.07, y + 33.42, { lineBreak: false }, 0.9698);
     drawGlyphString('Place of Supply:', [302.684, 307.977, 310.017, 314.581, 318.973, 323.423, 325.504, 330.289, 333.206, 335.287, 340.269, 344.895, 349.606, 354.318, 356.358, 360.328], 207.0, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
-    boldText(sanitize(data.customerState) || '-', 364.453, y + 44.1, { lineBreak: false }, 0.928);
+    boldText(sanitize(data.customerState) || '-', 364.453, y + 45.42, { lineBreak: false }, 0.928);
 
     y += biRowHeight;
     // 6.0 (was 5.5) — re-measured 2026-08-21 against a real generated PDF vs
@@ -706,9 +713,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       colX += cols[0].width;
 
       // Item name + agent-name note line.
-      doc.text(sanitize(item.productName), colX + 3, y + 5, { width: cols[1].width - 6, height: 10, ellipsis: true });
+      // y+3.37 (was +5), note y+13.87 (was +16) — re-measured 2026-08-31 via
+      // pdftotext bbox against the reference (Sale_1263): reference item-name
+      // line1 sits at row_y+3.37 exactly (256.17 - 252.8), note/line2 at
+      // row_y+13.87 (266.67 - 252.8), not +5/+16 — those were guesses that
+      // sat 1.63pt/2.13pt too low, reported as item-name text visually
+      // crossing into the row below when overlaid against the reference.
+      doc.text(sanitize(item.productName), colX + 3, y + 3.37, { width: cols[1].width - 6, height: 10, ellipsis: true });
       if (agentNote) {
-        doc.fontSize(7).text(`(${agentNote})`, colX + 3, y + 16, { width: cols[1].width - 6, height: 9, ellipsis: true });
+        doc.fontSize(7).text(`(${agentNote})`, colX + 3, y + 13.87, { width: cols[1].width - 6, height: 9, ellipsis: true });
         doc.fontSize(8);
       }
       colX += cols[1].width;
@@ -723,8 +736,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       colX += cols[5].width;
 
       // GST(₹) — amount on top, rate% below, both right-aligned.
-      doc.text(rupee(gstAmt), colX + 3, y + 5, { width: cols[6].width - 6, height: 10, ellipsis: true, align: 'right' });
-      doc.fontSize(7).text(`(${Number(item.gstRatePct).toFixed(1)}%)`, colX + 3, y + 16, { width: cols[6].width - 6, height: 9, ellipsis: true, align: 'right' });
+      // y+4.12 (was +5), rate y+13.87 (was +16) — same re-measurement as the
+      // item-name/note line above: reference GST-amount line1 sits at
+      // row_y+4.12 (256.92-252.8), rate line2 at row_y+13.87 (266.67-252.8).
+      doc.text(rupee(gstAmt), colX + 3, y + 4.12, { width: cols[6].width - 6, height: 10, ellipsis: true, align: 'right' });
+      doc.fontSize(7).text(`(${Number(item.gstRatePct).toFixed(1)}%)`, colX + 3, y + 13.87, { width: cols[6].width - 6, height: 9, ellipsis: true, align: 'right' });
       doc.fontSize(8);
       colX += cols[6].width;
 
@@ -1058,8 +1074,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         cells.push(`${cgstRate.toFixed(1)}`, rupee(g.cgst), `${sgstRate.toFixed(1)}`, rupee(g.sgst));
       }
       cells.push(rupee(g.total));
+      // ty+3.45 (was +4) — re-measured 2026-08-31 via pdftotext bbox against
+      // the reference: data-row values sit at ty+3.45 (346.92-343.47), not
+      // +4 (0.55pt too low, reported as "tax summary rows below header"
+      // sitting low when overlaid against the reference).
       for (let c = 0; c < cells.length; c++) {
-        doc.text(cells[c], tx + 2, ty + 4, { width: dataColWidths[c] - 4, height: 9, ellipsis: true, align: c === 0 ? 'left' : 'right' });
+        doc.text(cells[c], tx + 2, ty + 3.45, { width: dataColWidths[c] - 4, height: 9, ellipsis: true, align: c === 0 ? 'left' : 'right' });
         tx += dataColWidths[c];
       }
       ty += taxRowH;
@@ -1088,7 +1108,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // reference right-aligns the 'TOTAL' word itself in this row — its
         // measured x-end (≈90.35) sits at the HSN column's right edge, not
         // its left edge.
-        boldText(totalCells[c], tx + 2, ty + 4, { width: dataColWidths[c] - 4, height: 9, ellipsis: true, align: 'right' });
+        // ty+3.5 (was +4) — re-measured 2026-08-31 against the reference:
+        // this TOTAL row (including the "TOTAL" label itself) sits at
+        // ty+3.5 (362.67-359.17), not +4.
+        boldText(totalCells[c], tx + 2, ty + 3.5, { width: dataColWidths[c] - 4, height: 9, ellipsis: true, align: 'right' });
         tx += dataColWidths[c];
       }
     }
@@ -1128,14 +1151,16 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // other Body-Bold usage in this file — non-bold rows (Sub Total /
       // Received / etc.) measured correctly already and are left alone.
       const size = opts?.bold ? rawSize * 0.86 : rawSize;
-      // Bold rows only: ry-2.16 — re-measured 2026-08-27 against real
-      // rendered pixels (same method as the title/Bill To fixes above).
-      // Non-bold rows (Sub Total/Received/etc, plain doc.text, no boldText
-      // wrapper) weren't showing this offset, so it's scoped to the bold
-      // branch only, applied consistently to label/value/colon so all three
-      // stay vertically aligned with each other. (Doesn't affect the
-      // glyphSpec branch below, which draws its own baseline directly.)
-      const boldY = ry - 2.16;
+      // No offset (was ry-2.16) — re-measured 2026-08-31 via pdftotext bbox
+      // against the reference: the old -2.16 overcorrected, landing Total/
+      // Balance's VALUE text 2.19pt too HIGH (312.48/384.48 vs the
+      // reference's actual 314.67/386.67 — the opposite direction from what
+      // the -2.16 was meant to fix). Non-bold rows (Sub Total/Received/
+      // Previous Balance/Current Balance, plain doc.text at `ry` with no
+      // offset) already land within 0.03pt of the reference, so plain `ry`
+      // is correct for the value here too. (Doesn't affect the glyphSpec
+      // label branch below, which draws its own baseline directly.)
+      const boldY = ry;
       doc.font(opts?.bold ? 'Body-Bold' : 'Body').fontSize(size).fillColor(BORDER);
       const glyphSpec = summaryLabelGlyphs[label];
       if (glyphSpec) {
