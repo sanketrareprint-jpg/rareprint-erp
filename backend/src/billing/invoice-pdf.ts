@@ -1305,7 +1305,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       y + 10.51,
       8.4,
     );
-    doc.font('Body').fontSize(8);
+    // fillColor(BORDER) reset — drawGlyphString() above wraps its own
+    // fillColor(BORDER) in save()/restore(), so it reverts the ambient
+    // fill color back to whatever it was before the call once it returns —
+    // here, GREY, left over from this row's own label-band fill() a few
+    // lines up. Without this reset, the Terms value text below silently
+    // rendered in GREY (near-invisible against the white background) —
+    // root-caused 2026-08-31 from a real generated invoice showing
+    // washed-out Bank Details text (same bug, same fix, see below).
+    doc.font('Body').fontSize(8).fillColor(BORDER);
     doc.text(sanitize(data.termsAndConditions) || '-', tableX + 3.2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
     y += termsRowH;
     // No gap here — in the reference, the Terms row's bottom border and the
@@ -1372,6 +1380,14 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // quirk on that one row alone, not chased further since 3 of 4 rows
     // agree exactly. Row pitch corrected too: the reference's row1->row2
     // gap is 10.5, not 11 (rows 2-3 and 3-4 were already exactly 12).
+    // fillColor(BORDER) reset — same reason as the Terms And Conditions
+    // value above: the two drawGlyphString() calls just above (and
+    // boldText() in the else branch) leave the ambient fill color reverted
+    // to GREY (this row's own label-band fill()) once their own internal
+    // save()/restore() unwinds. Root-caused 2026-08-31 from a real
+    // generated invoice: Name/Account No./IFSC code/Account Holder's Name
+    // were rendering in near-invisible GREY instead of BORDER.
+    doc.fillColor(BORDER);
     labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 20.68, 8);
     labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 31.18, 8);
     labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 43.18, 8);
