@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { resolveItemDetails } from '../common/resolve-item-details';
 
 // Same convention as AccountsService — Sanket is the super-admin, identified
 // by email rather than a Role enum value, since this app has never had a
@@ -916,11 +917,42 @@ export class OrdersService {
   // production, quantity/price/product-details are normally locked (they
   // drive production sheet nesting, invoicing, commission). This lets
   // Sanket fix a genuine mistake (wrong quantity/GSM entered, price typo)
-  // right up until the item actually starts printing -- after that, sheets
-  // may already be nested/cut against the old numbers, so it's blocked.
+  // any time before the item is actually dispatched -- covers NOT_PRINTED,
+  // PRINTING, PROCESSING and READY_FOR_DISPATCH; only blocked once it's
+  // physically shipped (per Sanket, 2026-08-31: production continuing
+  // against numbers later corrected is an acceptable tradeoff -- what must
+  // never happen is editing something already out the door).
   // Every edit recalculates the order's subtotal/grandTotal/paymentStatus
-  // (same formula as create()) and is logged to StatusLog for audit, per
-  // Sanket's explicit confirmation (2026-08-19).
+  // (same formula as create()), reverts the order to PENDING_APPROVAL so
+  // Accounts re-reviews it, and is logged to StatusLog for audit, per
+  // Sanket's explicit confirmation (2026-08-19, extended 2026-08-31).
+  async getSuperAdminEditItem(itemId: string, user: { id: string; email: string }) {
+    if (user.email !== SUPER_ADMIN_EMAIL) {
+      throw new ForbiddenException('Only the super-admin can edit an item after it has been approved');
+    }
+    const item = await this.prisma.orderItem.findUnique({
+      where: { id: itemId },
+      include: { order: true, product: true },
+    });
+    if (!item) throw new NotFoundException('Order item not found');
+    const resolved = resolveItemDetails(item.productionNotes, item.product);
+    return {
+      id: item.id,
+      orderId: item.orderId,
+      orderNo: item.order.orderNumber,
+      productName: item.product.name,
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice),
+      size: resolved.size ?? '',
+      gsm: resolved.gsm ?? '',
+      paper: resolved.paper ?? '',
+      sides: resolved.sides ?? '',
+      cancelledAt: item.cancelledAt,
+      dispatchedAt: (item as any).dispatchedAt ?? null,
+      orderStatus: item.order.status,
+    };
+  }
+
   async superAdminEditItem(
     itemId: string,
     body: { quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
@@ -943,19 +975,17 @@ export class OrdersService {
 
     // productionNotes carries the free-text "Size: X, GSM: Y, Paper: Z,
     // Sides: W" details set at order-create time (see
-    // frontend/app/orders/create/page.tsx) -- parse the existing string,
-    // overlay whichever fields were submitted, and rebuild it in the exact
-    // same format everything else (production, dispatch, sheets) expects.
-    const notes = item.productionNotes ?? '';
-    const currentSize  = notes.match(/Size[\s:]+([^\n,]+)/i)?.[1]?.trim() ?? '';
-    const currentGsm   = notes.match(/GSM[\s:]+([^,\n\s]+)/i)?.[1]?.trim() ?? '';
-    const currentPaper = notes.match(/Paper[\s:]+([^,\n]+)/i)?.[1]?.trim() ?? '';
-    const currentSides = notes.match(/Sides[\s:]+([^,\n\s]+)/i)?.[1]?.trim() ?? '';
+    // frontend/app/orders/create/page.tsx) -- resolve the currently-effective
+    // values (notes first, falling back to the product catalog -- same
+    // resolution dispatch/accounts already use, see ../common/resolve-item-details),
+    // overlay whichever fields were submitted, and rebuild the notes string in
+    // the exact same format everything else (production, dispatch, sheets) expects.
+    const resolved = resolveItemDetails(item.productionNotes, item.product);
 
-    const size  = body.size  ?? currentSize;
-    const gsm   = body.gsm   ?? currentGsm;
-    const paper = body.paperType ?? currentPaper;
-    const sides = body.sides ?? currentSides;
+    const size  = body.size  ?? resolved.size  ?? '';
+    const gsm   = body.gsm   ?? resolved.gsm   ?? '';
+    const paper = body.paperType ?? resolved.paper ?? '';
+    const sides = body.sides ?? resolved.sides ?? '';
     const productionNotes = `Size: ${size}, GSM: ${gsm}${paper ? `, Paper: ${paper}` : ''}, Sides: ${sides}`;
 
     const quantity  = body.quantity  ?? item.quantity;

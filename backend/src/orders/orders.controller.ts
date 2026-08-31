@@ -135,6 +135,16 @@ export class OrdersController {
     return this.ordersService.create(dto, req.user.id);
   }
 
+  // Backs the full-page /orders/super-edit UI -- returns the single item's
+  // currently-effective Size/GSM/Paper/Sides (notes-first, product-catalog
+  // fallback, same resolution superAdminEditItem itself uses) plus enough
+  // order context to render the page header.
+  @Get('items/:itemId/superadmin-edit')
+  @UseGuards(AuthGuard('jwt'))
+  getSuperAdminEditItem(@Param('itemId') itemId: string, @Req() req: Request & { user: JwtUser }) {
+    return this.ordersService.getSuperAdminEditItem(itemId, req.user);
+  }
+
   // Super-admin-only: correct quantity/quality/amount on an item before it
   // starts printing. See OrdersService.superAdminEditItem for the guard,
   // recalculation, and audit-log details.
