@@ -66,7 +66,22 @@ function parseTimeCell(v: unknown): string | null {
   if (v === null || v === undefined || v === '') return null;
   if (typeof v === 'number') {
     if (!Number.isFinite(v)) return null;
-    const fraction = v - Math.floor(v); // ignore any whole-day part
+    // A real on-duty/off-duty punch is always a same-day clock time, i.e. a
+    // fraction strictly less than 1 (Excel's time-serial encoding: 1.0 = 24h).
+    // v >= 1 means this cell isn't a time at all -- it's a multi-day DURATION
+    // that ended up here, almost always the sheet's own monthly Grand Total
+    // (e.g. "166:30:00" worked = serial 6.9375). The old code did
+    // `fraction = v - Math.floor(v)` unconditionally, which silently wrapped
+    // that total modulo 24h into a bogus clock time (6.9375 -> 0.9375 ->
+    // "22:30"), and that bogus time then fed into computeHoursWorked and
+    // produced an equally bogus ~22.5h "worked" for the day -- confirmed via
+    // Prajakta Khadilkar's and Yash's Aug 2026 imports, where the Grand
+    // Total row's duration landed on the last day of the month. Rejecting
+    // v >= 1 outright (treating it as "no punch" instead of guessing a time)
+    // stops the wraparound at the source, regardless of which column/row of
+    // the export the stray total ends up in.
+    if (v >= 1) return null;
+    const fraction = v; // already < 1, i.e. already just the time-of-day fraction
     let totalMinutes = Math.round(fraction * 24 * 60);
     totalMinutes = ((totalMinutes % 1440) + 1440) % 1440;
     const h = Math.floor(totalMinutes / 60);
@@ -210,10 +225,17 @@ function parseExceptionSheet(sheet: XLSX.WorkSheet): { rows: ParsedRow[]; period
     const r = aoa[i] ?? [];
     const biometricId = cellStr(r[0]);
     const date = parseCellDate(r[3]);
-    if (!biometricId || biometricId.toLowerCase() === 'id' || !date) continue; // subheader / blank rows
+    const name = cellStr(r[1]);
+    // Some exports append a trailing "Grand Total" / "Total" summary row for
+    // the employee at the bottom of their block. That row can carry a date
+    // cell that collides with (or falls inside) the real date range, and if
+    // it slipped through here it would upsert on top of a real day's record.
+    // Skip it by name in addition to the parseTimeCell(v >= 1) guard above,
+    // since either safeguard alone might not catch every export variant.
+    if (!biometricId || biometricId.toLowerCase() === 'id' || !date || /total/i.test(name)) continue; // subheader / blank / total rows
     rows.push({
       biometricId,
-      name: cellStr(r[1]),
+      name,
       date,
       onDuty1: parseTimeCell(r[4]),
       offDuty1: parseTimeCell(r[5]),
