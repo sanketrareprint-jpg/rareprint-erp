@@ -1001,6 +1001,16 @@ export class DispatchService {
     let fshipOrderId: string | null = null;
     let fshipStatus: string | null = null;
     let shipmentStatus: ShipmentStatus = ShipmentStatus.PACKED;
+    // Only becomes true once a carrier branch below has real, courier-side
+    // confirmation that a shipment actually exists with them (a manifested
+    // Bigship order, a real Shiprocket order id, or a Fship waybill/AWB) --
+    // NOT just "we tried." If this stays false, the whole booking is treated
+    // as failed below: no Shipment record, no dispatchedAt marker, no order
+    // status change, no "Dispatched" WhatsApp. Otherwise a courier-side
+    // rejection (wrong pincode, unauthorized area, auto-manifest failure,
+    // etc.) still silently moved the order out of the Dispatch Queue into
+    // History as if it had shipped. Confirmed via a real order, 2026-09-01.
+    let courierConfirmedBooking = false;
 
     const customerAddr = splitAddressForShiprocket(order.customer);
     // "Ship to a different address" override for just this booking's item(s) —
@@ -1080,8 +1090,12 @@ export class DispatchService {
 
       if (!placeResult.bigshipOrderId) {
         // Place/Manifest failed — do NOT retry it, and do NOT show a fake AWB.
-        // The draft still exists in Bigship for manual "Ship Now", same as the
-        // pre-existing fallback behavior.
+        // The draft still exists in Bigship for manual "Ship Now", but as far
+        // as this booking attempt goes nothing was actually shipped, so
+        // courierConfirmedBooking stays false and the whole booking is
+        // rejected below — the order stays in the Dispatch Queue instead of
+        // moving to History. The dispatcher can retry from the Queue, or
+        // finish the existing draft manually in Bigship's Unshipped tab.
         trackingRef    = '';
         awbNumber      = null;
         shiprocketNote = ` BigShip Order: ${bs.bigshipOrderId} — draft created but auto-manifest failed (${placeResult.message ?? 'unknown error'}); needs manual "Ship Now" in Bigship (Unshipped tab).`;
@@ -1091,6 +1105,7 @@ export class DispatchService {
         // authoritative AWB/status via the same order-shipment-details lookup the
         // manual "Sync Bigship" button already uses, instead of standing up a
         // second, duplicate Bigship endpoint integration for Track Order.
+        courierConfirmedBooking = true; // manifested with Bigship — real booking, even if the AWB lookup below hasn't caught up yet
         const shipDetails = await this.bigship.getOrderShipmentDetails(bigshipOrderId);
         awbNumber      = shipDetails.awbNumber ?? null;
         trackingRef    = awbNumber ?? '';
@@ -1121,8 +1136,11 @@ export class DispatchService {
           codAmount: orderCodAmt,
         });
         if (sr.shiprocketOrderId) {
+          courierConfirmedBooking = true;
           trackingRef    = sr.shiprocketOrderId;
           shiprocketNote = ` Shiprocket: ${sr.shiprocketOrderId}.`;
+        } else {
+          shiprocketNote = ` Shiprocket booking failed: ${sr.message ?? 'no order id returned'}.`;
         }
       }
     } else if (rateId.startsWith('fs-') && this.fship.isConfigured()) {
@@ -1166,6 +1184,7 @@ export class DispatchService {
           })),
         });
         if (fs.waybill) {
+          courierConfirmedBooking = true; // real AWB assigned — order genuinely exists in Fship's system
           awbNumber   = fs.waybill;
           trackingRef = fs.waybill;
           fshipOrderId = fs.apiOrderId != null ? String(fs.apiOrderId) : null;
@@ -1191,6 +1210,21 @@ export class DispatchService {
           shiprocketNote = ` Fship booking failed: ${fs.message ?? 'no waybill returned'}.`;
         }
       }
+    }
+
+    // No carrier branch above actually confirmed a booking with the courier
+    // (no manifested Bigship order, no Shiprocket order id, no Fship AWB) —
+    // including the case where the rateId/carrier didn't match any branch at
+    // all. Reject the whole attempt here, before the transaction below runs,
+    // so nothing changes: no Shipment record, no dispatchedAt marker, order
+    // stays exactly as it was and the item(s) remain visible in the Dispatch
+    // Queue for a retry, instead of silently moving to History as if they'd
+    // shipped. Confirmed via a real order, 2026-09-01.
+    if (!courierConfirmedBooking) {
+      throw new BadRequestException(
+        shiprocketNote.trim() ||
+        'Courier did not confirm this booking — nothing was actually booked, so these item(s) remain in the dispatch queue for retry.',
+      );
     }
 
     let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus; awbNumber: string | null; courierBookingWarning: string | null };
