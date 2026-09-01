@@ -12,7 +12,12 @@ import { ProductionModule } from '../production/production.module';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
       secret: getJwtSecret(),
-      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN ?? '1d') as never },
+      // Was '1d' -- every login token expired after 24h, so the app (and
+      // the frontend's 401 -> clearAuth()+redirect-to-/login handling)
+      // logged everyone out daily even on their own phone. Bumped to 90
+      // days so signing in once keeps you signed in for ~3 months; still
+      // overridable via JWT_EXPIRES_IN without a code change.
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN ?? '90d') as never },
     }),
     // Only imported for GmailDraftService, reused here to send
     // forgot-password reset-link emails via the same Gmail API pattern
