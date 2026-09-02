@@ -45,7 +45,20 @@ export class CostTableService {
     const slab = this.matchingSlab(item.product.costSlabs ?? [], item.quantity);
     if (!slab) return null;
     const raw = Number(slab.unitPrice);
-    const salePerUnit = Number(item.unitPrice);
+    // Derive the per-unit sale price from lineTotal/quantity rather than
+    // trusting the separately-stored item.unitPrice field -- unitPrice can
+    // drift from what was actually charged (e.g. someone typed the order's
+    // TOTAL amount into the unit-price box) while lineTotal is what was
+    // really invoiced, so it's the more robust basis for this cost-slab
+    // heuristic. A real incident: Order #1540 (Nikita Paul, Aug 2026) had
+    // unitPrice=5227 with lineTotal=5227 for qty=5000 envelopes (unitPrice
+    // should have been ~1.05) -- comparing the cost slab against that
+    // corrupted unitPrice flipped this heuristic's branch and inflated the
+    // line's cost 5000x, producing a -₹1.45 crore phantom loss that
+    // corrupted the whole month's aggregate profit figures across the
+    // dashboard, Accounts, and Marketing ROI reporting alike (this same
+    // comparison is duplicated in each of those, see the sibling comments).
+    const salePerUnit = item.quantity > 0 ? Number(item.lineTotal) / item.quantity : Number(item.unitPrice);
     const costPerUnit = raw > salePerUnit ? raw / slab.minQuantity : raw;
     return costPerUnit * item.quantity;
   }
@@ -1031,7 +1044,9 @@ export class CostTableService {
         if (!costSlab) { hasAll = false; break; }
 
         const lineTotal   = Number(item.lineTotal);
-        const unitPrice   = Number(item.unitPrice);
+        // See CostTableService.lineCostTotal for why this is derived from
+        // lineTotal/quantity rather than the stored item.unitPrice field.
+        const unitPrice   = item.quantity > 0 ? lineTotal / item.quantity : Number(item.unitPrice);
         const rawCost     = Number(costSlab.unitPrice);
         const costPerUnit = rawCost > unitPrice ? rawCost / costSlab.minQuantity : rawCost;
         const costItemTotal = costPerUnit * item.quantity;
@@ -1253,7 +1268,11 @@ export class CostTableService {
 
         if (costSlab) {
           const rawCost = Number(costSlab.unitPrice);
-          const unitPrice = Number(item.unitPrice);
+          // See CostTableService.lineCostTotal for why this is derived from
+          // lineTotal/quantity rather than the stored item.unitPrice field
+          // -- this exact spot is what produced Nikita Paul's -₹1.45 crore
+          // Aug 2026 figure from a single corrupted order item.
+          const unitPrice = item.quantity > 0 ? lineTotal / item.quantity : Number(item.unitPrice);
           const costPerUnit = rawCost > unitPrice ? rawCost / costSlab.minQuantity : rawCost;
           costItemTotal = costPerUnit * item.quantity;
           grossProfit = lineTotal - costItemTotal;

@@ -214,7 +214,16 @@ export class OrdersService {
     let costTotal = 0;
     for (const item of order.items) {
       const lineTotal = Number(item.lineTotal);
-      const unitPrice = Number(item.unitPrice);
+      // Derived from lineTotal/quantity rather than the stored
+      // item.unitPrice field -- unitPrice can drift from what was actually
+      // charged (e.g. the order's TOTAL amount typed into the unit-price
+      // box by mistake) while lineTotal is what was really invoiced, so
+      // it's the more robust basis for this cost-slab heuristic. A real
+      // incident: Order #1540 (Nikita Paul, Aug 2026) had unitPrice=5227
+      // with lineTotal=5227 for qty=5000 (should have been ~1.05/unit) --
+      // comparing the cost slab against that corrupted unitPrice inflated
+      // the line's cost 5000x, producing a -₹1.45 crore phantom loss.
+      const unitPrice = item.quantity > 0 ? lineTotal / item.quantity : Number(item.unitPrice);
       saleTotal += lineTotal;
       const slab = item.matchingCostSlab;
       if (!slab) return { marginPct: null, costTotal: null, marginTotal: null };
@@ -248,7 +257,9 @@ export class OrdersService {
     for (const item of order.items) {
       const slab = item.matchingCostSlab;
       const lineTotal = Number(item.lineTotal);
-      const unitPrice = Number(item.unitPrice);
+      // See calculateOrderMargin above for why this is derived from
+      // lineTotal/quantity rather than the stored item.unitPrice field.
+      const unitPrice = item.quantity > 0 ? lineTotal / item.quantity : Number(item.unitPrice);
 
       // profit stays null when there's no cost slab for this exact quantity;
       // it's a number (possibly <= 0) whenever a slab was found.

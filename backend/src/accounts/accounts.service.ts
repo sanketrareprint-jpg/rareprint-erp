@@ -550,7 +550,17 @@ export class AccountsService {
         if (!matchingSlab) continue;
 
         const rawCost = Number(matchingSlab.unitPrice);
-        const salePerUnit = Number(item.unitPrice);
+        // Derived from lineTotal/quantity rather than the stored
+        // item.unitPrice field -- unitPrice can drift from what was
+        // actually charged (e.g. the order's TOTAL amount typed into the
+        // unit-price box by mistake) while lineTotal is what was really
+        // invoiced, so it's the more robust basis both for this cost-slab
+        // heuristic and for the margin% gate below. A real incident: Order
+        // #1540 (Nikita Paul, Aug 2026) had unitPrice=5227 with
+        // lineTotal=5227 for qty=5000 (should have been ~1.05/unit) --
+        // trusting that corrupted unitPrice here would have shown a wildly
+        // wrong margin% on this exact approval gate.
+        const salePerUnit = item.quantity > 0 ? Number(item.lineTotal) / item.quantity : Number(item.unitPrice);
         const costPerUnit = rawCost > salePerUnit ? rawCost / matchingSlab.minQuantity : rawCost;
         const marginPct = salePerUnit > 0 ? ((salePerUnit - costPerUnit) / salePerUnit) * 100 : 0;
 

@@ -396,11 +396,20 @@ export class MarketingRoiService {
       .sort((a, b) => b.minQuantity - a.minQuantity)[0] ?? null;
   }
 
-  private lineCostTotal(item: { quantity: number; unitPrice: any; product: { costSlabs: any[] } }): number | null {
+  private lineCostTotal(item: { quantity: number; unitPrice: any; lineTotal: any; product: { costSlabs: any[] } }): number | null {
     const slab = this.matchingSlab(item.product.costSlabs ?? [], item.quantity);
     if (!slab) return null;
     const raw = Number(slab.unitPrice);
-    const salePerUnit = Number(item.unitPrice);
+    // Derived from lineTotal/quantity rather than the stored
+    // item.unitPrice field -- unitPrice can drift from what was actually
+    // charged (e.g. the order's TOTAL amount typed into the unit-price box
+    // by mistake) while lineTotal is what was really invoiced. A real
+    // incident: Order #1540 (Nikita Paul, Aug 2026) had unitPrice=5227 with
+    // lineTotal=5227 for qty=5000 (should have been ~1.05/unit) -- trusting
+    // that corrupted unitPrice here inflated the line's cost 5000x and is
+    // exactly why this report's August ROI(Profit) showed -401.94x. Mirrors
+    // the same fix in cost-table.service.ts's lineCostTotal().
+    const salePerUnit = item.quantity > 0 ? Number(item.lineTotal) / item.quantity : Number(item.unitPrice);
     const costPerUnit = raw > salePerUnit ? raw / slab.minQuantity : raw;
     return costPerUnit * item.quantity;
   }
