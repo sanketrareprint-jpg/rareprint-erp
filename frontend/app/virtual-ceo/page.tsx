@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
@@ -457,16 +458,12 @@ function CeoSettingsPanel() {
 
         {/* User filter */}
         <div style={{ marginBottom: 14 }}>
-          <select
+          <MobileSelect
             value={selectedHistoryUser}
-            onChange={e => setSelectedHistoryUser(e.target.value)}
+            onChange={setSelectedHistoryUser}
             style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, background: "#fff", outline: "none", minWidth: 200 }}
-          >
-            <option value="all">All Users</option>
-            {reviewHistory.map(u => (
-              <option key={u.userId} value={u.userId}>{u.user.fullName || u.user.email}</option>
-            ))}
-          </select>
+            options={[{ value: "all", label: "All Users" }, ...reviewHistory.map(u => ({ value: u.userId, label: u.user.fullName || u.user.email }))]}
+          />
         </div>
 
         {reviewHistory.length === 0 ? (
@@ -652,15 +649,13 @@ function ActionCard({
           </button>
           {/* Tag selector */}
           {tags.length > 0 && (
-            <select
+            <MobileSelect
               value={selectedTagId ?? ""}
-              onChange={(e) => onTagChange(item.id, e.target.value)}
-              aria-label={`Tag ${item.title}`}
+              onChange={(v) => onTagChange(item.id, v)}
+              ariaLabel={`Tag ${item.title}`}
               style={{ width: 130, padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#334155", fontSize: 11, fontWeight: 700 }}
-            >
-              <option value="">No tag</option>
-              {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.label}</option>)}
-            </select>
+              options={[{ value: "", label: "No tag" }, ...tags.map(tag => ({ value: tag.id, label: tag.label }))]}
+            />
           )}
           {/* Go button */}
           {item.actionUrl && (

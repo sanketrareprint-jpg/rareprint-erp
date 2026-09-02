@@ -1,6 +1,7 @@
 "use client";
 
 import { API_BASE_URL } from "@/lib/api";
+import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -31,7 +32,7 @@ export default function ResetPasswordClient() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, newPassword: password }),
@@ -50,8 +51,8 @@ export default function ResetPasswordClient() {
 
       setSuccess(true);
       setTimeout(() => router.push("/login"), 2500);
-    } catch {
-      setError("Could not reach the server. Is the API running?");
+    } catch (err) {
+      setError(`Could not reach the server after retrying (${describeFetchError(err)}). Check your internet connection.`);
     } finally {
       setLoading(false);
     }

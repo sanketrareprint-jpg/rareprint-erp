@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { getStoredUser } from "@/lib/auth";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
 import { Loader2, CheckCircle2, ChevronDown, ChevronUp, Wallet, Save, Clock, AlertTriangle } from "lucide-react";
@@ -132,16 +133,15 @@ export default function SalaryCommissionPage() {
         {isAdmin && (
           <div className="bg-white border border-slate-200 rounded-xl p-4">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Employee</label>
-            <select
+            <MobileSelect
               value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
+              onChange={setSelectedId}
               className="mt-1 block w-full sm:w-80 border border-slate-300 rounded-lg px-3 py-2 text-sm"
-            >
-              <option value={me?.id ?? ""}>{me?.fullName ?? "Me"} (you)</option>
-              {employees.filter((e) => e.id !== me?.id).map((e) => (
-                <option key={e.id} value={e.id}>{e.fullName} — {e.role}</option>
-              ))}
-            </select>
+              options={[
+                { value: me?.id ?? "", label: `${me?.fullName ?? "Me"} (you)` },
+                ...employees.filter((e) => e.id !== me?.id).map((e) => ({ value: e.id, label: `${e.fullName} — ${e.role}` })),
+              ]}
+            />
           </div>
         )}
 
@@ -189,9 +189,8 @@ export default function SalaryCommissionPage() {
                 <Clock size={16} /> Attendance-based Salary
               </h2>
               <div className="flex items-center gap-2">
-                <select value={attMonth} onChange={(e) => setAttMonth(Number(e.target.value))} className="border border-slate-300 rounded-lg px-2 py-1 text-xs">
-                  {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-                </select>
+                <MobileSelect value={String(attMonth)} onChange={(v) => setAttMonth(Number(v))} className="border border-slate-300 rounded-lg px-2 py-1 text-xs"
+                  options={MONTH_NAMES.map((m, i) => ({ value: String(i + 1), label: m }))} />
                 <input type="number" value={attYear} onChange={(e) => setAttYear(Number(e.target.value))} className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-xs" />
               </div>
             </div>

@@ -5,6 +5,7 @@ import {
   AUTH_USER_KEY,
 } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
+import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { Loader2, Lock, Mail } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -43,7 +44,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -79,8 +80,8 @@ export default function LoginPage() {
       localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
       router.push("/dashboard");
-    } catch {
-      setError("Could not reach the server. Is the API running?");
+    } catch (err) {
+      setError(`Could not reach the server after retrying (${describeFetchError(err)}). Check your internet connection.`);
     } finally {
       setLoading(false);
     }

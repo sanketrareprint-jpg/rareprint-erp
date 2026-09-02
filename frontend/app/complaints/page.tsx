@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { clearAuth, getStoredUser } from "@/lib/auth";
 import {
   AlertTriangle, Clock, LayoutGrid, List, Loader2, Plus, Search, User,
@@ -100,15 +101,11 @@ export default function ComplaintsPage() {
               className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-400"
             />
           </div>
-          <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as ComplaintPriority | "ALL")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold outline-none">
-            <option value="ALL">All Priorities</option>
-            {Object.entries(PRIORITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
+          <MobileSelect value={priorityFilter} onChange={(v) => setPriorityFilter(v as ComplaintPriority | "ALL")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold outline-none"
+            options={[{ value: "ALL", label: "All Priorities" }, ...Object.entries(PRIORITY_LABELS).map(([v, l]) => ({ value: v, label: l }))]} />
           {view === "table" && (
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ComplaintStatus | "ALL")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold outline-none">
-              <option value="ALL">All Statuses</option>
-              {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            <MobileSelect value={statusFilter} onChange={(v) => setStatusFilter(v as ComplaintStatus | "ALL")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold outline-none"
+              options={[{ value: "ALL", label: "All Statuses" }, ...Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))]} />
           )}
           <button
             onClick={() => setOverdueOnly((v) => !v)}

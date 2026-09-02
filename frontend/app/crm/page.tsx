@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import {
   makeCall as nativeMakeCall,
   showCallOverlay,
@@ -136,13 +138,17 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
           </div>
           {/* Show business name only if different from display name */}
           {lead.businessName && lead.name?.trim() && (
-            <p className="text-xs text-slate-400 mt-0.5 truncate">{lead.businessName}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{lead.businessName}</p>
           )}
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="text-xs font-mono text-slate-500">{lead.phone}</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status]}`}>{STATUS_LABELS[lead.status]}</span>
-            {lead.productInterest && <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full">{lead.productInterest}</span>}
-            {lead.tags?.slice(0, 2).map((tag) => <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{tag}</span>)}
+            {lead.productInterest && <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full">📦 {lead.productInterest}</span>}
+            {lead.tags?.slice(0, 2).map((tag) => <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">#{tag}</span>)}
+          </div>
+          <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1">👤 {lead.agent?.fullName ?? "Unassigned"}</span>
+            <ScoreBadge score={lead.score} />
           </div>
           {lead.nextFollowUp && (
             <p className={`text-xs mt-1 ${overdue ? "text-red-600 font-semibold" : "text-slate-400"}`}>
@@ -150,7 +156,10 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
             </p>
           )}
         </div>
-        <div className="flex flex-col gap-1.5 flex-shrink-0">
+        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+          <span className="text-[10px] text-slate-400 whitespace-nowrap">
+            {new Date(lead.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+          </span>
           {/* Button — NOT an anchor tag, so it won't navigate away */}
           <button
             onClick={(e) => { e.stopPropagation(); onCall(); }}
@@ -168,6 +177,7 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 function CrmPageContent() {
+  const isNativeApp = useIsNativeApp();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
@@ -723,11 +733,9 @@ function CrmPageContent() {
             placeholder="Search name, phone…"
             className="flex-1 border border-slate-300 rounded-lg text-sm px-3 py-2 focus:outline-none focus:border-blue-400 min-w-0" />
           <button onClick={() => setMyLeadsOnly(p => !p)} className={`text-xs px-3 py-2 rounded-lg font-medium border ${myLeadsOnly ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-600"}`}>{myLeadsOnly ? "👤 My" : "All"}</button>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-slate-300 rounded-lg text-xs sm:text-sm px-2 py-2 focus:outline-none bg-white flex-shrink-0">
-            <option value="ALL">All</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-          </select>
+          <MobileSelect value={statusFilter} onChange={setStatusFilter}
+            className="border border-slate-300 rounded-lg text-xs sm:text-sm px-2 py-2 focus:outline-none bg-white flex-shrink-0"
+            options={[{ value: "ALL", label: "All" }, ...STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))]} />
         </div>
 
         {/* TABS */}
@@ -851,11 +859,10 @@ function CrmPageContent() {
                         </td>
                         <td className="px-4 py-3"><ScoreBadge score={lead.score} /></td>
                         <td className="px-4 py-3">
-                          <select value={lead.status} onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => updateStatus(lead.id, e.target.value as LeadStatus)}
-                            className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${STATUS_COLORS[lead.status]}`}>
-                            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                          </select>
+                          <MobileSelect value={lead.status} onClick={(e) => e.stopPropagation()}
+                            onChange={(v) => updateStatus(lead.id, v as LeadStatus)}
+                            className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${STATUS_COLORS[lead.status]}`}
+                            options={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} />
                         </td>
                         <td className="px-4 py-3">
                           {lead.nextFollowUp ? (
@@ -995,42 +1002,35 @@ function CrmPageContent() {
                   className="border border-slate-200 rounded-lg text-xs px-3 py-1.5 w-56 focus:outline-none focus:border-blue-400"
                 />
                 {notContactedAgentOptions.length > 1 && (
-                  <select
+                  <MobileSelect
                     value={notContactedAgentDraft}
-                    onChange={(e) => setNotContactedAgentDraft(e.target.value)}
+                    onChange={setNotContactedAgentDraft}
                     className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
-                  >
-                    <option value="ALL">All agents</option>
-                    {notContactedAgentOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
+                    options={[{ value: "ALL", label: "All agents" }, ...notContactedAgentOptions.map((a) => ({ value: a.id, label: a.name }))]}
+                  />
                 )}
-                <select
+                <MobileSelect
                   value={notContactedStatusDraft}
-                  onChange={(e) => setNotContactedStatusDraft(e.target.value)}
+                  onChange={setNotContactedStatusDraft}
                   className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
-                >
-                  <option value="ALL">All statuses</option>
-                  {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                </select>
+                  options={[{ value: "ALL", label: "All statuses" }, ...STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))]}
+                />
                 {notContactedTagOptions.length > 1 && (
-                  <select
+                  <MobileSelect
                     value={notContactedTagDraft}
-                    onChange={(e) => setNotContactedTagDraft(e.target.value)}
+                    onChange={setNotContactedTagDraft}
                     className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
-                  >
-                    <option value="ALL">All tags</option>
-                    {notContactedTagOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                    options={[{ value: "ALL", label: "All tags" }, ...notContactedTagOptions.map((t) => ({ value: t, label: t }))]}
+                  />
                 )}
-                <select
+                <MobileSelect
                   value={notContactedMonthDraft}
-                  onChange={(e) => setNotContactedMonthDraft(e.target.value)}
+                  onChange={setNotContactedMonthDraft}
                   className="border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+                  placeholder="All time"
                   title="Filter by the month the contact was assigned (Date Assigned column) — call history checked is always full history"
-                >
-                  <option value="">All time</option>
-                  {notContactedMonths.map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
-                </select>
+                  options={[{ value: "", label: "All time" }, ...notContactedMonths.map((m) => ({ value: m.month, label: m.label }))]}
+                />
                 <button
                   onClick={() => setNotContactedOverdueDraft((v) => !v)}
                   className={`text-xs px-3 py-1.5 rounded-lg font-medium border whitespace-nowrap ${notContactedOverdueDraft ? "bg-red-600 text-white border-red-600" : "border-slate-200 text-slate-600"}`}
@@ -1068,10 +1068,9 @@ function CrmPageContent() {
                         <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{c.createdOnAt ? new Date(c.createdOnAt).toLocaleDateString("en-IN") : "—"}</td>
                         <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleDateString("en-IN") : "—"}</td>
                         <td className="px-4 py-3">
-                          <select value={c.status} onChange={(e) => updateContactStatus(c, e.target.value as LeadStatus)}
-                            className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${STATUS_COLORS[c.status]}`}>
-                            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                          </select>
+                          <MobileSelect value={c.status} onChange={(v) => updateContactStatus(c, v as LeadStatus)}
+                            className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${STATUS_COLORS[c.status]}`}
+                            options={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} />
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {c.nextFollowUp ? (
@@ -1122,12 +1121,50 @@ function CrmPageContent() {
 
       {/* ── LEAD DETAIL DRAWER ── */}
       {selectedLead && (
-        <div className="fixed inset-0 z-50 flex" onClick={() => setSelectedLead(null)}>
+        <div
+          className="fixed right-0 bottom-0 left-0 z-[9999] flex"
+          style={isNativeApp ? { top: "calc(env(safe-area-inset-top, 0px) + 56px)" } : { top: 0 }}
+          onClick={() => setSelectedLead(null)}
+        >
+          {/* Note: on native, this drawer is deliberately positioned BELOW the
+              app's persistent top bar (`.erp-mobile-topbar`, fixed at
+              z-index: 9000 in globals.css) rather than trying to cover it with
+              a higher z-index — that was tried (z-[9999] on this same div) and
+              still lost visually to the topbar in practice, so instead of
+              fighting for the same screen region, the drawer simply starts
+              where the topbar ends (same `56px + safe-area-inset-top` offset
+              `.erp-main` already uses everywhere else in the native app). */}
           <div className="hidden sm:block flex-1 bg-black/40" />
           <div className="w-full sm:max-w-lg bg-white overflow-y-auto h-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
 
-            {/* Sticky header with name + prev/next navigation */}
-            <div className="sticky top-0 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-2 z-10">
+            {/* Back bar — plain first-in-flow full-width block, deliberately
+                NOT `position: sticky` or `position: fixed`. Both of those were
+                tried here before and silently failed to render/stay visible on
+                a real Android WebView (nested-scroll sticky containing-block
+                quirks, and z-index fights with the app's own fixed topbar).
+                A normal block element as the very first child of the scrollable
+                panel has no positioning logic to fail — it always renders
+                exactly here, above everything else. */}
+            {isNativeApp && (
+              <div className="flex w-full items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
+                <button
+                  onClick={() => setSelectedLead(null)}
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 active:bg-slate-100"
+                >
+                  <span className="text-lg leading-none">←</span> Back
+                </button>
+                {currentLeadIndex >= 0 && (
+                  <span className="ml-auto text-xs text-slate-400 whitespace-nowrap">{currentLeadIndex + 1} of {leads.length}</span>
+                )}
+              </div>
+            )}
+
+            {/* Header with name + prev/next navigation. Sticky on web (unchanged
+                behavior); plain in-flow on native, since `position: sticky`
+                inside this drawer's nested scroll container is what silently
+                failed to stay pinned on a real Android WebView — the native
+                Back bar above is the reliable substitute there. */}
+            <div className={`bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-2 ${isNativeApp ? "" : "sticky top-0 z-10"}`}>
               {/* Prev button */}
               <button
                 onClick={() => navigateLead("prev")}
@@ -1138,6 +1175,7 @@ function CrmPageContent() {
 
               {/* Name + business */}
               <div className="flex-1 min-w-0 text-center">
+                {isNativeApp && <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Name</p>}
                 <div className="flex items-center justify-center gap-1.5 flex-wrap">
                   {selectedLead.isHot && <span>🔥</span>}
                   <h2 className="text-base font-bold text-slate-900 truncate">{displayName(selectedLead)}</h2>
@@ -1145,8 +1183,8 @@ function CrmPageContent() {
                 {selectedLead.businessName && selectedLead.name?.trim() && (
                   <p className="text-slate-500 text-xs truncate">{selectedLead.businessName}</p>
                 )}
-                {/* Lead position indicator */}
-                {currentLeadIndex >= 0 && (
+                {/* Lead position indicator — native app shows this in the Back bar instead */}
+                {!isNativeApp && currentLeadIndex >= 0 && (
                   <p className="text-xs text-slate-400 mt-0.5">{currentLeadIndex + 1} of {leads.length}</p>
                 )}
               </div>
@@ -1205,10 +1243,9 @@ function CrmPageContent() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-400 mb-1">Status</p>
-                  <select value={selectedLead.status} onChange={(e) => updateStatus(selectedLead.id, e.target.value as LeadStatus)}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${STATUS_COLORS[selectedLead.status]}`}>
-                    {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                  </select>
+                  <MobileSelect value={selectedLead.status} onChange={(v) => updateStatus(selectedLead.id, v as LeadStatus)}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${STATUS_COLORS[selectedLead.status]}`}
+                    options={STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))} />
                 </div>
               </div>
 
@@ -1296,7 +1333,7 @@ function CrmPageContent() {
 
       {/* ── ADD LEAD MODAL ── */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="p-4 sm:p-6 border-b border-slate-200 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900">Add new lead</h2>
@@ -1344,7 +1381,7 @@ function CrmPageContent() {
 
       {/* LOG CALL MODAL */}
       {showCallModal && (
-        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-2xl p-6">
             <h2 className="text-lg font-bold text-slate-900 mb-0.5">Log call</h2>
             <p className="text-slate-800 font-semibold">{displayName(showCallModal)}</p>
@@ -1366,7 +1403,7 @@ function CrmPageContent() {
 
       {/* LOG CALL MODAL — not-contacted tab */}
       {showContactCallModal && (
-        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-2xl p-6">
             <h2 className="text-lg font-bold text-slate-900 mb-0.5">Log call</h2>
             <p className="text-slate-800 font-semibold">{showContactCallModal.name?.trim() || showContactCallModal.phone}</p>
@@ -1385,7 +1422,7 @@ function CrmPageContent() {
 
       {/* CSV IMPORT MODAL */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-xl shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="p-4 sm:p-6 border-b border-slate-200 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900">Import leads from CSV</h2>

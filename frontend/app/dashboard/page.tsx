@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
+import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { Loader2, Clock, Truck, Factory, CheckSquare, AlertCircle, Trophy, Target, BarChart2, Zap, PhoneCall, PhoneOff, Tag, Repeat, ShieldCheck, MessageSquare, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
@@ -223,7 +224,7 @@ export default function DashboardPage() {
     setLoading(true); setError(null);
     try {
       const h = getAuthHeaders();
-      const res = await fetch(`${API_BASE_URL}/dashboard/summary`, { headers: h });
+      const res = await fetchWithRetry(`${API_BASE_URL}/dashboard/summary`, { headers: h });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
       if (!res.ok) { setError("Could not load dashboard"); return; }
       const data = await res.json();
@@ -247,7 +248,7 @@ export default function DashboardPage() {
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d) setAvailableMonths(d); })
         .catch(() => { /* ignore */ });
-    } catch { setError("Network error"); }
+    } catch (err) { setError(`Network error after retrying: ${describeFetchError(err)}`); }
     finally { setLoading(false); }
   }, [router]);
 
@@ -345,7 +346,17 @@ export default function DashboardPage() {
     </DashboardShell>
   );
   if (error || !stats) return (
-    <DashboardShell><div className="p-6 text-red-500">{error ?? "Failed"}</div></DashboardShell>
+    <DashboardShell>
+      <div className="p-6">
+        <p className="text-red-500">{error ?? "Failed"}</p>
+        <button
+          onClick={() => load()}
+          className="mt-3 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Retry
+        </button>
+      </div>
+    </DashboardShell>
   );
 
   const maxDayRevenue = Math.max(...stats.orders.last7Days.map(d => d.revenue), 1);

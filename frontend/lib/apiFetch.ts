@@ -27,6 +27,46 @@ type ApiFetchOptions = RequestInit & {
 type ErrorCallback = (message: string) => void;
 
 /**
+ * fetchWithRetry — retries once (after a short delay) ONLY when `fetch()`
+ * itself throws (DNS failure, connection reset, TLS handshake failure, a
+ * CORS block, a brief mobile-signal drop, a Railway container mid-restart,
+ * etc.) — never on a real HTTP error response, since those resolve normally
+ * and shouldn't be retried blindly.
+ *
+ * Why this exists: some users on the Android app were hitting an opaque
+ * "Network error" / "Could not reach the server" on their very first
+ * request, with no way to tell (from the generic message alone) whether it
+ * was a real outage or just a one-off transient blip. A single retry with a
+ * short backoff silently recovers from the transient case — which covers
+ * most real-world mobile-network flakiness — without the user noticing.
+ * Genuine outages still fail after the retry and surface an error as before.
+ */
+export async function fetchWithRetry(
+  input: string,
+  init: RequestInit,
+  attempts = 2,
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetch(input, init);
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+  throw lastErr;
+}
+
+/** Turns a caught fetch error into a message that actually says what went
+ * wrong (e.g. "TypeError: Failed to fetch") instead of a bare guess, so a
+ * user reporting the error gives us something diagnosable. */
+export function describeFetchError(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
+}
+
+/**
  * GET request. Returns data or null.
  */
 export async function apiFetch<T>(
@@ -35,7 +75,7 @@ export async function apiFetch<T>(
   onError?: ErrorCallback
 ): Promise<T | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       ...options,
       headers: {
         ...getAuthHeaders(),
@@ -61,8 +101,7 @@ export async function apiFetch<T>(
 
     return (await res.json()) as T;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Network error";
-    onError?.(`Request failed: ${msg}`);
+    onError?.(`Request failed after retrying: ${describeFetchError(err)}. Check your internet connection.`);
     return null;
   }
 }
@@ -78,6 +117,13 @@ export async function apiMutate<T = unknown>(
   onError?: ErrorCallback
 ): Promise<T | null> {
   try {
+    // Deliberately NOT using fetchWithRetry here (unlike apiFetch above):
+    // this is POST/PATCH/PUT/DELETE, so if `fetch()` throws we can't tell
+    // whether the request never reached the server or the server processed
+    // it but the response was lost in transit. Blindly retrying a mutation
+    // (payment, dispatch action, commission override, etc.) risks a
+    // duplicate action — worse than a clear error the user can retry
+    // manually. Read-only GETs are safe to auto-retry; writes are not.
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers: getAuthHeaders(),
@@ -104,8 +150,7 @@ export async function apiMutate<T = unknown>(
     const text = await res.text();
     return text ? (JSON.parse(text) as T) : (null as T);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Network error";
-    onError?.(`Request failed: ${msg}`);
+    onError?.(`Request failed: ${describeFetchError(err)}. Check your internet connection and try again.`);
     return null;
   }
 }

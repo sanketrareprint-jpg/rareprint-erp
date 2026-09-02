@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
@@ -158,6 +160,8 @@ function Metric({ label, value, icon: Icon }: { label: string; value: number; ic
 }
 
 function MarketingPageContent() {
+  const isNativeApp = useIsNativeApp();
+  const [roiCompact, setRoiCompact] = useState(true);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -707,9 +711,8 @@ function MarketingPageContent() {
               <h2 className="font-bold">Create Campaign</h2>
               <div className="mt-3 space-y-3">
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Campaign name" value={campaignForm.name} onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })} />
-                <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={campaignForm.templateId} onChange={(e) => setCampaignForm({ ...campaignForm, templateId: e.target.value })}>
-                  {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-                </select>
+                <MobileSelect className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={campaignForm.templateId} onChange={(v) => setCampaignForm({ ...campaignForm, templateId: v })}
+                  options={templates.map((template) => ({ value: template.id, label: template.name }))} />
                 <div className="grid grid-cols-3 gap-2">
                   <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Daily limit" value={campaignForm.dailyLimit} onChange={(e) => setCampaignForm({ ...campaignForm, dailyLimit: e.target.value })} />
                   <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Cooldown" value={campaignForm.cooldownDays} onChange={(e) => setCampaignForm({ ...campaignForm, cooldownDays: e.target.value })} />
@@ -851,12 +854,13 @@ function MarketingPageContent() {
               <div className="mt-3 space-y-3">
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Template display name" value={templateForm.name} onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })} />
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="AiSensy campaign name" value={templateForm.aisensyCampaignName} onChange={(e) => setTemplateForm({ ...templateForm, aisensyCampaignName: e.target.value })} />
-                <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={templateForm.templateType} onChange={(e) => setTemplateForm({ ...templateForm, templateType: e.target.value })}>
-                  <option>TEXT</option>
-                  <option>IMAGE</option>
-                  <option>VIDEO</option>
-                  <option>DOCUMENT</option>
-                </select>
+                <MobileSelect className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={templateForm.templateType} onChange={(v) => setTemplateForm({ ...templateForm, templateType: v })}
+                  options={[
+                    { value: "TEXT", label: "TEXT" },
+                    { value: "IMAGE", label: "IMAGE" },
+                    { value: "VIDEO", label: "VIDEO" },
+                    { value: "DOCUMENT", label: "DOCUMENT" },
+                  ]} />
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Variables, comma separated" value={templateForm.variables} onChange={(e) => setTemplateForm({ ...templateForm, variables: e.target.value })} />
                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder={templateForm.templateType === "TEXT" ? "Media URL optional" : "Public media URL required"} value={templateForm.mediaUrl} onChange={(e) => setTemplateForm({ ...templateForm, mediaUrl: e.target.value })} />
                 {templateForm.templateType !== "TEXT" && (
@@ -935,10 +939,91 @@ function MarketingPageContent() {
               )}
             </section>
 
-            <section className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-              {roiLoading ? (
-                <div className="p-8 text-center text-slate-500">Loading ROI data...</div>
-              ) : (
+            {isNativeApp && roiMonths.length > 0 && (
+              <div className="flex items-center justify-end gap-1.5">
+                <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
+                  <button onClick={() => setRoiCompact(true)}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${roiCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                    Compact
+                  </button>
+                  <button onClick={() => setRoiCompact(false)}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!roiCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                    Table
+                  </button>
+                </div>
+              </div>
+            )}
+            {roiLoading ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">Loading ROI data...</div>
+            ) : isNativeApp && roiCompact ? (
+              <div className="space-y-2">
+                {roiMonths.map((m) => {
+                  const draft = roiSpendDrafts[m.monthKey] ?? { metaAdSpend: "", aisensySpend: "" };
+                  const dirty = Number(draft.metaAdSpend || 0) !== m.metaAdSpend || Number(draft.aisensySpend || 0) !== m.aisensySpend;
+                  return (
+                    <div key={m.monthKey} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-bold text-slate-900">{m.label}</p>
+                        <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">
+                          {m.convertedCustomers}/{m.contactsCreated || 0} · {m.conversionRatioPct}%
+                        </span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">Meta Ad Spend</label>
+                          <input
+                            type="number"
+                            min={0}
+                            className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                            value={draft.metaAdSpend}
+                            onChange={(e) => setRoiSpendDrafts((prev) => ({ ...prev, [m.monthKey]: { ...draft, metaAdSpend: e.target.value } }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold text-slate-500 uppercase">AiSensy Spend</label>
+                          <input
+                            type="number"
+                            min={0}
+                            className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                            value={draft.aisensySpend}
+                            onChange={(e) => setRoiSpendDrafts((prev) => ({ ...prev, [m.monthKey]: { ...draft, aisensySpend: e.target.value } }))}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600">
+                        <span>Total Spend <strong className="text-slate-900">₹{m.totalSpend.toLocaleString("en-IN")}</strong></span>
+                        <span>Sale <strong className="text-slate-900">₹{m.totalSale.toLocaleString("en-IN")}</strong></span>
+                        <span>Profit <strong className="text-slate-900">₹{m.totalProfit.toLocaleString("en-IN")}</strong></span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-green-700 font-semibold">
+                        {m.roiVsSaleX != null && <span>{m.roiVsSaleX}x vs sale</span>}
+                        {m.roiVsProfitX != null && <span>{m.roiVsProfitX}x vs profit</span>}
+                        {m.costPerConversion != null && <span className="text-slate-500 font-normal">₹{m.costPerConversion.toLocaleString("en-IN")}/conversion</span>}
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openMonthContacts(m.monthKey, m.label)}
+                          disabled={m.contactsCreated === 0}
+                          className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-blue-700 disabled:cursor-default disabled:text-slate-400"
+                        >
+                          {m.contactsCreated.toLocaleString("en-IN")} contacts
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!dirty || savingRoiMonth === m.monthKey}
+                          onClick={() => saveRoiSpend(m.monthKey)}
+                          className="flex-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {savingRoiMonth === m.monthKey ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <section className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full min-w-[1100px] text-sm">
                   <thead className="bg-slate-50 text-left text-xs font-bold uppercase text-slate-500">
                     <tr>
@@ -1020,8 +1105,8 @@ function MarketingPageContent() {
                     })}
                   </tbody>
                 </table>
-              )}
-            </section>
+              </section>
+            )}
             {roiMonths.some((m) => m.ordersMissingCost > 0) && (
               <p className="text-xs text-slate-400">
                 Some matched orders are excluded from Total Profit because their products have no cost slab set up (Total Sale still includes them).
@@ -1059,15 +1144,12 @@ function MarketingPageContent() {
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Daily queue fill time (IST)</label>
                   <p className="text-xs text-slate-500 mb-2">Hour when the system fills the broadcast queue daily and kicks off first batch.</p>
-                  <select
+                  <MobileSelect
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    value={settingsForm.dailyRunHour}
-                    onChange={(e) => setSettingsForm({ ...settingsForm, dailyRunHour: Number(e.target.value) })}
-                  >
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <option key={h} value={h}>{String(h).padStart(2, "0")}:00 IST ({h < 12 ? `${h === 0 ? 12 : h} AM` : `${h === 12 ? 12 : h - 12} PM`})</option>
-                    ))}
-                  </select>
+                    value={String(settingsForm.dailyRunHour)}
+                    onChange={(v) => setSettingsForm({ ...settingsForm, dailyRunHour: Number(v) })}
+                    options={Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00 IST (${h < 12 ? `${h === 0 ? 12 : h} AM` : `${h === 12 ? 12 : h - 12} PM`})` }))}
+                  />
                 </div>
 
                 {/* Send window */}
@@ -1077,27 +1159,21 @@ function MarketingPageContent() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-500 mb-1">Start hour</label>
-                      <select
+                      <MobileSelect
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        value={settingsForm.sendStartHour}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, sendStartHour: Number(e.target.value) })}
-                      >
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                        ))}
-                      </select>
+                        value={String(settingsForm.sendStartHour)}
+                        onChange={(v) => setSettingsForm({ ...settingsForm, sendStartHour: Number(v) })}
+                        options={Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-500 mb-1">End hour</label>
-                      <select
+                      <MobileSelect
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        value={settingsForm.sendEndHour}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, sendEndHour: Number(e.target.value) })}
-                      >
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                        ))}
-                      </select>
+                        value={String(settingsForm.sendEndHour)}
+                        onChange={(v) => setSettingsForm({ ...settingsForm, sendEndHour: Number(v) })}
+                        options={Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }))}
+                      />
                     </div>
                   </div>
                 </div>

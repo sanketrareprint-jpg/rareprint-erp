@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState } from "react";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 import {
@@ -369,16 +370,12 @@ export default function BonusPointsTab() {
         <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><Send className="w-4 h-4 text-amber-600" /> Submit a bonus claim</h2>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Activity</label>
-          <select
+          <MobileSelect
             value={claimActivityId}
-            onChange={(e) => setClaimActivityId(e.target.value)}
+            onChange={setClaimActivityId}
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-amber-400 bg-white"
-          >
-            <option value="">Select an activity…</option>
-            {claimableActivities.map((a) => (
-              <option key={a.id} value={a.id}>{a.name} — {a.points} pts</option>
-            ))}
-          </select>
+            options={[{ value: "", label: "Select an activity…" }, ...claimableActivities.map((a) => ({ value: a.id, label: `${a.name} — ${a.points} pts` }))]}
+          />
           {activitiesLoading ? null : claimableActivities.length === 0 && (
             <p className="text-xs text-gray-400 mt-1">No claimable activities yet — ask an admin to add some.</p>
           )}
@@ -616,22 +613,18 @@ export default function BonusPointsTab() {
                 ) : (
                   <div className="border border-gray-200 rounded-lg p-3 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
-                      <select
+                      <MobileSelect
                         value={creditActivityId}
-                        onChange={(e) => setCreditActivityId(e.target.value)}
+                        onChange={setCreditActivityId}
                         className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400 bg-white"
-                      >
-                        <option value="">Activity…</option>
-                        {automaticActivities.map((a) => <option key={a.id} value={a.id}>{a.name} — {a.points} pts</option>)}
-                      </select>
-                      <select
+                        options={[{ value: "", label: "Activity…" }, ...automaticActivities.map((a) => ({ value: a.id, label: `${a.name} — ${a.points} pts` }))]}
+                      />
+                      <MobileSelect
                         value={creditUserId}
-                        onChange={(e) => setCreditUserId(e.target.value)}
+                        onChange={setCreditUserId}
                         className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-amber-400 bg-white"
-                      >
-                        <option value="">Credit to…</option>
-                        {staffUsers.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
-                      </select>
+                        options={[{ value: "", label: "Credit to…" }, ...staffUsers.map((u) => ({ value: u.id, label: u.fullName }))]}
+                      />
                     </div>
                     <input
                       type="text" placeholder="Note (optional)"

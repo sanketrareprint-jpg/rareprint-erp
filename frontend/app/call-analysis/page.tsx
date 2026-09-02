@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BarChart3, CheckCircle2, FileAudio, History, Loader2, Play, Save, Trophy } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
@@ -274,9 +275,8 @@ export default function CallAnalysisPage() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-600">Call Type</label>
-                <select value={callType} onChange={(e) => setCallType(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                  {CALL_TYPES.map((type) => <option key={type}>{type}</option>)}
-                </select>
+                <MobileSelect value={callType} onChange={setCallType} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  options={CALL_TYPES.map((type) => ({ value: type, label: type }))} />
               </div>
               <button onClick={transcribeWithAI} disabled={isTranscribing || isListening} className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
                 {isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileAudio className="h-4 w-4" />}

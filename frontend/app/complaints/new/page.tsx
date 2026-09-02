@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Save, Search, X } from "lucide-react";
@@ -193,40 +194,31 @@ export default function NewComplaintPage() {
           {selectedCustomer && (
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Related Order (optional)</label>
-              <select
+              <MobileSelect
                 value={selectedOrderId}
-                onChange={(e) => setSelectedOrderId(e.target.value)}
+                onChange={setSelectedOrderId}
                 disabled={ordersLoading}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-              >
-                <option value="">No specific order</option>
-                {orders.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.orderNo} — {new Date(o.orderDate).toLocaleDateString("en-IN")} — ₹{o.total.toLocaleString("en-IN")}
-                  </option>
-                ))}
-              </select>
+                options={[{ value: "", label: "No specific order" }, ...orders.map((o) => ({ value: o.id, label: `${o.orderNo} — ${new Date(o.orderDate).toLocaleDateString("en-IN")} — ₹${o.total.toLocaleString("en-IN")}` }))]}
+              />
             </div>
           )}
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Channel</label>
-              <select value={channel} onChange={(e) => setChannel(e.target.value as ComplaintChannel)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                {Object.entries(CHANNEL_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <MobileSelect value={channel} onChange={(v) => setChannel(v as ComplaintChannel)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                options={Object.entries(CHANNEL_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Category</label>
-              <select value={category} onChange={(e) => setCategory(e.target.value as ComplaintCategory)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <MobileSelect value={category} onChange={(v) => setCategory(v as ComplaintCategory)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                options={Object.entries(CATEGORY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Priority</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value as ComplaintPriority)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                {Object.entries(PRIORITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <MobileSelect value={priority} onChange={(v) => setPriority(v as ComplaintPriority)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                options={Object.entries(PRIORITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
           </div>
 

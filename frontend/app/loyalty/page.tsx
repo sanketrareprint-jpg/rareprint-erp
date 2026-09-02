@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
@@ -68,6 +69,8 @@ const TYPE_META: Record<LoyaltyTxnType, { label: string; color: string; icon: Re
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function LoyaltyPage() {
+  const isNativeApp = useIsNativeApp();
+  const [customerListCompact, setCustomerListCompact] = useState(true);
   const [activeTab, setActiveTab] = useState<"customer" | "bonus">("customer");
   const [phoneInput, setPhoneInput] = useState("");
   const [wallet, setWallet] = useState<LoyaltyWallet | null>(null);
@@ -554,9 +557,9 @@ export default function LoyaltyPage() {
             <button
               type="submit"
               disabled={loading || !phoneInput.trim()}
-              className="flex items-center gap-2 px-4 py-2.5 bg-pink-600 text-white text-sm font-medium rounded-lg hover:bg-pink-700 disabled:opacity-50"
+              className="flex shrink-0 items-center justify-center gap-2 whitespace-nowrap px-4 py-2.5 bg-pink-600 text-white text-sm font-medium rounded-lg hover:bg-pink-700 disabled:opacity-50"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Search className="w-4 h-4 shrink-0" />}
               Look up
             </button>
           </div>
@@ -584,6 +587,50 @@ export default function LoyaltyPage() {
             </p>
           ) : (
             <>
+              {isNativeApp && (
+                <div className="flex items-center justify-end gap-1.5 px-1 pb-2">
+                  <div className="ml-auto inline-flex rounded-lg bg-gray-100 p-0.5">
+                    <button onClick={() => setCustomerListCompact(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${customerListCompact ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
+                      Compact
+                    </button>
+                    <button onClick={() => setCustomerListCompact(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${!customerListCompact ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
+                      Table
+                    </button>
+                  </div>
+                </div>
+              )}
+              {isNativeApp && customerListCompact ? (
+                <div className="space-y-2 px-1">
+                  {pagedCustomers.map((row) => (
+                    <div
+                      key={row.customerId}
+                      className="rounded-xl border border-gray-200 bg-white shadow-sm p-3 cursor-pointer"
+                      onClick={() => {
+                        if (!row.phone) return;
+                        setPhoneInput(row.phone);
+                        void fetchWallet(row.phone);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-800 truncate">{row.customerName ?? <span className="text-gray-400">— unknown —</span>}</p>
+                          <p className="text-xs text-gray-500">{row.phone ?? "—"}</p>
+                        </div>
+                        <p className="shrink-0 text-sm font-bold text-pink-700">{row.points.toLocaleString("en-IN")} pts</p>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                        {row.salesAgentName && <span>Agent <strong className="text-gray-700">{row.salesAgentName}</strong></span>}
+                        {row.lastOrderNumber && <span>Order <strong className="text-gray-700">{row.lastOrderNumber}</strong></span>}
+                        {row.lastOrderValue != null && <span>Value <strong className="text-gray-700">₹{row.lastOrderValue.toLocaleString("en-IN")}</strong></span>}
+                      </div>
+                      {row.lastActivityAt && <p className="mt-1 text-[10px] text-gray-400">Last activity {fmtDate(row.lastActivityAt)}</p>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm table-fixed min-w-[900px]">
                   <colgroup>
@@ -637,6 +684,7 @@ export default function LoyaltyPage() {
                   </tbody>
                 </table>
               </div>
+              )}
               <div className="flex items-center justify-between px-5 py-2.5 border-t border-gray-100 text-xs text-gray-500">
                 <span>
                   Showing {(customerListPage - 1) * CUSTOMER_LIST_PAGE_SIZE + 1}–

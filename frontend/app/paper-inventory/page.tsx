@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, clearAuth, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -531,14 +532,12 @@ function StatementTab({ statements, loading, vendors, filterPressId, onFilterCha
     <div>
       <div className="mb-4 flex items-center gap-3">
         <label className="text-sm font-medium text-gray-700">Filter by Press:</label>
-        <select
+        <MobileSelect
           value={filterPressId}
-          onChange={(e) => onFilterChange(e.target.value)}
+          onChange={onFilterChange}
           className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">All Presses</option>
-          {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+          options={[{ value: "", label: "All Presses" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+        />
       </div>
 
       {loading ? (
@@ -629,14 +628,12 @@ function HistoryTab({ transactions, loading, vendors, filterPressId, onFilterCha
     <div>
       <div className="mb-4 flex items-center gap-3">
         <label className="text-sm font-medium text-gray-700">Filter by Press:</label>
-        <select
+        <MobileSelect
           value={filterPressId}
-          onChange={(e) => onFilterChange(e.target.value)}
+          onChange={onFilterChange}
           className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">All Presses</option>
-          {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+          options={[{ value: "", label: "All Presses" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+        />
       </div>
 
       {loading ? (
@@ -1265,14 +1262,12 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Supplier (optional)</label>
-                <select
+                <MobileSelect
                   value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
+                  onChange={setSupplierId}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">— Select supplier —</option>
-                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                  options={[{ value: "", label: "— Select supplier —" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
@@ -1349,24 +1344,23 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
                           />
                         </td>
                         <td className="px-3 py-2">
-                          <select
+                          <MobileSelect
                             value={item.quality}
-                            onChange={(e) => updateItem(i, "quality", e.target.value)}
+                            onChange={(v) => updateItem(i, "quality", v)}
                             className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          >
-                            <option value="">— type —</option>
-                            {QUALITIES.map((q) => <option key={q} value={q}>{QUALITY_LABELS[q]}</option>)}
-                          </select>
+                            options={[{ value: "", label: "— type —" }, ...QUALITIES.map((q) => ({ value: q, label: QUALITY_LABELS[q] }))]}
+                          />
                         </td>
                         <td className="px-3 py-2">
-                          <select
+                          <MobileSelect
                             value={item.unit}
-                            onChange={(e) => updateItem(i, "unit", e.target.value)}
+                            onChange={(v) => updateItem(i, "unit", v)}
                             className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          >
-                            <option value="REAM">Ream</option>
-                            <option value="PACKET">Packet</option>
-                          </select>
+                            options={[
+                              { value: "REAM", label: "Ream" },
+                              { value: "PACKET", label: "Packet" },
+                            ]}
+                          />
                         </td>
                         <td className="px-3 py-2">
                           <input
@@ -1416,18 +1410,12 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
                           })()}
                         </td>
                         <td className="px-3 py-2">
-                          <select
+                          <MobileSelect
                             value={item.pressId}
-                            onChange={(e) => updateItem(i, "pressId", e.target.value)}
+                            onChange={(v) => updateItem(i, "pressId", v)}
                             className={`w-full border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 ${!item.pressId ? "border-orange-300 bg-orange-50" : "border-gray-200"}`}
-                          >
-                            <option value="">— Select press —</option>
-                            {vendors.map((v) => (
-                              <option key={v.id} value={v.id}>
-                                {v.name}{v.isPress ? " ✓" : ""}
-                              </option>
-                            ))}
-                          </select>
+                            options={[{ value: "", label: "— Select press —" }, ...vendors.map((v) => ({ value: v.id, label: `${v.name}${v.isPress ? " ✓" : ""}` }))]}
+                          />
                         </td>
                         <td className="px-2 py-2">
                           {items.length > 1 && (

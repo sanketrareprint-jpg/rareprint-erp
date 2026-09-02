@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { Clipboard, Database, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 type ProductRecord = { id: string; name: string; category: string; description: string };
@@ -341,27 +342,27 @@ export default function DesignStudioPage() {
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2"><Database className="h-4 w-4 text-blue-600" /><h2 className="text-sm font-bold">Product And Size Database</h2></div>
                 <Field label="Product">
-                  <select value={form.productId} onChange={(e) => {
-                    const nextProductId = e.target.value;
+                  <MobileSelect value={form.productId} onChange={(nextProductId) => {
                     const nextSize = sizes.find((size) => size.productId === nextProductId);
                     setForm((prev) => ({ ...prev, productId: nextProductId, sizeId: nextSize?.id ?? "" }));
-                  }} className="input">
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                  </select>
+                  }} className="input"
+                    options={products.map((product) => ({ value: product.id, label: product.name }))} />
                 </Field>
                 <Field label="Size In Inches">
-                  <select value={form.sizeId} onChange={(e) => update("sizeId", e.target.value)} className="input">
-                    {productSizes.length === 0 && <option value="">No size added</option>}
-                    {productSizes.map((size) => <option key={size.id} value={size.id}>{size.label} - {size.width} x {size.height} in</option>)}
-                  </select>
+                  <MobileSelect value={form.sizeId} onChange={(v) => update("sizeId", v)} className="input"
+                    placeholder={productSizes.length === 0 ? "No size added" : undefined}
+                    options={[
+                      ...(productSizes.length === 0 ? [{ value: "", label: "No size added" }] : []),
+                      ...productSizes.map((size) => ({ value: size.id, label: `${size.label} - ${size.width} x ${size.height} in` })),
+                    ]} />
                 </Field>
 
                 <div className="mt-4 rounded-lg bg-slate-50 p-3">
                   <p className="mb-2 text-xs font-bold text-slate-600">Create Product</p>
                   <div className="space-y-2">
                     <input value={newProduct.name} onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product name" className="input" />
-                    <select value={newProduct.category} onChange={(e) => setNewProduct((prev) => ({ ...prev, category: e.target.value }))} className="input">{productCategories.map((item) => <option key={item}>{item}</option>)}</select>
-                    <select value={newProduct.description} onChange={(e) => setNewProduct((prev) => ({ ...prev, description: e.target.value }))} className="input">{productDescriptions.map((item) => <option key={item}>{item}</option>)}</select>
+                    <MobileSelect value={newProduct.category} onChange={(v) => setNewProduct((prev) => ({ ...prev, category: v }))} className="input" options={productCategories.map((item) => ({ value: item, label: item }))} />
+                    <MobileSelect value={newProduct.description} onChange={(v) => setNewProduct((prev) => ({ ...prev, description: v }))} className="input" options={productDescriptions.map((item) => ({ value: item, label: item }))} />
                     <button onClick={addProduct} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800"><Plus className="h-4 w-4" /> Add Product</button>
                   </div>
                 </div>
@@ -369,9 +370,8 @@ export default function DesignStudioPage() {
                 <div className="mt-3 rounded-lg bg-slate-50 p-3">
                   <p className="mb-2 text-xs font-bold text-slate-600">Add Size For Selected Product</p>
                   <div className="space-y-2">
-                    <select value={newSize.label} onChange={(e) => setNewSize(sizePresets.find((size) => size.label === e.target.value) ?? sizePresets[0])} className="input">
-                      {sizePresets.map((size) => <option key={size.label}>{size.label}</option>)}
-                    </select>
+                    <MobileSelect value={newSize.label} onChange={(v) => setNewSize(sizePresets.find((size) => size.label === v) ?? sizePresets[0])} className="input"
+                      options={sizePresets.map((size) => ({ value: size.label, label: size.label }))} />
                     <div className="grid grid-cols-2 gap-2">
                       <input readOnly value={newSize.width} className="input bg-slate-100" />
                       <input readOnly value={newSize.height} className="input bg-slate-100" />
@@ -434,19 +434,19 @@ export default function DesignStudioPage() {
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-4 text-sm font-bold">Prompt Details</h2>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <Field label="Business Field"><select value={form.businessField} onChange={(e) => update("businessField", e.target.value)} className="input">{businessFields.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Business Field"><MobileSelect value={form.businessField} onChange={(v) => update("businessField", v)} className="input" options={businessFields.map((item) => ({ value: item, label: item }))} /></Field>
                   {form.businessField === "Other" && <TextField label="Other Field" value={form.customField} onChange={(value) => update("customField", value)} />}
-                  <Field label="Language"><select value={form.language} onChange={(e) => update("language", e.target.value)} className="input">{languageOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Color Combination"><select value={form.colorCombination} onChange={(e) => update("colorCombination", e.target.value)} className="input">{colorCombinations.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Language"><MobileSelect value={form.language} onChange={(v) => update("language", v)} className="input" options={languageOptions.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Color Combination"><MobileSelect value={form.colorCombination} onChange={(v) => update("colorCombination", v)} className="input" options={colorCombinations.map((item) => ({ value: item, label: item }))} /></Field>
                   {form.colorCombination === "Custom" && <TextField label="Custom Colors" value={form.customColors} onChange={(value) => update("customColors", value)} />}
-                  <Field label="Template"><select value={form.templateStyle} onChange={(e) => update("templateStyle", e.target.value)} className="input">{templateStyles.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Background Type"><select value={form.backgroundType} onChange={(e) => update("backgroundType", e.target.value)} className="input">{backgroundTypes.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Background Description" wide><select value={form.backgroundDescription} onChange={(e) => update("backgroundDescription", e.target.value)} className="input">{backgroundDescriptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Target Audience"><select value={form.audience} onChange={(e) => update("audience", e.target.value)} className="input">{audiences.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Design Priority"><select value={form.priority} onChange={(e) => update("priority", e.target.value)} className="input">{priorities.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Visual Elements" wide><select value={form.visualElements} onChange={(e) => update("visualElements", e.target.value)} className="input">{visualElementOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="AI Design Expert Factors"><select value={factorPreset} onChange={(e) => { setFactorPreset(e.target.value); update("extraFactors", factorText[e.target.value]); }} className="input">{factorPresets.map((item) => <option key={item}>{item}</option>)}</select></Field>
-                  <Field label="Avoid / Negative Direction"><select value={form.avoid} onChange={(e) => update("avoid", e.target.value)} className="input">{avoidOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
+                  <Field label="Template"><MobileSelect value={form.templateStyle} onChange={(v) => update("templateStyle", v)} className="input" options={templateStyles.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Background Type"><MobileSelect value={form.backgroundType} onChange={(v) => update("backgroundType", v)} className="input" options={backgroundTypes.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Background Description" wide><MobileSelect value={form.backgroundDescription} onChange={(v) => update("backgroundDescription", v)} className="input" options={backgroundDescriptions.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Target Audience"><MobileSelect value={form.audience} onChange={(v) => update("audience", v)} className="input" options={audiences.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Design Priority"><MobileSelect value={form.priority} onChange={(v) => update("priority", v)} className="input" options={priorities.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Visual Elements" wide><MobileSelect value={form.visualElements} onChange={(v) => update("visualElements", v)} className="input" options={visualElementOptions.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="AI Design Expert Factors"><MobileSelect value={factorPreset} onChange={(v) => { setFactorPreset(v); update("extraFactors", factorText[v]); }} className="input" options={factorPresets.map((item) => ({ value: item, label: item }))} /></Field>
+                  <Field label="Avoid / Negative Direction"><MobileSelect value={form.avoid} onChange={(v) => update("avoid", v)} className="input" options={avoidOptions.map((item) => ({ value: item, label: item }))} /></Field>
                 </div>
               </div>
 

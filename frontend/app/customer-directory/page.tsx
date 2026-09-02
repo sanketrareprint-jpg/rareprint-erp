@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { ChevronDown, ChevronRight, Download, RefreshCw, Search, Upload, Users } from "lucide-react";
@@ -266,14 +267,10 @@ function CustomerDirectoryContent() {
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Ahmedabad, customer, phone..." className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-xs outline-none focus:border-blue-500" />
           </div>
-          <select value={state} onChange={(e) => setState(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500">
-            <option value="">All states</option>
-            {states.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <select value={city} onChange={(e) => setCity(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500">
-            <option value="">All cities</option>
-            {cities.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+          <MobileSelect value={state} onChange={setState} className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500"
+            options={[{ value: "", label: "All states" }, ...states.map((item) => ({ value: item, label: item }))]} />
+          <MobileSelect value={city} onChange={setCity} className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500"
+            options={[{ value: "", label: "All cities" }, ...cities.map((item) => ({ value: item, label: item }))]} />
           <input list="product-options" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Product filter" className="rounded-lg border border-slate-300 px-3 py-2 text-xs outline-none focus:border-blue-500" />
           <datalist id="product-options">
             {productOptions.map((item) => <option key={item} value={item} />)}

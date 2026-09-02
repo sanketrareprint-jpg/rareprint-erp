@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
@@ -397,15 +398,12 @@ export default function BusinessRulesPage() {
                   />
                 </Field>
                 <Field label="Module *">
-                  <select
+                  <MobileSelect
                     className={inputCls}
                     value={form.module}
-                    onChange={(e) => setForm({ ...form, module: e.target.value as RuleModule })}
-                  >
-                    {Object.keys(MODULE_META).map((m) => (
-                      <option key={m} value={m}>{MODULE_META[m as RuleModule].label}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => setForm({ ...form, module: v as RuleModule })}
+                    options={Object.keys(MODULE_META).map((m) => ({ value: m, label: MODULE_META[m as RuleModule].label }))}
+                  />
                 </Field>
               </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { API_BASE_URL } from "@/lib/api";
+import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { ArrowLeft, Loader2, Mail, MailCheck } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
@@ -16,7 +17,7 @@ export default function ForgotPasswordPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -35,8 +36,8 @@ export default function ForgotPasswordPage() {
       // Backend always reports success (even for unknown emails) to avoid
       // leaking which addresses have accounts.
       setSent(true);
-    } catch {
-      setError("Could not reach the server. Is the API running?");
+    } catch (err) {
+      setError(`Could not reach the server after retrying (${describeFetchError(err)}). Check your internet connection.`);
     } finally {
       setLoading(false);
     }

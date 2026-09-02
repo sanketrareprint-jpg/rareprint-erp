@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Eye, Loader2, Trash2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
@@ -104,16 +105,12 @@ export default function CallHistoryPage() {
 
         <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="grid grid-cols-5 gap-2">
-            <select value={agent} onChange={(e) => setAgent(e.target.value)} disabled={!isAdmin} className="rounded-lg border border-slate-200 px-2 py-2 text-xs">
-              <option value="">All agents</option>
-              {agents.map((name) => <option key={name} value={name}>{name}</option>)}
-            </select>
+            <MobileSelect value={agent} onChange={setAgent} disabled={!isAdmin} className="rounded-lg border border-slate-200 px-2 py-2 text-xs"
+              options={[{ value: "", label: "All agents" }, ...agents.map((name) => ({ value: name, label: name }))]} />
             <DateInput value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" />
             <DateInput value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs" />
-            <select value={grade} onChange={(e) => setGrade(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs">
-              <option value="">All grades</option>
-              {["Excellent", "Good", "Average", "Needs Work"].map((g) => <option key={g}>{g}</option>)}
-            </select>
+            <MobileSelect value={grade} onChange={setGrade} className="rounded-lg border border-slate-200 px-2 py-2 text-xs"
+              options={[{ value: "", label: "All grades" }, ...["Excellent", "Good", "Average", "Needs Work"].map((g) => ({ value: g, label: g }))]} />
             <button onClick={load} className="inline-flex items-center justify-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white">Apply</button>
           </div>
         </section>

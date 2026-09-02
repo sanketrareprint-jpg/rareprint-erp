@@ -428,6 +428,72 @@ textarea {
     margin-top: 0.3125rem !important;
   }
 
+  /* Android app only, 2026-08-10 — the generic .grid-cols-N overrides above
+     (and the tighter 430px ones further down) crush every multi-column grid
+     down to 1 column on narrow phones, which is right for most desktop
+     tables but was making these specific dashboard stat grids take one full
+     row per item. Give them back deliberate column counts on native; the
+     website's mobile view is untouched since these classes are opt-in
+     markers, not generic Tailwind utilities. */
+  .is-native-app .erp-main .dash-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .is-native-app .erp-main .dash-prodkpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .is-native-app .erp-main .dash-complaints-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .is-native-app .erp-main .cycle-row {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1fr) !important;
+    column-gap: 0.375rem;
+  }
+
+  .is-native-app .erp-main .dash-chart-title {
+    margin-bottom: 0.5rem !important;
+  }
+
+  /* Orders card stats row (Total/Paid/Ready/Margin/Comm.) — column count
+     varies (3, 4, or 5) depending on what the viewer can see, so instead of
+     hardcoding a count, let grid auto-generate one equal column per child
+     in a single row. */
+  .is-native-app .erp-main .order-stats-grid {
+    grid-template-columns: none !important;
+    grid-auto-flow: column !important;
+    grid-auto-columns: minmax(0, 1fr) !important;
+  }
+
+  /* Extended density pass 2026-08-04 — covers the other bulky mobile card
+     lists (production stages, etc.) that use these Tailwind classes.
+     Android app only. */
+  .is-native-app .erp-main .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.375rem !important;
+  }
+
+  .is-native-app .erp-main .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.5rem !important;
+  }
+
+  .is-native-app .erp-main .gap-2 {
+    gap: 0.375rem !important;
+  }
+
+  .is-native-app .erp-main .gap-3 {
+    gap: 0.5rem !important;
+  }
+
+  .is-native-app .erp-main .p-4 {
+    padding: 0.75rem !important;
+  }
+
+  .is-native-app .erp-main .py-2\.5 {
+    padding-top: 0.4375rem !important;
+    padding-bottom: 0.4375rem !important;
+  }
+
   .erp-main .grid {
     min-width: 0;
   }

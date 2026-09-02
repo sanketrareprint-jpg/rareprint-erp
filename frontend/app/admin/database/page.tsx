@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -346,50 +347,36 @@ export default function AdminDbPage() {
 
     if (activeTable === "product" && col === "categoryId") {
       return (
-        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
-          <option value="">Select category</option>
-          {productCategories.map(category => (
-            <option key={category.id} value={category.id}>
-              {categoryLabel(category)}
-            </option>
-          ))}
-        </select>
+        <MobileSelect value={controlValue} onChange={v => onChange(v)} className={baseClass}
+          options={[{ value: "", label: "Select category" }, ...productCategories.map(category => ({ value: category.id, label: categoryLabel(category) }))]} />
       );
     }
 
     if (activeTable === "product" && col === "printingType") {
       return (
-        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
-          <option value="">Select printing type</option>
-          {PRINTING_TYPE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
-        </select>
+        <MobileSelect value={controlValue} onChange={v => onChange(v)} className={baseClass}
+          options={[{ value: "", label: "Select printing type" }, ...PRINTING_TYPE_OPTIONS.map(option => ({ value: option, label: option }))]} />
       );
     }
 
     if (activeTable === "product" && col === "paperType") {
       return (
-        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
-          <option value="">Select paper type</option>
-          {PAPER_TYPE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
-        </select>
+        <MobileSelect value={controlValue} onChange={v => onChange(v)} className={baseClass}
+          options={[{ value: "", label: "Select paper type" }, ...PAPER_TYPE_OPTIONS.map(option => ({ value: option, label: option }))]} />
       );
     }
 
     if (activeTable === "product" && col === "sides") {
       return (
-        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
-          <option value="">Select sides</option>
-          {PRODUCT_SIDE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
-        </select>
+        <MobileSelect value={controlValue} onChange={v => onChange(v)} className={baseClass}
+          options={[{ value: "", label: "Select sides" }, ...PRODUCT_SIDE_OPTIONS.map(option => ({ value: option, label: option }))]} />
       );
     }
 
     if (activeTable === "user" && col === "role") {
       return (
-        <select value={controlValue} onChange={e => onChange(e.target.value)} className={baseClass}>
-          <option value="">Select role</option>
-          {USER_ROLE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
-        </select>
+        <MobileSelect value={controlValue} onChange={v => onChange(v)} className={baseClass}
+          options={[{ value: "", label: "Select role" }, ...USER_ROLE_OPTIONS.map(option => ({ value: option, label: option }))]} />
       );
     }
 
@@ -408,15 +395,16 @@ export default function AdminDbPage() {
 
     if (/^(is|has)[A-Z]/.test(col)) {
       return (
-        <select
+        <MobileSelect
           value={value === true ? "true" : value === false ? "false" : ""}
-          onChange={e => onChange(e.target.value === "" ? "" : e.target.value === "true")}
+          onChange={v => onChange(v === "" ? "" : v === "true")}
           className={baseClass}
-        >
-          <option value="">Select true/false</option>
-          <option value="true">TRUE</option>
-          <option value="false">FALSE</option>
-        </select>
+          options={[
+            { value: "", label: "Select true/false" },
+            { value: "true", label: "TRUE" },
+            { value: "false", label: "FALSE" },
+          ]}
+        />
       );
     }
 

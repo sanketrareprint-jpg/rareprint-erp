@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
@@ -77,9 +78,8 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 md:grid-cols-[1.3fr_180px_180px_auto] gap-3 items-end">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Report Type</label>
-              <select value={type} onChange={e => setType(e.target.value as ReportType)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                {REPORTS.map(report => <option key={report.key} value={report.key}>{report.label}</option>)}
-              </select>
+              <MobileSelect value={type} onChange={v => setType(v as ReportType)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                options={REPORTS.map(report => ({ value: report.key, label: report.label }))} />
               <p className="text-xs text-slate-400 mt-1">{REPORTS.find(report => report.key === type)?.description}</p>
             </div>
             <div>

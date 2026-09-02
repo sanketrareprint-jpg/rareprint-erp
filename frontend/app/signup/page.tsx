@@ -5,10 +5,12 @@ import {
   AUTH_USER_KEY,
 } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
+import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { Loader2, Lock, Mail, User } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { MobileSelect } from "@/components/MobileSelect";
 
 type RegisterResponse = {
   accessToken: string;
@@ -57,7 +59,7 @@ export default function SignupPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fullName, email, password, role }),
@@ -88,8 +90,8 @@ export default function SignupPage() {
       localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
       router.push("/dashboard");
-    } catch {
-      setError("Could not reach the server. Is the API running?");
+    } catch (err) {
+      setError(`Could not reach the server after retrying (${describeFetchError(err)}). Check your internet connection.`);
     } finally {
       setLoading(false);
     }
@@ -208,19 +210,12 @@ export default function SignupPage() {
               >
                 Role
               </label>
-              <select
-                id="role"
-                name="role"
+              <MobileSelect
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                onChange={setRole}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-              >
-                {ROLE_OPTIONS.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
+                options={ROLE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
+              />
             </div>
 
             <button

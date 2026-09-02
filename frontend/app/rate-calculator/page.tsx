@@ -1,6 +1,7 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, Children, isValidElement } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
@@ -492,12 +493,13 @@ function DynamicPaperRates({ data, onUpdate }: { data: Record<string, number>; o
       <div className="grid grid-cols-4 gap-2 pt-2 border-t border-dashed border-slate-200 items-end">
         <div>
           <p className="text-xs text-slate-500 mb-1">Parent</p>
-          <select value={np} onChange={e => setNp(e.target.value)}
-            className="w-full border border-blue-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            <option value="1823">18×23"</option>
-            <option value="1925">19×25"</option>
-            <option value="1520">15×20"</option>
-          </select>
+          <MobileSelect value={np} onChange={setNp}
+            className="w-full border border-blue-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+            options={[
+              { value: "1823", label: "18×23\"" },
+              { value: "1925", label: "19×25\"" },
+              { value: "1520", label: "15×20\"" },
+            ]} />
         </div>
         <div className="col-span-2">
           <p className="text-xs text-slate-500 mb-1">Type key (e.g. ivory100, art130)</p>
@@ -848,16 +850,16 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove, paperOptions }: {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Paper Size</label>
-          <select value={layer.psize} onChange={e => onChange({ psize: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            <option value="1823">18×23 inch</option>
-            <option value="1925">19×25 inch</option>
-          </select>
+          <MobileSelect value={layer.psize} onChange={v => onChange({ psize: v })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+            options={[
+              { value: "1823", label: "18×23 inch" },
+              { value: "1925", label: "19×25 inch" },
+            ]} />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">GSM / Paper</label>
-          <select value={layer.gsm} onChange={e => onChange({ gsm: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            {paperOptions.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
+          <MobileSelect value={layer.gsm} onChange={v => onChange({ gsm: v })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+            options={paperOptions.map(p => ({ value: p.value, label: p.label }))} />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Print Quantity (pieces)</label>
@@ -865,26 +867,32 @@ function LayerRow({ layer, idx, onChange, onRemove, canRemove, paperOptions }: {
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Final Size</label>
-          <select value={layer.fsize} onChange={e => onChange({ fsize: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            <option value="A4">A4</option><option value="A5">A5</option>
-            <option value="A6">A6</option><option value="A8">A8</option>
-            <option value="1/3A4">1/3 A4</option><option value="DL">DL</option>
-          </select>
+          <MobileSelect value={layer.fsize} onChange={v => onChange({ fsize: v })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+            options={[
+              { value: "A4", label: "A4" },
+              { value: "A5", label: "A5" },
+              { value: "A6", label: "A6" },
+              { value: "A8", label: "A8" },
+              { value: "1/3A4", label: "1/3 A4" },
+              { value: "DL", label: "DL" },
+            ]} />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Colors</label>
-          <select value={layer.colors} onChange={e => onChange({ colors: +e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            <option value={1}>1 Color</option>
-            <option value={2}>2 Color</option>
-            <option value={4}>4 Colors (CMYK)</option>
-          </select>
+          <MobileSelect value={String(layer.colors)} onChange={v => onChange({ colors: +v })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+            options={[
+              { value: "1", label: "1 Color" },
+              { value: "2", label: "2 Color" },
+              { value: "4", label: "4 Colors (CMYK)" },
+            ]} />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1">Sides</label>
-          <select value={layer.sides} onChange={e => onChange({ sides: e.target.value })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white">
-            <option value="single">Single Side</option>
-            <option value="double">Double Side</option>
-          </select>
+          <MobileSelect value={layer.sides} onChange={v => onChange({ sides: v })} className="w-full border border-slate-200 rounded-lg text-xs px-2 py-1.5 bg-white"
+            options={[
+              { value: "single", label: "Single Side" },
+              { value: "double", label: "Double Side" },
+            ]} />
         </div>
       </div>
       <p className="text-xs text-slate-400 mt-2">
@@ -910,8 +918,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Input({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className="w-full border border-slate-200 rounded text-xs px-2 py-1 focus:outline-none focus:border-blue-400" />;
 }
-function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
-  return <select {...props} className="w-full border border-slate-200 rounded text-xs px-2 py-1 bg-white">{children}</select>;
+function Select({ children, value, onChange }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
+  const options = Children.toArray(children).flatMap((child) => {
+    if (!isValidElement(child) || child.type !== "option") return [];
+    const p = child.props as { value?: string | number; children?: React.ReactNode };
+    const optValue = p.value ?? String(p.children);
+    return [{ value: String(optValue), label: String(p.children) }];
+  });
+  return (
+    <MobileSelect
+      value={String(value ?? "")}
+      onChange={(v) => onChange?.({ target: { value: v } } as unknown as React.ChangeEvent<HTMLSelectElement>)}
+      className="w-full border border-slate-200 rounded text-xs px-2 py-1 bg-white"
+      options={options}
+    />
+  );
 }
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (

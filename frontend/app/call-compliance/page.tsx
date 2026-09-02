@@ -1,6 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -245,14 +246,13 @@ export default function CallCompliancePage() {
                         {imp.agent ? (
                           <span className="font-medium text-slate-800">{imp.agent.fullName}</span>
                         ) : (
-                          <select
-                            defaultValue=""
-                            onChange={(e) => void assignImport(imp.id, e.target.value)}
+                          <MobileSelect
+                            value=""
+                            onChange={(v) => void assignImport(imp.id, v)}
                             className="border border-amber-300 bg-amber-50 rounded px-1.5 py-0.5 text-xs"
-                          >
-                            <option value="" disabled>Assign agent…</option>
-                            {agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
-                          </select>
+                            placeholder="Assign agent…"
+                            options={agents.map((a) => ({ value: a.id, label: a.fullName }))}
+                          />
                         )}
                       </td>
                       <td className="px-3 py-1.5 text-slate-500">{fmtDate(imp.periodStart)} – {fmtDate(imp.periodEnd)}</td>

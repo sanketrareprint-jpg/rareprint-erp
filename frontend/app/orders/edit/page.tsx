@@ -1,6 +1,7 @@
 ﻿"use client";
 import React, { useEffect, useState, Suspense } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -163,10 +164,11 @@ function EditOrderPageInner() {
                 <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
                   {item.paperType || "-"}
                 </div>
-                <select value={item.sides} onChange={e => updateLine(idx, "sides", e.target.value)} style={S.input}>
-                  <option value="SINGLE_SIDE">Single</option>
-                  <option value="DOUBLE_SIDE">Double</option>
-                </select>
+                <MobileSelect value={item.sides} onChange={v => updateLine(idx, "sides", v)} style={S.input}
+                  options={[
+                    { value: "SINGLE_SIDE", label: "Single" },
+                    { value: "DOUBLE_SIDE", label: "Double" },
+                  ]} />
                 <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
                 <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} style={S.input} />
                 <input type="number" min={0} value={item.lineTotal || (item.quantity * item.unitPrice) || ""}

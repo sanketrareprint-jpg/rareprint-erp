@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
@@ -333,18 +334,15 @@ export default function TasksPage() {
               <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Details, role, outcome, or weekly goal" rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Assigned To</label>
-                <select value={form.assignedToId} onChange={e => setForm(p => ({ ...p, assignedToId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                  {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
-                </select>
+                <MobileSelect value={form.assignedToId} onChange={v => setForm(p => ({ ...p, assignedToId: v }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                  options={users.map(user => ({ value: user.id, label: `${user.fullName} (${user.role.replace(/_/g, " ")})` }))} />
                 <p className="mt-1 text-xs text-slate-400">Defaults to the user currently using ERP.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                  {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
-                </select>
-                <select value={form.goalHorizon} onChange={e => setForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none">
-                  {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
+                <MobileSelect value={form.priority} onChange={v => setForm(p => ({ ...p, priority: v as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                  options={Object.entries(priorityLabels).map(([value, label]) => ({ value, label: `${label} - ${priorityHelp[value as Task["priority"]]}` }))} />
+                <MobileSelect value={form.goalHorizon} onChange={v => setForm(p => ({ ...p, goalHorizon: v as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none"
+                  options={Object.entries(goalHorizonLabels).map(([value, label]) => ({ value, label }))} />
               </div>
               <div>
                 <DateInput value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none" />
@@ -428,14 +426,13 @@ export default function TasksPage() {
               ].map(([key, label]) => (
                 <button key={key} onClick={() => setView(key as TaskView)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{label}</button>
               ))}
-              <select value={status} onChange={e => setStatus(e.target.value as TaskFilter)} className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold outline-none">
-                <option value="ACTIVE">Active Tasks</option>
-                <option value="DONE">History</option>
-                <option value="ALL">All Status</option>
-                {Object.entries(statusLabels)
-                  .filter(([value]) => value !== "DONE")
-                  .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+              <MobileSelect value={status} onChange={v => setStatus(v as TaskFilter)} className="ml-auto rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold outline-none"
+                options={[
+                  { value: "ACTIVE", label: "Active Tasks" },
+                  { value: "DONE", label: "History" },
+                  { value: "ALL", label: "All Status" },
+                  ...Object.entries(statusLabels).filter(([value]) => value !== "DONE").map(([value, label]) => ({ value, label })),
+                ]} />
               {quadrantFilter !== "ALL" && (
                 <button onClick={() => setQuadrantFilter("ALL")} className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100">
                   Clear {priorityLabels[quadrantFilter]}
@@ -482,18 +479,15 @@ export default function TasksPage() {
                       <div className="space-y-2">
                         <div className="grid gap-2 md:grid-cols-[1fr_160px]">
                           <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Task subject" className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold outline-none focus:border-blue-400" />
-                          <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
-                            {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label} - {priorityHelp[value as Task["priority"]]}</option>)}
-                          </select>
+                          <MobileSelect value={editForm.priority} onChange={v => setEditForm(p => ({ ...p, priority: v as Task["priority"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none"
+                            options={Object.entries(priorityLabels).map(([value, label]) => ({ value, label: `${label} - ${priorityHelp[value as Task["priority"]]}` }))} />
                         </div>
                         <textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="Task details" rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
                         <div className="grid gap-2 md:grid-cols-[1fr_160px_160px]">
-                          <select value={editForm.assignedToId} onChange={e => setEditForm(p => ({ ...p, assignedToId: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
-                            {users.map(user => <option key={user.id} value={user.id}>{user.fullName} ({user.role.replace(/_/g, " ")})</option>)}
-                          </select>
-                          <select value={editForm.goalHorizon} onChange={e => setEditForm(p => ({ ...p, goalHorizon: e.target.value as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none">
-                            {Object.entries(goalHorizonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                          </select>
+                          <MobileSelect value={editForm.assignedToId} onChange={v => setEditForm(p => ({ ...p, assignedToId: v }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none"
+                            options={users.map(user => ({ value: user.id, label: `${user.fullName} (${user.role.replace(/_/g, " ")})` }))} />
+                          <MobileSelect value={editForm.goalHorizon} onChange={v => setEditForm(p => ({ ...p, goalHorizon: v as Task["goalHorizon"] }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none"
+                            options={Object.entries(goalHorizonLabels).map(([value, label]) => ({ value, label }))} />
                           <DateInput value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none" />
                         </div>
                         <div className="flex justify-end gap-2">
@@ -540,9 +534,8 @@ export default function TasksPage() {
                           <button onClick={() => startEdit(task)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                             <Pencil className="h-3 w-3" /> Edit
                           </button>
-                          <select value={task.status} onChange={e => updateTask(task.id, { status: e.target.value as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold outline-none">
-                            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                          </select>
+                          <MobileSelect value={task.status} onChange={v => updateTask(task.id, { status: v as Task["status"] })} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold outline-none"
+                            options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))} />
                           <button onClick={() => updateTask(task.id, { status: "DONE" })} disabled={task.status === "DONE"} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1 text-xs font-semibold text-white disabled:bg-slate-200 disabled:text-slate-400">
                             <CheckCircle2 className="h-3 w-3" /> Done
                           </button>
