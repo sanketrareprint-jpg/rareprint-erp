@@ -422,7 +422,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // fixes. boldText() is reused here despite the name — it's just a
     // generic hscale-wrapped text draw (save/translate/scale/restore) and
     // doesn't force bold; current font ('Body') is already set above.
-    boldText(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 27.32, { width: headerTextWidth, height: 24, lineGap: -1.5556, ellipsis: true }, 1.01);
+    // hscale 0.9987 (was 1.01) — re-measured 2026-08-31 via pdftotext
+    // word-by-word position against the reference's customerAddress line
+    // (same font/context): 1.01 caused a small but real cumulative
+    // rightward drift (~1.5% over the line length) visible in an overlay.
+    boldText(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 27.32, { width: headerTextWidth, height: 24, lineGap: -1.5556, ellipsis: true }, 0.9987);
 
     doc.font('Body').fontSize(8.5).fillColor(BORDER);
     // Right-half column starts at headerTextX+220.5 — measured from the
@@ -567,9 +571,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // off, uniformly). Reported as "invoice details/bill to values need a
     // nudge" from an opacity-overlay comparison against the reference PDF.
     doc.font('Body-Bold').fontSize(8.4).fillColor(BORDER);
-    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 20.67, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9698);
+    // hscale 0.9527 (was 0.9698) — re-measured 2026-08-31 via pdftotext
+    // word-by-word ("POSH"/"PHARMA") against the reference.
+    boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 20.67, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9527);
     doc.font('Body').fontSize(8.4);
-    boldText(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 33.42, { width: colWidth - 10, height: 16, ellipsis: true }, 1.01);
+    // hscale 0.9987 (was 1.01) — same re-measurement as companyAddress above.
+    boldText(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 33.42, { width: colWidth - 10, height: 16, ellipsis: true }, 0.9987);
 
     const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
     drawGlyphString('Contact No:', [36.891, 42.352, 47.137, 51.771, 54.516, 59.08, 63.472, 66.217, 68.298, 74.284, 79.069], 212.25, 8.4, INVOICE_GLYPHS_F8);
@@ -698,7 +705,27 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // rect() column-divider height for this row.
     const itemRowH = 27.7; // two lines: product name + "(agent)" note, and GST amount + rate%.
 
-    doc.font('Body').fontSize(8);
+    // fontSize 8.4 (was 8) + ITEM_ROW_HSCALE 1.08 on every value — root-caused
+    // 2026-08-31 via pikepdf content-stream Tf/cm extraction against the
+    // reference: every dynamic value in this row (item name, qty, unit,
+    // price, GST amount+rate, line amount) renders at effective size
+    // 11.2×0.75=8.4 in the reference — the SAME uniform size used everywhere
+    // else in this document (headers, Bill To) — not 8. The second line
+    // (agent note / GST rate%) was ALSO wrongly shrunk to fontSize 7: a
+    // pixel-zoomed crop of the reference (₹1,449.15 / (18.0%) cell) shows
+    // both lines are the SAME size, not a smaller second line. Fixing the
+    // size alone still leaves our regular-weight SegoeUI.ttf ~4-14%
+    // narrower than the reference's font at identical nominal size (the
+    // same "our TTF renders narrower" issue already fixed for Body-Bold
+    // elsewhere via BOLD_HSCALE) — 1.08 is the measured average correction
+    // across item-name/qty/unit/price/GST/amount (individual per-field
+    // ratios ranged 1.035-1.143; 1.08 is their mean, applied uniformly like
+    // every other hscale constant in this file). This was reported as
+    // values "not overlapping properly"/needing a nudge even after the
+    // Y-position fixes — the real remaining defect was this width drift,
+    // not vertical position.
+    const ITEM_ROW_HSCALE = 1.08;
+    doc.font('Body').fontSize(8.4);
     for (let i = 0; i < data.items.length; i++) {
       const item = data.items[i];
       const gstAmt = item.cgstAmount + item.sgstAmount + item.igstAmount;
@@ -708,7 +735,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       drawItemRowDividers(y, itemRowH);
       colX = tableX;
 
-      doc.fillColor(BORDER).font('Body').fontSize(8);
+      doc.fillColor(BORDER).font('Body').fontSize(8.4);
       doc.text(String(i + 1), colX + 3, y + 9, { width: cols[0].width - 6, height: 10, ellipsis: true });
       colX += cols[0].width;
 
@@ -719,32 +746,31 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // row_y+13.87 (266.67 - 252.8), not +5/+16 — those were guesses that
       // sat 1.63pt/2.13pt too low, reported as item-name text visually
       // crossing into the row below when overlaid against the reference.
-      doc.text(sanitize(item.productName), colX + 3, y + 3.37, { width: cols[1].width - 6, height: 10, ellipsis: true });
+      boldText(sanitize(item.productName), colX + 3, y + 3.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, ITEM_ROW_HSCALE);
       if (agentNote) {
-        doc.fontSize(7).text(`(${agentNote})`, colX + 3, y + 13.87, { width: cols[1].width - 6, height: 9, ellipsis: true });
-        doc.fontSize(8);
+        boldText(`(${agentNote})`, colX + 3, y + 13.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, ITEM_ROW_HSCALE);
       }
       colX += cols[1].width;
 
-      doc.text(sanitize(item.hsnSac) || '-', colX + 3, y + 9, { width: cols[2].width - 6, height: 10, ellipsis: true });
+      boldText(sanitize(item.hsnSac) || '-', colX + 3, y + 9, { width: cols[2].width - 6, height: 12, ellipsis: true }, ITEM_ROW_HSCALE);
       colX += cols[2].width;
-      doc.text(String(item.quantity), colX + 3, y + 9, { width: cols[3].width - 6, height: 10, ellipsis: true, align: 'right' });
+      boldText(String(item.quantity), colX + 3, y + 9, { width: cols[3].width - 6, height: 12, ellipsis: true, align: 'right' }, ITEM_ROW_HSCALE);
       colX += cols[3].width;
-      doc.text(sanitize(item.unit) || 'PCS', colX + 3, y + 9, { width: cols[4].width - 6, height: 10, ellipsis: true, align: 'right' });
+      boldText(sanitize(item.unit) || 'PCS', colX + 3, y + 9, { width: cols[4].width - 6, height: 12, ellipsis: true, align: 'right' }, ITEM_ROW_HSCALE);
       colX += cols[4].width;
-      doc.text(rupee(item.unitPrice), colX + 3, y + 9, { width: cols[5].width - 6, height: 10, ellipsis: true, align: 'right' });
+      boldText(rupee(item.unitPrice), colX + 3, y + 9, { width: cols[5].width - 6, height: 12, ellipsis: true, align: 'right' }, ITEM_ROW_HSCALE);
       colX += cols[5].width;
 
-      // GST(₹) — amount on top, rate% below, both right-aligned.
+      // GST(₹) — amount on top, rate% below, both right-aligned, same size
+      // (see comment above — the reference does not shrink this line).
       // y+4.12 (was +5), rate y+13.87 (was +16) — same re-measurement as the
       // item-name/note line above: reference GST-amount line1 sits at
       // row_y+4.12 (256.92-252.8), rate line2 at row_y+13.87 (266.67-252.8).
-      doc.text(rupee(gstAmt), colX + 3, y + 4.12, { width: cols[6].width - 6, height: 10, ellipsis: true, align: 'right' });
-      doc.fontSize(7).text(`(${Number(item.gstRatePct).toFixed(1)}%)`, colX + 3, y + 13.87, { width: cols[6].width - 6, height: 9, ellipsis: true, align: 'right' });
-      doc.fontSize(8);
+      boldText(rupee(gstAmt), colX + 3, y + 4.12, { width: cols[6].width - 6, height: 12, ellipsis: true, align: 'right' }, ITEM_ROW_HSCALE);
+      boldText(`(${Number(item.gstRatePct).toFixed(1)}%)`, colX + 3, y + 13.87, { width: cols[6].width - 6, height: 11, ellipsis: true, align: 'right' }, ITEM_ROW_HSCALE);
       colX += cols[6].width;
 
-      doc.text(rupee(item.lineTotal), colX + 3, y + 9, { width: cols[7].width - 6, height: 10, ellipsis: true, align: 'right' });
+      boldText(rupee(item.lineTotal), colX + 3, y + 9, { width: cols[7].width - 6, height: 12, ellipsis: true, align: 'right' }, ITEM_ROW_HSCALE);
 
       y += itemRowH;
 
@@ -759,7 +785,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     ensureSpace(totalRowH);
     doc.rect(tableX, y, CONTENT_WIDTH, totalRowH).fillAndStroke('#f8f8f8', BORDER);
     drawItemRowDividers(y, totalRowH);
-    doc.fillColor(BORDER).font('Body-Bold').fontSize(6.8);
+    // fontSize 8.4 (was 6.8) — same content-stream measurement as the data
+    // rows above found this row's values ALSO render at 8.4 in the
+    // reference, not a shrunk 6.8. hscale 1.0 (was the implicit default
+    // BOLD_HSCALE=1.08, never overridden here) — re-measured 2026-08-31:
+    // unlike the data rows' regular-weight text, this row's Body-Bold text
+    // at the corrected 8.4 size already lands within 1-2.5% of the
+    // reference with NO extra hscale (BOLD_HSCALE was tuned for much larger
+    // bold elements elsewhere and overshoots here).
+    doc.fillColor(BORDER).font('Body-Bold').fontSize(8.4);
     // 'Total' starts past the '#' column (tableX+cols[0].width+3), not at the
     // very left edge — reference measured x≈58.56 vs tableX+3=38, a ~20.5pt
     // gap matching exactly one '#' column width (21pt).
@@ -771,19 +805,22 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       String(totalQty),
       tableX + cols[0].width + cols[1].width + cols[2].width + 3,
       y + 3,
-      { width: cols[3].width - 6, height: 11, ellipsis: true, align: 'right' },
+      { width: cols[3].width - 6, height: 12, ellipsis: true, align: 'right' },
+      1.0,
     );
     boldText(
       rupee(totalGst),
       tableX + cols[0].width + cols[1].width + cols[2].width + cols[3].width + cols[4].width + cols[5].width + 3,
       y + 3,
-      { width: cols[6].width - 6, height: 11, ellipsis: true, align: 'right' },
+      { width: cols[6].width - 6, height: 12, ellipsis: true, align: 'right' },
+      1.0,
     );
     boldText(
       rupee(totalAmount),
       tableX + CONTENT_WIDTH - cols[7].width + 3,
       y + 3,
-      { width: cols[7].width - 6, height: 11, ellipsis: true, align: 'right' },
+      { width: cols[7].width - 6, height: 12, ellipsis: true, align: 'right' },
+      1.0,
     );
     y += totalRowH;
     // 2.69 (was 2.92) — re-tuned after fixing headerRowH/itemRowH/totalRowH
@@ -1413,10 +1450,20 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // generated invoice: Name/Account No./IFSC code/Account Holder's Name
     // were rendering in near-invisible GREY instead of BORDER.
     doc.fillColor(BORDER);
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 20.68, 8);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 31.18, 8);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 43.18, 8);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 55.18, 8);
+    // fontSize 8.4 (was 8) + labelHscale 1.02 / valueHscale 0.95 (was the
+    // unscaled label / implicit default BOLD_HSCALE=1.08 value — neither
+    // ever overridden here) — root-caused 2026-08-31 via pikepdf
+    // content-stream Tf/cm extraction: all 4 rows render at effective size
+    // 8.4 in the reference (same uniform size as the rest of the document),
+    // and per-word width comparison against the reference (after accounting
+    // for the size fix) showed the label ~2-4% narrower and the value
+    // ~5-8% wider than the reference at the old settings. This was the
+    // real cause of "Bank Details" looking misaligned in an overlay
+    // comparison even though row Y-positions were already exact.
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 20.68, 8.4, 1.02, 0.95);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 31.18, 8.4, 1.02, 0.95);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 43.18, 8.4, 1.02, 0.95);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 55.18, 8.4, 1.02, 0.95);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
