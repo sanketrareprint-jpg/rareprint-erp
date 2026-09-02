@@ -153,7 +153,7 @@ export class OrdersController {
   superAdminEditItem(
     @Param('itemId') itemId: string,
     @Req() req: Request & { user: JwtUser },
-    @Body() body: { quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
+    @Body() body: { productId?: string; quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
   ) {
     return this.ordersService.superAdminEditItem(itemId, body, req.user);
   }

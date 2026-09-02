@@ -940,7 +940,9 @@ export class OrdersService {
       id: item.id,
       orderId: item.orderId,
       orderNo: item.order.orderNumber,
+      productId: item.productId,
       productName: item.product.name,
+      productSku: item.product.sku,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       size: resolved.size ?? '',
@@ -955,7 +957,7 @@ export class OrdersService {
 
   async superAdminEditItem(
     itemId: string,
-    body: { quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
+    body: { productId?: string; quantity?: number; unitPrice?: number; size?: string; gsm?: string; paperType?: string; sides?: string },
     user: { id: string; email: string },
   ) {
     if (user.email !== SUPER_ADMIN_EMAIL) {
@@ -973,6 +975,22 @@ export class OrdersService {
     // check below (blockedStatuses + per-item dispatchedAt) is what actually
     // guards against editing something that's already shipped.
 
+    // Same "wrong item picked at order entry" correction this whole endpoint
+    // exists for, just for the product itself rather than qty/price/specs --
+    // lets the super-admin re-pick the product (and therefore SKU) the same
+    // way order creation does. When the product actually changes, resolve
+    // Size/GSM/Paper/Sides from the NEW product's own catalog defaults
+    // (ignoring the old item's productionNotes, which described the old
+    // product) rather than the normal notes-first resolution below.
+    let product = item.product;
+    let productChanged = false;
+    if (body.productId && body.productId !== item.productId) {
+      const newProduct = await this.prisma.product.findUnique({ where: { id: body.productId } });
+      if (!newProduct) throw new NotFoundException('Selected product not found');
+      product = newProduct;
+      productChanged = true;
+    }
+
     // productionNotes carries the free-text "Size: X, GSM: Y, Paper: Z,
     // Sides: W" details set at order-create time (see
     // frontend/app/orders/create/page.tsx) -- resolve the currently-effective
@@ -980,7 +998,7 @@ export class OrdersService {
     // resolution dispatch/accounts already use, see ../common/resolve-item-details),
     // overlay whichever fields were submitted, and rebuild the notes string in
     // the exact same format everything else (production, dispatch, sheets) expects.
-    const resolved = resolveItemDetails(item.productionNotes, item.product);
+    const resolved = productChanged ? resolveItemDetails(null, product) : resolveItemDetails(item.productionNotes, product);
 
     const size  = body.size  ?? resolved.size  ?? '';
     const gsm   = body.gsm   ?? resolved.gsm   ?? '';
@@ -995,6 +1013,7 @@ export class OrdersService {
     const lineTotal = quantity * unitPrice;
 
     const before = {
+      productName: item.product.name,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       lineTotal: Number(item.lineTotal),
@@ -1037,6 +1056,7 @@ export class OrdersService {
       await tx.orderItem.update({
         where: { id: itemId },
         data: {
+          productId: product.id,
           quantity,
           unitPrice: new Prisma.Decimal(unitPrice),
           lineTotal: new Prisma.Decimal(lineTotal),
@@ -1052,26 +1072,27 @@ export class OrdersService {
           status: OrderStatus.PENDING_APPROVAL,
         },
       });
+      const after = { productName: product.name, quantity, unitPrice, lineTotal, productionNotes };
       await tx.statusLog.create({
         data: {
           orderId: order.id,
           fromStatus: previousOrderStatus,
           toStatus: OrderStatus.PENDING_APPROVAL,
           changedById: user.id,
-          reason: `Super-admin edit: ${item.product.name} — before ${JSON.stringify(before)} → after ${JSON.stringify({ quantity, unitPrice, lineTotal, productionNotes })}. Sent back to Accounts for re-approval.`,
+          reason: `Super-admin edit: ${item.product.name}${productChanged ? ` → ${product.name}` : ''} — before ${JSON.stringify(before)} → after ${JSON.stringify(after)}. Sent back to Accounts for re-approval.`,
           metadata: {
             eventType: 'SUPERADMIN_ITEM_EDIT',
             itemId,
-            productName: item.product.name,
+            productChanged,
             before,
-            after: { quantity, unitPrice, lineTotal, productionNotes },
+            after,
             previousOrderStatus,
           },
         },
       });
     });
 
-    return { success: true, quantity, unitPrice, lineTotal, productionNotes, grandTotal, paymentStatus, orderStatus: OrderStatus.PENDING_APPROVAL };
+    return { success: true, productId: product.id, productName: product.name, quantity, unitPrice, lineTotal, productionNotes, grandTotal, paymentStatus, orderStatus: OrderStatus.PENDING_APPROVAL };
   }
 
   // isAdmin lets ADMIN-role users force-delete an order in any status, not
