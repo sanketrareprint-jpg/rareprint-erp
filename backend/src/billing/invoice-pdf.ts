@@ -1644,10 +1644,37 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // so one shared value hscale can't fit both. Digit rows (Account No./
     // IFSC) keep 0.976; letter rows (Name/Account Holder's Name) get their
     // own 0.976*0.9275=0.905, re-measured against the same "IDBI" substring.
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.905);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.02, 0.976);
+    // Name row's own x = tableX + 3.94 (was the shared tableX + 4.98) —
+    // root-caused 2026-09-03: 3 of 4 rows' x0 already matched the reference
+    // to within 0.004pt at +4.98, but "Name:" alone measured a genuine
+    // 1.04pt rightward offset (ref x0=37.64 vs ours 38.68) — previously
+    // noted as "a reference-side quirk, not chased further" (see comment
+    // below), but re-flagged by direct visual comparison as a real,
+    // consistent rightward shift, not noise. Only this row gets its own x.
+    //
+    // Account No. row labelHscale 1.02 -> 1.0114, Account Holder's Name row
+    // 1.02 -> 1.0026 — root-caused 2026-09-03, second pass: the "don't share
+    // a consistent sign, not chased further" note above was revisited after
+    // the user pointed out the "o" in "Account No." and the "Holder's Name"
+    // span visibly crossing/doubling in an overlay. Full-label-span pdftotext
+    // widths (word x0 to final word xMax) showed real, per-row-specific
+    // overshoot: Account No.: row measured 0.85% wider than ref (48.55 vs
+    // 48.15), growing to a 0.67pt rightward drift by the value's x0; Account
+    // Holder's Name: row measured 1.73% wider (91.53 vs 89.97), growing to a
+    // 1.46pt drift by "Name:"'s own x0. Both corrected by scaling the
+    // existing 1.02 down by the measured ref/ours ratio for that row only.
+    // IFSC code: and Name: rows are left alone — their full-span ratios were
+    // already within 0.4% (see note above / IFSC note below), and nudging
+    // them further would only be chasing per-word kerning noise, not a real
+    // systematic error. Note: after this fix, "Account Holder's Name:"'s
+    // VALUE still won't overlay perfectly against the reference — the real
+    // company's stored holder name is "RAREPRINT IN" (with a space) vs the
+    // reference's own "RAREPRINT.IN" (period, no space); that's a data
+    // difference, not a rendering bug.
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 3.94, y + 18.68, 8.4, 1.02, 0.905);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.0114, 0.976);
     labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.041, 0.976);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.905);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.0026, 0.905);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
