@@ -837,24 +837,35 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     drawGlyphString('Total', [58.559, 63.159, 67.944, 70.689, 75.253], y + 10.5, 8.4);
     // hscale 0.976 (was 1.0) — this cell alone measured ~2.4% wider than the
     // reference even though the GST/Amount cells beside it matched at 1.0.
+    //
+    // y+1 (was y+3) — root-caused 2026-09-03, same bug/fix as everywhere
+    // else in this file: these three values sat ~1.92pt too low. The
+    // earlier "y+3 is already correct" measurement was a false negative —
+    // it used a naive first-dark-row scan that caught this row's own top
+    // border stroke (a near-full-width dark line right at the row's start)
+    // instead of the actual digit ink, since the border in both PDFs
+    // happened to sit within ~0.24pt of each other and masked the real
+    // 1.92pt text offset underneath. Re-measured with a scan that explicitly
+    // skips near-full-width rows (i.e. border strokes) before looking for
+    // real glyph ink; all three cells (qty/GST/amount) agreed on +1.92pt.
     boldText(
       String(totalQty),
       tableX + cols[0].width + cols[1].width + cols[2].width + 3,
-      y + 3,
+      y + 1,
       { width: cols[3].width - 6, height: 12, ellipsis: true, align: 'right' },
       0.976,
     );
     boldText(
       rupee(totalGst),
       tableX + cols[0].width + cols[1].width + cols[2].width + cols[3].width + cols[4].width + cols[5].width + 3,
-      y + 3,
+      y + 1,
       { width: cols[6].width - 6, height: 12, ellipsis: true, align: 'right' },
       1.0,
     );
     boldText(
       rupee(totalAmount),
       tableX + CONTENT_WIDTH - cols[7].width + 3,
-      y + 3,
+      y + 1,
       { width: cols[7].width - 6, height: 12, ellipsis: true, align: 'right' },
       1.0,
     );
@@ -1161,8 +1172,18 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // the reference: data-row values sit at ty+3.45 (346.92-343.47), not
       // +4 (0.55pt too low, reported as "tax summary rows below header"
       // sitting low when overlaid against the reference).
+      //
+      // ty+1.45 (was ty+3.45) — root-caused 2026-09-03: this row's earlier
+      // "already correct" check was a false negative from the same border-
+      // stroke contamination as the item table's Total row (see that fix's
+      // comment) — the row's own top border, near-full-width and dark,
+      // landed within ~0.24pt in both PDFs and got picked up as "first ink"
+      // instead of the real digits underneath, masking a genuine +2.16pt
+      // offset. Re-measured with a scan that explicitly skips near-full-
+      // width rows first; both this row and the TOTAL row below agreed on
+      // +2.16pt.
       for (let c = 0; c < cells.length; c++) {
-        boldText(cells[c], tx + 2, ty + 3.45, { width: dataColWidths[c] - 4, height: 12, ellipsis: true, align: c === 0 ? 'left' : 'right' }, TAX_ROW_HSCALE);
+        boldText(cells[c], tx + 2, ty + 1.45, { width: dataColWidths[c] - 4, height: 12, ellipsis: true, align: c === 0 ? 'left' : 'right' }, TAX_ROW_HSCALE);
         tx += dataColWidths[c];
       }
       ty += taxRowH;
@@ -1197,7 +1218,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         // ty+3.5 (362.67-359.17), not +4. hscale 1.0 (was implicit default
         // BOLD_HSCALE=1.08) — bold text at the corrected 8.4 size needs no
         // extra hscale, same finding as the item table's own Total row.
-        boldText(totalCells[c], tx + 2, ty + 3.5, { width: dataColWidths[c] - 4, height: 12, ellipsis: true, align: 'right' }, 1.0);
+        //
+        // ty+1.5 (was ty+3.5) — root-caused 2026-09-03, same border-stroke
+        // false-negative fix as the data row above: real offset measured
+        // +2.16pt once the row's own top border was excluded from the scan.
+        boldText(totalCells[c], tx + 2, ty + 1.5, { width: dataColWidths[c] - 4, height: 12, ellipsis: true, align: 'right' }, 1.0);
         tx += dataColWidths[c];
       }
     }
