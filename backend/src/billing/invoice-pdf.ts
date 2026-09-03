@@ -1630,10 +1630,24 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // classic signature of an undersized hscale rather than per-letter
     // kerning noise. The other 3 rows' small, sign-inconsistent residuals
     // are left alone (still true per the note above).
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.976);
+    // Name/Account Holder's Name valueHscale dropped to 0.905 (was the
+    // shared 0.976) — root-caused 2026-09-03: 0.976 was calibrated using
+    // ONLY the two digit-heavy value rows (Account No./IFSC), which
+    // measured near-perfect (ratio 1.0001-1.0006) — but it was never
+    // separately verified against LETTER content, and this document never
+    // has identical letter-content values to compare... except "IDBI",
+    // which appears in BOTH the reference's bank name ("IDBI Bank (India)")
+    // and ours ("IDBI BANK") despite the rest of the value differing. That
+    // shared substring measured 7.25% WIDER in ours at valueHscale 0.976
+    // (ref 15.30pt vs ours 16.50pt) — letters and digits apparently don't
+    // scale the same way between our SegoeUI-Bold and the reference's font,
+    // so one shared value hscale can't fit both. Digit rows (Account No./
+    // IFSC) keep 0.976; letter rows (Name/Account Holder's Name) get their
+    // own 0.976*0.9275=0.905, re-measured against the same "IDBI" substring.
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.905);
     labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.02, 0.976);
     labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.041, 0.976);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.976);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.905);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
