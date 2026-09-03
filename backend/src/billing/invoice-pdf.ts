@@ -1343,7 +1343,18 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // y-2.0 — root-caused 2026-09-03, same bug/fix as the summaryRow values
     // above: measured against actual rendered pixels, this text sits
     // ~2.16pt too low at plain `ry`.
-    boldText(amountInWords(data.totalAmount), rightX, ry - 2.0, { width: rightWidth, height: 28 }, 1.02);
+    //
+    // lineGap: -2.16 — root-caused 2026-09-03, a SEPARATE bug from the
+    // above: when this value wraps to 2 lines, the first line matched the
+    // reference (-0.48pt) but the second line ("only") drifted +1.68pt
+    // lower — measured line-to-line pitch was 17.76pt here vs the
+    // reference's actual 15.6pt. This is PDFKit's own automatic wrapped-
+    // line spacing (font-metric-derived, same "our font's metrics don't
+    // match the reference's" family of bug as everywhere else in this file,
+    // but affecting inter-line gap here instead of a single line's
+    // position) being ~2.16pt too tall per line. `lineGap` is pure
+    // PDFKit — passed straight through via boldText's opts spread.
+    boldText(amountInWords(data.totalAmount), rightX, ry - 2.0, { width: rightWidth, height: 28, lineGap: -2.16 }, 1.02);
     ry += 25.5;
     // 4th right-box divider, below the amount-in-words text and before
     // Received — missed in the earlier pass (only 3 were added then); the
