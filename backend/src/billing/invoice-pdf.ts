@@ -1522,10 +1522,22 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the same nominal y. Row-to-row pitch itself was already correct
     // (10.5/12.0/12.0, matching the reference to within 0.24pt) — this was
     // purely a constant block-level offset, not a per-row drift.
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.95);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.02, 0.95);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.02, 0.95);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.95);
+    //
+    // valueHscale 0.976 (was 0.95) — root-caused 2026-09-03 via pdftotext
+    // per-word width comparison after the y-offset fix above: the two
+    // identical-digit value strings we can measure directly against the
+    // reference (Account No. "0513102000013378", IFSC "IBKL0000513") were
+    // rendering 2.6-2.7% narrower than the reference at 0.95, a real
+    // residual visible as horizontal drift growing across the line in an
+    // overlay comparison ("text stretching"), not the earlier vertical
+    // offset. labelHscale left at 1.02 — the 4 rows' label-width ratios
+    // (+0.4%/+0.9%/-2.1%/+1.7%) don't share a consistent sign, consistent
+    // with per-word kerning noise rather than a real systematic label error;
+    // not chased further.
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.976);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.02, 0.976);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.02, 0.976);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.976);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
