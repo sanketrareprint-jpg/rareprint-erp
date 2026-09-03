@@ -1618,9 +1618,21 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // (+0.4%/+0.9%/-2.1%/+1.7%) don't share a consistent sign, consistent
     // with per-word kerning noise rather than a real systematic label error;
     // not chased further.
+    //
+    // IFSC row's own labelHscale bumped to 1.041 (was the shared 1.02) —
+    // root-caused 2026-09-03: unlike the other 3 rows (whose full-label-span
+    // width ratios were all within 1.7% either direction), "IFSC code: "
+    // measured 2.07% NARROWER than the reference at 1.02 specifically (ref
+    // span 39.84pt vs ours 39.03pt) — the opposite direction from the other
+    // rows, so it couldn't share their value. Visually this showed as a
+    // widening rightward drift through "code:" in a pixel-diff overlay (the
+    // reference progressively pulling ahead of ours letter by letter), the
+    // classic signature of an undersized hscale rather than per-letter
+    // kerning noise. The other 3 rows' small, sign-inconsistent residuals
+    // are left alone (still true per the note above).
     labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.976);
     labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.02, 0.976);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.02, 0.976);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.041, 0.976);
     labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.976);
 
     // Signature size/position, like the logo above, read directly off the
