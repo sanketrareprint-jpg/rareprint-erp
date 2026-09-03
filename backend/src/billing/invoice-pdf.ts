@@ -1504,10 +1504,28 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // ~5-8% wider than the reference at the old settings. This was the
     // real cause of "Bank Details" looking misaligned in an overlay
     // comparison even though row Y-positions were already exact.
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 20.68, 8.4, 1.02, 0.95);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 31.18, 8.4, 1.02, 0.95);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 43.18, 8.4, 1.02, 0.95);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 55.18, 8.4, 1.02, 0.95);
+    //
+    // y offsets each -2.0 (20.68/31.18/43.18/55.18 -> 18.68/29.18/41.18/
+    // 53.18) — root-caused 2026-09-03: those values were calibrated against
+    // pdftotext's reported yMin, which (per the page-title comment above)
+    // is derived from font ASCENT metrics, not actual glyph ink — it is not
+    // a reliable ground truth when comparing two different embedded fonts.
+    // Measured against ACTUAL RENDERED PIXELS instead (pdftoppm 300dpi,
+    // first ink row of each label's own leading capital letter — content-
+    // independent since the labels are identical text in both PDFs): our
+    // render's ink consistently starts ~1.9-2.2pt BELOW the reference's own
+    // ink on all 4 rows (Name +2.16, Account No. +1.92, IFSC +1.92, Account
+    // Holder's Name +1.92pt) despite the old y-values matching the
+    // reference's pdftotext yMin almost exactly — i.e. PDFKit's `doc.text()`
+    // places real glyph ink further below the passed y for our embedded
+    // Body/Body-Bold (SegoeUI) fonts than the reference's own font does at
+    // the same nominal y. Row-to-row pitch itself was already correct
+    // (10.5/12.0/12.0, matching the reference to within 0.24pt) — this was
+    // purely a constant block-level offset, not a per-row drift.
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 4.98, y + 18.68, 8.4, 1.02, 0.95);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.02, 0.95);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.02, 0.95);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.02, 0.95);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
