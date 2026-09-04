@@ -166,6 +166,21 @@ export class BillingService {
     if (filters.customerId) where.order = { ...where.order, customerId: filters.customerId };
     if (filters.status) where.status = filters.status;
 
+    // search moved into the Prisma `where` (was: fetch the latest 500 by
+    // issueDate, THEN filter those 500 in JS by search term) — root-caused
+    // 2026-09-04: that order meant a search for an older invoice/customer/
+    // phone that fell outside the 500 most-recent invoices could never
+    // match, even though it exists in the database. Filtering in the query
+    // itself means the 500 cap applies to the already-matched rows instead.
+    const search = filters.search?.trim();
+    if (search) {
+      where.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { order: { customer: { businessName: { contains: search, mode: 'insensitive' } } } },
+        { order: { customer: { phone: { contains: search } } } },
+      ];
+    }
+
     const invoices = await this.prisma.invoice.findMany({
       where,
       include: {
@@ -176,7 +191,6 @@ export class BillingService {
       take: 500,
     });
 
-    const search = filters.search?.trim().toLowerCase();
     const rows = invoices.map((inv) => ({
       id: inv.id,
       orderId: inv.orderId,
@@ -199,13 +213,7 @@ export class BillingService {
       salesAgentName: inv.order.salesAgent?.fullName ?? null,
     }));
 
-    if (!search) return rows;
-    return rows.filter(
-      (r) =>
-        r.invoiceNumber.toLowerCase().includes(search) ||
-        r.customerName.toLowerCase().includes(search) ||
-        (r.customerPhone ?? '').includes(search),
-    );
+    return rows;
   }
 
   private async loadInvoiceForPdf(invoiceId: string) {

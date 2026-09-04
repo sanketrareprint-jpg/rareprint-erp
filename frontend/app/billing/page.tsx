@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback, Suspense } from "react";
+import React, { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -81,19 +81,39 @@ function BillingPageInner() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [invoiceSearch, setInvoiceSearch] = useState("");
+  // Debounced (400ms, matches the same pattern in app/orders/page.tsx) so
+  // fast typing doesn't fire a full request per keystroke.
+  const [debouncedInvoiceSearch, setDebouncedInvoiceSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedInvoiceSearch(invoiceSearch), 400);
+    return () => clearTimeout(t);
+  }, [invoiceSearch]);
   const [sharingId, setSharingId] = useState<string | null>(null);
 
+  // requestSeq guards against out-of-order responses — root-caused
+  // 2026-09-04: with no debounce/guard, every keystroke fired its own
+  // request, and if an earlier (broader) search's response arrived AFTER a
+  // later, more specific one, it would silently overwrite the correct
+  // results with the stale, unrelated ones — the only fix was clicking
+  // Refresh. Only the response for the most recently fired request is
+  // applied now.
+  const invoiceRequestSeq = useRef(0);
+
   const loadInvoices = useCallback(async () => {
+    const seq = ++invoiceRequestSeq.current;
     setInvoicesLoading(true);
     try {
       const params = new URLSearchParams();
-      if (invoiceSearch) params.set("search", invoiceSearch);
+      if (debouncedInvoiceSearch) params.set("search", debouncedInvoiceSearch);
       const res = await fetch(`${API_BASE_URL}/billing/invoices?${params.toString()}`, { headers: getAuthHeaders() });
-      if (res.ok) setInvoices(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        if (seq === invoiceRequestSeq.current) setInvoices(data);
+      }
     } finally {
-      setInvoicesLoading(false);
+      if (seq === invoiceRequestSeq.current) setInvoicesLoading(false);
     }
-  }, [invoiceSearch]);
+  }, [debouncedInvoiceSearch]);
 
   useEffect(() => { void loadInvoices(); }, [loadInvoices]);
 
