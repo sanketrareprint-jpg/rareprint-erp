@@ -180,6 +180,16 @@ async function readErr(res: Response, fallback: string): Promise<string> {
 export default function EventsPage() {
   const [tab, setTab] = useState<"people" | "templates" | "brand" | "clients" | "festivals" | "history">("people");
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Auto-dismiss the success banner after a few seconds -- unlike the error
+  // banner, which stays until the user reads it and closes it, a "sent!"
+  // confirmation shouldn't linger and get mistaken for a still-current state.
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(null), 4000);
+    return () => clearTimeout(t);
+  }, [success]);
 
   const TABS: Array<[typeof tab, string]> = [
     ["people", "People"],
@@ -205,6 +215,13 @@ export default function EventsPage() {
           </div>
         )}
 
+        {success && (
+          <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm flex items-center gap-2">
+            <CheckCircle2 size={16} /> {success}
+            <button onClick={() => setSuccess(null)} className="ml-auto text-green-400 hover:text-green-600"><X size={14} /></button>
+          </div>
+        )}
+
         <div className="flex gap-1 mb-5 border-b">
           {TABS.map(([key, label]) => (
             <button
@@ -217,10 +234,10 @@ export default function EventsPage() {
           ))}
         </div>
 
-        {tab === "people" && <PeopleTab setError={setError} />}
+        {tab === "people" && <PeopleTab setError={setError} setSuccess={setSuccess} />}
         {tab === "templates" && <TemplatesTab setError={setError} />}
         {tab === "brand" && <BrandTab setError={setError} />}
-        {tab === "clients" && <ClientBusinessesTab setError={setError} />}
+        {tab === "clients" && <ClientBusinessesTab setError={setError} setSuccess={setSuccess} />}
         {tab === "festivals" && <FestivalsTab setError={setError} />}
         {tab === "history" && <HistoryTab setError={setError} />}
       </div>
@@ -230,7 +247,7 @@ export default function EventsPage() {
 
 // ─────────────────────────── People tab ───────────────────────────
 
-function PeopleTab({ setError }: { setError: (s: string | null) => void }) {
+function PeopleTab({ setError, setSuccess }: { setError: (s: string | null) => void; setSuccess: (s: string | null) => void }) {
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Person | null | "new">(null);
@@ -254,13 +271,19 @@ function PeopleTab({ setError }: { setError: (s: string | null) => void }) {
   const sendTest = async (personId: string, occasionType: OccasionType) => {
     setSendingFor(personId);
     setError(null);
+    setSuccess(null);
     try {
       const res = await fetch(`${API_BASE_URL}/events/people/${personId}/send-test`, {
         method: "POST", headers: getAuthHeaders(), body: JSON.stringify({ occasionType }),
       });
       if (!res.ok) throw new Error(await readErr(res, "Could not send"));
       const result = await res.json();
-      if (!result.sent) setError(result.errorMessage || "Send did not reach this person — check the AiSensy template/campaign setup");
+      if (!result.sent) {
+        setError(result.errorMessage || "Send did not reach this person — check the AiSensy template/campaign setup");
+      } else {
+        const name = people.find((p) => p.id === personId)?.name ?? "this person";
+        setSuccess(`Sent — check WhatsApp for ${name}'s test wish.`);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -972,7 +995,7 @@ function BrandTab({ setError }: { setError: (s: string | null) => void }) {
 // is entirely up to them; RarePrint's job stops at creating and delivering
 // the image. See docs/Events_Module_Client_Wish_Cards_Build_Prompt.md.
 
-function ClientBusinessesTab({ setError }: { setError: (s: string | null) => void }) {
+function ClientBusinessesTab({ setError, setSuccess }: { setError: (s: string | null) => void; setSuccess: (s: string | null) => void }) {
   const [businesses, setBusinesses] = useState<ClientBusiness[]>([]);
   const [clientFestivals, setClientFestivals] = useState<Festival[]>([]); // only festivals with a clientTemplateId assigned — usable for test-sends
   const [loading, setLoading] = useState(true);
@@ -1008,13 +1031,19 @@ function ClientBusinessesTab({ setError }: { setError: (s: string | null) => voi
     if (!testFestivalId) return setError("No festival has a Client Wish Card template assigned yet — set one on the Festivals tab first");
     setSendingFor(businessId);
     setError(null);
+    setSuccess(null);
     try {
       const res = await fetch(`${API_BASE_URL}/events/client-businesses/${businessId}/send-test`, {
         method: "POST", headers: getAuthHeaders(), body: JSON.stringify({ festivalId: testFestivalId }),
       });
       if (!res.ok) throw new Error(await readErr(res, "Could not send"));
       const result = await res.json();
-      if (!result.sent) setError(result.errorMessage || "Send did not reach this business — check the AiSensy client-wish-card template/campaign setup");
+      if (!result.sent) {
+        setError(result.errorMessage || "Send did not reach this business — check the AiSensy client-wish-card template/campaign setup");
+      } else {
+        const name = businesses.find((b) => b.id === businessId)?.businessName ?? "this business";
+        setSuccess(`Sent — check WhatsApp for ${name}'s test wish card.`);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
