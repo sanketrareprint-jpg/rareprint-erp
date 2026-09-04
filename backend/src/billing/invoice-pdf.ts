@@ -18,7 +18,7 @@
 import PDFDocument from 'pdfkit';
 import { amountInWords } from './amount-in-words';
 import { registerInvoiceFonts } from './pdf-fonts';
-import { INVOICE_GLYPHS, INVOICE_GLYPHS_F8 } from './invoice-glyphs';
+import { INVOICE_GLYPHS, INVOICE_GLYPHS_F8, GLYPH_ADVANCE_WIDTHS } from './invoice-glyphs';
 
 export interface InvoicePdfCompanyProfile {
   companyName: string;
@@ -173,6 +173,29 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // save()/restore() pair around a continued-chain call would break
     // PDFKit's internal cursor tracking between the chained pieces.
     const BOLD_HSCALE = 1.08;
+    // Vertical distance from doc.text()'s y0 ("top of box") to the actual
+    // glyph baseline, for text at fontSize 8.4 in this document's line
+    // layout — needed by drawValueExact() calls below, which draw raw
+    // vector glyph outlines baseline-relative (like drawGlyphString) rather
+    // than through doc.text()'s top-of-box convention.
+    //
+    // 8.84 (was 11.172656) — root-caused 2026-09-04: the first attempt
+    // measured this via pdftotext's yMax on a no-descender test string
+    // ("TEST123"/"IBKL0000513"/"AB"), reasoning that yMax should equal real
+    // ink-bottom (baseline) when there's no descender to extend below it.
+    // That produced a real, visible ~2.4-2.9pt downward shift in the first
+    // rendered Bank Details values (confirmed both visually and via 300dpi
+    // pixel ink-row scanning) — pdftotext's yMax turns out to be JUST AS
+    // unreliable as its yMin (see the y-offset note above): both are
+    // font-ascent/descent-METRIC-based, not real glyph ink, for these
+    // embedded fonts. Re-measured the only reliable way (per this file's
+    // own established practice): 300dpi pixel scan for each label's own
+    // real ink-bottom row (Name:/Account/IFSC/Account — labels, unaffected
+    // by this bug, share their row's baseline with the value next to them).
+    // Offset from that row's y0 came out to 8.84 on 3 of 4 rows exactly
+    // (8.78 on the 4th, within one pixel-row of quantization noise) —
+    // trusted over the pdftotext-derived value.
+    const BOLD_84_ASCENT = 8.84;
     // Optional hscale param — lets individual call sites (the page title
     // below) override the shared BOLD_HSCALE with a value re-measured
     // against actual rendered pixels, without changing every other
@@ -232,6 +255,56 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.restore();
     }
 
+    // Like drawGlyphString above, but for VALUE text (per-company data,
+    // e.g. Bank Details' bank name/account number/IFSC/holder name) rather
+    // than a fixed reference string — drawGlyphString's xPositions arrays
+    // only work because they were hardcoded per-character against ONE
+    // specific string that's identical on every invoice; a data value's
+    // content/length varies, so there's no fixed array to hardcode. Instead
+    // this lays itself out from a single x0, walking the string and adding
+    // each character's own advance width (GLYPH_ADVANCE_WIDTHS, extracted
+    // the same way as the outlines — see invoice-glyphs.ts) to a running x.
+    // Falls back to the caller's boldText()-based hscale approximation for
+    // the WHOLE string if any character isn't in the extracted set, so a
+    // future edit to Company Profile's bank fields (a new bank name with
+    // characters we haven't captured, say) degrades safely instead of
+    // silently dropping text. Added 2026-09-04 for Bank Details specifically
+    // — see the K/L/digit glyph additions in invoice-glyphs.ts.
+    function drawValueExact(value: string, x0: number, baselineY: number, scale: number, fallback: () => void) {
+      for (const ch of value) {
+        if (!(ch in INVOICE_GLYPHS) || !(ch in GLYPH_ADVANCE_WIDTHS)) {
+          fallback();
+          return;
+        }
+      }
+      doc.save();
+      doc.fillColor(BORDER);
+      let x = x0;
+      for (const ch of value) {
+        const path = INVOICE_GLYPHS[ch];
+        for (const subpath of path) {
+          for (const seg of subpath) {
+            if (seg[0] === 'm') {
+              doc.moveTo(x + seg[1] * scale, baselineY - seg[2] * scale);
+            } else if (seg[0] === 'l') {
+              doc.lineTo(x + seg[1] * scale, baselineY - seg[2] * scale);
+            } else if (seg[0] === 'c') {
+              doc.bezierCurveTo(
+                x + seg[1] * scale, baselineY - seg[2] * scale,
+                x + seg[3] * scale, baselineY - seg[4] * scale,
+                x + seg[5] * scale, baselineY - seg[6] * scale,
+              );
+            } else if (seg[0] === 'h') {
+              doc.closePath();
+            }
+          }
+        }
+        x += GLYPH_ADVANCE_WIDTHS[ch] * scale;
+      }
+      doc.fill();
+      doc.restore();
+    }
+
     // For inline "Label: value" pairs where the value is bold — these were
     // built with continued:true chains, which can't use boldText() above
     // (the save/scale/restore desyncs PDFKit's internal text-flow cursor
@@ -247,7 +320,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // BOLD_HSCALE=1.08 (tuned against much larger elements — the title,
     // company name) badly overshoots at this small size/weight: reference
     // values measured 6-14% NARROWER than ours at hscale 1.08, not wider.
-    function labelBoldValue(label: string, value: string, x: number, y0: number, size: number, labelHscale = 1, valueHscale: number = BOLD_HSCALE) {
+    // exactBaselineY: optional — when given, the VALUE is drawn with
+    // drawValueExact() (exact reference glyph outlines) at that baseline
+    // instead of boldText()'s hscale approximation, falling back to the
+    // normal boldText() call automatically if the value contains a
+    // character outside the extracted set. baselineY is a real glyph
+    // baseline (bottom of non-descending letters/digits), NOT y0 (which is
+    // doc.text()'s "top of box" convention) — see call sites for how it's
+    // derived. Added 2026-09-04 for Bank Details.
+    function labelBoldValue(label: string, value: string, x: number, y0: number, size: number, labelHscale = 1, valueHscale: number = BOLD_HSCALE, exactBaselineY?: number) {
       doc.font('Body').fontSize(size);
       let labelW: number;
       if (labelHscale === 1) {
@@ -262,7 +343,12 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         labelW = doc.widthOfString(label) * labelHscale;
       }
       doc.font('Body-Bold').fontSize(size);
-      boldText(value, x + labelW, y0, { lineBreak: false }, valueHscale);
+      const valueX = x + labelW;
+      if (exactBaselineY !== undefined) {
+        drawValueExact(value, valueX, exactBaselineY, size, () => boldText(value, valueX, y0, { lineBreak: false }, valueHscale));
+      } else {
+        boldText(value, valueX, y0, { lineBreak: false }, valueHscale);
+      }
     }
 
     // ── 1. Page title ────────────────────────────────────────────────────
@@ -1671,10 +1757,26 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // company's stored holder name is "RAREPRINT IN" (with a space) vs the
     // reference's own "RAREPRINT.IN" (period, no space); that's a data
     // difference, not a rendering bug.
-    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 3.94, y + 18.68, 8.4, 1.02, 0.905);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.0114, 0.976);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.041, 0.976);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.0026, 0.905);
+    // exactBaselineY (last arg of each call below) — 2026-09-04: the user
+    // asked for the same exact-glyph-outline fix used on the "Invoice"
+    // title/"RAREPRINT.IN" header to be applied to these VALUES too (bank
+    // name/account no./IFSC/holder name), not just their labels. Unlike
+    // that fixed header text, these are per-company Company Profile data —
+    // drawValueExact() (see above) handles that by laying itself out from
+    // each character's own advance width instead of a hardcoded position
+    // array, and by falling back to the hscale approximation below if the
+    // data ever contains a character outside the extracted set (currently:
+    // A-Z digits and space — see invoice-glyphs.ts). The baseline Y values
+    // (498.592656/509.092656/521.092656/533.092656) are this row's own
+    // already-verified rendered ink bottom (pdftoppm 300dpi + pdftotext
+    // yMax) — reliable here specifically because every character in all
+    // four values (digits, uppercase letters, space) has zero descender,
+    // so bbox-bottom IS the baseline, unlike pdftotext's yMin (see the
+    // y-offset root-cause note above this block).
+    labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 3.94, y + 18.68, 8.4, 1.02, 0.905, y + 18.68 + BOLD_84_ASCENT);
+    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.0114, 0.976, y + 29.18 + BOLD_84_ASCENT);
+    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.041, 0.976, y + 41.18 + BOLD_84_ASCENT);
+    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.0026, 0.905, y + 53.18 + BOLD_84_ASCENT);
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
