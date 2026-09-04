@@ -305,6 +305,31 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.restore();
     }
 
+    // Draws a FIXED multi-word label as independently-positioned/hscaled
+    // segments instead of labelBoldValue's single hscale for the whole
+    // string. Added 2026-09-04: "IFSC code:" (and, to a smaller degree,
+    // "Account No.:"/"Account Holder's Name:") don't have one hscale that's
+    // correct for every word inside them — e.g. "IFSC" alone measured 4.1%
+    // narrower than the reference while "code:" measured 1.9% wider at the
+    // row's single tuned labelHscale, which happened to cancel out for the
+    // TOTAL label span (see the old labelHscale comments above) but left a
+    // real, visible rightward jump right where "code:" starts, in a
+    // pixel-diff overlay. Each segment's x is an ABSOLUTE offset from
+    // rowX0 (not cumulative from the previous segment's cursor) — taken
+    // directly from the reference's own per-word pdftotext position — so
+    // segments can't drift apart from natural text-flow advancement the
+    // way the single-string version did.
+    function labelWords(segments: { text: string; xOffset: number; hscale: number }[], rowX0: number, y0: number, size: number) {
+      doc.font('Body').fontSize(size);
+      for (const seg of segments) {
+        doc.save();
+        doc.translate(rowX0 + seg.xOffset, y0);
+        doc.scale(seg.hscale, 1);
+        doc.text(seg.text, 0, 0, { lineBreak: false });
+        doc.restore();
+      }
+    }
+
     // For inline "Label: value" pairs where the value is bold — these were
     // built with continued:true chains, which can't use boldText() above
     // (the save/scale/restore desyncs PDFKit's internal text-flow cursor
@@ -1774,9 +1799,49 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // so bbox-bottom IS the baseline, unlike pdftotext's yMin (see the
     // y-offset root-cause note above this block).
     labelBoldValue('Name: ', sanitize(data.company.bankName) || '-', tableX + 3.94, y + 18.68, 8.4, 1.02, 0.905, y + 18.68 + BOLD_84_ASCENT);
-    labelBoldValue('Account No.: ', sanitize(data.company.bankAccountNumber) || '-', tableX + 4.98, y + 29.18, 8.4, 1.0114, 0.976, y + 29.18 + BOLD_84_ASCENT);
-    labelBoldValue('IFSC code: ', sanitize(data.company.bankIfsc) || '-', tableX + 4.98, y + 41.18, 8.4, 1.041, 0.976, y + 41.18 + BOLD_84_ASCENT);
-    labelBoldValue("Account Holder's Name: ", sanitize(data.company.bankAccountHolderName) || '-', tableX + 4.98, y + 53.18, 8.4, 1.0026, 0.905, y + 53.18 + BOLD_84_ASCENT);
+    // Account No./IFSC code/Account Holder's Name — per-word hscale+position
+    // via labelWords() (see above), replacing the old single-hscale
+    // labelBoldValue call for these 3 rows specifically (Name: above is a
+    // single word, so it never had this problem). Per-word hscales and
+    // xOffsets measured 2026-09-04 against the reference's own pdftotext
+    // word boxes (word width ratio at the OLD single hscale, corrected back
+    // to an unscaled/natural width first, then re-targeted at the real
+    // per-word ratio) — see labelWords()'s own comment for why a single
+    // hscale couldn't get both words right at once.
+    {
+      const rowX0 = tableX + 4.98;
+      labelWords([
+        { text: 'Account', xOffset: 0, hscale: 1.01957 },
+        { text: 'No.:', xOffset: 33.1282, hscale: 1.01145 },
+      ], rowX0, y + 29.18, 8.4);
+      doc.font('Body-Bold').fontSize(8.4);
+      const value = sanitize(data.company.bankAccountNumber) || '-';
+      const valueX = rowX0 + 50.2266;
+      drawValueExact(value, valueX, y + 29.18 + BOLD_84_ASCENT, 8.4, () => boldText(value, valueX, y + 29.18, { lineBreak: false }, 0.976));
+    }
+    {
+      const rowX0 = tableX + 4.98;
+      labelWords([
+        { text: 'IFSC', xOffset: 0, hscale: 1.08556 },
+        { text: 'code:', xOffset: 19.4443, hscale: 1.02157 },
+      ], rowX0, y + 41.18, 8.4);
+      doc.font('Body-Bold').fontSize(8.4);
+      const value = sanitize(data.company.bankIfsc) || '-';
+      const valueX = rowX0 + 41.918;
+      drawValueExact(value, valueX, y + 41.18 + BOLD_84_ASCENT, 8.4, () => boldText(value, valueX, y + 41.18, { lineBreak: false }, 0.976));
+    }
+    {
+      const rowX0 = tableX + 4.98;
+      labelWords([
+        { text: 'Account', xOffset: 0, hscale: 1.01957 },
+        { text: "Holder's", xOffset: 33.1282, hscale: 0.99022 },
+        { text: 'Name:', xOffset: 65.5801, hscale: 1.01604 },
+      ], rowX0, y + 53.18, 8.4);
+      doc.font('Body-Bold').fontSize(8.4);
+      const value = sanitize(data.company.bankAccountHolderName) || '-';
+      const valueX = rowX0 + 92.0508;
+      drawValueExact(value, valueX, y + 53.18 + BOLD_84_ASCENT, 8.4, () => boldText(value, valueX, y + 53.18, { lineBreak: false }, 0.905));
+    }
 
     // Signature size/position, like the logo above, read directly off the
     // reference PDF's content stream transform matrix rather than
