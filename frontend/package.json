@@ -12,7 +12,8 @@
     "lint": "eslint",
     "build:android": "node scripts/build-android.js",
     "android:open": "npx cap open android",
-    "android:run": "npx cap run android"
+    "android:run": "npx cap run android",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",
@@ -32,14 +33,15 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",
-    "cross-env": "^7.0.3",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^7.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "patch-package": "^8.0.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
