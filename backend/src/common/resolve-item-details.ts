@@ -55,3 +55,23 @@ export function resolveItemDetails(
 
   return { size, gsm, paper, sides, printingType };
 }
+
+// Renders a resolved item's details as the single "Size: X, GSM: Y, Paper: Z,
+// Sides: W" line used on the invoice PDF (see InvoicePdfItem.productDetails
+// in ../billing/invoice-pdf.ts) and in orders.service.ts#superAdminEditItem's
+// rebuilt productionNotes string. Same field order/format as that existing
+// string so historical and freshly-generated notes read identically. Added
+// 2026-09-07 alongside the invoice product-details fix: the invoice snapshot
+// was originally just copying raw OrderItem.productionNotes, which is null
+// for the vast majority of items (it's only ever set when someone manually
+// overrides a product's defaults) — falling through resolveItemDetails first
+// picks up the Product catalog's Size/GSM/Paper/Sides in the (normal) case
+// where no override note was entered.
+export function formatItemDetailsNote(
+  productionNotes: string | null | undefined,
+  product: ResolvableProduct,
+): string | null {
+  const { size, gsm, paper, sides } = resolveItemDetails(productionNotes, product);
+  if (!size && !gsm && !paper && !sides) return null;
+  return `Size: ${size ?? '-'}, GSM: ${gsm ?? '-'}${paper ? `, Paper: ${paper}` : ''}, Sides: ${sides ?? '-'}`;
+}

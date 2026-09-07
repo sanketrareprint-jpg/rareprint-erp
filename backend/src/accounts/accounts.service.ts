@@ -18,7 +18,7 @@ import {
   PurchaseBillStatus,
 } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { resolveItemDetails } from '../common/resolve-item-details';
+import { resolveItemDetails, formatItemDetailsNote } from '../common/resolve-item-details';
 import { CostTableService } from '../cost-table/cost-table.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
@@ -194,7 +194,12 @@ export class AccountsService {
           productName: item.product.name,
           sku: item.product.sku,
           hsnSac: null,
-          productionNotes: item.productionNotes ?? null,
+          // Notes-first, falling back to the Product catalog's own Size/
+          // GSM/Paper/Sides — see formatItemDetailsNote's own comment for
+          // why a raw `item.productionNotes` copy left this blank on almost
+          // every invoice (that field is usually null; the real per-item
+          // specs normally come from the linked Product's defaults).
+          productionNotes: formatItemDetailsNote(item.productionNotes, item.product),
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discountAmount: item.lineDiscount,
@@ -789,7 +794,10 @@ export class AccountsService {
           productName: item.product?.name ?? 'Item',
           sku: item.product?.sku ?? null,
           hsnSac: null,
-          productionNotes: item.productionNotes ?? null,
+          // See the createInvoiceAndLedger create() call above for why this
+          // resolves against the Product catalog instead of copying the
+          // (usually null) raw productionNotes field.
+          productionNotes: item.product ? formatItemDetailsNote(item.productionNotes, item.product) : null,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discountAmount: item.lineDiscount,
