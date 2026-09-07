@@ -63,11 +63,16 @@ reference via `pdffonts`, `pdfimages`, and pixel-sampling the rendered PNG
    `#` · `Item name` · `HSN/ SAC` · `Quantity` · `Unit` · `Price/ Unit (₹)` ·
    `GST(₹)` · `Amount(₹)`. Header row grey-filled.
    - Each data row is tall enough for **two lines in the Item name cell**:
-     the product name, then on the line directly below it, the sales
-     agent's name in parentheses, e.g. `STICKER 6*4` / `(SANKET)` — this is
-     how the per-item "note" line works; it is not a separate top-level
-     Description field (see §6 below — that field is gone from this
-     template).
+     the product name, then on the line directly below it, the item's real
+     product details (Size/GSM/Paper/Sides), e.g. `STICKER 6*4` /
+     `Size: A4, GSM: 130, Paper: Art, Sides: Single`. **Changed
+     2026-09-07** — this note line originally showed the order's
+     sales-agent name in parentheses (matching the reference PDF exactly,
+     e.g. `(SANKET)`), identical on every row regardless of item; replaced
+     after a real-invoice bug report that no actual product details were
+     visible anywhere on the bill. Not a separate top-level Description
+     field — see §6/§7 below, that field is still gone from this template,
+     this is purely the per-item note line's content changing.
    - The **GST(₹) cell is two lines**: the ₹ amount on top, the tax rate in
      parentheses below it, e.g. `₹1,449.15` / `(18.0%)` — one decimal place
      on the percentage.
@@ -115,9 +120,9 @@ reference via `pdffonts`, `pdfimages`, and pixel-sampling the rendered PNG
 7. **Terms And Conditions** — a single **full-width** bordered row with a
    grey header bar ("Terms And Conditions:"), free text below it. There is
    **no separate "Description:" column any more** — the old 50/50
-   Description/Terms split is retired; the sales-agent-name content that
-   used to live in Description now appears as the per-item note in the line
-   items table (§4).
+   Description/Terms split is retired; the per-item note now shown in the
+   line items table (§4) is the item's real product details, not anything
+   that used to live in the old Description field.
 
 8. **Bank Details / For \<Company\>: row** — same two-column pattern as
    before, unchanged: left column `Name:` / `Account No.:` / `IFSC code:` /
@@ -143,7 +148,10 @@ reference via `pdffonts`, `pdfimages`, and pixel-sampling the rendered PNG
   `billing.service.ts#generateInvoicePdf` by reusing `getPartyLedger()`'s
   running-balance calculation for the invoice's customer, not a new
   formula.
-- Per-item note — reuses the existing `order.salesAgent.fullName` value
-  (previously mapped to the now-retired `description` field), applied as a
-  second line under every item's product name instead of a standalone
-  field.
+- Per-item note — originally reused `order.salesAgent.fullName` (previously
+  mapped to the now-retired `description` field), applied as a second line
+  under every item's product name instead of a standalone field. **Changed
+  2026-09-07**: now sources `InvoiceItem.productionNotes` (new column,
+  snapshotted from `OrderItem.productionNotes` at invoice-creation/reconcile
+  time), giving each row its own real product details instead of a
+  document-wide value repeated everywhere.

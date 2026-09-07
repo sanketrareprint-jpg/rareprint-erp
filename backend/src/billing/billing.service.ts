@@ -271,6 +271,7 @@ export class BillingService {
       items: invoice.items.map((item) => ({
         productName: item.productName,
         hsnSac: item.hsnSac,
+        productDetails: item.productionNotes ?? null,
         quantity: item.quantity,
         unit: 'PCS', // no per-item unit field in schema today; matches how these products are counted elsewhere
         unitPrice: Number(item.unitPrice),

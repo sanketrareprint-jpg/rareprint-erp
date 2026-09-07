@@ -127,7 +127,26 @@ export class AccountsService {
 
   private async createInvoiceAndLedger(tx: any, order: any) {
     const existing = await tx.invoice.findUnique({ where: { orderId: order.id } });
-    if (existing) return existing;
+    // Was: `if (existing) return existing;` — silently handed back the
+    // STALE pre-edit invoice on re-approval after a super-admin item edit
+    // (superAdminEditItem always resets the order to PENDING_APPROVAL, so
+    // every edited order comes back through here). Root-caused 2026-09-07:
+    // reported as "the bill doesn't update after editing the order, and the
+    // customer gets the old one via WhatsApp" — the second part is just a
+    // consequence of this: sendInvoiceGenerated/sendInvoicePdfDocument in
+    // approveOrder below already run unconditionally on every approval,
+    // including re-approvals, they just had stale data to send. Reusing
+    // reconcileInvoiceToRemainingItems (previously cancellation-only) fixes
+    // both by bringing the existing invoice's totals/items/ledger back in
+    // sync with the order's current (non-cancelled) items before handing it
+    // back — see that function's own comment for the ledger-entry logic.
+    if (existing) {
+      return this.reconcileInvoiceToRemainingItems(
+        tx, existing, order,
+        order.items.filter((i: any) => !i.cancelledAt),
+        'Order edited and re-approved',
+      );
+    }
 
     const payments = order.payments ?? [];
     const paidAmount = this.money(
@@ -175,6 +194,7 @@ export class AccountsService {
           productName: item.product.name,
           sku: item.product.sku,
           hsnSac: null,
+          productionNotes: item.productionNotes ?? null,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discountAmount: item.lineDiscount,
@@ -697,18 +717,29 @@ export class AccountsService {
     });
   }
 
-  // Rebuilds the linked Invoice (totals + line items) to reflect only
-  // `remainingItems` — reused for both whole-order cancellation (called with
-  // an empty array, which zeroes the invoice out) and item-level
-  // cancellation (called with whatever items are left). InvoiceItem rows
+  // Rebuilds the linked Invoice (totals + line items) to reflect exactly
+  // `remainingItems` — reused for whole-order cancellation (called with an
+  // empty array, which zeroes the invoice out), item-level cancellation
+  // (called with whatever items are left), AND, since 2026-09-07,
+  // re-approval after a super-admin item edit (called with the order's full
+  // current item set — see createInvoiceAndLedger below). InvoiceItem rows
   // have no FK back to OrderItem (they're a denormalized snapshot taken at
   // invoice-creation time), so delete-and-recreate from the current item set
-  // is simpler and safer than trying to match/patch individual rows. Posts a
-  // CREDIT_NOTE ledger entry for the amount actually removed, same account
+  // is simpler and safer than trying to match/patch individual rows.
+  //
+  // Posts a ledger entry for whatever CHANGED, against the same account
   // ("Customer Receivable") the original SALE entry debited in
-  // createInvoiceAndLedger, so the books stay balanced. paidAmount is left
-  // untouched — money already received doesn't un-receive itself; a genuine
-  // refund is a separate manual accounts action, out of scope here.
+  // createInvoiceAndLedger, so the books stay balanced either direction:
+  // CREDIT_NOTE if the new total is lower (the original cancellation case),
+  // DEBIT_NOTE if it's higher (only possible via the edit path — an edit can
+  // raise a price/quantity, cancellation can only remove). Like the original
+  // CREDIT_NOTE entry, this is a single blanket "Customer Receivable" line
+  // rather than unwinding the Sales/Output GST split precisely — matches the
+  // existing simplified pattern, not relitigated here.
+  //
+  // paidAmount is left untouched — money already received doesn't
+  // un-receive itself; a genuine refund/additional collection is a separate
+  // manual accounts action, out of scope here.
   private async reconcileInvoiceToRemainingItems(
     tx: any,
     invoice: any,
@@ -758,6 +789,7 @@ export class AccountsService {
           productName: item.product?.name ?? 'Item',
           sku: item.product?.sku ?? null,
           hsnSac: null,
+          productionNotes: item.productionNotes ?? null,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discountAmount: item.lineDiscount,
@@ -787,7 +819,29 @@ export class AccountsService {
           invoiceId: invoice.id,
         },
       });
+    } else if (removedAmount < 0) {
+      // New total is HIGHER than before — only reachable from the
+      // super-admin-edit-then-reapprove path (cancellation can only remove
+      // value). Symmetric DEBIT_NOTE, same simplified single-account pattern
+      // as the CREDIT_NOTE branch above.
+      const addedAmount = this.money(-removedAmount);
+      await tx.accountingLedgerEntry.create({
+        data: {
+          entryType: LedgerEntryType.DEBIT_NOTE,
+          accountName: 'Customer Receivable',
+          debitAmount: addedAmount,
+          creditAmount: 0,
+          narration: `${narration} — invoice ${invoice.invoiceNumber} increased by ₹${addedAmount}`,
+          referenceType: 'INVOICE',
+          referenceId: invoice.id,
+          customerId: order.customerId,
+          orderId: order.id,
+          invoiceId: invoice.id,
+        },
+      });
     }
+
+    return tx.invoice.findUnique({ where: { id: invoice.id } });
   }
 
   async approveCancellation(orderId: string, user: AccountsUser) {

@@ -39,6 +39,13 @@ export interface InvoicePdfCompanyProfile {
 export interface InvoicePdfItem {
   productName: string;
   hsnSac: string | null;
+  // Real per-item product details (Size/GSM/Paper/Sides — same free-text
+  // format order creation already builds), printed as the note line under
+  // the item name. Added 2026-09-07, replacing the old always-agent-name
+  // note (see agentName below and the item-row rendering) — root-caused
+  // from a real invoice where the note line showed the sales agent's name
+  // instead of anything item-specific, and was identical on every row.
+  productDetails: string | null;
   quantity: number;
   unit: string;
   unitPrice: number;
@@ -60,10 +67,15 @@ export interface InvoicePdfData {
   balanceAmount: number;
   previousBalance: number;
   currentBalance: number;
-  // Sales-agent name — printed as a note line under every item's product
-  // name (e.g. "STICKER 6*4" / "(SANKET)"), matching the reference. The
-  // template no longer has a standalone "Description" field — see
-  // docs/Invoice_PDF_Replication_Spec.md §6/§7.
+  // Sales-agent name — kept for backward compatibility (still accepted by
+  // generateInvoicePdf's agentNameOverride param) but no longer rendered
+  // anywhere in the PDF as of 2026-09-07. It used to be printed as the note
+  // line under every item's product name (matching the reference layout,
+  // see docs/Invoice_PDF_Replication_Spec.md §6/§7) — but that meant the
+  // SAME agent name repeated under every line item regardless of which
+  // product it was, with no way to show real per-item details. Replaced by
+  // InvoicePdfItem.productDetails (see above), which is per-item and shows
+  // actual product specs instead.
   agentName: string;
   termsAndConditions: string;
   customerName: string;
@@ -829,10 +841,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     let totalAmount = 0;
     let totalGst = 0;
 
-    const agentNote = sanitize(data.agentName);
     // 27.7 (was 28) — re-measured 2026-08-21 against the reference's own
     // rect() column-divider height for this row.
-    const itemRowH = 27.7; // two lines: product name + "(agent)" note, and GST amount + rate%.
+    const itemRowH = 27.7; // two lines: product name + product-details note, and GST amount + rate%.
 
     // fontSize 8.4 (was 8) + ITEM_ROW_HSCALE 1.08 on every value — root-caused
     // 2026-08-31 via pikepdf content-stream Tf/cm extraction against the
@@ -884,16 +895,26 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.text(String(i + 1), colX + 3, y + 7, { width: cols[0].width - 6, height: 10, ellipsis: true });
       colX += cols[0].width;
 
-      // Item name + agent-name note line.
+      // Item name + product-details note line.
       // y+3.37 (was +5), note y+13.87 (was +16) — re-measured 2026-08-31 via
       // pdftotext bbox against the reference (Sale_1263): reference item-name
       // line1 sits at row_y+3.37 exactly (256.17 - 252.8), note/line2 at
       // row_y+13.87 (266.67 - 252.8), not +5/+16 — those were guesses that
       // sat 1.63pt/2.13pt too low, reported as item-name text visually
       // crossing into the row below when overlaid against the reference.
+      //
+      // Note line content changed 2026-08-31 → 2026-09-07: this used to be
+      // `(${agentName})` — the order's sales agent, wrapped in parens as an
+      // aside, and IDENTICAL on every row regardless of item. Root-caused
+      // 2026-09-07 from a real invoice: reported as "product details not
+      // visible in bill". Now shows the real per-item product spec
+      // (productDetails, e.g. "Size: A4, GSM: 130, Paper: Art, Sides:
+      // Single") — no parens, since this is a full descriptive line rather
+      // than a short aside.
       boldText(sanitize(item.productName), colX + 3, y + 1.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, HS_NAME);
-      if (agentNote) {
-        boldText(`(${agentNote})`, colX + 3, y + 11.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, HS_NAME);
+      const itemNote = sanitize(item.productDetails);
+      if (itemNote) {
+        boldText(itemNote, colX + 3, y + 11.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, HS_NAME);
       }
       colX += cols[1].width;
 
