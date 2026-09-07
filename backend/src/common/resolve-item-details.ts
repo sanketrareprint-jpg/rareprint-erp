@@ -75,3 +75,15 @@ export function formatItemDetailsNote(
   if (!size && !gsm && !paper && !sides) return null;
   return `Size: ${size ?? '-'}, GSM: ${gsm ?? '-'}${paper ? `, Paper: ${paper}` : ''}, Sides: ${sides ?? '-'}`;
 }
+
+// Pulls just the Size value back out of a string built by
+// formatItemDetailsNote() above (InvoiceItem.productionNotes is stored
+// already-formatted, not as separate fields — see the migration/schema
+// comment). Used by billing.service.ts to show Size next to the item name
+// on the invoice PDF, in addition to the full note line. Returns null if
+// there's no recognizable "Size: ..." prefix or it's the "-" placeholder.
+export function extractSizeFromNote(note: string | null | undefined): string | null {
+  const match = (note ?? '').match(/^Size:\s*([^,]+),/i);
+  const value = match?.[1]?.trim();
+  return value && value !== '-' ? value : null;
+}

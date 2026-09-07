@@ -46,6 +46,14 @@ export interface InvoicePdfItem {
   // from a real invoice where the note line showed the sales agent's name
   // instead of anything item-specific, and was identical on every row.
   productDetails: string | null;
+  // Just the resolved Size value (e.g. "4X6"), parsed out of productDetails
+  // — shown appended next to the product name itself (not just in the note
+  // line below) per Sanket's 2026-09-07 request, so Size is visible even if
+  // the note line below gets truncated by ellipsis on a long GSM/Paper/Sides
+  // combination. Suppressed at render time if productName already contains
+  // this value, to avoid showing it twice (e.g. product names like
+  // "STICKER 6*4" that already embed their own size).
+  size: string | null;
   quantity: number;
   unit: string;
   unitPrice: number;
@@ -911,7 +919,17 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // (productDetails, e.g. "Size: A4, GSM: 130, Paper: Art, Sides:
       // Single") — no parens, since this is a full descriptive line rather
       // than a short aside.
-      boldText(sanitize(item.productName), colX + 3, y + 1.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, HS_NAME);
+      // Size appended next to the name (e.g. "STICKER 6*4  4X6") — added
+      // 2026-09-07 per Sanket: keeps Size visible even if the note line
+      // below gets ellipsis-truncated by a long GSM/Paper/Sides combo.
+      // Skipped when productName already contains the size text (e.g. a
+      // product literally named "STICKER 6*4") to avoid showing it twice.
+      const productNameText = sanitize(item.productName);
+      const sizeText = sanitize(item.size);
+      const nameLine = sizeText && !productNameText.toLowerCase().includes(sizeText.toLowerCase())
+        ? `${productNameText}  ${sizeText}`
+        : productNameText;
+      boldText(nameLine, colX + 3, y + 1.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, HS_NAME);
       const itemNote = sanitize(item.productDetails);
       if (itemNote) {
         boldText(itemNote, colX + 3, y + 11.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, HS_NAME);

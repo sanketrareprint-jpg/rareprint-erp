@@ -7,6 +7,7 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { buildInvoicePdf, InvoicePdfCompanyProfile, InvoicePdfData } from './invoice-pdf';
 import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
+import { extractSizeFromNote } from '../common/resolve-item-details';
 
 // ── SystemConfig keys for Company Profile ───────────────────────────────────
 // Same "individual key per setting" convention as loyalty.service.ts's CFG
@@ -272,6 +273,7 @@ export class BillingService {
         productName: item.productName,
         hsnSac: item.hsnSac,
         productDetails: item.productionNotes ?? null,
+        size: extractSizeFromNote(item.productionNotes),
         quantity: item.quantity,
         unit: 'PCS', // no per-item unit field in schema today; matches how these products are counted elsewhere
         unitPrice: Number(item.unitPrice),
