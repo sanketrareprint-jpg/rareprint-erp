@@ -998,6 +998,16 @@ CREATE INDEX IF NOT EXISTS "EventSendLog_tenantId_idx" ON "EventSendLog"("tenant
 
 -- 6) Convert formerly-global single-field unique constraints to composite
 --    (tenantId, field) so each tenant gets its own numbering space.
+--
+-- Excluded from this conversion: AgencyRateProduct.productId,
+-- ProductRule.productId, Invoice.orderId, CommissionOverride.orderItemId,
+-- Employee.userId, RemittanceRecord.postedPaymentId. These are one-to-one
+-- relation foreign keys (Prisma requires @unique directly on the FK field
+-- itself, not just inside a composite index, or schema validation fails:
+-- "A one-to-one relation must use unique fields on the defining side").
+-- They're left as their original single-field unique index, which is
+-- already tenant-safe since the id they point to is a globally-unique
+-- cuid regardless of tenant.
 DROP INDEX IF EXISTS "User_email_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "User_tenantId_email_key" ON "User"("tenantId", "email");
 DROP INDEX IF EXISTS "Customer_customerCode_key";
@@ -1006,14 +1016,10 @@ DROP INDEX IF EXISTS "ProductCategory_name_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "ProductCategory_tenantId_name_key" ON "ProductCategory"("tenantId", "name");
 DROP INDEX IF EXISTS "Product_sku_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Product_tenantId_sku_key" ON "Product"("tenantId", "sku");
-DROP INDEX IF EXISTS "AgencyRateProduct_productId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "AgencyRateProduct_tenantId_productId_key" ON "AgencyRateProduct"("tenantId", "productId");
 DROP INDEX IF EXISTS "AgencyRateQuantityColumn_quantity_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "AgencyRateQuantityColumn_tenantId_quantity_key" ON "AgencyRateQuantityColumn"("tenantId", "quantity");
 DROP INDEX IF EXISTS "OfferCode_code_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "OfferCode_tenantId_code_key" ON "OfferCode"("tenantId", "code");
-DROP INDEX IF EXISTS "ProductRule_productId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "ProductRule_tenantId_productId_key" ON "ProductRule"("tenantId", "productId");
 DROP INDEX IF EXISTS "JobWork_poNumber_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "JobWork_tenantId_poNumber_key" ON "JobWork"("tenantId", "poNumber");
 DROP INDEX IF EXISTS "PrintSheet_sheetNo_key";
@@ -1022,22 +1028,16 @@ DROP INDEX IF EXISTS "Godown_code_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Godown_tenantId_code_key" ON "Godown"("tenantId", "code");
 DROP INDEX IF EXISTS "Order_orderNumber_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Order_tenantId_orderNumber_key" ON "Order"("tenantId", "orderNumber");
-DROP INDEX IF EXISTS "Invoice_orderId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "Invoice_tenantId_orderId_key" ON "Invoice"("tenantId", "orderId");
 DROP INDEX IF EXISTS "Invoice_invoiceNumber_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Invoice_tenantId_invoiceNumber_key" ON "Invoice"("tenantId", "invoiceNumber");
 DROP INDEX IF EXISTS "AccountingNote_noteNumber_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "AccountingNote_tenantId_noteNumber_key" ON "AccountingNote"("tenantId", "noteNumber");
-DROP INDEX IF EXISTS "CommissionOverride_orderItemId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "CommissionOverride_tenantId_orderItemId_key" ON "CommissionOverride"("tenantId", "orderItemId");
 DROP INDEX IF EXISTS "SalesIncentivePlan_label_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "SalesIncentivePlan_tenantId_label_key" ON "SalesIncentivePlan"("tenantId", "label");
 DROP INDEX IF EXISTS "Employee_employeeCode_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Employee_tenantId_employeeCode_key" ON "Employee"("tenantId", "employeeCode");
 DROP INDEX IF EXISTS "Employee_biometricId_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Employee_tenantId_biometricId_key" ON "Employee"("tenantId", "biometricId");
-DROP INDEX IF EXISTS "Employee_userId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "Employee_tenantId_userId_key" ON "Employee"("tenantId", "userId");
 DROP INDEX IF EXISTS "CompanyTerms_version_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "CompanyTerms_tenantId_version_key" ON "CompanyTerms"("tenantId", "version");
 DROP INDEX IF EXISTS "CompanyHoliday_date_key";
@@ -1060,8 +1060,6 @@ DROP INDEX IF EXISTS "MarketingContact_mobile_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "MarketingContact_tenantId_mobile_key" ON "MarketingContact"("tenantId", "mobile");
 DROP INDEX IF EXISTS "RemittanceRecord_importKey_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "RemittanceRecord_tenantId_importKey_key" ON "RemittanceRecord"("tenantId", "importKey");
-DROP INDEX IF EXISTS "RemittanceRecord_postedPaymentId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "RemittanceRecord_tenantId_postedPaymentId_key" ON "RemittanceRecord"("tenantId", "postedPaymentId");
 DROP INDEX IF EXISTS "ShippingChargeRecord_awbNumber_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "ShippingChargeRecord_tenantId_awbNumber_key" ON "ShippingChargeRecord"("tenantId", "awbNumber");
 DROP INDEX IF EXISTS "VendorKeyword_keyword_key";
