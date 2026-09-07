@@ -230,6 +230,23 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       doc.restore();
     }
 
+    // Shrinks the given hscale down (never up) just enough that `str`, at
+    // the CURRENTLY ACTIVE doc.font()/fontSize(), fits within maxWidth
+    // without PDFKit's ellipsis kicking in. boldText()'s width option is
+    // the box width AFTER scaling, so widthOfString() (measured before
+    // scaling) needs to fit maxWidth/hscale — same relationship boldText
+    // itself uses. Added 2026-09-07: the item-note line (GSM/Paper/Sides)
+    // was truncating with "..." on real invoices with longer paper-type
+    // names, reported as "make sure every detail shows, and doesnt
+    // overflow". A small 0.995 safety margin avoids sub-pixel rounding
+    // still triggering ellipsis right at the boundary.
+    function fitHscale(str: string, maxWidth: number, preferredHscale: number): number {
+      const natural = doc.widthOfString(str);
+      if (natural <= 0) return preferredHscale;
+      const fitted = (maxWidth / natural) * 0.995;
+      return Math.min(preferredHscale, fitted);
+    }
+
     // Draws a string using the reference invoice's OWN exact glyph outlines
     // (see invoice-glyphs.ts) instead of our SegoeUI-Bold.ttf — for the two
     // fixed strings ("Invoice" title, "RAREPRINT.IN" company name) where
@@ -929,7 +946,8 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       const nameLine = sizeText && !productNameText.toLowerCase().includes(sizeText.toLowerCase())
         ? `${productNameText}  ${sizeText}`
         : productNameText;
-      boldText(nameLine, colX + 3, y + 1.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, HS_NAME);
+      const nameLineHscale = fitHscale(nameLine, cols[1].width - 6, HS_NAME);
+      boldText(nameLine, colX + 3, y + 1.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, nameLineHscale);
       // Size is dropped from this second line — it's already shown next to
       // the name above (see nameLine); repeating it here just duplicated it
       // and ate into the width available for GSM/Paper/Sides before
@@ -938,7 +956,8 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // 70, Paper: Art,..." getting cut off. Added 2026-09-07.
       const itemNote = sanitize(item.productDetails).replace(/^Size:\s*[^,]+,\s*/i, '');
       if (itemNote) {
-        boldText(itemNote, colX + 3, y + 11.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, HS_NAME);
+        const noteHscale = fitHscale(itemNote, cols[1].width - 6, HS_NAME);
+        boldText(itemNote, colX + 3, y + 11.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, noteHscale);
       }
       colX += cols[1].width;
 
