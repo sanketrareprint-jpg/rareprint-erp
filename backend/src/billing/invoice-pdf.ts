@@ -930,7 +930,13 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         ? `${productNameText}  ${sizeText}`
         : productNameText;
       boldText(nameLine, colX + 3, y + 1.37, { width: cols[1].width - 6, height: 12, ellipsis: true }, HS_NAME);
-      const itemNote = sanitize(item.productDetails);
+      // Size is dropped from this second line — it's already shown next to
+      // the name above (see nameLine); repeating it here just duplicated it
+      // and ate into the width available for GSM/Paper/Sides before
+      // ellipsis-truncation kicked in. Confirmed via a real invoice
+      // (ENVELOPE 4*5 / READYMADE STICKER 1*0.6) showing "Size: 4*5, GSM:
+      // 70, Paper: Art,..." getting cut off. Added 2026-09-07.
+      const itemNote = sanitize(item.productDetails).replace(/^Size:\s*[^,]+,\s*/i, '');
       if (itemNote) {
         boldText(itemNote, colX + 3, y + 11.87, { width: cols[1].width - 6, height: 11, ellipsis: true }, HS_NAME);
       }
