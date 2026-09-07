@@ -1,0 +1,4 @@
+/* Unused — kept only because the file couldn't be deleted in this
+   environment (permissions). Nothing imports this; frontend/app/globals.css
+   is the real stylesheet for the whole app, including /suite. Safe to
+   delete manually. */
