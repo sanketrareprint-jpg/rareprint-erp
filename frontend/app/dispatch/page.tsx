@@ -1340,6 +1340,11 @@ export default function DispatchPage() {
                           : o.isCod
                             ? <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">COD {o.codAmount ? fmt(o.codAmount) : ""}</span>
                             : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
+                        {o.courierChargeQuoted != null && (
+                          <span className="rounded-full bg-sky-100 text-sky-800 px-1.5 py-0.5 text-[10px] font-bold" title="Courier charge entered by the sales agent when this order was submitted for dispatch approval">
+                            🚚 {fmt(o.courierChargeQuoted)}
+                          </span>
+                        )}
                         <span className="font-semibold text-slate-800 text-xs">{o.customerName}</span>
                         {o.customerPhone && <span className="text-[10px] text-slate-500">{o.customerPhone}</span>}
                         {o.shipTo && o.shipTo !== "—" && (
@@ -1360,11 +1365,6 @@ export default function DispatchPage() {
                       <div className="flex items-center gap-3 text-[10px] text-slate-500 shrink-0">
                         <span>Items <strong className="text-emerald-600">{o.readyItems.length}/{o.totalItems}</strong></span>
                         <span>Wt <strong className="text-slate-700">{selectedWeight.toFixed(2)}kg</strong></span>
-                        {o.courierChargeQuoted != null && (
-                          <span title="Courier charge entered by the sales agent when this order was submitted for dispatch">
-                            Quoted <strong className="text-slate-700">{fmt(o.courierChargeQuoted)}</strong>
-                          </span>
-                        )}
                         {activeWarehouse && (
                           <span className="flex items-center gap-0.5">
                             <Building2 className="h-2.5 w-2.5 shrink-0" />
