@@ -30,6 +30,7 @@ type CarrierCfg = {
     clientKey: string;
     pickupPincode: string;
     pickupAddressId: number | null;
+    pickupAddresses: { id: number; name: string; pincode: string }[];
     isConfigured: boolean;
   };
 };
@@ -134,6 +135,7 @@ export default function SettingsPage() {
   const [fsClientKey, setFsClientKey]         = useState("");
   const [fsPickupPincode, setFsPickupPincode] = useState("");
   const [fsPickupAddressId, setFsPickupAddressId] = useState("");
+  const [fsPickupAddresses, setFsPickupAddresses] = useState<{ id: string; name: string; pincode: string }[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -168,6 +170,7 @@ export default function SettingsPage() {
       setFsClientKey("");
       setFsPickupPincode(data.fship.pickupPincode);
       setFsPickupAddressId(data.fship.pickupAddressId ? String(data.fship.pickupAddressId) : "");
+      setFsPickupAddresses((data.fship.pickupAddresses ?? []).map(a => ({ id: String(a.id), name: a.name, pincode: a.pincode })));
     } catch { setError("Network error"); }
     finally { setLoading(false); }
   }, []);
@@ -227,6 +230,9 @@ export default function SettingsPage() {
           ...(fsClientKey ? { clientKey: fsClientKey } : {}),
           pickupPincode:   fsPickupPincode,
           pickupAddressId: fsPickupAddressId ? parseInt(fsPickupAddressId, 10) : null,
+          pickupAddresses: fsPickupAddresses
+            .filter(a => a.id.trim() && a.name.trim() && a.pincode.trim())
+            .map(a => ({ id: parseInt(a.id, 10), name: a.name.trim(), pincode: a.pincode.trim() })),
         },
       };
       const res = await fetch(`${API_BASE_URL}/carrier-config`, {
@@ -242,6 +248,11 @@ export default function SettingsPage() {
     } catch { setError("Network error"); }
     finally { setSaving(false); }
   };
+
+  const addFsPickupAddress = () => setFsPickupAddresses(prev => [...prev, { id: "", name: "", pincode: "" }]);
+  const updateFsPickupAddress = (index: number, patch: Partial<{ id: string; name: string; pincode: string }>) =>
+    setFsPickupAddresses(prev => prev.map((row, i) => i === index ? { ...row, ...patch } : row));
+  const removeFsPickupAddress = (index: number) => setFsPickupAddresses(prev => prev.filter((_, i) => i !== index));
 
   const saveErpConfig = async () => {
     if (!erpConfig) return;
@@ -983,7 +994,7 @@ export default function SettingsPage() {
             )}
           </div>
           <p className="text-xs text-gray-500 -mt-3">
-            Client Key from Fship Dashboard &gt; Settings &gt; API Details. Pickup Address Id must be
+            Client Key from Fship Dashboard &gt; Settings &gt; API Details. Every Pickup Address Id must be
             created once in Fship Dashboard &gt; Manage Warehouse first — Fship's API has no way to
             list existing warehouses, only add new ones.
           </p>
@@ -997,7 +1008,38 @@ export default function SettingsPage() {
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Pickup Details</p>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Pickup Pincode" value={fsPickupPincode} onChange={setFsPickupPincode} placeholder="440032" inputMode="numeric" />
-              <Field label="Pickup Address Id" value={fsPickupAddressId} onChange={setFsPickupAddressId} placeholder="From Fship Dashboard > Manage Warehouse" inputMode="numeric" />
+              <Field label="Default Pickup Address Id" value={fsPickupAddressId} onChange={setFsPickupAddressId} placeholder="From Fship Dashboard > Manage Warehouse" inputMode="numeric" />
+            </div>
+            <p className="text-[11px] text-gray-400 -mt-2">Used when no specific pickup address below is selected on the Dispatch page.</p>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Additional Pickup Addresses (selectable in Dispatch)</p>
+              <SmallButton onClick={addFsPickupAddress}><Plus size={13} /> Add</SmallButton>
+            </div>
+            {fsPickupAddresses.length === 0 && (
+              <p className="text-xs text-gray-400">
+                None added — every Fship booking uses the Default Pickup Address Id above. Add a row for
+                each other address you&apos;ve created in Fship Dashboard &gt; Manage Warehouse so it shows
+                up as a pickup option on the Dispatch page.
+              </p>
+            )}
+            <div className="space-y-2">
+              {fsPickupAddresses.map((row, index) => (
+                <div key={index} className="grid grid-cols-[1fr_110px_110px_28px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                  <input value={row.name} onChange={e => updateFsPickupAddress(index, { name: e.target.value })}
+                    placeholder="Name shown in Dispatch, e.g. Nagpur"
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+                  <input value={row.pincode} onChange={e => updateFsPickupAddress(index, { pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                    inputMode="numeric" placeholder="Pincode"
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+                  <input value={row.id} onChange={e => updateFsPickupAddress(index, { id: e.target.value.replace(/\D/g, "") })}
+                    inputMode="numeric" placeholder="Fship Address Id"
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
+                  <button onClick={() => removeFsPickupAddress(index)} className="text-red-500 hover:bg-red-50 rounded-lg p-2"><Trash2 size={14} /></button>
+                </div>
+              ))}
             </div>
           </div>
         </section>

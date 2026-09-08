@@ -23,6 +23,20 @@ export type ShiprocketCfg = {
   pickupPincode: string;
 };
 
+export type FshipPickupAddress = {
+  // Fship's numeric pickup Address Id for THIS specific location, created
+  // once in Fship Dashboard > Manage Warehouse (see pickupAddressId below --
+  // same constraint applies per-address: no way to look these up dynamically).
+  id: number;
+  // Label shown in the ERP's pickup-address dropdown (Dispatch page), e.g.
+  // "Chandrapur" or "Nagpur Warehouse". Purely cosmetic.
+  name: string;
+  // Pincode of this address -- lets it slot into the same pickup dropdown
+  // used by Bigship/Shiprocket, and lets rate quotes against this address
+  // use a matching source pincode.
+  pincode: string;
+};
+
 export type FshipCfg = {
   // Called "signature" in Fship's API docs, sent as the `signature` request
   // header on every call. Obtained from Fship Dashboard > Settings > API
@@ -38,8 +52,20 @@ export type FshipCfg = {
   // (pick_Address_ID). Fship's API has no "list warehouses" endpoint (only
   // Add/Update), so this can't be looked up dynamically like Bigship's
   // warehouse cache -- it has to be created once in Fship's own dashboard
-  // (Manage Warehouse) and the resulting id pasted in here.
+  // (Manage Warehouse) and the resulting id pasted in here. Kept as the
+  // fallback default when nothing more specific is selected at dispatch
+  // time -- see pickupAddresses below for per-shipment selection.
   pickupAddressId: number | null;
+  // Every additional pickup address registered on Fship's dashboard that
+  // should be selectable per-shipment from the Dispatch page's pickup
+  // dropdown (added 2026-09-08 -- before this, EVERY Fship booking silently
+  // used pickupAddressId above no matter what the dispatcher picked on
+  // screen, which is why bookings always showed the default/Chandrapur
+  // address in Fship's own dashboard regardless of what pickup was selected
+  // in the ERP). dispatch.service.ts's resolveWarehouse()/getWarehouses()
+  // match these into the same pickup dropdown used by Bigship/Shiprocket,
+  // keyed by id (as "fship-<id>").
+  pickupAddresses: FshipPickupAddress[];
 };
 
 export type CarrierConfig = {
@@ -96,7 +122,7 @@ export class CarrierConfigService implements OnModuleInit {
       activeCarrier: 'shiprocket',
       bigship:    { username: '', password: '', accessKey: '', pickupWarehouseId: null, returnWarehouseId: null },
       shiprocket: { email: '', password: '', pickupLocation: 'Office', pickupPincode: '110001' },
-      fship:      { clientKey: '', pickupPincode: '440032', pickupAddressId: null },
+      fship:      { clientKey: '', pickupPincode: '440032', pickupAddressId: null, pickupAddresses: [] },
     };
   }
 
@@ -136,6 +162,7 @@ export class CarrierConfigService implements OnModuleInit {
    * FSHIP_CLIENT_KEY=...
    * FSHIP_PICKUP_PINCODE=440032
    * FSHIP_PICKUP_ADDRESS_ID=12345
+   * FSHIP_PICKUP_ADDRESSES=[{"id":12345,"name":"Chandrapur","pincode":"442402"},{"id":67890,"name":"Nagpur","pincode":"440032"}]   (optional -- additional per-shipment pickup addresses, selectable from Dispatch)
    * FSHIP_ENV=staging   (optional -- omit for production, Fship's default)
    */
   private overlayEnvVars(): void {
@@ -163,6 +190,14 @@ export class CarrierConfigService implements OnModuleInit {
     if (e.FSHIP_CLIENT_KEY)             this.config.fship.clientKey       = e.FSHIP_CLIENT_KEY;
     if (e.FSHIP_PICKUP_PINCODE)         this.config.fship.pickupPincode   = e.FSHIP_PICKUP_PINCODE;
     if (e.FSHIP_PICKUP_ADDRESS_ID)      this.config.fship.pickupAddressId = parseInt(e.FSHIP_PICKUP_ADDRESS_ID, 10);
+    if (e.FSHIP_PICKUP_ADDRESSES) {
+      try {
+        const parsedAddresses = JSON.parse(e.FSHIP_PICKUP_ADDRESSES) as FshipPickupAddress[];
+        if (Array.isArray(parsedAddresses)) this.config.fship.pickupAddresses = parsedAddresses;
+      } catch {
+        this.logger.warn('FSHIP_PICKUP_ADDRESSES env var is not valid JSON -- ignoring, keeping DB/default value');
+      }
+    }
   }
 
   private async saveToDb(): Promise<void> {
@@ -194,5 +229,7 @@ export class CarrierConfigService implements OnModuleInit {
     process.env.FSHIP_PICKUP_PINCODE        = cfg.fship.pickupPincode;
     if (cfg.fship.pickupAddressId != null)
       process.env.FSHIP_PICKUP_ADDRESS_ID   = String(cfg.fship.pickupAddressId);
+    if (cfg.fship.pickupAddresses && cfg.fship.pickupAddresses.length > 0)
+      process.env.FSHIP_PICKUP_ADDRESSES    = JSON.stringify(cfg.fship.pickupAddresses);
   }
 }

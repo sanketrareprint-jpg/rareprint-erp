@@ -188,7 +188,7 @@ function packageSummary(boxes?: DispatchPackageBox[]): string | null {
 }
 
 // ── Warehouse helpers ─────────────────────────────────────────────────────
-export type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string };
+export type Warehouse = { id: string; name: string; pincode: string; location: string; address?: string; city?: string; state?: string; source?: string; fshipAddressId?: number };
 type PickupOverride = { name?: string; pincode?: string; location?: string };
 
 // Dispatcher-typed "ship to a different address" override for one specific
@@ -244,6 +244,22 @@ export class DispatchService {
   async getWarehouses(): Promise<Warehouse[]> {
     const activeCarrier = this.carrierConfig.getActiveCarrier();
 
+    // Fship pickup addresses are appended to whatever list is returned
+    // below, regardless of which carrier is globally "active" -- a
+    // dispatcher can pick "Fship" as the per-shipment carrier (see
+    // carrierOverride in getRates/bookItems) even when Bigship/Shiprocket is
+    // the global default, so these need to show up in the pickup dropdown
+    // either way (added 2026-09-08 alongside the dispatch-time pickup fix).
+    const fshipCfg = this.carrierConfig.getConfig().fship;
+    const fshipWarehouses: Warehouse[] = (fshipCfg.pickupAddresses ?? []).map((a) => ({
+      id:              `fship-${a.id}`,
+      name:            a.name,
+      pincode:         a.pincode,
+      location:        a.name,
+      source:          'fship',
+      fshipAddressId:  a.id,
+    }));
+
     // ── Bigship: return all warehouses from cache (fast, no blocking) ──────────
     if (activeCarrier === 'bigship' && this.bigship.isConfigured()) {
       const cfg = this.carrierConfig.getConfig().bigship;
@@ -255,32 +271,38 @@ export class DispatchService {
       if (cached.length > 0) {
         // Return all usable warehouses with real names from Bigship. Some Bigship
         // responses omit or vary the active flag, so only hide explicit inactive rows.
-        return cached
-          .filter(w => w.isActive !== false)
-          .map(w => ({
-            id:                 String(w.bigshipWarehouseId),
-            name:               w.name,
-            pincode:            w.pincode || process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
-            location:           `${w.city}, ${w.state}`,
-            address:            `${w.address}, ${w.city}, ${w.state}`,
-            city:               w.city,
-            state:              w.state,
-            source:             'bigship',
-            bigshipWarehouseId: w.bigshipWarehouseId,
-          } as Warehouse & { bigshipWarehouseId: number }));
+        return [
+          ...cached
+            .filter(w => w.isActive !== false)
+            .map(w => ({
+              id:                 String(w.bigshipWarehouseId),
+              name:               w.name,
+              pincode:            w.pincode || process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
+              location:           `${w.city}, ${w.state}`,
+              address:            `${w.address}, ${w.city}, ${w.state}`,
+              city:               w.city,
+              state:              w.state,
+              source:             'bigship',
+              bigshipWarehouseId: w.bigshipWarehouseId,
+            } as Warehouse & { bigshipWarehouseId: number })),
+          ...fshipWarehouses,
+        ];
       }
 
       // Cache miss — return saved default warehouse immediately, refresh in background
       if (defaultPickupId) {
         void this.bigship.refreshWarehouseCache();
-        return [{
-          id:                 String(defaultPickupId),
-          name:               `Bigship Warehouse ${defaultPickupId}`,
-          pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
-          location:           `Bigship #${defaultPickupId}`,
-          source:             'bigship',
-          bigshipWarehouseId: defaultPickupId,
-        } as Warehouse & { bigshipWarehouseId: number }];
+        return [
+          {
+            id:                 String(defaultPickupId),
+            name:               `Bigship Warehouse ${defaultPickupId}`,
+            pincode:            process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032',
+            location:           `Bigship #${defaultPickupId}`,
+            source:             'bigship',
+            bigshipWarehouseId: defaultPickupId,
+          } as Warehouse & { bigshipWarehouseId: number },
+          ...fshipWarehouses,
+        ];
       }
     }
 
@@ -305,7 +327,7 @@ export class DispatchService {
       if (!byNameAndPin.has(key)) byNameAndPin.set(key, warehouse);
     }
 
-    return Array.from(byNameAndPin.values());
+    return [...Array.from(byNameAndPin.values()), ...fshipWarehouses];
   }
 
   private resolveWarehouse(warehouseId?: string, pickupOverride?: PickupOverride): Warehouse {
@@ -317,6 +339,30 @@ export class DispatchService {
         pincode: pickupOverride.pincode.trim(),
         location: pickupOverride.location?.trim() || name,
       };
+    }
+
+    // Fship pickup addresses are matched by id ("fship-<id>") before
+    // anything else, regardless of which carrier is globally "active" -- a
+    // dispatcher can pick "Fship" as the per-shipment carrier (see
+    // carrierOverride in getRates/bookItems) even when Bigship/Shiprocket is
+    // the global default. Without this check (added 2026-09-08), selecting
+    // one of these addresses in the Dispatch page's pickup dropdown had no
+    // effect on what got sent to Fship -- the booking call fell straight
+    // through to the single global default pickup address configured in
+    // Settings, no matter what was picked on screen.
+    if (warehouseId?.startsWith('fship-')) {
+      const fshipCfg = this.carrierConfig.getConfig().fship;
+      const match = (fshipCfg.pickupAddresses ?? []).find((a) => `fship-${a.id}` === warehouseId);
+      if (match) {
+        return {
+          id:             `fship-${match.id}`,
+          name:           match.name,
+          pincode:        match.pincode,
+          location:       match.name,
+          source:         'fship',
+          fshipAddressId: match.id,
+        };
+      }
     }
 
     // For Bigship, warehouseId is the numeric bigshipWarehouseId sent as a string (e.g. "111821").
@@ -730,7 +776,7 @@ export class DispatchService {
           : Promise.resolve([]),
         this.fship.isConfigured()
           ? this.fship.fetchRates({
-              pickupPincode: this.carrierConfig.getConfig().fship.pickupPincode || pickup,
+              pickupPincode: pickup || this.carrierConfig.getConfig().fship.pickupPincode,
               deliveryPincode: delivery,
               weightKg,
               lengthCm: normalizedBoxes?.[0]?.length,
@@ -866,13 +912,16 @@ export class DispatchService {
     }
 
     // ── Fship ─────────────────────────────────────────────────────────────
-    // Fship's pickup pincode is a plain configured value (Settings > Carrier
-    // Config), not tied to the Bigship/Shiprocket "warehouse" system --
-    // Fship's Rate Calculator only needs a bare pincode, no address id.
+    // Fship's pickup pincode is resolved the same way as Bigship/Shiprocket
+    // -- from whichever pickup was selected on the Dispatch page, via
+    // resolveWarehouse() above (see also the "fship-<id>" branch it added
+    // 2026-09-08) -- falling back to the single global config value only if
+    // nothing resolved a pincode. Fship's Rate Calculator itself only needs
+    // a bare pincode, no address id.
     if (activeCarrier === 'fship' && this.fship.isConfigured()) {
       try {
         const fs = await this.fship.fetchRates({
-          pickupPincode: this.carrierConfig.getConfig().fship.pickupPincode || pickup,
+          pickupPincode: pickup || this.carrierConfig.getConfig().fship.pickupPincode,
           deliveryPincode: delivery,
           weightKg,
           lengthCm: normalizedBoxes?.[0]?.length,
@@ -1152,7 +1201,24 @@ export class DispatchService {
       // "bs-<courierId>" scheme).
       const courierId = parseInt(rateId.replace(/^fs-/, ''), 10);
       const fshipCfg = this.carrierConfig.getConfig().fship;
-      if (!fshipCfg.pickupAddressId) {
+      // `warehouse` (resolved above via resolveWarehouse(warehouseId,
+      // pickupOverride)) carries a real Fship address id (fshipAddressId)
+      // when the dispatcher picked one of the addresses configured in
+      // Settings > Carrier Config from the Dispatch page's pickup dropdown.
+      // Fall back to the first configured address, then the single global
+      // default, only when no Fship-specific pickup was selected (a plain
+      // custom/typed pickup, or a Bigship/Shiprocket warehouse picked while
+      // Fship was chosen as the per-shipment carrier). Before this fix
+      // (2026-09-08), every Fship booking used the global default
+      // unconditionally -- that's why bookings always showed the default
+      // (Chandrapur) address in Fship's own dashboard no matter what pickup
+      // was selected in the ERP.
+      const pickAddressId =
+        warehouse.fshipAddressId
+        ?? fshipCfg.pickupAddresses?.[0]?.id
+        ?? fshipCfg.pickupAddressId
+        ?? undefined;
+      if (!pickAddressId) {
         shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
       } else if (Number.isFinite(courierId) && courierId > 0) {
         const fs = await this.fship.createForwardOrder({
@@ -1173,7 +1239,7 @@ export class DispatchService {
           lengthCm: normalizedBoxes?.[0]?.length ?? 10,
           widthCm: normalizedBoxes?.[0]?.breadth ?? 10,
           heightCm: normalizedBoxes?.[0]?.height ?? 10,
-          pickAddressId: fshipCfg.pickupAddressId,
+          pickAddressId,
           courierId,
           products: itemsToDispatch.map((i) => ({
             productId: i.id,

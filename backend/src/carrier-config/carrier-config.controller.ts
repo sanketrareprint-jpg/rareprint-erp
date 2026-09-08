@@ -38,6 +38,7 @@ export class CarrierConfigController {
         clientKey:        cfg.fship.clientKey ? '••••••••' : '',
         pickupPincode:    cfg.fship.pickupPincode,
         pickupAddressId:  cfg.fship.pickupAddressId,
+        pickupAddresses:  cfg.fship.pickupAddresses || [],
         isConfigured:     !!cfg.fship.clientKey,
       },
     };
