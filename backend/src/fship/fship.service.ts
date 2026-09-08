@@ -120,19 +120,30 @@ export class FshipService {
         shipment_Height: params.heightCm ?? 10,
         volumetric_Weight: 0,
       });
-      const rates: Array<{ courier_name?: string; shipping_charge?: number }> =
+      const rates: Array<{ courier_name?: string; shipping_charge?: number; cod_charge?: number }> =
         Array.isArray(data?.shipment_rates) ? data.shipment_rates : [];
       return rates
         .map((r) => {
           const name = String(r.courier_name ?? 'Fship Courier');
           const match = courierList.find((c) => c.name.toLowerCase() === name.toLowerCase());
+          // Fship's Rate Calculator (PDF p.16) returns shipping_charge and
+          // cod_charge as separate fields on every courier -- cod_charge is
+          // that courier's COD handling fee, only actually payable when this
+          // shipment is COD. Bigship/Shiprocket's `amount` here is already
+          // the single all-inclusive total the dispatcher gets charged (see
+          // bigship.service.ts's totalCharge/courierCharge), so fold
+          // cod_charge in for parity on COD quotes -- before this fix, a
+          // COD quote from Fship showed only the shipping_charge portion,
+          // silently leaving out the COD fee.
+          const shippingCharge = Number(r.shipping_charge) || 0;
+          const codCharge = params.isCod ? (Number(r.cod_charge) || 0) : 0;
           return {
             // No match -> rateId carries courierId 0, which bookItems'
             // Fship branch below rejects with a clear error instead of
             // silently booking the wrong (or no) courier.
             rateId: `fs-${match?.id ?? 0}`,
             carrierName: name,
-            amount: Number(r.shipping_charge) || 0,
+            amount: shippingCharge + codCharge,
             currency: 'INR',
             // Fship's rate calculator response has no ETA field at all --
             // 3 matches the same fallback default already used for
