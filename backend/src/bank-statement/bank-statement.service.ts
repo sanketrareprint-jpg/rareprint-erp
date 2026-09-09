@@ -1,6 +1,7 @@
 // backend/src/bank-statement/bank-statement.service.ts
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { BankReconcileStatus, BankTxnType, Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { createHash } from 'crypto';
@@ -259,6 +260,7 @@ export class BankStatementService {
     // Create import session
     const session = await this.prisma.bankImportSession.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         accountNumber,
         fileName,
         importedById,
@@ -630,8 +632,8 @@ export class BankStatementService {
       throw new BadRequestException('Keyword is required');
 
     const rule = await this.prisma.vendorKeyword.upsert({
-      where: { keyword: normalizedKeyword },
-      create: { keyword: normalizedKeyword, vendorId },
+      where: { tenantId_keyword: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword } },
+      create: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword, vendorId },
       update: { vendorId },
     });
 
@@ -658,7 +660,7 @@ export class BankStatementService {
   }
 
   async createExpenseCategory(name: string, description?: string) {
-    return this.prisma.expenseCategory.create({ data: { name, description } });
+    return this.prisma.expenseCategory.create({ data: { tenantId: DEFAULT_TENANT_ID, name, description } });
   }
 
   async upsertExpenseKeyword(keyword: string, categoryId: string) {
@@ -667,8 +669,8 @@ export class BankStatementService {
       throw new BadRequestException('Keyword is required');
 
     const rule = await this.prisma.expenseKeyword.upsert({
-      where: { keyword: normalizedKeyword },
-      create: { keyword: normalizedKeyword, categoryId },
+      where: { tenantId_keyword: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword } },
+      create: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword, categoryId },
       update: { categoryId },
     });
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const PING_INTERVAL_SECONDS = 30;
 const SESSION_GAP_SECONDS = 120; // new session if gap > 2 min
@@ -34,7 +35,7 @@ export class ActivityService {
 
     // Start a new session
     const created = await this.prisma.userActivitySession.create({
-      data: { userId, page, startedAt: now, lastPingAt: now, activeSeconds: PING_INTERVAL_SECONDS },
+      data: { tenantId: DEFAULT_TENANT_ID, userId, page, startedAt: now, lastPingAt: now, activeSeconds: PING_INTERVAL_SECONDS },
     });
     return { sessionId: created.id };
   }

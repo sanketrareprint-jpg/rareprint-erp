@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { GmailDraftService } from '../production/gmail-draft.service';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -33,7 +34,7 @@ export class AuthService {
 
   async validateUser(email: string, password: string): Promise<AuthUser> {
     const user = await this.prisma.user.findUnique({
-      where: { email },
+      where: { tenantId_email: { tenantId: DEFAULT_TENANT_ID, email } },
       select: {
         id: true,
         fullName: true,
@@ -103,7 +104,7 @@ export class AuthService {
     tokenType: 'Bearer';
     user: { id: string; fullName: string; email: string; role: string };
   }> {
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const existing = await this.prisma.user.findUnique({ where: { tenantId_email: { tenantId: DEFAULT_TENANT_ID, email } } });
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
@@ -111,6 +112,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await this.prisma.user.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         fullName,
         email,
         passwordHash,
@@ -130,7 +132,7 @@ export class AuthService {
   // ── Forgot password (tokenized reset link, mirrors the HR agreement flow) ──
 
   async requestPasswordReset(email: string, frontendOrigin: string): Promise<{ sent: true }> {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({ where: { tenantId_email: { tenantId: DEFAULT_TENANT_ID, email } } });
 
     // Always report success even if the account doesn't exist or is
     // inactive — otherwise this endpoint becomes a way to enumerate which

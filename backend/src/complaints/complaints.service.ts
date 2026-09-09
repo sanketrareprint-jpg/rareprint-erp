@@ -1,6 +1,7 @@
 // backend/src/complaints/complaints.service.ts
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { ComplaintsNotifications } from './complaints.notifications';
 import {
   ComplaintPriority,
@@ -140,6 +141,7 @@ export class ComplaintsService {
       } else {
         const created = await this.prisma.customer.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             customerCode: `CUST-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
             businessName: name,
             phone,

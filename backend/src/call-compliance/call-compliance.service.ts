@@ -17,6 +17,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma, UserRole, LeadStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { parseJioStatementPdf, normalizePhone, ParsedCallRow } from './jio-statement-parser';
 import { parseAisensyContactsCsv } from './aisensy-contacts-parser';
 
@@ -44,6 +45,7 @@ export class CallComplianceService {
 
     const importRow = await this.prisma.callLogImport.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         fileName: file.originalname,
         ownerNumber: parsed.ownerNumber,
         agentId: agent?.id ?? null,
@@ -132,7 +134,7 @@ export class CallComplianceService {
     await this.prisma.callLogRecord.deleteMany({ where: { importId } });
     if (!rows.length) return { inserted: 0, duplicates: 0 };
     const result = await this.prisma.callLogRecord.createMany({
-      data: rows.map((r) => ({ importId, agentId, phone: r.phone, calledAt: r.calledAt, durationSec: r.durationSec })),
+      data: rows.map((r) => ({ tenantId: DEFAULT_TENANT_ID, importId, agentId, phone: r.phone, calledAt: r.calledAt, durationSec: r.durationSec })),
       skipDuplicates: true,
     });
     return { inserted: result.count, duplicates: rows.length - result.count };
@@ -159,7 +161,7 @@ export class CallComplianceService {
     const agentsByTag = await this.buildAgentTagIndex();
 
     const importRow = await this.prisma.contactImport.create({
-      data: { fileName: file.originalname, rowsFound: parsedRows.length, importedById },
+      data: { tenantId: DEFAULT_TENANT_ID, fileName: file.originalname, rowsFound: parsedRows.length, importedById },
     });
 
     const phones = parsedRows.map((r) => r.phone);
@@ -175,6 +177,7 @@ export class CallComplianceService {
     for (const row of parsedRows) {
       const agent = row.primaryTag ? agentsByTag.get(row.primaryTag.toLowerCase()) : undefined;
       const base = {
+        tenantId: DEFAULT_TENANT_ID,
         importId: importRow.id,
         name: row.name,
         tagRaw: row.tagRaw,
@@ -646,6 +649,7 @@ export class CallComplianceService {
     if (status === 'LOST') {
       await this.prisma.importedContactFollowUp.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           contactId,
           scheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           note: 'Recycle — check if requirement still exists',
@@ -665,6 +669,7 @@ export class CallComplianceService {
     const daysLater = outcome === 'ANSWERED' ? 3 : 1;
     await this.prisma.importedContactFollowUp.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         contactId,
         scheduledAt: new Date(Date.now() + daysLater * 24 * 60 * 60 * 1000),
         note: note || `After ${outcome.toLowerCase()} call`,

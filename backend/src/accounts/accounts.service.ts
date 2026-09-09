@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import {
   AccountingNoteType,
   AccountingPartyType,
@@ -167,6 +168,7 @@ export class AccountsService {
 
     const invoice = await tx.invoice.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId: order.id,
         invoiceNumber: order.orderNumber,
         subtotal,
@@ -190,6 +192,7 @@ export class AccountsService {
       const itemGst = this.splitGst(itemTaxable, Number(item.taxRatePct ?? 0), gstTreatment);
       await tx.invoiceItem.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           invoiceId: invoice.id,
           productName: item.product.name,
           sku: item.product.sku,
@@ -216,6 +219,7 @@ export class AccountsService {
     await tx.accountingLedgerEntry.createMany({
       data: [
         {
+          tenantId: DEFAULT_TENANT_ID,
           entryType: LedgerEntryType.SALE,
           accountName: 'Customer Receivable',
           debitAmount: totalAmount,
@@ -228,6 +232,7 @@ export class AccountsService {
           invoiceId: invoice.id,
         },
         {
+          tenantId: DEFAULT_TENANT_ID,
           entryType: LedgerEntryType.SALE,
           accountName: 'Sales',
           debitAmount: 0,
@@ -240,6 +245,7 @@ export class AccountsService {
           invoiceId: invoice.id,
         },
         ...(taxAmount > 0 ? [{
+          tenantId: DEFAULT_TENANT_ID,
           entryType: LedgerEntryType.GST,
           accountName: 'Output GST',
           debitAmount: 0,
@@ -609,6 +615,7 @@ export class AccountsService {
       const invoice = await this.createInvoiceAndLedger(tx, order);
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: OrderStatus.PENDING_APPROVAL,
           toStatus: OrderStatus.APPROVED,
@@ -790,6 +797,7 @@ export class AccountsService {
     for (const { item, itemTaxable, split } of itemRows) {
       await tx.invoiceItem.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           invoiceId: invoice.id,
           productName: item.product?.name ?? 'Item',
           sku: item.product?.sku ?? null,
@@ -815,6 +823,7 @@ export class AccountsService {
     if (removedAmount > 0) {
       await tx.accountingLedgerEntry.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           entryType: LedgerEntryType.CREDIT_NOTE,
           accountName: 'Customer Receivable',
           debitAmount: 0,
@@ -835,6 +844,7 @@ export class AccountsService {
       const addedAmount = this.money(-removedAmount);
       await tx.accountingLedgerEntry.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           entryType: LedgerEntryType.DEBIT_NOTE,
           accountName: 'Customer Receivable',
           debitAmount: addedAmount,
@@ -920,6 +930,7 @@ export class AccountsService {
 
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: isWholeOrder ? OrderStatus.CANCELLED : order.status,
@@ -952,6 +963,7 @@ export class AccountsService {
     });
     await this.prisma.statusLog.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId,
         fromStatus: order.status,
         toStatus: order.status,
@@ -983,6 +995,7 @@ export class AccountsService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: OrderStatus.PENDING_APPROVAL,
@@ -1017,6 +1030,7 @@ export class AccountsService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
           toStatus: OrderStatus.READY_FOR_DISPATCH,
@@ -1073,6 +1087,7 @@ export class AccountsService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: OrderStatus.APPROVED,
@@ -1400,6 +1415,7 @@ export class AccountsService {
     return this.prisma.$transaction(async (tx) => {
       const bill = await tx.purchaseBill.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           vendorId: data.vendorId,
           billNumber: data.billNumber.trim(),
           billDate: this.parseDate(data.billDate) ?? new Date(),
@@ -1419,6 +1435,7 @@ export class AccountsService {
       await tx.accountingLedgerEntry.createMany({
         data: [
           {
+            tenantId: DEFAULT_TENANT_ID,
             entryType: LedgerEntryType.PURCHASE,
             accountName: 'Purchases / Job Work',
             debitAmount: taxableAmount,
@@ -1430,6 +1447,7 @@ export class AccountsService {
             purchaseBillId: bill.id,
           },
           ...(gst.taxAmount > 0 ? [{
+            tenantId: DEFAULT_TENANT_ID,
             entryType: LedgerEntryType.GST,
             accountName: 'Input GST',
             debitAmount: gst.taxAmount,
@@ -1441,6 +1459,7 @@ export class AccountsService {
             purchaseBillId: bill.id,
           }] : []),
           {
+            tenantId: DEFAULT_TENANT_ID,
             entryType: LedgerEntryType.PURCHASE,
             accountName: 'Vendor Payable',
             debitAmount: 0,
@@ -1465,6 +1484,7 @@ export class AccountsService {
     return this.prisma.$transaction(async (tx) => {
       const payment = await tx.vendorPayment.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           vendorId: data.vendorId,
           purchaseBillId: data.purchaseBillId || null,
           paymentAccountId: data.paymentAccountId,
@@ -1497,6 +1517,7 @@ export class AccountsService {
       await tx.accountingLedgerEntry.createMany({
         data: [
           {
+            tenantId: DEFAULT_TENANT_ID,
             entryType: LedgerEntryType.PAYMENT_OUT,
             accountName: 'Vendor Payable',
             debitAmount: amount,
@@ -1508,6 +1529,7 @@ export class AccountsService {
             purchaseBillId: data.purchaseBillId || null,
           },
           {
+            tenantId: DEFAULT_TENANT_ID,
             entryType: LedgerEntryType.PAYMENT_OUT,
             accountName: payment.paymentAccount.name,
             debitAmount: 0,
@@ -1564,6 +1586,7 @@ export class AccountsService {
     return this.prisma.$transaction(async (tx) => {
       const note = await tx.accountingNote.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           noteNumber,
           noteType: data.noteType,
           partyType: data.partyType,
@@ -1592,6 +1615,7 @@ export class AccountsService {
       await tx.accountingLedgerEntry.createMany({
         data: [
           {
+            tenantId: DEFAULT_TENANT_ID,
             entryType,
             accountName: partyAccount,
             debitAmount: isCreditForCustomer ? 0 : totalAmount,
@@ -1605,6 +1629,7 @@ export class AccountsService {
             purchaseBillId: data.purchaseBillId || null,
           },
           {
+            tenantId: DEFAULT_TENANT_ID,
             entryType,
             accountName: data.noteType === AccountingNoteType.CREDIT_NOTE ? 'Sales Return / Adjustment' : 'Debit Note Income / Adjustment',
             debitAmount: isCreditForCustomer ? totalAmount : 0,
@@ -1801,6 +1826,7 @@ export class AccountsService {
     const shipmentNumber = `COD-${order.orderNumber}-${Date.now()}`;
     return this.prisma.shipment.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId,
         shipmentNumber,
         dispatchType: 'COD_MANUAL',
@@ -1967,6 +1993,7 @@ export class AccountsService {
         await tx.accountingLedgerEntry.createMany({
           data: [
             {
+              tenantId: DEFAULT_TENANT_ID,
               entryType: LedgerEntryType.PAYMENT_IN,
               accountName: payment.paymentAccount.name,
               debitAmount: payment.amount,
@@ -1979,6 +2006,7 @@ export class AccountsService {
               invoiceId: invoice.id,
             },
             {
+              tenantId: DEFAULT_TENANT_ID,
               entryType: LedgerEntryType.PAYMENT_IN,
               accountName: 'Customer Receivable',
               debitAmount: 0,
@@ -2120,6 +2148,7 @@ export class AccountsService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: OrderStatus.PENDING_APPROVAL,
           toStatus: OrderStatus.READY_FOR_DISPATCH,
@@ -2146,6 +2175,7 @@ export class AccountsService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: OrderStatus.PENDING_APPROVAL,
           toStatus: OrderStatus.CANCELLED,
@@ -2175,6 +2205,7 @@ export class AccountsService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: OrderStatus.READY_FOR_DISPATCH,
           toStatus: OrderStatus.DISPATCHED,
@@ -2482,7 +2513,7 @@ export class AccountsService {
       }),
       this.prisma.employee.findMany({ select: { id: true, userId: true } }),
     ]);
-    const sanketUser = await this.prisma.user.findUnique({ where: { email: SUPER_ADMIN_EMAIL }, select: { id: true } });
+    const sanketUser = await this.prisma.user.findUnique({ where: { tenantId_email: { tenantId: DEFAULT_TENANT_ID, email: SUPER_ADMIN_EMAIL } }, select: { id: true } });
 
     // ── Vendor / Expense ─────────────────────────────────────────────────
     const vendorEntries = vendorTxns.map((t) => this.mapPaymentVerificationEntry(t));

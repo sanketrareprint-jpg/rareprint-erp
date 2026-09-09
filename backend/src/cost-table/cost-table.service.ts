@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -309,6 +310,7 @@ export class CostTableService {
   }) {
     return this.prisma.productCostSlab.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         productId: dto.productId,
         minQuantity: dto.minQuantity,
         maxQuantity: dto.maxQuantity ?? null,
@@ -368,6 +370,7 @@ export class CostTableService {
       slabs.map((s) =>
         this.prisma.productCostSlab.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             productId,
             minQuantity: s.minQuantity,
             maxQuantity: s.maxQuantity ?? null,

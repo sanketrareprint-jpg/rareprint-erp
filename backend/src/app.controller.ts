@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Query, Body } from '@nestjs/common';
 import { AppService } from './app.service';
 import { PrismaService } from './prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from './common/tenant';
 
 @Controller()
 export class AppController {
@@ -55,6 +56,7 @@ export class AppController {
           const agentIdFallback = countsFallback[0].id;
           const leadFallback = await this.prisma.lead.create({
             data: {
+              tenantId: DEFAULT_TENANT_ID,
               name: 'Facebook Lead',
               phone: '',
               source: 'WHATSAPP' as any,
@@ -66,6 +68,7 @@ export class AppController {
           });
           await this.prisma.leadFollowUp.createMany({
             data: [1,3,7].map((d) => ({
+              tenantId: DEFAULT_TENANT_ID,
               leadId: leadFallback.id,
               scheduledAt: new Date(Date.now() + d * 24 * 60 * 60 * 1000),
               note: `Day ${d} follow-up`,
@@ -114,6 +117,7 @@ export class AppController {
 
       const lead = await this.prisma.lead.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           name,
           phone,
           email: email || null,
@@ -130,6 +134,7 @@ export class AppController {
       const days = [1, 3, 7, 14, 30];
       await this.prisma.leadFollowUp.createMany({
         data: days.map((d) => ({
+          tenantId: DEFAULT_TENANT_ID,
           leadId: lead.id,
           scheduledAt: new Date(Date.now() + d * 24 * 60 * 60 * 1000),
           note: `Day ${d} follow-up`,
