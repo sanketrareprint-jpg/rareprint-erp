@@ -172,12 +172,20 @@ export default function CreateOrderPage() {
     return digits.length > 10 ? digits.slice(-10) : digits;
   }
 
+  // Sanitize phone/phone2 pulled from an existing customer record here too --
+  // not just on the input's onChange. Without this, a customer whose stored
+  // phone has stray whitespace/formatting (e.g. saved from the Edit Order
+  // page, which never sanitized) gets that dirty value re-injected every
+  // time the "exact phone match" effect below auto-fills this customer,
+  // even after the user manually cleans the field -- it just comes right
+  // back on the next match. Sanitizing here makes the field always show a
+  // clean value regardless of what's stored.
   function fillCustomer(row: CustomerSearchRow) {
     setCustomer({
       customerId: row.id,
       name: row.businessName ?? "",
-      phone: row.phone ?? "",
-      phone2: row.phone2 ?? "",
+      phone: sanitizePhone(row.phone ?? ""),
+      phone2: sanitizePhone(row.phone2 ?? ""),
       email: row.email ?? "",
       address: row.address ?? "",
       city: row.city ?? "",

@@ -20,6 +20,15 @@ function emptyLine(): LineItem {
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 }
+// Strip spaces, a leading 0, and a +91/91 country code, then cap at 10
+// digits -- matches Create Order's sanitizePhone so an edited phone number
+// can never save with stray whitespace/formatting into the customer record.
+function sanitizePhone(raw: string): string {
+  let digits = raw.replace(/\D/g, "");
+  if (digits.length > 10 && digits.startsWith("91")) digits = digits.slice(2);
+  if (digits.length > 10 && digits.startsWith("0")) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
 function EditOrderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -120,7 +129,7 @@ function EditOrderPageInner() {
             {([["Full Name *","name","Customer / Business Name"],["Phone","phone","09XXXXXXXXX"],["Email","email","email@example.com"],["Address","address","Street address"],["City","city","City"],["State","state","State"],["Pincode","pincode","Pincode"]] as [string,string,string][]).map(([label,field,ph]) => (
               <div key={field}>
                 <label style={S.label}>{label}</label>
-                <input value={(customer as any)[field]} onChange={e => setCustomer(p => ({ ...p, [field]: e.target.value }))} placeholder={ph} style={S.input} />
+                <input value={(customer as any)[field]} onChange={e => setCustomer(p => ({ ...p, [field]: field === "phone" ? sanitizePhone(e.target.value) : e.target.value }))} placeholder={ph} style={S.input} />
               </div>
             ))}
           </div>

@@ -33,6 +33,23 @@ function upper(value?: string | null): string | null | undefined {
   return typeof value === 'string' ? value.toUpperCase() : value;
 }
 
+// Strip everything but digits (so a pasted-in space, dash, or +91 prefix
+// never lands in Customer.phone/phone2). The frontend forms sanitize on
+// input too, but the Edit Order page historically didn't, which is how a
+// stray leading space got saved for at least one customer and then kept
+// getting re-surfaced by Create Order's auto-match-by-phone. Sanitizing
+// here means it can't happen again regardless of which surface -- or which
+// future one -- sends the write.
+function sanitizePhone(value: string): string;
+function sanitizePhone(value?: string | null): string | null | undefined;
+function sanitizePhone(value?: string | null): string | null | undefined {
+  if (typeof value !== 'string') return value;
+  let digits = value.replace(/\D/g, '');
+  if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
+  if (digits.length > 10 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
+
 // pendingDispatchItemIds only started being recorded on 2026-08-10 — any
 // order that reached PENDING_DISPATCH_APPROVAL before that has an empty/
 // null list even though it genuinely was submitted (the old, whole-order-
@@ -699,8 +716,8 @@ export class OrdersService {
             data: {
               businessName: customerNameUpper,
               contactPerson: customerNameUpper,
-              phone: dto.customer.phone,
-              phone2: dto.customer.phone2,
+              phone: sanitizePhone(dto.customer.phone),
+              phone2: sanitizePhone(dto.customer.phone2),
               email: dto.customer.email,
               shippingAddress,
               city: customerCityUpper,
@@ -714,8 +731,8 @@ export class OrdersService {
               customerCode,
               businessName: customerNameUpper,
               contactPerson: customerNameUpper,
-              phone: dto.customer.phone,
-              phone2: dto.customer.phone2,
+              phone: sanitizePhone(dto.customer.phone),
+              phone2: sanitizePhone(dto.customer.phone2),
               email: dto.customer.email,
               shippingAddress,
               city: customerCityUpper,
@@ -882,7 +899,7 @@ export class OrdersService {
         data: {
           businessName: editCustomerNameUpper,
           contactPerson: editCustomerNameUpper,
-          phone: body.customer?.phone,
+          phone: sanitizePhone(body.customer?.phone),
           email: body.customer?.email,
           shippingAddress,
           city: editCustomerCityUpper,
