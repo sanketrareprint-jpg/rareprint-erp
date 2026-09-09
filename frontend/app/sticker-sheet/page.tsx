@@ -115,23 +115,31 @@ const CUSTOM_USABLE_W = 828; // 11.5in
 const CUSTOM_USABLE_H = 1260; // 17.5in
 const CUSTOM_INSET_RATIO = 0.025;
 
-function computeCustomLayout(widthIn: number, heightIn: number) {
+function computeCustomLayout(widthIn: number, heightIn: number, gapIn: number) {
   const cellW = widthIn * 72;
   const cellH = heightIn * 72;
   if (!Number.isFinite(cellW) || !Number.isFinite(cellH) || cellW <= 0 || cellH <= 0) {
     return { cols: 0, rows: 0, startX: 0, startY: 0, stepX: 0, stepY: 0, imgW: 0, imgH: 0, cutW: 0, cutH: 0, offsetX: 0, offsetY: 0 };
   }
-  const cols = Math.max(0, Math.floor(CUSTOM_USABLE_W / cellW));
-  const rows = Math.max(0, Math.floor(CUSTOM_USABLE_H / cellH));
+  // Gap between stickers -- pure spacing added to the pitch between cells,
+  // same on both axes. cols/rows fit n cells + (n-1) gaps into the usable
+  // area: n*cellW + (n-1)*gap <= USABLE_W  =>  n <= (USABLE_W + gap) / (cellW + gap).
+  const gap = Math.max(0, Number.isFinite(gapIn) ? gapIn : 0) * 72;
+  const stepX = cellW + gap;
+  const stepY = cellH + gap;
+  const cols = Math.max(0, Math.floor((CUSTOM_USABLE_W + gap) / stepX));
+  const rows = Math.max(0, Math.floor((CUSTOM_USABLE_H + gap) / stepY));
   const offsetX = -(cellW * CUSTOM_INSET_RATIO);
   const offsetY = -(cellH * CUSTOM_INSET_RATIO);
+  const totalW = cols > 0 ? cols * stepX - gap : 0;
+  const totalH = rows > 0 ? rows * stepY - gap : 0;
   return {
     cols,
     rows,
-    startX: (PAGE_WIDTH - cols * cellW) / 2,
-    startY: (PAGE_HEIGHT - rows * cellH) / 2,
-    stepX: cellW,
-    stepY: cellH,
+    startX: (PAGE_WIDTH - totalW) / 2,
+    startY: (PAGE_HEIGHT - totalH) / 2,
+    stepX,
+    stepY,
     imgW: cellW + 2 * offsetX,
     imgH: cellH + 2 * offsetY,
     cutW: cellW,
@@ -149,10 +157,11 @@ function StickerSheetContent() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [customWidthIn, setCustomWidthIn] = useState('');
   const [customHeightIn, setCustomHeightIn] = useState('');
+  const [customGapIn, setCustomGapIn] = useState('0');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const customCfg = computeCustomLayout(parseFloat(customWidthIn), parseFloat(customHeightIn));
+  const customCfg = computeCustomLayout(parseFloat(customWidthIn), parseFloat(customHeightIn), parseFloat(customGapIn) || 0);
   const cfg = layout === 'CUSTOM' ? customCfg : layouts[layout];
   const meta = layout === 'CUSTOM'
     ? {
@@ -424,6 +433,21 @@ function StickerSheetContent() {
                     <span className="text-xs text-gray-400 shrink-0">in</span>
                   </div>
                 )}
+                {layout === 'CUSTOM' && (
+                  <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-xs text-gray-400 shrink-0">Gap</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.05"
+                      placeholder="0"
+                      value={customGapIn}
+                      onChange={(e) => setCustomGapIn(e.target.value)}
+                      className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
+                    />
+                    <span className="text-xs text-gray-400 shrink-0">in between stickers</span>
+                  </div>
+                )}
                 {layout === 'CUSTOM' && customWidthIn && customHeightIn && (customCfg.cols === 0 || customCfg.rows === 0) && (
                   <p className="text-xs text-red-500 mt-2">Too large to fit on a 12x18 sheet — try a smaller size.</p>
                 )}
@@ -444,6 +468,7 @@ function StickerSheetContent() {
                 ['Sheet Size', '12.25 × 18.25 in'],
                 ['Resolution', '300 DPI'],
                 ['Cut Border', layout === 'CUSTOM' ? 'None' : 'Red (RGB 255,0,0)'],
+                ...(layout === 'CUSTOM' ? [['Gap Between Stickers', `${parseFloat(customGapIn) || 0} in`]] : []),
                 ['Corner Marks', '4× Toyocut dots'],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between items-center px-4 py-2.5">
