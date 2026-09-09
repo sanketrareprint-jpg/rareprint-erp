@@ -1233,8 +1233,21 @@ export class DispatchService {
           invoiceNumber: order.orderNumber,
           isCod: orderIsCod,
           codAmount: orderIsCod ? (orderCodAmt ?? 0) : 0,
-          orderAmount: dispatchItemsValue,
-          totalAmount: dispatchItemsValue,
+          // Fship's own dispatch app appears to tell the delivery rider to
+          // collect order_Amount/total_Amount, NOT the separate cod_Amount
+          // field above -- confirmed via order 1574 (PALLAVI MEDICAL,
+          // 2026-09-08): cod_Amount was correctly sent as 300 (parsed from
+          // "COD: ₹300 to be collected on delivery" in the order notes) but
+          // Fship still booked/collected the full order value of 3000.
+          // So for COD shipments, order_Amount/total_Amount must themselves
+          // be the actual amount to collect -- cod_Amount is still sent too
+          // in case Fship starts honoring it, but can't be relied on alone.
+          // Falls back to the full item value only when isCod is true but
+          // no specific COD amount could be parsed from the order notes
+          // (safer to assume the whole order is COD than to tell Fship to
+          // collect nothing).
+          orderAmount: orderIsCod ? (orderCodAmt ?? dispatchItemsValue) : dispatchItemsValue,
+          totalAmount: orderIsCod ? (orderCodAmt ?? dispatchItemsValue) : dispatchItemsValue,
           weightKg,
           lengthCm: normalizedBoxes?.[0]?.length ?? 10,
           widthCm: normalizedBoxes?.[0]?.breadth ?? 10,
