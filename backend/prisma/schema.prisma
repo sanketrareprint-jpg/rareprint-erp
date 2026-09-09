@@ -10,38 +10,10 @@ datasource db {
   // src/prisma/prisma.service.ts).
 }
 
-// ── Multi-tenant SaaS foundation (Phase 1 of docs/SaaS_Conversion_Roadmap_v2.md) ──
-// Added 2026-09-07. This model alone is purely additive — a new table, zero
-// impact on existing data. The `tenantId` rollout onto ~100 existing models
-// is the next, much higher-risk step and is NOT included here; see the
-// model-by-model list presented alongside this change for that plan.
-enum TenantStatus {
-  TRIAL
-  ACTIVE
-  SUSPENDED
-  CANCELLED
-}
-
-model Tenant {
-  id        String       @id @default(cuid())
-  name      String
-  subdomain String       @unique
-  status    TenantStatus @default(TRIAL)
-  // Nullable for now — populated once the `Plan` model exists (Phase 4,
-  // billing). Deliberately not a relation yet to avoid coupling Phase 1 to
-  // work that hasn't been scoped.
-  planId    String?
-  // Branding + feature-flag JSON blob (logo, colors, enabled modules, etc.)
-  settings  Json?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-}
-
 model User {
   id                 String                @id @default(cuid())
-  tenantId String
   fullName           String
-  email              String
+  email              String                @unique
   phone              String?
   passwordHash       String
   passwordResetToken      String?               @unique
@@ -112,14 +84,11 @@ model User {
   contactImportsMade   ContactImport[]         @relation("ContactImportedBy")
   importedContacts     ImportedContact[]       @relation("ImportedContactAgent")
   policiesCreated      PolicyDocument[]        @relation("PolicyDocumentCreatedBy")
-  @@index([tenantId])
-  @@unique([tenantId, email])
 }
 
 model Customer {
   id               String                  @id @default(cuid())
-  tenantId String
-  customerCode     String
+  customerCode     String                  @unique
   businessName     String
   contactPerson    String?
   email            String?
@@ -139,28 +108,22 @@ model Customer {
   ledgerEntries    AccountingLedgerEntry[]
   creditDebitNotes AccountingNote[]
   complaints       Complaint[]
-  @@index([tenantId])
-  @@unique([tenantId, customerCode])
 }
 
 model ProductCategory {
   id              String           @id @default(cuid())
-  tenantId String
-  name            String
+  name            String           @unique
   description     String?
   isActive        Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   commissionRules CommissionRule[]
   products        Product[]
-  @@index([tenantId])
-  @@unique([tenantId, name])
 }
 
 model Product {
   id                 String            @id @default(cuid())
-  tenantId String
-  sku                String
+  sku                String            @unique
   name               String
   description        String?
   categoryId         String
@@ -183,8 +146,6 @@ model Product {
   productRule        ProductRule?
   agencyRateProduct  AgencyRateProduct?
   agencyRates        AgencyRate[]
-  @@index([tenantId])
-  @@unique([tenantId, sku])
 }
 
 // ── Cost Table > Agency Rates ──────────────────────────────────────────────
@@ -198,27 +159,21 @@ model Product {
 
 model AgencyRateProduct {
   id        String   @id @default(cuid())
-  tenantId String
-  productId String @unique
+  productId String   @unique
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
-  @@index([tenantId])
 }
 
 model AgencyRateQuantityColumn {
   id        String   @id @default(cuid())
-  tenantId String
-  quantity  Int
+  quantity  Int      @unique
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
-  @@index([tenantId])
-  @@unique([tenantId, quantity])
 }
 
 model AgencyRate {
   id        String   @id @default(cuid())
-  tenantId String
   productId String
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   quantity  Int
@@ -228,16 +183,14 @@ model AgencyRate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([tenantId, productId, quantity])
+  @@unique([productId, quantity])
   @@index([productId])
   @@index([quantity])
-  @@index([tenantId])
 }
 
 model OfferCode {
   id             String      @id @default(cuid())
-  tenantId String
-  code           String
+  code           String      @unique
   description    String?
   offerType      String      @default("FREE_ITEM")  // FREE_ITEM | COMBO_DISCOUNT
   discountAmount Decimal?    @db.Decimal(12, 2)     // total discount for COMBO_DISCOUNT
@@ -249,25 +202,20 @@ model OfferCode {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
   orderItems     OrderItem[]
-  @@index([tenantId])
-  @@unique([tenantId, code])
 }
 
 model ProductRule {
   id        String   @id @default(cuid())
-  tenantId String
-  productId String @unique
+  productId String   @unique
   minQty    Int      @default(1)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  @@index([tenantId])
 }
 
 model ProductCostSlab {
   id            String    @id @default(cuid())
-  tenantId String
   productId     String
   minQuantity   Int
   maxQuantity   Int?
@@ -280,12 +228,10 @@ model ProductCostSlab {
   product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId, minQuantity, maxQuantity])
-  @@index([tenantId])
 }
 
 model ProductRateSlab {
   id            String    @id @default(cuid())
-  tenantId String
   productId     String
   minQuantity   Int
   maxQuantity   Int?
@@ -297,12 +243,10 @@ model ProductRateSlab {
   product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId, minQuantity, maxQuantity])
-  @@index([tenantId])
 }
 
 model CommissionRule {
   id             String           @id @default(cuid())
-  tenantId String
   name           String
   productId      String?
   categoryId     String?
@@ -318,12 +262,10 @@ model CommissionRule {
   product        Product?         @relation(fields: [productId], references: [id])
 
   @@index([productId, categoryId, effectiveFrom, effectiveTo])
-  @@index([tenantId])
 }
 
 model PaymentAccount {
   id             String          @id @default(cuid())
-  tenantId String
   name           String
   accountType    String
   accountNumber  String?
@@ -337,13 +279,11 @@ model PaymentAccount {
   updatedAt      DateTime        @updatedAt
   payments       Payment[]
   vendorPayments VendorPayment[]
-  @@index([tenantId])
 }
 
 // ── Vendor model for Clubbing / jobwork ──────────────────────────────────────
 model Vendor {
   id                  String                  @id @default(cuid())
-  tenantId String
   name                String
   phone               String?
   email               String?
@@ -366,14 +306,12 @@ model Vendor {
   ledgerEntries       AccountingLedgerEntry[]
   creditDebitNotes    AccountingNote[]
   complaints          Complaint[]
-  @@index([tenantId])
 }
 
 // ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
 model JobWork {
   id              String        @id @default(cuid())
-  tenantId String
-  poNumber        String? // auto-generated e.g. JW-2025-001
+  poNumber        String?       @unique // auto-generated e.g. JW-2025-001
   orderItemId     String
   vendorId        String
   description     String
@@ -388,15 +326,12 @@ model JobWork {
   updatedAt       DateTime      @updatedAt
   orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   vendor          Vendor        @relation(fields: [vendorId], references: [id])
-  @@index([tenantId])
-  @@unique([tenantId, poNumber])
 }
 
 // ── PrintSheet: Sheet Production ────────────────────────────────────────────
 model PrintSheet {
   id                    String             @id @default(cuid())
-  tenantId String
-  sheetNo               String // auto-generated e.g. SHT-2024-001
+  sheetNo               String             @unique // auto-generated e.g. SHT-2024-001
   gsm                   Int
   quality               SheetQuality
   quantity              Int
@@ -414,14 +349,11 @@ model PrintSheet {
 
   @@index([status, updatedAt])
   @@index([gsm, status])
-  @@index([tenantId])
-  @@unique([tenantId, sheetNo])
 }
 
 // ── Items placed on a sheet ──────────────────────────────────────────────────
 model PrintSheetItem {
   id                   String     @id @default(cuid())
-  tenantId String
   sheetId              String
   orderItemId          String
   productId            String
@@ -438,13 +370,11 @@ model PrintSheetItem {
   @@index([sheetId])
   @@index([orderItemId])
   @@index([productId])
-  @@index([tenantId])
 }
 
 // ── Stage-wise vendors for sheet production ──────────────────────────────────
 model SheetStageVendor {
   id              String               @id @default(cuid())
-  tenantId String
   sheetId         String
   stage           SheetProductionStage
   vendorId        String
@@ -456,13 +386,11 @@ model SheetStageVendor {
   createdAt       DateTime             @default(now())
   sheet           PrintSheet           @relation(fields: [sheetId], references: [id], onDelete: Cascade)
   vendor          Vendor               @relation(fields: [vendorId], references: [id])
-  @@index([tenantId])
 }
 
 // ── ItemStageLog: full history of each item's stage changes ─────────────────
 model ItemStageLog {
   id          String                @id @default(cuid())
-  tenantId String
   orderItemId String
   fromStage   OrderProductionStage?
   toStage     OrderProductionStage
@@ -473,14 +401,12 @@ model ItemStageLog {
   changedBy   User?                 @relation("ItemStageChangedBy", fields: [changedById], references: [id])
 
   @@index([orderItemId, createdAt])
-  @@index([tenantId])
 }
 
 model Godown {
   id             String          @id @default(cuid())
-  tenantId String
   name           String
-  code           String
+  code           String          @unique
   address        String?
   city           String?
   state          String?
@@ -492,14 +418,11 @@ model Godown {
   updatedAt      DateTime        @updatedAt
   productionJobs ProductionJob[]
   shipments      Shipment[]
-  @@index([tenantId])
-  @@unique([tenantId, code])
 }
 
 model Order {
   id               String                  @id @default(cuid())
-  tenantId String
-  orderNumber      String
+  orderNumber      String                  @unique
   customerId       String
   salesAgentId     String?
   orderDate        DateTime                @default(now())
@@ -592,13 +515,10 @@ model Order {
   @@index([salesAgentId, orderDate])
   @@index([customerId, orderDate])
   @@index([productionStage])
-  @@index([tenantId])
-  @@unique([tenantId, orderNumber])
 }
 
 model OrderItem {
   id                  String               @id @default(cuid())
-  tenantId String
   orderId             String
   productId           String
   quantity            Int
@@ -643,12 +563,10 @@ model OrderItem {
   @@index([orderId, productId])
   @@index([itemProductionStage, updatedAt])
   @@index([productionCategory, itemProductionStage])
-  @@index([tenantId])
 }
 
 model Payment {
   id                 String                    @id @default(cuid())
-  tenantId String
   orderId            String
   paymentAccountId   String
   receivedById       String?
@@ -672,14 +590,12 @@ model Payment {
 
   @@index([orderId, verificationStatus])
   @@index([paymentDate])
-  @@index([tenantId])
 }
 
 model Invoice {
   id               String                  @id @default(cuid())
-  tenantId String
-  orderId          String @unique
-  invoiceNumber    String
+  orderId          String                  @unique
+  invoiceNumber    String                  @unique
   issueDate        DateTime                @default(now())
   dueDate          DateTime?
   subtotal         Decimal                 @db.Decimal(14, 2)
@@ -704,13 +620,10 @@ model Invoice {
   items            InvoiceItem[]
   ledgerEntries    AccountingLedgerEntry[]
   creditDebitNotes AccountingNote[]
-  @@index([tenantId])
-  @@unique([tenantId, invoiceNumber])
 }
 
 model InvoiceItem {
   id             String  @id @default(cuid())
-  tenantId String
   invoiceId      String
   productName    String
   sku            String?
@@ -731,12 +644,10 @@ model InvoiceItem {
   invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
-  @@index([tenantId])
 }
 
 model PurchaseBill {
   id               String                  @id @default(cuid())
-  tenantId String
   vendorId         String
   billNumber       String
   billDate         DateTime                @default(now())
@@ -760,15 +671,13 @@ model PurchaseBill {
   ledgerEntries    AccountingLedgerEntry[]
   creditDebitNotes AccountingNote[]
 
-  @@unique([tenantId, vendorId, billNumber])
+  @@unique([vendorId, billNumber])
   @@index([vendorId, billDate])
   @@index([status, dueDate])
-  @@index([tenantId])
 }
 
 model VendorPayment {
   id               String         @id @default(cuid())
-  tenantId String
   vendorId         String
   purchaseBillId   String?
   paymentAccountId String
@@ -785,12 +694,10 @@ model VendorPayment {
 
   @@index([vendorId, paymentDate])
   @@index([purchaseBillId])
-  @@index([tenantId])
 }
 
 model AccountingLedgerEntry {
   id             String          @id @default(cuid())
-  tenantId String
   entryDate      DateTime        @default(now())
   entryType      LedgerEntryType
   accountName    String
@@ -816,13 +723,11 @@ model AccountingLedgerEntry {
   @@index([customerId, entryDate])
   @@index([vendorId, entryDate])
   @@index([referenceType, referenceId])
-  @@index([tenantId])
 }
 
 model AccountingNote {
   id             String               @id @default(cuid())
-  tenantId String
-  noteNumber     String
+  noteNumber     String               @unique
   noteType       AccountingNoteType
   partyType      AccountingPartyType
   customerId     String?
@@ -848,13 +753,10 @@ model AccountingNote {
   @@index([noteType, noteDate])
   @@index([customerId, noteDate])
   @@index([vendorId, noteDate])
-  @@index([tenantId])
-  @@unique([tenantId, noteNumber])
 }
 
 model Commission {
   id               String          @id @default(cuid())
-  tenantId String
   orderId          String
   salesAgentId     String
   commissionRuleId String?
@@ -868,12 +770,10 @@ model Commission {
   commissionRule   CommissionRule? @relation(fields: [commissionRuleId], references: [id])
   order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   salesAgent       User            @relation("CommissionSalesAgent", fields: [salesAgentId], references: [id])
-  @@index([tenantId])
 }
 
 model CommissionVerification {
   id           String   @id @default(cuid())
-  tenantId String
   agentId      String
   year         Int
   month        Int
@@ -886,8 +786,7 @@ model CommissionVerification {
   // Accounts > Commission "Mark as Paid" flow (see BankTransaction.matchedCommissionVerificationId).
   bankTransactions BankTransaction[] @relation("BankTxnCommission")
 
-  @@unique([tenantId, agentId, year, month])
-  @@index([tenantId])
+  @@unique([agentId, year, month])
 }
 
 // A manual correction to the auto-calculated commission for a single order
@@ -895,8 +794,7 @@ model CommissionVerification {
 // item; setting a new value replaces the old one.
 model CommissionOverride {
   id            String   @id @default(cuid())
-  tenantId String
-  orderItemId   String @unique
+  orderItemId   String   @unique
   agentId       String
   amount        Decimal  @db.Decimal(14, 2)
   setById       String
@@ -905,7 +803,6 @@ model CommissionOverride {
   orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   agent         User      @relation("CommOverrideAgent", fields: [agentId], references: [id])
   setBy         User      @relation("CommOverrideSetBy", fields: [setById], references: [id])
-  @@index([tenantId])
 }
 
 // Admin-managed sales incentive templates ("Plan A" / "Plan B" / "Plan C",
@@ -915,8 +812,7 @@ model CommissionOverride {
 // for how the incentive amount is actually computed each month.
 model SalesIncentivePlan {
   id            String     @id @default(cuid())
-  tenantId String
-  label         String // e.g. "Plan A"
+  label         String     @unique // e.g. "Plan A"
   monthlyTarget Decimal    @db.Decimal(12, 2)
   incentivePct  Decimal    @db.Decimal(5, 2) // % of the employee's actual monthly sales
   isActive      Boolean    @default(true)
@@ -924,8 +820,6 @@ model SalesIncentivePlan {
   updatedAt     DateTime   @updatedAt
 
   employees     Employee[]
-  @@index([tenantId])
-  @@unique([tenantId, label])
 }
 
 // ── HR: Employee Master ──────────────────────────────────────────────────
@@ -935,10 +829,9 @@ model SalesIncentivePlan {
 // Google Sheet's VLOOKUP-based salary formula.
 model Employee {
   id                  String              @id @default(cuid())
-  tenantId String
-  employeeCode        String // e.g. RP01, internal HR code
-  biometricId         String? // raw ID from the in/out machine export (e.g. "1", "2")
-  userId              String? @unique // linked login account, if any
+  employeeCode        String              @unique // e.g. RP01, internal HR code
+  biometricId         String?             @unique // raw ID from the in/out machine export (e.g. "1", "2")
+  userId              String?             @unique // linked login account, if any
   fullName            String
   designation         String // "post" in the old sheet, e.g. SELLER, DESIGNER, OFFICE BOY
   department          String?
@@ -1018,9 +911,6 @@ model Employee {
   attendanceRecords   AttendanceRecord[]
 
   @@index([status])
-  @@index([tenantId])
-  @@unique([tenantId, employeeCode])
-  @@unique([tenantId, biometricId])
 }
 
 // Versioned company Terms & Conditions text shown on the digital HR
@@ -1029,8 +919,7 @@ model Employee {
 // auditable against the exact text the employee agreed to.
 model CompanyTerms {
   id          String     @id @default(cuid())
-  tenantId String
-  version     Int
+  version     Int        @unique
   title       String
   content     String
   isActive    Boolean    @default(true)
@@ -1041,8 +930,6 @@ model CompanyTerms {
   employees   Employee[]
 
   @@index([isActive])
-  @@index([tenantId])
-  @@unique([tenantId, version])
 }
 
 // Super-admin-authored office policies / department rules / SOPs. Write
@@ -1054,7 +941,6 @@ model CompanyTerms {
 // means "show everywhere".
 model PolicyDocument {
   id          String   @id @default(cuid())
-  tenantId String
   title       String
   content     String
   modules     String[] @default([])
@@ -1066,7 +952,6 @@ model PolicyDocument {
   createdBy   User     @relation("PolicyDocumentCreatedBy", fields: [createdById], references: [id])
 
   @@index([isActive])
-  @@index([tenantId])
 }
 
 enum EmployeeStatus {
@@ -1091,8 +976,7 @@ enum CompanyHolidayType {
 
 model CompanyHoliday {
   id          String             @id @default(cuid())
-  tenantId String
-  date        DateTime
+  date        DateTime           @unique
   label       String
   type        CompanyHolidayType @default(HOLIDAY)
   createdById String?
@@ -1101,14 +985,11 @@ model CompanyHoliday {
   createdBy   User?              @relation("CompanyHolidayCreatedBy", fields: [createdById], references: [id])
 
   @@index([date])
-  @@index([tenantId])
-  @@unique([tenantId, date])
 }
 
 // KRA (key result areas) and job responsibilities, tracked per employee.
 model EmployeeKra {
   id          String          @id @default(cuid())
-  tenantId String
   employeeId  String
   type        EmployeeKraType @default(KRA)
   title       String
@@ -1121,7 +1002,6 @@ model EmployeeKra {
   employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([employeeId])
-  @@index([tenantId])
 }
 
 enum EmployeeKraType {
@@ -1133,7 +1013,6 @@ enum EmployeeKraType {
 // (or paidLeavePerMonth × months elapsed) minus sum of PAID entries.
 model EmployeeLeaveEntry {
   id             String    @id @default(cuid())
-  tenantId String
   employeeId     String
   date           DateTime
   endDate        DateTime?
@@ -1148,7 +1027,6 @@ model EmployeeLeaveEntry {
   recordedBy     User?     @relation("LeaveRecordedBy", fields: [recordedById], references: [id])
 
   @@index([employeeId, date])
-  @@index([tenantId])
 }
 
 enum LeaveType {
@@ -1167,7 +1045,6 @@ enum LeaveType {
 // wins and the salary engine never has to re-parse raw punches.
 model AttendanceRecord {
   id               String              @id @default(cuid())
-  tenantId String
   employeeId       String
   date             DateTime            @db.Date
   timeIn           String? // "HH:MM", 24h, first punch of the day
@@ -1190,9 +1067,8 @@ model AttendanceRecord {
   editedBy         User?               @relation("AttendanceEditedBy", fields: [editedById], references: [id])
   importSession    AttendanceImportSession? @relation(fields: [importSessionId], references: [id])
 
-  @@unique([tenantId, employeeId, date])
+  @@unique([employeeId, date])
   @@index([date])
-  @@index([tenantId])
 }
 
 enum AttendanceSource {
@@ -1203,7 +1079,6 @@ enum AttendanceSource {
 
 model AttendanceImportSession {
   id           String             @id @default(cuid())
-  tenantId String
   fileName     String
   periodStart  DateTime           @db.Date
   periodEnd    DateTime           @db.Date
@@ -1219,16 +1094,14 @@ model AttendanceImportSession {
   records      AttendanceRecord[]
 
   @@index([periodStart, periodEnd])
-  @@index([tenantId])
 }
 
 model ProductionJob {
   id             String           @id @default(cuid())
-  tenantId String
   orderId        String
   godownId       String?
   assignedToId   String?
-  jobCode        String
+  jobCode        String           @unique
   plannedStartAt DateTime?
   actualStartAt  DateTime?
   completedAt    DateTime?
@@ -1239,17 +1112,14 @@ model ProductionJob {
   assignedTo     User?            @relation("ProductionAssignedTo", fields: [assignedToId], references: [id])
   godown         Godown?          @relation(fields: [godownId], references: [id])
   order          Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  @@index([tenantId])
-  @@unique([tenantId, jobCode])
 }
 
 model Shipment {
   id                   String         @id @default(cuid())
-  tenantId String
   orderId              String
   godownId             String?
   handledById          String?
-  shipmentNumber       String
+  shipmentNumber       String         @unique
   dispatchDate         DateTime?
   expectedDelivery     DateTime?
   deliveredAt          DateTime?
@@ -1308,13 +1178,10 @@ model Shipment {
   godown               Godown?        @relation(fields: [godownId], references: [id])
   handledBy            User?          @relation("ShipmentHandledBy", fields: [handledById], references: [id])
   order                Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  @@index([tenantId])
-  @@unique([tenantId, shipmentNumber])
 }
 
 model StatusLog {
   id          String       @id @default(cuid())
-  tenantId String
   orderId     String
   fromStatus  OrderStatus?
   toStatus    OrderStatus
@@ -1328,12 +1195,10 @@ model StatusLog {
   @@index([orderId, createdAt])
   @@index([toStatus, orderId])
   @@index([createdAt])
-  @@index([tenantId])
 }
 
 model OrderReassuranceLog {
   id           String   @id @default(cuid())
-  tenantId String
   orderId      String
   orderNo      String
   campaignName String
@@ -1344,7 +1209,6 @@ model OrderReassuranceLog {
 
   @@index([orderId, sentAt])
   @@index([sentAt])
-  @@index([tenantId])
 }
 
 // ── Enums ────────────────────────────────────────────────────────────────────
@@ -1584,7 +1448,6 @@ enum FollowUpStatus {
 
 model Lead {
   id               String         @id @default(cuid())
-  tenantId String
   name             String
   phone            String
   email            String?
@@ -1614,12 +1477,10 @@ model Lead {
   @@index([phone])
   @@index([agentId])
   @@index([status])
-  @@index([tenantId])
 }
 
 model LeadActivity {
   id          String       @id @default(cuid())
-  tenantId String
   leadId      String
   lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   type        ActivityType
@@ -1627,12 +1488,10 @@ model LeadActivity {
   createdById String
   createdBy   User         @relation("ActivityCreator", fields: [createdById], references: [id])
   createdAt   DateTime     @default(now())
-  @@index([tenantId])
 }
 
 model LeadFollowUp {
   id          String         @id @default(cuid())
-  tenantId String
   leadId      String
   lead        Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   scheduledAt DateTime
@@ -1640,7 +1499,6 @@ model LeadFollowUp {
   note        String?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
-  @@index([tenantId])
 }
 
 // ============================================================
@@ -1655,7 +1513,6 @@ model LeadFollowUp {
 // rawRows holds the parsed calls until an admin manually assigns an agent.
 model CallLogImport {
   id           String    @id @default(cuid())
-  tenantId String
   fileName     String
   ownerNumber  String? // last-10-digit number found in the statement header
   agentId      String?
@@ -1672,13 +1529,11 @@ model CallLogImport {
   records    CallLogRecord[]
 
   @@index([agentId])
-  @@index([tenantId])
 }
 
 // One row per outgoing call parsed from a statement's itemized voice usage.
 model CallLogRecord {
   id          String   @id @default(cuid())
-  tenantId String
   importId    String
   agentId     String
   phone       String // normalized last-10-digit destination number
@@ -1694,17 +1549,15 @@ model CallLogRecord {
   // later 1st-20th statement both contain the same calls from the 1st-15th).
   // Same agent + same destination number + same exact call timestamp = same
   // call, regardless of which import it came from.
-  @@unique([tenantId, agentId, phone, calledAt])
+  @@unique([agentId, phone, calledAt])
   @@index([agentId, phone])
   @@index([phone])
   @@index([agentId, calledAt])
-  @@index([tenantId])
 }
 
 // One row per uploaded AiSensy "export contacts" CSV.
 model ContactImport {
   id           String   @id @default(cuid())
-  tenantId String
   fileName     String
   rowsFound    Int      @default(0)
   rowsImported Int      @default(0)
@@ -1716,7 +1569,6 @@ model ContactImport {
   contacts   ImportedContact[]
 
   @@index([importedById])
-  @@index([tenantId])
 }
 
 // The current state of an AiSensy contact — upserted by phone on every
@@ -1724,10 +1576,9 @@ model ContactImport {
 // agentId is resolved from tagRaw by matching User.aisensyTag (case-insensitive).
 model ImportedContact {
   id           String    @id @default(cuid())
-  tenantId String
   importId     String
   name         String?
-  phone        String // normalized last-10-digit number
+  phone        String    @unique // normalized last-10-digit number
   tagRaw       String? // raw tag text from the AiSensy export, e.g. "Vaishali"
   agentId      String?
   lastActiveAt DateTime?
@@ -1755,8 +1606,6 @@ model ImportedContact {
   @@index([agentId])
   @@index([tagRaw])
   @@index([leadId])
-  @@index([tenantId])
-  @@unique([tenantId, phone])
 }
 
 // Mirrors LeadFollowUp, but for a not-contacted AiSensy contact that has no
@@ -1764,7 +1613,6 @@ model ImportedContact {
 // live on the Lead instead (see ImportedContact.leadId above).
 model ImportedContactFollowUp {
   id          String          @id @default(cuid())
-  tenantId String
   contactId   String
   contact     ImportedContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
   scheduledAt DateTime
@@ -1774,7 +1622,6 @@ model ImportedContactFollowUp {
   updatedAt   DateTime        @updatedAt
 
   @@index([contactId])
-  @@index([tenantId])
 }
 
 // Marketing ROI: one row per calendar month ("2026-07"), holding the ad
@@ -1785,16 +1632,13 @@ model ImportedContactFollowUp {
 // Customer/Order — no separate contacts table needed here.
 model MarketingRoiSpend {
   id           String   @id @default(cuid())
-  tenantId String
-  monthKey     String // "YYYY-MM"
+  monthKey     String   @unique // "YYYY-MM"
   metaAdSpend  Decimal  @default(0) @db.Decimal(12, 2)
   aisensySpend Decimal  @default(0) @db.Decimal(12, 2)
   notes        String?
   createdById  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  @@index([tenantId])
-  @@unique([tenantId, monthKey])
 }
 
 // ============================================================
@@ -1852,7 +1696,6 @@ model TopicQuestion {
 
 model UserTopicProgress {
   id           String     @id @default(cuid())
-  tenantId String
   userId       String
   user         User       @relation("UserLearning", fields: [userId], references: [id])
   topicId      String
@@ -1868,15 +1711,13 @@ model UserTopicProgress {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  @@unique([tenantId, userId, topicId])
+  @@unique([userId, topicId])
   @@index([userId])
   @@index([topicId])
-  @@index([tenantId])
 }
 
 model QuizAttempt {
   id            String     @id @default(cuid())
-  tenantId String
   userId        String
   user          User       @relation("UserQuizAttempts", fields: [userId], references: [id])
   topicId       String
@@ -1888,7 +1729,6 @@ model QuizAttempt {
   attemptedAt   DateTime   @default(now())
 
   @@index([userId, topicId])
-  @@index([tenantId])
 }
 
 model MilestoneTest {
@@ -1919,7 +1759,6 @@ model MilestoneQuestion {
 
 model MilestoneAttempt {
   id            String        @id @default(cuid())
-  tenantId String
   userId        String
   user          User          @relation("UserMilestoneAttempts", fields: [userId], references: [id])
   testId        String
@@ -1932,12 +1771,10 @@ model MilestoneAttempt {
   attemptedAt   DateTime      @default(now())
 
   @@index([userId, testId])
-  @@index([tenantId])
 }
 
 model DailyLearningStreak {
   id           String   @id @default(cuid())
-  tenantId String
   userId       String
   user         User     @relation("UserStreak", fields: [userId], references: [id])
   date         DateTime @db.Date
@@ -1946,14 +1783,12 @@ model DailyLearningStreak {
   pointsEarned Int      @default(0)
   createdAt    DateTime @default(now())
 
-  @@unique([tenantId, userId, date])
+  @@unique([userId, date])
   @@index([userId])
-  @@index([tenantId])
 }
 
 model Task {
   id           String          @id @default(cuid())
-  tenantId String
   title        String
   description  String?
   status       TaskStatus      @default(OPEN)
@@ -1974,7 +1809,6 @@ model Task {
   @@index([assignedToId, orderIndex])
   @@index([createdById, createdAt])
   @@index([status, dueDate])
-  @@index([tenantId])
 }
 
 enum TaskStatus {
@@ -2000,7 +1834,6 @@ enum TaskGoalHorizon {
 
 model CallAnalysis {
   id                String   @id @default(cuid())
-  tenantId String
   agentId           String
   agent             User     @relation("UserCallAnalyses", fields: [agentId], references: [id])
   agentName         String
@@ -2025,7 +1858,6 @@ model CallAnalysis {
   @@index([agentId])
   @@index([createdAt])
   @@index([grade])
-  @@index([tenantId])
 }
 
 // ============================================================
@@ -2037,16 +1869,13 @@ model CallAnalysis {
 // learningStreaks     DailyLearningStreak[] @relation("UserStreak")
 model SystemConfig {
   key       String   @id
-  tenantId String
   value     String
   updatedAt DateTime @updatedAt
-  @@index([tenantId])
 }
 
 // ── Rate Calculator: Quote History ───────────────────────────────────────────
 model QuoteHistory {
   id          String   @id @default(cuid())
-  tenantId String
   calcType    String // "forward" | "reverse" | "sticker"
   customer    String?
   job         String?
@@ -2062,25 +1891,20 @@ model QuoteHistory {
 
   @@index([createdAt])
   @@index([customer])
-  @@index([tenantId])
 }
 
 // ── Reward System ────────────────────────────────────────────────────────────
 model RewardWallet {
   id           String              @id @default(cuid())
-  tenantId String
-  userId       String
+  userId       String              @unique
   coins        Int                 @default(0)
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   transactions RewardTransaction[]
-  @@index([tenantId])
-  @@unique([tenantId, userId])
 }
 
 model RewardTransaction {
   id             String       @id @default(cuid())
-  tenantId String
   walletId       String
   coins          Int
   reason         String
@@ -2091,7 +1915,6 @@ model RewardTransaction {
   wallet         RewardWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId])
-  @@index([tenantId])
 }
 
 // ── Bonus Points (activity-based staff rewards) ──────────────────────────────
@@ -2118,7 +1941,6 @@ enum BonusClaimStatus {
 
 model BonusActivity {
   id          String         @id @default(cuid())
-  tenantId String
   name        String
   description String?
   points      Int
@@ -2130,12 +1952,10 @@ model BonusActivity {
   claims      BonusClaim[]
 
   @@index([isActive])
-  @@index([tenantId])
 }
 
 model BonusClaim {
   id             String            @id @default(cuid())
-  tenantId String
   activityId     String
   userId         String            // soft reference to User.id — the claimant
   points         Int               // snapshot of BonusActivity.points at claim/credit time
@@ -2154,7 +1974,6 @@ model BonusClaim {
   @@index([userId, status])
   @@index([status])
   @@index([activityId])
-  @@index([tenantId])
 }
 
 // ── Customer Loyalty Points ──────────────────────────────────────────────────
@@ -2172,8 +1991,7 @@ enum LoyaltyTxnType {
 
 model CustomerLoyaltyWallet {
   id           String                        @id @default(cuid())
-  tenantId String
-  phone        String // normalized, e.g. 91XXXXXXXXXX
+  phone        String                        @unique // normalized, e.g. 91XXXXXXXXXX
   customerId   String?                       // soft reference, last known Customer
   points       Int                           @default(0)
   createdAt    DateTime                      @default(now())
@@ -2181,13 +1999,10 @@ model CustomerLoyaltyWallet {
   transactions CustomerLoyaltyTransaction[]
 
   @@index([customerId])
-  @@index([tenantId])
-  @@unique([tenantId, phone])
 }
 
 model CustomerLoyaltyTransaction {
   id          String                 @id @default(cuid())
-  tenantId String
   walletId    String
   orderId     String?
   type        LoyaltyTxnType
@@ -2199,14 +2014,12 @@ model CustomerLoyaltyTransaction {
   createdAt   DateTime               @default(now())
   wallet      CustomerLoyaltyWallet  @relation(fields: [walletId], references: [id])
 
-  @@unique([tenantId, orderId, type]) // one EARN / one REDEEM / one REVERSE per order
+  @@unique([orderId, type]) // one EARN / one REDEEM / one REVERSE per order
   @@index([walletId])
-  @@index([tenantId])
 }
 
 model Notification {
   id          String    @id @default(cuid())
-  tenantId String
   type        String
   title       String
   message     String
@@ -2236,7 +2049,6 @@ model Notification {
   @@index([copyToAdmin, createdAt])
   @@index([type, isResolved])
   @@index([orderId])
-  @@index([tenantId])
 }
 
 // ── Paper Inventory ───────────────────────────────────────────────────────────
@@ -2244,8 +2056,7 @@ model Notification {
 /// A paper purchase order — can be created from an uploaded invoice image (AI-extracted)
 model PaperPurchaseOrder {
   id               String              @id @default(cuid())
-  tenantId String
-  poNumber         String // auto e.g. PPO-2025-001
+  poNumber         String              @unique // auto e.g. PPO-2025-001
   invoiceNumber    String? // read from invoice image
   invoiceImagePath String? // stored file path
   supplierId       String? // optional paper supplier (Vendor)
@@ -2256,14 +2067,11 @@ model PaperPurchaseOrder {
   updatedAt        DateTime            @updatedAt
   items            PaperPurchaseItem[]
   supplier         Vendor?             @relation("POSupplier", fields: [supplierId], references: [id])
-  @@index([tenantId])
-  @@unique([tenantId, poNumber])
 }
 
 /// Each line item in a paper PO — one row per paper type, assigned to a specific press
 model PaperPurchaseItem {
   id            String             @id @default(cuid())
-  tenantId String
   poId          String
   paperName     String // e.g. "Maplitho 70 GSM 18x23"
   gsm           Int
@@ -2281,13 +2089,11 @@ model PaperPurchaseItem {
 
   @@index([poId])
   @@index([pressId, gsm, quality])
-  @@index([tenantId])
 }
 
 /// Running balance of paper at each press, per GSM + quality combination
 model PaperInventory {
   id            String       @id @default(cuid())
-  tenantId String
   pressId       String
   gsm           Int
   quality       SheetQuality
@@ -2295,15 +2101,13 @@ model PaperInventory {
   updatedAt     DateTime     @updatedAt
   press         Vendor       @relation("PressInventory", fields: [pressId], references: [id])
 
-  @@unique([tenantId, pressId, gsm, quality])
+  @@unique([pressId, gsm, quality])
   @@index([pressId])
-  @@index([tenantId])
 }
 
 /// Full ledger of all paper movements (purchases IN, printing deductions OUT)
 model PaperTransaction {
   id              String               @id @default(cuid())
-  tenantId String
   pressId         String
   gsm             Int
   quality         SheetQuality
@@ -2320,7 +2124,6 @@ model PaperTransaction {
 
   @@index([pressId, gsm, quality, createdAt])
   @@index([referenceId])
-  @@index([tenantId])
 }
 
 // ── WhatsApp Campaign Marketing Automation ─────────────────────────────────
@@ -2378,8 +2181,7 @@ enum MarketingEventType {
 
 model MarketingContact {
   id                String                   @id @default(cuid())
-  tenantId String
-  mobile            String
+  mobile            String                   @unique
   shopName          String?
   ownerName         String?
   city              String?
@@ -2406,13 +2208,10 @@ model MarketingContact {
   @@index([assignedAgentId])
   @@index([engagementScore])
   @@index([leadTemperature])
-  @@index([tenantId])
-  @@unique([tenantId, mobile])
 }
 
 model MarketingTemplate {
   id                  String                  @id @default(cuid())
-  tenantId String
   name                String
   aisensyCampaignName String
   templateType        MarketingTemplateType   @default(TEXT)
@@ -2427,23 +2226,19 @@ model MarketingTemplate {
   campaignSteps       MarketingCampaignStep[]
 
   @@index([isActive, language])
-  @@index([tenantId])
 }
 
 model MarketingSegment {
   id          String   @id @default(cuid())
-  tenantId String
   name        String
   description String?
   filters     Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  @@index([tenantId])
 }
 
 model MarketingCampaign {
   id            String                  @id @default(cuid())
-  tenantId String
   name          String
   status        MarketingCampaignStatus @default(DRAFT)
   segmentId     String?
@@ -2462,12 +2257,10 @@ model MarketingCampaign {
   events        MarketingMessageEvent[]
 
   @@index([status, startsAt, priority])
-  @@index([tenantId])
 }
 
 model MarketingCampaignStep {
   id         String                  @id @default(cuid())
-  tenantId String
   campaignId String
   templateId String
   stepOrder  Int
@@ -2477,14 +2270,12 @@ model MarketingCampaignStep {
   template   MarketingTemplate       @relation(fields: [templateId], references: [id])
   jobs       MarketingBroadcastJob[]
 
-  @@unique([tenantId, campaignId, stepOrder])
+  @@unique([campaignId, stepOrder])
   @@index([campaignId])
-  @@index([tenantId])
 }
 
 model MarketingBroadcastJob {
   id                String                @id @default(cuid())
-  tenantId String
   campaignId        String
   stepId            String
   contactId         String
@@ -2500,15 +2291,13 @@ model MarketingBroadcastJob {
   step              MarketingCampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
   contact           MarketingContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, campaignId, stepId, contactId])
+  @@unique([campaignId, stepId, contactId])
   @@index([status, scheduledAt])
   @@index([providerMessageId])
-  @@index([tenantId])
 }
 
 model MarketingMessageEvent {
   id                String             @id @default(cuid())
-  tenantId String
   contactId         String?
   campaignId        String?
   providerMessageId String?
@@ -2521,7 +2310,6 @@ model MarketingMessageEvent {
   @@index([contactId, occurredAt])
   @@index([campaignId, occurredAt])
   @@index([providerMessageId])
-  @@index([tenantId])
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2530,7 +2318,6 @@ model MarketingMessageEvent {
 
 model BankImportSession {
   id              String            @id @default(cuid())
-  tenantId String
   accountNumber   String
   fileName        String
   importedById    String
@@ -2546,12 +2333,10 @@ model BankImportSession {
   transactions    BankTransaction[]
 
   @@index([accountNumber, createdAt])
-  @@index([tenantId])
 }
 
 model BankTransaction {
   id                String              @id @default(cuid())
-  tenantId String
   sessionId         String
   accountNumber     String
   importKey         String
@@ -2618,13 +2403,12 @@ model BankTransaction {
   recheckedBy       User?               @relation("BankTxnRecheckedBy", fields: [recheckedById], references: [id])
   salaryForUser     User?               @relation("BankTxnSalaryFor", fields: [salaryForUserId], references: [id])
 
-  @@unique([tenantId, accountNumber, importKey])
+  @@unique([accountNumber, importKey])
   @@index([recheckedAt])
   @@index([accountNumber, txnDate])
   @@index([reconcileStatus])
   @@index([txnDate])
   @@index([salaryForUserId, salaryYear, salaryMonth])
-  @@index([tenantId])
 }
 
 // ─── Courier COD Remittance Import ─────────────────────────────────────────
@@ -2635,7 +2419,6 @@ model BankTransaction {
 
 model RemittanceImportSession {
   id                 String             @id @default(cuid())
-  tenantId String
   fileName           String // remittance report file name
   deliveredFileName  String? // delivered-orders report file name
   importedById       String
@@ -2657,14 +2440,12 @@ model RemittanceImportSession {
   records            RemittanceRecord[]
 
   @@index([createdAt])
-  @@index([tenantId])
 }
 
 model RemittanceRecord {
   id                String                @id @default(cuid())
-  tenantId String
   sessionId         String
-  importKey         String // hash(awbNumber + remittanceDate + netPayableAmount)
+  importKey         String                @unique // hash(awbNumber + remittanceDate + netPayableAmount)
 
   // From the courier's Remittance Report
   remittanceRef     String? // e.g. Bigship RemittanceId
@@ -2698,7 +2479,7 @@ model RemittanceRecord {
   reviewNote         String?
 
   // Posting (receipt creation)
-  postedPaymentId   String? @unique
+  postedPaymentId   String?               @unique
   postedAt          DateTime?
   postedById        String?
 
@@ -2714,8 +2495,6 @@ model RemittanceRecord {
   @@index([sessionId])
   @@index([matchStatus])
   @@index([awbNumber])
-  @@index([tenantId])
-  @@unique([tenantId, importKey])
 }
 
 enum RemittanceMatchStatus {
@@ -2736,8 +2515,7 @@ enum RemittanceMatchStatus {
 // awbNumber directly at read time.
 model ShippingChargeRecord {
   id               String    @id @default(cuid())
-  tenantId String
-  awbNumber        String
+  awbNumber        String    @unique
   bigshipOrderId   String? // Bigship's own "Order Id" (not the ERP order number)
   courierName      String?
   orderStatus      String? // Delivered | Undelivered | Cancelled | RTO In Transit | RTO Delivered | ...
@@ -2756,19 +2534,14 @@ model ShippingChargeRecord {
   importedBy       User?     @relation("ShippingChargeImports", fields: [importedById], references: [id])
 
   @@index([awbNumber])
-  @@index([tenantId])
-  @@unique([tenantId, awbNumber])
 }
 
 model VendorKeyword {
   id        String   @id @default(cuid())
-  tenantId String
-  keyword   String
+  keyword   String   @unique
   vendorId  String
   createdAt DateTime @default(now())
   vendor    Vendor   @relation("VendorKeywords", fields: [vendorId], references: [id], onDelete: Cascade)
-  @@index([tenantId])
-  @@unique([tenantId, keyword])
 }
 
 // Bank Statement > Employee Keywords — same convention as VendorKeyword /
@@ -2780,37 +2553,28 @@ model VendorKeyword {
 // same way vendor/expense keywords auto-tag matchedVendorId/expenseCategoryId.
 model UserPaymentKeyword {
   id        String   @id @default(cuid())
-  tenantId String
-  keyword   String
+  keyword   String   @unique
   userId    String
   createdAt DateTime @default(now())
   user      User     @relation("UserPaymentKeywords", fields: [userId], references: [id], onDelete: Cascade)
-  @@index([tenantId])
-  @@unique([tenantId, keyword])
 }
 
 model ExpenseCategory {
   id           String            @id @default(cuid())
-  tenantId String
-  name         String
+  name         String            @unique
   description  String?
   isActive     Boolean           @default(true)
   createdAt    DateTime          @default(now())
   keywords     ExpenseKeyword[]
   transactions BankTransaction[]
-  @@index([tenantId])
-  @@unique([tenantId, name])
 }
 
 model ExpenseKeyword {
   id         String          @id @default(cuid())
-  tenantId String
-  keyword    String
+  keyword    String          @unique
   categoryId String
   createdAt  DateTime        @default(now())
   category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  @@index([tenantId])
-  @@unique([tenantId, keyword])
 }
 
 enum BankImportStatus {
@@ -2838,15 +2602,12 @@ enum BankReconcileStatus {
 // ── In-House Sticker Stock (12×18 sheets printed in office) ─────────────────
 model InHouseStickerStock {
   id            String   @id @default(cuid())
-  tenantId String
   balanceSheets Int      @default(0) // current balance of 12x18 sticker sheets
   updatedAt     DateTime @updatedAt
-  @@index([tenantId])
 }
 
 model InHouseStickerTransaction {
   id              String               @id @default(cuid())
-  tenantId String
   transactionType InHouseStickerTxType
   sheets          Int // positive = IN, negative = OUT
   balanceAfter    Int
@@ -2855,7 +2616,6 @@ model InHouseStickerTransaction {
   createdAt       DateTime             @default(now())
 
   @@index([createdAt])
-  @@index([tenantId])
 }
 
 enum InHouseStickerTxType {
@@ -2867,8 +2627,7 @@ enum InHouseStickerTxType {
 // ── Business Rules ───────────────────────────────────────────────────────────
 model BusinessRule {
   id          String   @id @default(cuid())
-  tenantId String
-  ruleCode    String // e.g. "DISPATCH-001"
+  ruleCode    String   @unique // e.g. "DISPATCH-001"
   module      String   // ORDERS | ACCOUNTS | PRODUCTION | DISPATCH | SYSTEM
   title       String
   description String
@@ -2881,14 +2640,11 @@ model BusinessRule {
 
   @@index([module])
   @@index([active])
-  @@index([tenantId])
-  @@unique([tenantId, ruleCode])
 }
 
 // ── User Activity Tracking ───────────────────────────────────────────────────
 model UserActivitySession {
   id            String   @id @default(cuid())
-  tenantId String
   userId        String
   user          User     @relation("UserActivitySessions", fields: [userId], references: [id], onDelete: Cascade)
   page          String   @default("/")
@@ -2899,7 +2655,6 @@ model UserActivitySession {
 
   @@index([userId])
   @@index([startedAt])
-  @@index([tenantId])
 }
 
 // ── Complaint / Ticket Management (see complaint-ticket-module-spec.md) ─────
@@ -2963,8 +2718,7 @@ enum ComplaintCommentVisibility {
 
 model Complaint {
   id                 String                   @id @default(cuid())
-  tenantId String
-  ticketNumber       String // CMP-2026-00001
+  ticketNumber       String                   @unique // CMP-2026-00001
   customerId         String
   orderId            String?
   orderItemId        String?
@@ -3015,13 +2769,10 @@ model Complaint {
   @@index([orderId])
   @@index([assignedToId, status])
   @@index([slaResolutionDueAt, status])
-  @@index([tenantId])
-  @@unique([tenantId, ticketNumber])
 }
 
 model ComplaintComment {
   id           String                     @id @default(cuid())
-  tenantId String
   complaintId  String
   authorId     String?                    // null = customer/system message
   authorName   String
@@ -3032,12 +2783,10 @@ model ComplaintComment {
   complaint    Complaint                  @relation(fields: [complaintId], references: [id], onDelete: Cascade)
 
   @@index([complaintId, createdAt])
-  @@index([tenantId])
 }
 
 model ComplaintAttachment {
   id           String    @id @default(cuid())
-  tenantId String
   complaintId  String
   url          String
   fileName     String
@@ -3048,12 +2797,10 @@ model ComplaintAttachment {
   complaint    Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
 
   @@index([complaintId])
-  @@index([tenantId])
 }
 
 model ComplaintStatusLog {
   id          String           @id @default(cuid())
-  tenantId String
   complaintId String
   fromStatus  ComplaintStatus?
   toStatus    ComplaintStatus
@@ -3064,7 +2811,6 @@ model ComplaintStatusLog {
   complaint   Complaint        @relation(fields: [complaintId], references: [id], onDelete: Cascade)
 
   @@index([complaintId, createdAt])
-  @@index([tenantId])
 }
 
 // ── Workshop machine readings (envelope-making machine meter) ───────────────
@@ -3079,7 +2825,6 @@ model ComplaintStatusLog {
 // optional description/bill number.
 model MachineReading {
   id           String   @id @default(cuid())
-  tenantId String
   machineName  String   @default("Envelope Machine")
   readingDate  DateTime
   readingValue Int
@@ -3102,7 +2847,6 @@ model MachineReading {
 
   @@index([machineName, readingDate])
   @@index([isPaid])
-  @@index([tenantId])
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3120,7 +2864,6 @@ model MachineReading {
 
 model CertificateTemplate {
   id           String   @id @default(cuid())
-  tenantId String
   name         String
   imageDataUrl String   @db.Text // base64 data: URI of the uploaded template image
   widthIn      Decimal  @db.Decimal(6, 3)
@@ -3133,7 +2876,6 @@ model CertificateTemplate {
   jobs         CertificateJob[]
 
   @@index([createdById])
-  @@index([tenantId])
 }
 
 enum CertificateJobStatus {
@@ -3145,7 +2887,6 @@ enum CertificateJobStatus {
 
 model CertificateJob {
   id             String               @id @default(cuid())
-  tenantId String
   templateId     String
   template       CertificateTemplate  @relation(fields: [templateId], references: [id])
   fileName       String
@@ -3165,7 +2906,6 @@ model CertificateJob {
 
   @@index([templateId])
   @@index([status])
-  @@index([tenantId])
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3209,7 +2949,6 @@ enum EventSendStatus {
 
 model EventFlyerTemplate {
   id           String            @id @default(cuid())
-  tenantId String
   name         String
   occasionType EventOccasionType
   imageDataUrl String            @db.Text // base64 data: URI of the uploaded flyer background image
@@ -3229,12 +2968,10 @@ model EventFlyerTemplate {
 
   @@index([occasionType])
   @@index([createdById])
-  @@index([tenantId])
 }
 
 model EventPerson {
   id              String         @id @default(cuid())
-  tenantId String
   name            String
   whatsappNumber  String
   relation        String         @default("CUSTOMER") // free text, not an enum: CUSTOMER | FRIEND | OTHER | anything else Sanket wants to label people with
@@ -3249,12 +2986,10 @@ model EventPerson {
   sendLogs        EventSendLog[]
 
   @@index([isActive])
-  @@index([tenantId])
 }
 
 model Festival {
   id          String              @id @default(cuid())
-  tenantId String
   name        String
   isRecurring Boolean             @default(true) // true (default): month/day recur every year — added once, Sanket's original choice over re-adding an exact date yearly. false: a one-off custom-date festival — oneTimeDate fires once and is never matched again (added 2026-08-27, "custom date festival" request).
   month       Int? // set when isRecurring=true; 1-12
@@ -3282,7 +3017,6 @@ model Festival {
   @@index([oneTimeDate])
   @@index([templateId])
   @@index([clientTemplateId])
-  @@index([tenantId])
 }
 
 // Sanket's firm identity — logo, name, address, phone, products — set once
@@ -3292,7 +3026,6 @@ model Festival {
 // per-user or per-template brand identity needed. Added 2026-08-27.
 model EventBrandProfile {
   id          String   @id @default("singleton")
-  tenantId String
   logoDataUrl String?  @db.Text
   firmName    String?
   address     String?  @db.Text
@@ -3303,7 +3036,6 @@ model EventBrandProfile {
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  @@index([tenantId])
 }
 
 // Client Business Festival Wish Cards (added 2026-08-28) — see
@@ -3319,7 +3051,6 @@ model EventBrandProfile {
 // RarePrint's involvement stops at delivering the image.
 model EventClientBusiness {
   id             String   @id @default(cuid())
-  tenantId String
   businessName   String
   logoDataUrl    String?  @db.Text
   phone          String? // shown on the wish image, if the template has a CLIENT_TEXT field for it — display only, not where the image is delivered
@@ -3333,7 +3064,6 @@ model EventClientBusiness {
   wishLogs       EventClientWishLog[]
 
   @@index([isActive])
-  @@index([tenantId])
 }
 
 // Parallel to EventSendLog, not a reuse of it — EventSendLog.personId is
@@ -3346,7 +3076,6 @@ model EventClientBusiness {
 // fire again next year.
 model EventClientWishLog {
   id                String               @id @default(cuid())
-  tenantId String
   clientBusinessId  String
   clientBusiness    EventClientBusiness  @relation(fields: [clientBusinessId], references: [id])
   templateId        String?
@@ -3363,12 +3092,10 @@ model EventClientWishLog {
   @@index([clientBusinessId, festivalId, occasionYear])
   @@index([festivalId])
   @@index([createdAt])
-  @@index([tenantId])
 }
 
 model EventSendLog {
   id                String              @id @default(cuid())
-  tenantId String
   personId          String
   person            EventPerson         @relation(fields: [personId], references: [id])
   templateId        String?
@@ -3387,5 +3114,4 @@ model EventSendLog {
   @@index([personId, occasionType, occasionYear])
   @@index([festivalId])
   @@index([createdAt])
-  @@index([tenantId])
 }

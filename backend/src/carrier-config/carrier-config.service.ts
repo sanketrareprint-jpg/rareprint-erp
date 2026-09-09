@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 // 'fship' added 2026-08-20. Unlike bigship/shiprocket, this "active carrier"
 // no longer means "the only carrier every shipment uses" -- Sanket wants
@@ -206,7 +205,7 @@ export class CarrierConfigService implements OnModuleInit {
       await this.prisma.systemConfig.upsert({
         where:  { key: DB_KEY },
         update: { value: JSON.stringify(this.config) },
-        create: { key: DB_KEY, value: JSON.stringify(this.config), tenantId: DEFAULT_TENANT_ID },
+        create: { key: DB_KEY, value: JSON.stringify(this.config) },
       });
     } catch (e) {
       this.logger.error(`DB save failed: ${e}`);

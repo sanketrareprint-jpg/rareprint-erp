@@ -19,7 +19,6 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 // numeric-looking AWBs pulled from Excel, etc.).
 import { sheetToObjects, normalizeAwb, deriveOrderNumberCandidates, normalizeMobile, parseFlexibleDate } from '../remittance/remittance.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 type LocalRateQuote = {
   rateId: string;
@@ -1299,7 +1298,6 @@ export class DispatchService {
       result = await this.prisma.$transaction(async (tx) => {
         await tx.shipment.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             orderId,
             handledById: userId,
             shipmentNumber,
@@ -1376,7 +1374,6 @@ export class DispatchService {
 
         await tx.statusLog.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             orderId, fromStatus: order.status, toStatus: newStatus,
             changedById: userId,
             reason: `${itemsToDispatch.length} item(s) dispatched via ${picked.carrierName}`,
@@ -1464,7 +1461,6 @@ export class DispatchService {
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.shipment.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: input.orderId,
           handledById: userId,
           shipmentNumber,
@@ -1500,7 +1496,6 @@ export class DispatchService {
       });
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: input.orderId,
           fromStatus: order.status,
           toStatus: newStatus,
@@ -1552,7 +1547,6 @@ export class DispatchService {
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.shipment.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: input.orderId,
           handledById: userId,
           shipmentNumber,
@@ -1579,7 +1573,6 @@ export class DispatchService {
       });
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: input.orderId,
           fromStatus: order.status,
           toStatus: newStatus,
@@ -1653,7 +1646,6 @@ export class DispatchService {
       });
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: shipment.order.status,
           toStatus: OrderStatus.DELIVERED,
@@ -1849,7 +1841,6 @@ export class DispatchService {
       });
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: order.id,
           fromStatus: order.status,
           toStatus: OrderStatus.READY_FOR_DISPATCH,
@@ -1957,7 +1948,6 @@ export class DispatchService {
     await this.prisma.$transaction(async (tx) => {
       await tx.shipment.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId,
           handledById: userId,
           shipmentNumber,
@@ -1978,7 +1968,6 @@ export class DispatchService {
 
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: OrderStatus.DISPATCHED,
@@ -2061,7 +2050,6 @@ export class DispatchService {
       });
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: OrderStatus.READY_FOR_DISPATCH,
@@ -2123,7 +2111,6 @@ export class DispatchService {
       });
       await tx.statusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: shipment.orderId,
           fromStatus: shipment.order.status,
           toStatus: OrderStatus.DELIVERED,
@@ -2391,8 +2378,8 @@ export class DispatchService {
         importedById: userId,
       };
       await (this.prisma as any).shippingChargeRecord.upsert({
-        where: { tenantId_awbNumber: { tenantId: DEFAULT_TENANT_ID, awbNumber: row.awb } },
-        create: { tenantId: DEFAULT_TENANT_ID, awbNumber: row.awb, ...data },
+        where: { awbNumber: row.awb },
+        create: { awbNumber: row.awb, ...data },
         update: data,
       });
     }

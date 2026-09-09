@@ -1,0 +1,3391 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma ORM v7 no longer supports `url` here — the connection string now
+  // lives in prisma.config.ts (for the CLI/migrations) and is passed via a
+  // driver adapter to the PrismaClient constructor at runtime (see
+  // src/prisma/prisma.service.ts).
+}
+
+// ── Multi-tenant SaaS foundation (Phase 1 of docs/SaaS_Conversion_Roadmap_v2.md) ──
+// Added 2026-09-07. This model alone is purely additive — a new table, zero
+// impact on existing data. The `tenantId` rollout onto ~100 existing models
+// is the next, much higher-risk step and is NOT included here; see the
+// model-by-model list presented alongside this change for that plan.
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+model Tenant {
+  id        String       @id @default(cuid())
+  name      String
+  subdomain String       @unique
+  status    TenantStatus @default(TRIAL)
+  // Nullable for now — populated once the `Plan` model exists (Phase 4,
+  // billing). Deliberately not a relation yet to avoid coupling Phase 1 to
+  // work that hasn't been scoped.
+  planId    String?
+  // Branding + feature-flag JSON blob (logo, colors, enabled modules, etc.)
+  settings  Json?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model User {
+  id                 String                @id @default(cuid())
+  tenantId String
+  fullName           String
+  email              String
+  phone              String?
+  passwordHash       String
+  passwordResetToken      String?               @unique
+  passwordResetExpiresAt  DateTime?
+  role               UserRole
+  salesAgentCategory SalesAgentCategory?
+  baseSalary         Decimal?              @db.Decimal(12, 2)
+  // Cost Table > Agency Rates: when true, this agent's commission sheet
+  // checks the AgencyRate table first (exact productId+quantity match) --
+  // commission on a matched line becomes Sale − Agency Rate instead of the
+  // normal category-based calc. Unmatched lines still use the normal calc.
+  // Off by default; toggled per-agent in Cost Table > Profit > Sales Agent
+  // Categories, not hardcoded to any one agent's name.
+  usesAgencyRatesForCommission Boolean    @default(false)
+  isActive           Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  commissions        Commission[]          @relation("CommissionSalesAgent")
+  ordersAsAgent      Order[]               @relation("OrderSalesAgent")
+  paymentsReceived   Payment[]             @relation("PaymentReceivedBy")
+  paymentsVerified   Payment[]             @relation("PaymentVerifiedBy")
+  productionJobs     ProductionJob[]       @relation("ProductionAssignedTo")
+  shipmentsHandled   Shipment[]            @relation("ShipmentHandledBy")
+  statusLogsCreated  StatusLog[]           @relation("StatusChangedBy")
+  itemStageLogs      ItemStageLog[]        @relation("ItemStageChangedBy")
+  tasksCreated       Task[]                @relation("TaskCreatedBy")
+  tasksAssigned      Task[]                @relation("TaskAssignedTo")
+  agentLeads         Lead[]                @relation("AgentLeads")
+  leadActivities     LeadActivity[]        @relation("ActivityCreator")
+  learningProgress   UserTopicProgress[]   @relation("UserLearning")
+  quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
+  milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
+  learningStreaks    DailyLearningStreak[] @relation("UserStreak")
+  callAnalyses       CallAnalysis[]        @relation("UserCallAnalyses")
+  marketingContacts  MarketingContact[]    @relation("MarketingContactAgent")
+  marketingCampaigns MarketingCampaign[]   @relation("MarketingCampaignCreator")
+  bankImports               BankImportSession[]        @relation("BankImports")
+  bankTxnReconciled         BankTransaction[]          @relation("BankTxnReconciledBy")
+  bankTxnChecked            BankTransaction[]          @relation("BankTxnCheckedBy")
+  bankTxnRechecked          BankTransaction[]          @relation("BankTxnRecheckedBy")
+  bankTxnSalaryFor          BankTransaction[]          @relation("BankTxnSalaryFor")
+  commissionsVerified       CommissionVerification[]   @relation("CommVerifBy")
+  commissionVerifications   CommissionVerification[]   @relation("CommVerifAgent")
+  activitySessions          UserActivitySession[]       @relation("UserActivitySessions")
+  commissionOverridesReceived CommissionOverride[]      @relation("CommOverrideAgent")
+  commissionOverridesSet      CommissionOverride[]      @relation("CommOverrideSetBy")
+  remittanceImports           RemittanceImportSession[] @relation("RemittanceImports")
+  remittancePosted            RemittanceRecord[]        @relation("RemittancePostedBy")
+  shippingChargeImports        ShippingChargeRecord[]    @relation("ShippingChargeImports")
+  employeeProfile              Employee?                 @relation("EmployeeUser")
+  employeeLeavesRecorded       EmployeeLeaveEntry[]      @relation("LeaveRecordedBy")
+  attendanceRecordsEdited      AttendanceRecord[]        @relation("AttendanceEditedBy")
+  attendanceImports            AttendanceImportSession[] @relation("AttendanceImports")
+  employeesApproved            Employee[]                @relation("EmployeeApprovedBy")
+  companyTermsCreated          CompanyTerms[]            @relation("CompanyTermsCreatedBy")
+  companyHolidaysCreated       CompanyHoliday[]          @relation("CompanyHolidayCreatedBy")
+  complaintsRaised              Complaint[]               @relation("ComplaintRaisedBy")
+  complaintsAssigned             Complaint[]               @relation("ComplaintAssignedTo")
+  paymentKeywords                UserPaymentKeyword[]      @relation("UserPaymentKeywords")
+  machineReadingsRecorded        MachineReading[]          @relation("MachineReadingRecordedBy")
+  machineReadingsPaid            MachineReading[]          @relation("MachineReadingPaidBy")
+
+  // ── Call Compliance (monthly call-log + AiSensy tag cross-check) ──────────
+  aisensyTag           String?                 // this agent's tag name as used in AiSensy contact exports (e.g. "Vaishali")
+  callLogImportsOwned  CallLogImport[]         @relation("CallLogImportAgent")
+  callLogImportsMade   CallLogImport[]         @relation("CallLogImportedBy")
+  callLogRecords       CallLogRecord[]         @relation("CallLogRecordAgent")
+  contactImportsMade   ContactImport[]         @relation("ContactImportedBy")
+  importedContacts     ImportedContact[]       @relation("ImportedContactAgent")
+  policiesCreated      PolicyDocument[]        @relation("PolicyDocumentCreatedBy")
+  @@index([tenantId])
+  @@unique([tenantId, email])
+}
+
+model Customer {
+  id               String                  @id @default(cuid())
+  tenantId String
+  customerCode     String
+  businessName     String
+  contactPerson    String?
+  email            String?
+  phone            String?
+  phone2           String?
+  gstNumber        String?
+  billingAddress   String?
+  shippingAddress  String?
+  city             String?
+  state            String?
+  pincode          String?
+  creditLimit      Decimal?                @db.Decimal(12, 2)
+  isActive         Boolean                 @default(true)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  orders           Order[]
+  ledgerEntries    AccountingLedgerEntry[]
+  creditDebitNotes AccountingNote[]
+  complaints       Complaint[]
+  @@index([tenantId])
+  @@unique([tenantId, customerCode])
+}
+
+model ProductCategory {
+  id              String           @id @default(cuid())
+  tenantId String
+  name            String
+  description     String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  commissionRules CommissionRule[]
+  products        Product[]
+  @@index([tenantId])
+  @@unique([tenantId, name])
+}
+
+model Product {
+  id                 String            @id @default(cuid())
+  tenantId String
+  sku                String
+  name               String
+  description        String?
+  categoryId         String
+  gsm                Int
+  paperType          String? // e.g. "Bond", "Maplitho", "Art", "Ivory", "Kraft"
+  sizeInches         String
+  openSizeInches     String? // e.g. "4x5" open flat size for sheet calc
+  printingType       PrintingType
+  sides              ProductSides
+  weightPerUnitGrams Decimal?          @db.Decimal(10, 3)
+  isActive           Boolean           @default(true)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  commissionRules    CommissionRule[]
+  orderItems         OrderItem[]
+  category           ProductCategory   @relation(fields: [categoryId], references: [id])
+  costSlabs          ProductCostSlab[]
+  rateSlabs          ProductRateSlab[]
+  sheetItems         PrintSheetItem[]
+  productRule        ProductRule?
+  agencyRateProduct  AgencyRateProduct?
+  agencyRates        AgencyRate[]
+  @@index([tenantId])
+  @@unique([tenantId, sku])
+}
+
+// ── Cost Table > Agency Rates ──────────────────────────────────────────────
+// A separate, exact-quantity-match rate table (distinct from ProductRateSlab,
+// which is range-based and feeds category D's "Sale − Rate" commission for
+// ALL category-D agents). Agency Rates is opt-in per agent via
+// User.usesAgencyRatesForCommission -- rows are products explicitly added
+// here, columns are quantities explicitly added here, kept as their own
+// tables (not derived from AgencyRate rows) so an empty row/column persists
+// across reloads even before any rate cell is filled in.
+
+model AgencyRateProduct {
+  id        String   @id @default(cuid())
+  tenantId String
+  productId String @unique
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([tenantId])
+}
+
+model AgencyRateQuantityColumn {
+  id        String   @id @default(cuid())
+  tenantId String
+  quantity  Int
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([tenantId])
+  @@unique([tenantId, quantity])
+}
+
+model AgencyRate {
+  id        String   @id @default(cuid())
+  tenantId String
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  // Total agency price for this exact quantity of this product (not
+  // per-unit) -- same convention as ProductRateSlab.rateAmount.
+  rate      Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, productId, quantity])
+  @@index([productId])
+  @@index([quantity])
+  @@index([tenantId])
+}
+
+model OfferCode {
+  id             String      @id @default(cuid())
+  tenantId String
+  code           String
+  description    String?
+  offerType      String      @default("FREE_ITEM")  // FREE_ITEM | COMBO_DISCOUNT
+  discountAmount Decimal?    @db.Decimal(12, 2)     // total discount for COMBO_DISCOUNT
+  notes          String?                            // internal notes for accounts team
+  productIds     String[]    // products this code is valid for
+  validFrom      DateTime?
+  validTo        DateTime?
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  orderItems     OrderItem[]
+  @@index([tenantId])
+  @@unique([tenantId, code])
+}
+
+model ProductRule {
+  id        String   @id @default(cuid())
+  tenantId String
+  productId String @unique
+  minQty    Int      @default(1)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+}
+
+model ProductCostSlab {
+  id            String    @id @default(cuid())
+  tenantId String
+  productId     String
+  minQuantity   Int
+  maxQuantity   Int?
+  unitPrice     Decimal   @db.Decimal(12, 2)
+  setupCost     Decimal?  @db.Decimal(12, 2)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, minQuantity, maxQuantity])
+  @@index([tenantId])
+}
+
+model ProductRateSlab {
+  id            String    @id @default(cuid())
+  tenantId String
+  productId     String
+  minQuantity   Int
+  maxQuantity   Int?
+  rateAmount    Decimal   @db.Decimal(12, 2) // total selling rate for this quantity tier
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, minQuantity, maxQuantity])
+  @@index([tenantId])
+}
+
+model CommissionRule {
+  id             String           @id @default(cuid())
+  tenantId String
+  name           String
+  productId      String?
+  categoryId     String?
+  applicableRole UserRole         @default(SALES_AGENT)
+  commissionPct  Decimal          @db.Decimal(5, 2)
+  effectiveFrom  DateTime         @default(now())
+  effectiveTo    DateTime?
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  commissions    Commission[]
+  category       ProductCategory? @relation(fields: [categoryId], references: [id])
+  product        Product?         @relation(fields: [productId], references: [id])
+
+  @@index([productId, categoryId, effectiveFrom, effectiveTo])
+  @@index([tenantId])
+}
+
+model PaymentAccount {
+  id             String          @id @default(cuid())
+  tenantId String
+  name           String
+  accountType    String
+  accountNumber  String?
+  bankName       String?
+  ifscCode       String?
+  upiId          String?
+  openingBalance Decimal?        @db.Decimal(14, 2)
+  currentBalance Decimal?        @db.Decimal(14, 2)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  payments       Payment[]
+  vendorPayments VendorPayment[]
+  @@index([tenantId])
+}
+
+// ── Vendor model for Clubbing / jobwork ──────────────────────────────────────
+model Vendor {
+  id                  String                  @id @default(cuid())
+  tenantId String
+  name                String
+  phone               String?
+  email               String?
+  address             String?
+  gstNumber           String?
+  isActive            Boolean                 @default(true)
+  isPress             Boolean                 @default(false) // true = this vendor is a printing press
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  jobWorks            JobWork[]
+  sheetStages         SheetStageVendor[]
+  paperPurchaseItems  PaperPurchaseItem[]     @relation("PaperItemPress")
+  paperInventory      PaperInventory[]        @relation("PressInventory")
+  paperTransactions   PaperTransaction[]      @relation("PressTransactions")
+  paperPurchaseOrders PaperPurchaseOrder[]    @relation("POSupplier")
+  bankTransactions    BankTransaction[]       @relation("BankTxnVendor")
+  vendorKeywords      VendorKeyword[]         @relation("VendorKeywords")
+  purchaseBills       PurchaseBill[]
+  vendorPayments      VendorPayment[]
+  ledgerEntries       AccountingLedgerEntry[]
+  creditDebitNotes    AccountingNote[]
+  complaints          Complaint[]
+  @@index([tenantId])
+}
+
+// ── JobWork: Clubbing sub-category vendor assignment per order item ───────────
+model JobWork {
+  id              String        @id @default(cuid())
+  tenantId String
+  poNumber        String? // auto-generated e.g. JW-2025-001
+  orderItemId     String
+  vendorId        String
+  description     String
+  cost            Decimal       @db.Decimal(12, 2)
+  vendorInvoiceNo String?
+  status          JobWorkStatus @default(PENDING)
+  isPaid          Boolean       @default(false)
+  paidAt          DateTime?
+  completedAt     DateTime?
+  dueDate         DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  vendor          Vendor        @relation(fields: [vendorId], references: [id])
+  @@index([tenantId])
+  @@unique([tenantId, poNumber])
+}
+
+// ── PrintSheet: Sheet Production ────────────────────────────────────────────
+model PrintSheet {
+  id                    String             @id @default(cuid())
+  tenantId String
+  sheetNo               String // auto-generated e.g. SHT-2024-001
+  gsm                   Int
+  quality               SheetQuality
+  quantity              Int
+  actualPrintedQuantity Int?
+  sizeInches            String // e.g. "18x23"
+  areaSqInches          Float // computed: width * height
+  printing              ProductSides
+  status                SheetStatus        @default(INCOMPLETE)
+  usedAreaSqInches      Float              @default(0)
+  createdBySource       String             @default("MANUAL")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  items                 PrintSheetItem[]
+  stageVendors          SheetStageVendor[]
+
+  @@index([status, updatedAt])
+  @@index([gsm, status])
+  @@index([tenantId])
+  @@unique([tenantId, sheetNo])
+}
+
+// ── Items placed on a sheet ──────────────────────────────────────────────────
+model PrintSheetItem {
+  id                   String     @id @default(cuid())
+  tenantId String
+  sheetId              String
+  orderItemId          String
+  productId            String
+  multiple             Int // how many times this item fits on sheet
+  quantityOnSheet      Int // quantity covered by this sheet placement
+  areaSqInches         Float // open size area * multiple
+  dueDate              DateTime?
+  processingVendorName String?
+  createdAt            DateTime   @default(now())
+  sheet                PrintSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  orderItem            OrderItem  @relation(fields: [orderItemId], references: [id])
+  product              Product    @relation(fields: [productId], references: [id])
+
+  @@index([sheetId])
+  @@index([orderItemId])
+  @@index([productId])
+  @@index([tenantId])
+}
+
+// ── Stage-wise vendors for sheet production ──────────────────────────────────
+model SheetStageVendor {
+  id              String               @id @default(cuid())
+  tenantId String
+  sheetId         String
+  stage           SheetProductionStage
+  vendorId        String
+  description     String?
+  cost            Decimal              @db.Decimal(12, 2)
+  vendorInvoiceNo String?
+  isPaid          Boolean              @default(false)
+  paidAt          DateTime?
+  createdAt       DateTime             @default(now())
+  sheet           PrintSheet           @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  vendor          Vendor               @relation(fields: [vendorId], references: [id])
+  @@index([tenantId])
+}
+
+// ── ItemStageLog: full history of each item's stage changes ─────────────────
+model ItemStageLog {
+  id          String                @id @default(cuid())
+  tenantId String
+  orderItemId String
+  fromStage   OrderProductionStage?
+  toStage     OrderProductionStage
+  changedById String?
+  note        String?
+  createdAt   DateTime              @default(now())
+  orderItem   OrderItem             @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  changedBy   User?                 @relation("ItemStageChangedBy", fields: [changedById], references: [id])
+
+  @@index([orderItemId, createdAt])
+  @@index([tenantId])
+}
+
+model Godown {
+  id             String          @id @default(cuid())
+  tenantId String
+  name           String
+  code           String
+  address        String?
+  city           String?
+  state          String?
+  pincode        String?
+  contactPerson  String?
+  phone          String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  productionJobs ProductionJob[]
+  shipments      Shipment[]
+  @@index([tenantId])
+  @@unique([tenantId, code])
+}
+
+model Order {
+  id               String                  @id @default(cuid())
+  tenantId String
+  orderNumber      String
+  customerId       String
+  salesAgentId     String?
+  orderDate        DateTime                @default(now())
+  expectedDelivery DateTime?
+  status           OrderStatus             @default(DRAFT)
+  paymentStatus    PaymentStatus           @default(PENDING)
+  subtotal         Decimal                 @db.Decimal(14, 2)
+  discount         Decimal                 @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal                 @default(0) @db.Decimal(14, 2)
+  shippingCharge   Decimal                 @default(0) @db.Decimal(14, 2)
+  // The courier charge the seller typed into "Book Shipment" (Ready for
+  // Dispatch) — kept separate from shippingCharge because that field gets
+  // overwritten by the Bigship/Shiprocket quoted rate once Dispatch actually
+  // books the shipment. Copied onto Shipment.courierChargeCollected at
+  // booking time so Dispatch > Courier Charges > "Taken from Customer" is
+  // pre-filled instead of blank.
+  courierChargeQuoted Decimal?             @db.Decimal(12, 2)
+  grandTotal       Decimal                 @db.Decimal(14, 2)
+  notes            String?
+  // Item ids included in the CURRENT pending-dispatch-approval submission
+  // (set by OrdersService.submitDispatchBatch, read by
+  // AccountsService.getPendingDispatchOrders so the approval screen shows
+  // only the item(s) actually being submitted, not every item on the
+  // order — matters once an order can be submitted a single ready item at
+  // a time instead of all-or-nothing. Only meaningful while status is
+  // PENDING_DISPATCH_APPROVAL; gets overwritten on the next submission and
+  // ignored (empty = "show everything") otherwise.
+  pendingDispatchItemIds String[]           @default([])
+  // Cancellation request/approval — mirrors the pendingDispatchItemIds
+  // pattern: a sales agent can request cancelling a whole order or specific
+  // item(s) while they're still NOT_PRINTED (OrdersService.requestCancellation).
+  // cancellationRequestedAt != null is the marker Accounts' Cancellation
+  // Approval tab filters on; order.status is deliberately left untouched
+  // while a request is pending (avoids touching every status-based query
+  // elsewhere). pendingCancelItemIds empty = whole order was requested;
+  // populated = only those item(s). Cleared on approve or reject.
+  cancellationRequestedAt     DateTime?
+  cancellationRequestedByName String?
+  cancellationReason          String?
+  pendingCancelItemIds        String[]      @default([])
+  // Base64 data URLs captured in the Book Shipment modal when a dispatch
+  // submission goes to Accounts — a packing photo (proof of what's actually
+  // being shipped) and, optionally, a bill/invoice photo. Overwritten on
+  // each new submission; shown to Accounts on the Dispatch Approval card.
+  dispatchProductPhoto String?             @db.Text
+  dispatchBillPhoto    String?             @db.Text
+  leadSource       String? // e.g. "WALK_IN", "FB_AD_Jan_2025"
+  isTest           Boolean                 @default(false)
+  isSample         Boolean                 @default(false)
+  samplePaymentType String?               // "PREPAID" | "COD" — set by accounts on approval
+  // A parcel booked by a sales agent for a non-sale shipment (free gift,
+  // sample) via Parcel Booking — unlike isSample, this does NOT skip
+  // accounts/production approval; it goes through the exact same
+  // PENDING_APPROVAL -> Order Approval -> Dispatch Approval pipeline as a
+  // real order. Excluded from revenue/commission figures (see dashboard and
+  // cost-table services) since it isn't a real sale.
+  isParcelBooking  Boolean                 @default(false)
+  // Courier charge quoted for a Parcel Booking, and whether the customer
+  // pays it COD (courier collects on delivery) or PREPAID (agent collects a
+  // Payment against this order at booking time — see
+  // OrdersController/frontend parcel-booking page). Null for normal orders.
+  parcelCourierCharge Decimal?             @db.Decimal(12, 2)
+  parcelPaymentType   String?              // "PREPAID" | "COD" — set by the agent at booking time
+  loyaltyPointsEarned    Int?              // points credited on invoicing (see CustomerLoyaltyTransaction)
+  loyaltyPointsRedeemed  Int?              // points redeemed against this bill
+  loyaltyDiscountAmount  Decimal?          @db.Decimal(12, 2) // ₹ value of redeemed points — excluded from `discount` on purpose
+  requestedLoyaltyRedemption Int?          // sales agent's requested redeem amount, captured at order creation;
+                                            // actually applied via LoyaltyService.redeemForOrder once accounts approves
+                                            // the order and the invoice exists (see AccountsService.approveOrder)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  productionStage  OrderProductionStage    @default(NOT_PRINTED)
+  commissions      Commission[]
+  invoice          Invoice?
+  ledgerEntries    AccountingLedgerEntry[]
+  customer         Customer                @relation(fields: [customerId], references: [id])
+  salesAgent       User?                   @relation("OrderSalesAgent", fields: [salesAgentId], references: [id])
+  items            OrderItem[]
+  payments         Payment[]
+  productionJobs   ProductionJob[]
+  shipments        Shipment[]
+  statusLogs       StatusLog[]
+  reassuranceLogs  OrderReassuranceLog[]
+  remittanceMatches   RemittanceRecord[]  @relation("RemittanceMatchedOrder")
+  remittanceSuggested RemittanceRecord[]  @relation("RemittanceSuggestedOrder")
+  complaints          Complaint[]
+
+  @@index([status, orderDate])
+  @@index([status, updatedAt])
+  @@index([salesAgentId, orderDate])
+  @@index([customerId, orderDate])
+  @@index([productionStage])
+  @@index([tenantId])
+  @@unique([tenantId, orderNumber])
+}
+
+model OrderItem {
+  id                  String               @id @default(cuid())
+  tenantId String
+  orderId             String
+  productId           String
+  quantity            Int
+  unitPrice           Decimal              @db.Decimal(12, 2)
+  lineDiscount        Decimal              @default(0) @db.Decimal(12, 2)
+  taxRatePct          Decimal              @default(0) @db.Decimal(5, 2)
+  taxAmount           Decimal              @default(0) @db.Decimal(12, 2)
+  lineTotal           Decimal              @db.Decimal(14, 2)
+  artworkNotes        String?
+  productionNotes     String?
+  designFiles         Json                 @default("[]")
+  productionCategory  ProductionCategory? // INHOUSE | CLUBBING | SHEET_PRODUCTION
+  itemProductionStage OrderProductionStage @default(NOT_PRINTED)
+  // Set once this specific item is actually physically booked with a
+  // courier (dispatch.service.ts's bookItems). itemProductionStage never
+  // changes away from READY_FOR_DISPATCH even after real dispatch -- it
+  // tracks PRODUCTION readiness, not shipment status -- so without this,
+  // an already-shipped item kept looking identical to a still-awaiting-
+  // dispatch one everywhere (Dispatch's own queue, Orders' Ready for
+  // Dispatch tab), and persisted in Dispatch's queue forever even after it
+  // showed up as shipped in Bigship. Confirmed via a real order, 2026-08-10.
+  dispatchedAt        DateTime?
+  // Set once this specific item's cancellation is approved by Accounts (see
+  // Order.cancellationRequestedAt / AccountsService.approveCancellation).
+  // Same convention as dispatchedAt: itemProductionStage is left at whatever
+  // it already was (NOT_PRINTED, since that's the only stage cancellation is
+  // allowed from) rather than repurposed, so this is the one field every
+  // production/dispatch listing must exclude on.
+  cancelledAt         DateTime?
+  processingFollowUpDate DateTime?
+  offerCodeId         String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product             Product              @relation(fields: [productId], references: [id])
+  offerCode           OfferCode?           @relation(fields: [offerCodeId], references: [id])
+  stageLogs           ItemStageLog[]
+  jobWorks            JobWork[]
+  sheetItems          PrintSheetItem[]
+  commissionOverride  CommissionOverride?
+
+  @@index([orderId, productId])
+  @@index([itemProductionStage, updatedAt])
+  @@index([productionCategory, itemProductionStage])
+  @@index([tenantId])
+}
+
+model Payment {
+  id                 String                    @id @default(cuid())
+  tenantId String
+  orderId            String
+  paymentAccountId   String
+  receivedById       String?
+  paymentDate        DateTime                  @default(now())
+  amount             Decimal                   @db.Decimal(14, 2)
+  method             PaymentMethod
+  referenceNumber    String?
+  notes              String?
+  verificationStatus PaymentVerificationStatus @default(PENDING_VERIFICATION)
+  verifiedById       String?
+  verifiedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  verifiedBy         User?                     @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
+  order              Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAccount     PaymentAccount            @relation(fields: [paymentAccountId], references: [id])
+  receivedBy         User?                     @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  bankTransactions   BankTransaction[]         @relation("BankTxnPayment")
+  remittanceRecord   RemittanceRecord?         @relation("RemittancePostedPayment")
+
+  @@index([orderId, verificationStatus])
+  @@index([paymentDate])
+  @@index([tenantId])
+}
+
+model Invoice {
+  id               String                  @id @default(cuid())
+  tenantId String
+  orderId          String @unique
+  invoiceNumber    String
+  issueDate        DateTime                @default(now())
+  dueDate          DateTime?
+  subtotal         Decimal                 @db.Decimal(14, 2)
+  discountAmount   Decimal                 @default(0) @db.Decimal(14, 2)
+  taxableAmount    Decimal                 @default(0) @db.Decimal(14, 2)
+  cgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  sgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  igstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal                 @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal                 @db.Decimal(14, 2)
+  paidAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  balanceAmount    Decimal                 @db.Decimal(14, 2)
+  gstTreatment     GstTreatment            @default(INTRA_STATE)
+  status           InvoiceStatus           @default(ISSUED)
+  whatsappStatus   WhatsAppDeliveryStatus  @default(PENDING)
+  whatsappSentAt   DateTime?
+  whatsappError    String?
+  notes            String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  order            Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items            InvoiceItem[]
+  ledgerEntries    AccountingLedgerEntry[]
+  creditDebitNotes AccountingNote[]
+  @@index([tenantId])
+  @@unique([tenantId, invoiceNumber])
+}
+
+model InvoiceItem {
+  id             String  @id @default(cuid())
+  tenantId String
+  invoiceId      String
+  productName    String
+  sku            String?
+  hsnSac         String?
+  // Snapshot of OrderItem.productionNotes at invoice-creation/reconcile
+  // time — the real per-item "Size: X, GSM: Y, Paper: Z, Sides: W" details,
+  // shown on the invoice PDF under the item name. Added 2026-09-07.
+  productionNotes String?
+  quantity       Int
+  unitPrice      Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  taxableAmount  Decimal @db.Decimal(14, 2)
+  gstRatePct     Decimal @default(0) @db.Decimal(5, 2)
+  cgstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  sgstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  igstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  lineTotal      Decimal @db.Decimal(14, 2)
+  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([tenantId])
+}
+
+model PurchaseBill {
+  id               String                  @id @default(cuid())
+  tenantId String
+  vendorId         String
+  billNumber       String
+  billDate         DateTime                @default(now())
+  dueDate          DateTime?
+  subtotal         Decimal                 @db.Decimal(14, 2)
+  taxableAmount    Decimal                 @db.Decimal(14, 2)
+  cgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  sgstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  igstAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal                 @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal                 @db.Decimal(14, 2)
+  paidAmount       Decimal                 @default(0) @db.Decimal(14, 2)
+  balanceAmount    Decimal                 @db.Decimal(14, 2)
+  gstTreatment     GstTreatment            @default(INTRA_STATE)
+  status           PurchaseBillStatus      @default(OPEN)
+  notes            String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  vendor           Vendor                  @relation(fields: [vendorId], references: [id])
+  payments         VendorPayment[]
+  ledgerEntries    AccountingLedgerEntry[]
+  creditDebitNotes AccountingNote[]
+
+  @@unique([tenantId, vendorId, billNumber])
+  @@index([vendorId, billDate])
+  @@index([status, dueDate])
+  @@index([tenantId])
+}
+
+model VendorPayment {
+  id               String         @id @default(cuid())
+  tenantId String
+  vendorId         String
+  purchaseBillId   String?
+  paymentAccountId String
+  paymentDate      DateTime       @default(now())
+  amount           Decimal        @db.Decimal(14, 2)
+  method           PaymentMethod
+  referenceNumber  String?
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  vendor           Vendor         @relation(fields: [vendorId], references: [id])
+  purchaseBill     PurchaseBill?  @relation(fields: [purchaseBillId], references: [id])
+  paymentAccount   PaymentAccount @relation(fields: [paymentAccountId], references: [id])
+
+  @@index([vendorId, paymentDate])
+  @@index([purchaseBillId])
+  @@index([tenantId])
+}
+
+model AccountingLedgerEntry {
+  id             String          @id @default(cuid())
+  tenantId String
+  entryDate      DateTime        @default(now())
+  entryType      LedgerEntryType
+  accountName    String
+  debitAmount    Decimal         @default(0) @db.Decimal(14, 2)
+  creditAmount   Decimal         @default(0) @db.Decimal(14, 2)
+  narration      String?
+  referenceType  String
+  referenceId    String
+  customerId     String?
+  vendorId       String?
+  orderId        String?
+  invoiceId      String?
+  purchaseBillId String?
+  createdAt      DateTime        @default(now())
+  customer       Customer?       @relation(fields: [customerId], references: [id])
+  vendor         Vendor?         @relation(fields: [vendorId], references: [id])
+  order          Order?          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoice        Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  purchaseBill   PurchaseBill?   @relation(fields: [purchaseBillId], references: [id])
+
+  @@index([entryDate])
+  @@index([accountName, entryDate])
+  @@index([customerId, entryDate])
+  @@index([vendorId, entryDate])
+  @@index([referenceType, referenceId])
+  @@index([tenantId])
+}
+
+model AccountingNote {
+  id             String               @id @default(cuid())
+  tenantId String
+  noteNumber     String
+  noteType       AccountingNoteType
+  partyType      AccountingPartyType
+  customerId     String?
+  vendorId       String?
+  invoiceId      String?
+  purchaseBillId String?
+  noteDate       DateTime             @default(now())
+  reason         String
+  taxableAmount  Decimal              @db.Decimal(14, 2)
+  cgstAmount     Decimal              @default(0) @db.Decimal(14, 2)
+  sgstAmount     Decimal              @default(0) @db.Decimal(14, 2)
+  igstAmount     Decimal              @default(0) @db.Decimal(14, 2)
+  taxAmount      Decimal              @default(0) @db.Decimal(14, 2)
+  totalAmount    Decimal              @db.Decimal(14, 2)
+  status         AccountingNoteStatus @default(ISSUED)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  customer       Customer?            @relation(fields: [customerId], references: [id])
+  vendor         Vendor?              @relation(fields: [vendorId], references: [id])
+  invoice        Invoice?             @relation(fields: [invoiceId], references: [id])
+  purchaseBill   PurchaseBill?        @relation(fields: [purchaseBillId], references: [id])
+
+  @@index([noteType, noteDate])
+  @@index([customerId, noteDate])
+  @@index([vendorId, noteDate])
+  @@index([tenantId])
+  @@unique([tenantId, noteNumber])
+}
+
+model Commission {
+  id               String          @id @default(cuid())
+  tenantId String
+  orderId          String
+  salesAgentId     String
+  commissionRuleId String?
+  commissionPct    Decimal         @db.Decimal(5, 2)
+  commissionBase   Decimal         @db.Decimal(14, 2)
+  commissionAmount Decimal         @db.Decimal(14, 2)
+  isSettled        Boolean         @default(false)
+  settledAt        DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  commissionRule   CommissionRule? @relation(fields: [commissionRuleId], references: [id])
+  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  salesAgent       User            @relation("CommissionSalesAgent", fields: [salesAgentId], references: [id])
+  @@index([tenantId])
+}
+
+model CommissionVerification {
+  id           String   @id @default(cuid())
+  tenantId String
+  agentId      String
+  year         Int
+  month        Int
+  verifiedById String
+  verifiedAt   DateTime @default(now())
+  notes        String?
+  agent        User     @relation("CommVerifAgent", fields: [agentId], references: [id])
+  verifiedBy   User     @relation("CommVerifBy", fields: [verifiedById], references: [id])
+  // Bank transaction(s) that paid out this month's commission — set via the
+  // Accounts > Commission "Mark as Paid" flow (see BankTransaction.matchedCommissionVerificationId).
+  bankTransactions BankTransaction[] @relation("BankTxnCommission")
+
+  @@unique([tenantId, agentId, year, month])
+  @@index([tenantId])
+}
+
+// A manual correction to the auto-calculated commission for a single order
+// line, made from the Accounts > Commission sheet. One override per order
+// item; setting a new value replaces the old one.
+model CommissionOverride {
+  id            String   @id @default(cuid())
+  tenantId String
+  orderItemId   String @unique
+  agentId       String
+  amount        Decimal  @db.Decimal(14, 2)
+  setById       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  agent         User      @relation("CommOverrideAgent", fields: [agentId], references: [id])
+  setBy         User      @relation("CommOverrideSetBy", fields: [setById], references: [id])
+  @@index([tenantId])
+}
+
+// Admin-managed sales incentive templates ("Plan A" / "Plan B" / "Plan C",
+// though the label is free text so more can be added later). Each plan is a
+// monthlyTarget + incentivePct pair; an Employee just picks which plan
+// applies to them (Employee.incentivePlanId). See HrService.salaryForMonth
+// for how the incentive amount is actually computed each month.
+model SalesIncentivePlan {
+  id            String     @id @default(cuid())
+  tenantId String
+  label         String // e.g. "Plan A"
+  monthlyTarget Decimal    @db.Decimal(12, 2)
+  incentivePct  Decimal    @db.Decimal(5, 2) // % of the employee's actual monthly sales
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  employees     Employee[]
+  @@index([tenantId])
+  @@unique([tenantId, label])
+}
+
+// ── HR: Employee Master ──────────────────────────────────────────────────
+// The single source of truth for pay/attendance calculations. Mirrors the
+// old "HR master" table (SR, EMPLOYEE ID, NAME, POST, SALARY, WORKING HOURS,
+// PAID LEAVE, PER DAY, PER HR, ADDRESS, MOBILE, JOINING) used by the legacy
+// Google Sheet's VLOOKUP-based salary formula.
+model Employee {
+  id                  String              @id @default(cuid())
+  tenantId String
+  employeeCode        String // e.g. RP01, internal HR code
+  biometricId         String? // raw ID from the in/out machine export (e.g. "1", "2")
+  userId              String? @unique // linked login account, if any
+  fullName            String
+  designation         String // "post" in the old sheet, e.g. SELLER, DESIGNER, OFFICE BOY
+  department          String?
+  status              EmployeeStatus      @default(ACTIVE)
+
+  // Pay basis — read by the salary engine (see SalaryModule)
+  baseSalary          Decimal             @db.Decimal(12, 2) // full monthly salary
+  workingHoursPerDay  Decimal             @db.Decimal(5, 2)  @default(8) // required hrs/day
+  paidLeavePerMonth   Decimal             @db.Decimal(4, 2)  @default(2) // allowed paid leave days/month
+  annualPaidLeaveQuota Decimal?           @db.Decimal(5, 2) // optional yearly quota for the leave ledger
+
+  // Sales incentive (monthly payroll bonus, distinct from the per-order
+  // Commission model / User.salesAgentCategory) — see SalesIncentivePlan.
+  // Only meaningful when this Employee is linked to a User (userId) who
+  // actually has sales (Order.salesAgentId). incentivePct of that plan is
+  // applied to the employee's actual sales for the month either way — no
+  // hard cliff at the target, it just naturally scales down when they fall
+  // short (see HrService.salaryForMonth).
+  incentivePlanId     String?
+  incentivePlan       SalesIncentivePlan? @relation(fields: [incentivePlanId], references: [id])
+
+  // Flat monthly allowances, added on top of the attendance-based salary.
+  petrolAllowance     Decimal?            @db.Decimal(10, 2)
+  simAllowance        Decimal?            @db.Decimal(10, 2)
+
+  // Registration / master record
+  dateOfJoining       DateTime?
+  dateOfBirth         DateTime?
+  gender              String?
+  address             String?
+  mobileNumber        String?
+  alternateMobile     String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  idProofType         String?
+  idProofNumber       String?
+  bankAccountNumber   String?
+  bankIfsc            String?
+  photoUrl            String?
+  idProofDocUrl       String?
+  offerLetterUrl      String?
+  notes               String?
+  email               String? // for the digital HR agreement link — separate from any login account's email
+
+  // Overtime — some employees are paid for hours beyond their required
+  // monthly hours (at the same hourly rate as their base pay), others are not.
+  overtimeAllowed     Boolean             @default(false)
+
+  // Master-data approval gate — any admin can add/edit an Employee record,
+  // but salary cannot be generated for them until Sanket (checked by email,
+  // see SUPERADMIN_EMAIL in hr.service.ts) approves it. Editing any
+  // payroll-relevant field resets this back to false.
+  masterDataApproved  Boolean             @default(false)
+  approvedById        String?
+  approvedAt          DateTime?
+
+  // Digital HR agreement — a tokenized link is emailed to the employee; they
+  // read the current CompanyTerms and type their name to accept (clickwrap
+  // e-signature, no OTP). agreementTermsId freezes which version they saw.
+  agreementToken          String?         @unique
+  agreementTermsId        String?
+  agreementSentAt         DateTime?
+  agreementAcceptedAt     DateTime?
+  agreementAcceptedIp     String?
+  agreementSignatureName  String?
+
+  resignedAt          DateTime?
+  isActive            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  user                User?               @relation("EmployeeUser", fields: [userId], references: [id])
+  approvedBy          User?               @relation("EmployeeApprovedBy", fields: [approvedById], references: [id])
+  agreementTerms      CompanyTerms?       @relation(fields: [agreementTermsId], references: [id])
+  kras                EmployeeKra[]
+  leaveEntries        EmployeeLeaveEntry[]
+  attendanceRecords   AttendanceRecord[]
+
+  @@index([status])
+  @@index([tenantId])
+  @@unique([tenantId, employeeCode])
+  @@unique([tenantId, biometricId])
+}
+
+// Versioned company Terms & Conditions text shown on the digital HR
+// agreement page. Creating a new one supersedes the previous "active" one;
+// old versions are kept (isActive = false) so past acceptances stay
+// auditable against the exact text the employee agreed to.
+model CompanyTerms {
+  id          String     @id @default(cuid())
+  tenantId String
+  version     Int
+  title       String
+  content     String
+  isActive    Boolean    @default(true)
+  createdById String?
+  createdAt   DateTime   @default(now())
+
+  createdBy   User?      @relation("CompanyTermsCreatedBy", fields: [createdById], references: [id])
+  employees   Employee[]
+
+  @@index([isActive])
+  @@index([tenantId])
+  @@unique([tenantId, version])
+}
+
+// Super-admin-authored office policies / department rules / SOPs. Write
+// access (create/edit/delete) is restricted to the super-admin
+// (SUPER_ADMIN_EMAIL, see orders.service.ts / accounts.service.ts for the
+// existing convention this reuses) at the service layer -- read access is
+// open to every authenticated user. `modules` tags which module pages/tabs
+// this should surface in (e.g. ["PRODUCTION","DISPATCH"]); an empty array
+// means "show everywhere".
+model PolicyDocument {
+  id          String   @id @default(cuid())
+  tenantId String
+  title       String
+  content     String
+  modules     String[] @default([])
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy   User     @relation("PolicyDocumentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([isActive])
+  @@index([tenantId])
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  RESIGNED
+  TERMINATED
+}
+
+// Company-wide, date-specific calendar entries that reduce everyone's
+// working days for the month — used by workingDaysInMonth()/salaryForMonth()
+// in hr.service.ts so requiredHours reflects declared holidays and extra
+// leave days without an admin having to touch every employee's leave ledger.
+// `type` is purely for display/labeling in the Attendance > Holidays tab
+// (e.g. "Diwali" vs "Extra leave — Sanket Sir approved") — both types are
+// subtracted from working days identically. A date that already falls on
+// the weekly off (Sunday) is a no-op by design (see workingDaysInMonth).
+enum CompanyHolidayType {
+  HOLIDAY
+  EXTRA_LEAVE
+}
+
+model CompanyHoliday {
+  id          String             @id @default(cuid())
+  tenantId String
+  date        DateTime
+  label       String
+  type        CompanyHolidayType @default(HOLIDAY)
+  createdById String?
+  createdAt   DateTime           @default(now())
+
+  createdBy   User?              @relation("CompanyHolidayCreatedBy", fields: [createdById], references: [id])
+
+  @@index([date])
+  @@index([tenantId])
+  @@unique([tenantId, date])
+}
+
+// KRA (key result areas) and job responsibilities, tracked per employee.
+model EmployeeKra {
+  id          String          @id @default(cuid())
+  tenantId String
+  employeeId  String
+  type        EmployeeKraType @default(KRA)
+  title       String
+  description String?
+  targetMetric String?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([tenantId])
+}
+
+enum EmployeeKraType {
+  KRA
+  RESPONSIBILITY
+}
+
+// Leave ledger — individual leave events. Balance = annualPaidLeaveQuota
+// (or paidLeavePerMonth × months elapsed) minus sum of PAID entries.
+model EmployeeLeaveEntry {
+  id             String    @id @default(cuid())
+  tenantId String
+  employeeId     String
+  date           DateTime
+  endDate        DateTime?
+  days           Decimal   @db.Decimal(4, 2) @default(1)
+  type           LeaveType @default(PAID)
+  reason         String?
+  recordedById   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  recordedBy     User?     @relation("LeaveRecordedBy", fields: [recordedById], references: [id])
+
+  @@index([employeeId, date])
+  @@index([tenantId])
+}
+
+enum LeaveType {
+  PAID
+  UNPAID
+  SICK
+  CASUAL
+  HALF_DAY
+  OTHER
+}
+
+// One row per employee per calendar day, sourced from the biometric machine's
+// "Exception Stat." export (ID, Name, Date, On-duty, Off-duty, Late/Early/
+// Absence minutes) or entered/corrected by hand when the thumb reader misses
+// a punch. hoursWorked is stored (not just derived) so a manual edit always
+// wins and the salary engine never has to re-parse raw punches.
+model AttendanceRecord {
+  id               String              @id @default(cuid())
+  tenantId String
+  employeeId       String
+  date             DateTime            @db.Date
+  timeIn           String? // "HH:MM", 24h, first punch of the day
+  timeOut          String? // "HH:MM", 24h, last punch of the day
+  secondTimeIn     String? // split-shift second half (e.g. post-lunch)
+  secondTimeOut    String?
+  hoursWorked      Decimal             @db.Decimal(5, 2) @default(0)
+  lateMinutes      Int?
+  earlyLeaveMinutes Int?
+  isAbsent         Boolean             @default(false)
+  isPaidLeave      Boolean             @default(false) // marked as covered by leave ledger, not a deduction
+  source           AttendanceSource    @default(IMPORTED)
+  note             String?
+  editedById       String? // set whenever a human overrides the imported value
+  importSessionId  String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  employee         Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  editedBy         User?               @relation("AttendanceEditedBy", fields: [editedById], references: [id])
+  importSession    AttendanceImportSession? @relation(fields: [importSessionId], references: [id])
+
+  @@unique([tenantId, employeeId, date])
+  @@index([date])
+  @@index([tenantId])
+}
+
+enum AttendanceSource {
+  IMPORTED // straight from the machine export
+  MANUAL   // no punch at all, entered by hand
+  EDITED   // machine had a value, a human corrected it
+}
+
+model AttendanceImportSession {
+  id           String             @id @default(cuid())
+  tenantId String
+  fileName     String
+  periodStart  DateTime           @db.Date
+  periodEnd    DateTime           @db.Date
+  importedById String
+  rowsFound    Int                @default(0)
+  rowsImported Int                @default(0)
+  rowsSkipped  Int                @default(0)
+  unmatchedIds String? // JSON array of machine IDs with no matching Employee.biometricId
+  isFinal      Boolean            @default(false) // the authoritative sheet for its month — see finalizeImportSession()
+  createdAt    DateTime           @default(now())
+
+  importedBy   User               @relation("AttendanceImports", fields: [importedById], references: [id])
+  records      AttendanceRecord[]
+
+  @@index([periodStart, periodEnd])
+  @@index([tenantId])
+}
+
+model ProductionJob {
+  id             String           @id @default(cuid())
+  tenantId String
+  orderId        String
+  godownId       String?
+  assignedToId   String?
+  jobCode        String
+  plannedStartAt DateTime?
+  actualStartAt  DateTime?
+  completedAt    DateTime?
+  status         ProductionStatus @default(QUEUED)
+  remarks        String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  assignedTo     User?            @relation("ProductionAssignedTo", fields: [assignedToId], references: [id])
+  godown         Godown?          @relation(fields: [godownId], references: [id])
+  order          Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+  @@unique([tenantId, jobCode])
+}
+
+model Shipment {
+  id                   String         @id @default(cuid())
+  tenantId String
+  orderId              String
+  godownId             String?
+  handledById          String?
+  shipmentNumber       String
+  dispatchDate         DateTime?
+  expectedDelivery     DateTime?
+  deliveredAt          DateTime?
+  carrierName          String?
+  vehicleNumber        String?
+  trackingNumber       String?
+  status               ShipmentStatus @default(PENDING)
+  notes                String?
+  dispatchType         String?
+  transportName        String?
+  lrNumber             String?
+  transportChargesType String?
+  transportBy          String?
+  awbNumber            String?
+  deliveryBoyName      String?
+  collectedByName      String?
+  collectedByPhone     String?
+  bigshipOrderId       String?
+  bigshipStatus        String?
+  bigshipSyncedAt      DateTime?
+  // Fship equivalents of the three Bigship fields above -- added 2026-08-20
+  // for the Fship courier integration (see fship.service.ts).
+  fshipOrderId         String?
+  fshipStatus          String?
+  fshipSyncedAt        DateTime?
+  // Amount the sales/dispatch agent actually collected from the customer for
+  // courier/shipping — entered by hand in Dispatch > Courier Charges.
+  // Deliberately NOT part of Order.grandTotal/payments: Bigship's COD
+  // remittance sometimes bundles freight into what it calls "collected",
+  // and posting that straight onto the order used to inflate the customer's
+  // paid amount and silently get "adjusted" against their next order. This
+  // field keeps courier money in its own ledger so that can't happen again.
+  courierChargeCollected Decimal?     @db.Decimal(12, 2)
+  courierChargeUpdatedAt DateTime?
+  // The rate quote picked in "Fetch Rates" at Dispatch Queue booking time
+  // (Bigship/Shiprocket picked.amount) — auto-captured here so Dispatch >
+  // Courier Charges > Actual has a number immediately instead of waiting on
+  // the monthly Shipping Charges report upload. listCourierCharges() prefers
+  // ShippingChargeRecord.totalCharges (the reconciled real cost) when that
+  // report row exists, and falls back to this quoted amount otherwise.
+  courierChargeActual    Decimal?     @db.Decimal(12, 2)
+  // Set only when the dispatcher typed a "ship to a different address" override
+  // in Book Shipment for this specific shipment (e.g. different items on the
+  // same order going to different offices/branches) -- otherwise the shipment
+  // used the order's customer address as normal. Deliberately NOT written back
+  // to Customer/OrderItem: each booking types its own address fresh, nothing
+  // is remembered for next time. See dispatch.service.ts bookItems().
+  overrideReceiverName     String?
+  overrideReceiverPhone    String?
+  overrideShippingAddress  String?
+  overrideShippingCity     String?
+  overrideShippingState    String?
+  overrideShippingPincode  String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  godown               Godown?        @relation(fields: [godownId], references: [id])
+  handledBy            User?          @relation("ShipmentHandledBy", fields: [handledById], references: [id])
+  order                Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+  @@unique([tenantId, shipmentNumber])
+}
+
+model StatusLog {
+  id          String       @id @default(cuid())
+  tenantId String
+  orderId     String
+  fromStatus  OrderStatus?
+  toStatus    OrderStatus
+  changedById String?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  changedBy   User?        @relation("StatusChangedBy", fields: [changedById], references: [id])
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([toStatus, orderId])
+  @@index([createdAt])
+  @@index([tenantId])
+}
+
+model OrderReassuranceLog {
+  id           String   @id @default(cuid())
+  tenantId String
+  orderId      String
+  orderNo      String
+  campaignName String
+  success      Boolean  @default(false)
+  error        String?
+  sentAt       DateTime @default(now())
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, sentAt])
+  @@index([sentAt])
+  @@index([tenantId])
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  INHOUSE
+  ACCOUNTS
+  PRODUCTION
+  DISPATCH
+  SALES_AGENT
+  DESIGNER
+}
+
+enum SalesAgentCategory {
+  A
+  B
+  C
+  D
+}
+
+enum PrintingType {
+  OFFSET
+  DIGITAL
+  SCREEN
+  FLEX
+}
+
+enum ProductSides {
+  SINGLE_SIDE
+  DOUBLE_SIDE
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  IN_PRODUCTION
+  READY_FOR_DISPATCH
+  PENDING_DISPATCH_APPROVAL
+  PARTIALLY_DISPATCHED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CHEQUE
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+enum GstTreatment {
+  INTRA_STATE
+  INTER_STATE
+  EXPORT
+  UNREGISTERED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+enum WhatsAppDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum PurchaseBillStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum LedgerEntryType {
+  SALE
+  PURCHASE
+  PAYMENT_IN
+  PAYMENT_OUT
+  CREDIT_NOTE
+  DEBIT_NOTE
+  GST
+  ADJUSTMENT
+}
+
+enum AccountingNoteType {
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+enum AccountingPartyType {
+  CUSTOMER
+  VENDOR
+}
+
+enum AccountingNoteStatus {
+  ISSUED
+  CANCELLED
+}
+
+enum ProductionStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  PENDING
+  PACKED
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+enum OrderProductionStage {
+  NOT_PRINTED
+  PRINTING
+  PROCESSING
+  READY_FOR_DISPATCH
+}
+
+// ── New enums for production overhaul ────────────────────────────────────────
+
+enum ProductionCategory {
+  INHOUSE
+  CLUBBING
+  SHEET_PRODUCTION
+}
+
+enum JobWorkStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SheetQuality {
+  MAPLITHO
+  STICKER
+  BOND
+  ART_CARD
+  DUPLEX_CARD_WB
+  DUPLEX_CARD_GB
+}
+
+enum PaperUnit {
+  REAM
+  PACKET
+}
+
+enum PaperPOStatus {
+  DRAFT
+  RECEIVED
+  CANCELLED
+}
+
+enum PaperTransactionType {
+  PURCHASE
+  PRINTING_DEDUCTION
+  ADJUSTMENT
+}
+
+enum SheetStatus {
+  INCOMPLETE
+  SETTING
+  PRINTING
+  PROCESSING
+  COMPLETE
+}
+
+enum SheetProductionStage {
+  PAPER_PURCHASE
+  PLATE_MAKING
+  PRINTING
+  BINDING
+  LAMINATION
+  EXTRA_PROCESSING
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  QUOTED
+  WON
+  LOST
+  RECYCLED
+}
+
+enum LeadSource {
+  MANUAL
+  CSV_IMPORT
+  WHATSAPP
+  REFERRAL
+  WALK_IN
+  ONLINE_FORM
+}
+
+enum ActivityType {
+  CALL_MADE
+  CALL_MISSED
+  CALL_BUSY
+  WHATSAPP_SENT
+  NOTE_ADDED
+  STATUS_CHANGED
+  QUOTE_SENT
+  FOLLOW_UP_SCHEDULED
+}
+
+enum FollowUpStatus {
+  PENDING
+  DONE
+  SKIPPED
+}
+
+model Lead {
+  id               String         @id @default(cuid())
+  tenantId String
+  name             String
+  phone            String
+  email            String?
+  businessName     String?
+  city             String?
+  productInterest  String?
+  tags             String[]       @default([])
+  estimatedQty     Int?
+  estimatedValue   Float?
+  notes            String?
+  source           LeadSource     @default(MANUAL)
+  status           LeadStatus     @default(NEW)
+  score            Int            @default(0)
+  isHot            Boolean        @default(false)
+  agentId          String
+  agent            User           @relation("AgentLeads", fields: [agentId], references: [id])
+  convertedOrderId String?
+  activities       LeadActivity[]
+  followUps        LeadFollowUp[]
+  // Reverse side of ImportedContact.lead — set when an AiSensy-tagged
+  // "not contacted" contact's phone matches a Lead that already exists
+  // (manually added, CSV-imported, etc). See call-compliance.service.ts.
+  importedContacts ImportedContact[] @relation("ImportedContactLead")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([phone])
+  @@index([agentId])
+  @@index([status])
+  @@index([tenantId])
+}
+
+model LeadActivity {
+  id          String       @id @default(cuid())
+  tenantId String
+  leadId      String
+  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type        ActivityType
+  description String
+  createdById String
+  createdBy   User         @relation("ActivityCreator", fields: [createdById], references: [id])
+  createdAt   DateTime     @default(now())
+  @@index([tenantId])
+}
+
+model LeadFollowUp {
+  id          String         @id @default(cuid())
+  tenantId String
+  leadId      String
+  lead        Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  status      FollowUpStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  @@index([tenantId])
+}
+
+// ============================================================
+// CALL COMPLIANCE — monthly phone-statement call logs cross-checked
+// against AiSensy contact-tag exports, to see which agent tagged a
+// contact but never actually called them.
+// ============================================================
+
+// One row per uploaded Jio (or similar carrier) monthly statement PDF.
+// The statement's own phone number (ownerNumber) is auto-matched against
+// User.phone to figure out which agent it belongs to; if no user matches,
+// rawRows holds the parsed calls until an admin manually assigns an agent.
+model CallLogImport {
+  id           String    @id @default(cuid())
+  tenantId String
+  fileName     String
+  ownerNumber  String? // last-10-digit number found in the statement header
+  agentId      String?
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  rowsFound    Int       @default(0)
+  rowsImported Int       @default(0)
+  rawRows      Json? // parsed { phone, calledAt, durationSec }[] — kept until agent is assigned
+  importedById String
+  createdAt    DateTime  @default(now())
+
+  agent      User?           @relation("CallLogImportAgent", fields: [agentId], references: [id])
+  importedBy User            @relation("CallLogImportedBy", fields: [importedById], references: [id])
+  records    CallLogRecord[]
+
+  @@index([agentId])
+  @@index([tenantId])
+}
+
+// One row per outgoing call parsed from a statement's itemized voice usage.
+model CallLogRecord {
+  id          String   @id @default(cuid())
+  tenantId String
+  importId    String
+  agentId     String
+  phone       String // normalized last-10-digit destination number
+  calledAt    DateTime
+  durationSec Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  import CallLogImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  agent  User          @relation("CallLogRecordAgent", fields: [agentId], references: [id])
+
+  // Guards against double-counting when an agent's overlapping-period
+  // statement gets uploaded more than once (e.g. a 1st-15th statement and a
+  // later 1st-20th statement both contain the same calls from the 1st-15th).
+  // Same agent + same destination number + same exact call timestamp = same
+  // call, regardless of which import it came from.
+  @@unique([tenantId, agentId, phone, calledAt])
+  @@index([agentId, phone])
+  @@index([phone])
+  @@index([agentId, calledAt])
+  @@index([tenantId])
+}
+
+// One row per uploaded AiSensy "export contacts" CSV.
+model ContactImport {
+  id           String   @id @default(cuid())
+  tenantId String
+  fileName     String
+  rowsFound    Int      @default(0)
+  rowsImported Int      @default(0)
+  rowsUpdated  Int      @default(0)
+  importedById String
+  createdAt    DateTime @default(now())
+
+  importedBy User              @relation("ContactImportedBy", fields: [importedById], references: [id])
+  contacts   ImportedContact[]
+
+  @@index([importedById])
+  @@index([tenantId])
+}
+
+// The current state of an AiSensy contact — upserted by phone on every
+// import so re-uploading the same monthly export just refreshes tag/status.
+// agentId is resolved from tagRaw by matching User.aisensyTag (case-insensitive).
+model ImportedContact {
+  id           String    @id @default(cuid())
+  tenantId String
+  importId     String
+  name         String?
+  phone        String // normalized last-10-digit number
+  tagRaw       String? // raw tag text from the AiSensy export, e.g. "Vaishali"
+  agentId      String?
+  lastActiveAt DateTime?
+  createdOnAt  DateTime?
+  source       String?
+  status       String? // raw AiSensy contact status (e.g. "active") — NOT the CRM pipeline status below
+  optedIn      Boolean?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // ── CRM pipeline tracking for the "Not Contacted" tab ──────────────────
+  // A not-contacted contact is worked like any other lead: it gets a status
+  // and follow-ups. If its phone already matches a real Lead (manually
+  // added, CSV-imported, etc.), that Lead is used instead (leadId is set,
+  // pipelineStatus/followUps below are then ignored in favor of the Lead's
+  // own status/followUps) so we never track the same phone in two places.
+  pipelineStatus LeadStatus              @default(NEW)
+  leadId         String?
+  lead           Lead?                   @relation("ImportedContactLead", fields: [leadId], references: [id], onDelete: SetNull)
+  followUps      ImportedContactFollowUp[]
+
+  import ContactImport @relation(fields: [importId], references: [id])
+  agent  User?          @relation("ImportedContactAgent", fields: [agentId], references: [id])
+
+  @@index([agentId])
+  @@index([tagRaw])
+  @@index([leadId])
+  @@index([tenantId])
+  @@unique([tenantId, phone])
+}
+
+// Mirrors LeadFollowUp, but for a not-contacted AiSensy contact that has no
+// matching Lead row yet. Once/if a real Lead exists for that phone, follow-ups
+// live on the Lead instead (see ImportedContact.leadId above).
+model ImportedContactFollowUp {
+  id          String          @id @default(cuid())
+  tenantId String
+  contactId   String
+  contact     ImportedContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  status      FollowUpStatus  @default(PENDING)
+  note        String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([contactId])
+  @@index([tenantId])
+}
+
+// Marketing ROI: one row per calendar month ("2026-07"), holding the ad
+// spend the user enters by hand each month. Everything else the ROI tab
+// shows (contacts created, converted customers, total sale, total profit)
+// is computed on the fly from ImportedContact (createdOnAt, shared with the
+// call-compliance AiSensy CSV import above) cross-referenced against
+// Customer/Order — no separate contacts table needed here.
+model MarketingRoiSpend {
+  id           String   @id @default(cuid())
+  tenantId String
+  monthKey     String // "YYYY-MM"
+  metaAdSpend  Decimal  @default(0) @db.Decimal(12, 2)
+  aisensySpend Decimal  @default(0) @db.Decimal(12, 2)
+  notes        String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([tenantId])
+  @@unique([tenantId, monthKey])
+}
+
+// ============================================================
+// SALES LEARNING MODULE — Add these models to schema.prisma
+// ============================================================
+
+enum TopicLanguage {
+  EN
+  HI
+}
+
+enum DifficultyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  PRO
+}
+
+model SalesTopic {
+  id            String          @id @default(cuid())
+  orderIndex    Int             @unique // 1, 2, 3... controls unlock order
+  groupNumber   Int // every 5 topics = 1 milestone group (1,1,1,1,1, 2,2,2,2,2...)
+  titleEn       String
+  titleHi       String
+  sourceBook    String // e.g. "SPIN Selling by Neil Rackham"
+  contentEn     String          @db.Text // full topic explanation in English
+  contentHi     String          @db.Text // full topic explanation in Hindi
+  scriptEn      String          @db.Text // medicine pouch sales script EN
+  scriptHi      String          @db.Text // medicine pouch sales script HI
+  keyPoints     String[] // bullet points for quick recap
+  difficulty    DifficultyLevel @default(BEGINNER)
+  estimatedMins Int             @default(10)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  questions    TopicQuestion[]
+  userProgress UserTopicProgress[]
+  quizAttempts QuizAttempt[]
+}
+
+model TopicQuestion {
+  id            String     @id @default(cuid())
+  topicId       String
+  topic         SalesTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  questionEn    String
+  questionHi    String
+  options       Json // { en: [opt1,opt2,opt3,opt4], hi: [opt1,opt2,opt3,opt4] }
+  correctIndex  Int // 0-3
+  explanationEn String? // shown after answering
+  explanationHi String?
+  orderIndex    Int        @default(0)
+  createdAt     DateTime   @default(now())
+}
+
+model UserTopicProgress {
+  id           String     @id @default(cuid())
+  tenantId String
+  userId       String
+  user         User       @relation("UserLearning", fields: [userId], references: [id])
+  topicId      String
+  topic        SalesTopic @relation(fields: [topicId], references: [id])
+  topicRead    Boolean    @default(false)
+  topicReadAt  DateTime?
+  quizPassed   Boolean    @default(false)
+  quizPassedAt DateTime?
+  quizAttempts Int        @default(0)
+  bestScore    Int        @default(0) // out of 5
+  isUnlocked   Boolean    @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([tenantId, userId, topicId])
+  @@index([userId])
+  @@index([topicId])
+  @@index([tenantId])
+}
+
+model QuizAttempt {
+  id            String     @id @default(cuid())
+  tenantId String
+  userId        String
+  user          User       @relation("UserQuizAttempts", fields: [userId], references: [id])
+  topicId       String
+  topic         SalesTopic @relation(fields: [topicId], references: [id])
+  answers       Int[] // index of chosen answers per question
+  score         Int // 0-5
+  passed        Boolean
+  timeTakenSecs Int?
+  attemptedAt   DateTime   @default(now())
+
+  @@index([userId, topicId])
+  @@index([tenantId])
+}
+
+model MilestoneTest {
+  id          String              @id @default(cuid())
+  groupNumber Int                 @unique // matches SalesTopic.groupNumber
+  titleEn     String
+  titleHi     String
+  totalMarks  Int                 @default(200) // 10 questions × 20 marks
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  questions   MilestoneQuestion[]
+  attempts    MilestoneAttempt[]
+}
+
+model MilestoneQuestion {
+  id            String        @id @default(cuid())
+  testId        String
+  test          MilestoneTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  questionEn    String
+  questionHi    String
+  options       Json // { en: [...], hi: [...] }
+  correctIndex  Int
+  marksPerQ     Int           @default(20)
+  orderIndex    Int           @default(0)
+  sourceTopicId String? // which topic this came from
+  createdAt     DateTime      @default(now())
+}
+
+model MilestoneAttempt {
+  id            String        @id @default(cuid())
+  tenantId String
+  userId        String
+  user          User          @relation("UserMilestoneAttempts", fields: [userId], references: [id])
+  testId        String
+  test          MilestoneTest @relation(fields: [testId], references: [id])
+  answers       Int[]
+  score         Int // 0-200
+  percentage    Float
+  passed        Boolean // >= 60% to pass
+  timeTakenSecs Int?
+  attemptedAt   DateTime      @default(now())
+
+  @@index([userId, testId])
+  @@index([tenantId])
+}
+
+model DailyLearningStreak {
+  id           String   @id @default(cuid())
+  tenantId String
+  userId       String
+  user         User     @relation("UserStreak", fields: [userId], references: [id])
+  date         DateTime @db.Date
+  topicsRead   Int      @default(0)
+  quizzesDone  Int      @default(0)
+  pointsEarned Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, userId, date])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+model Task {
+  id           String          @id @default(cuid())
+  tenantId String
+  title        String
+  description  String?
+  status       TaskStatus      @default(OPEN)
+  priority     TaskPriority    @default(NORMAL)
+  goalHorizon  TaskGoalHorizon @default(WEEKLY)
+  orderIndex   Int             @default(0)
+  dueDate      DateTime?
+  createdById  String
+  assignedToId String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  completedAt  DateTime?
+  createdBy    User            @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User            @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+
+  @@index([assignedToId, status, dueDate])
+  @@index([assignedToId, goalHorizon, status])
+  @@index([assignedToId, orderIndex])
+  @@index([createdById, createdAt])
+  @@index([status, dueDate])
+  @@index([tenantId])
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TaskGoalHorizon {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+model CallAnalysis {
+  id                String   @id @default(cuid())
+  tenantId String
+  agentId           String
+  agent             User     @relation("UserCallAnalyses", fields: [agentId], references: [id])
+  agentName         String
+  customerName      String
+  callType          String
+  duration          String?
+  overallScore      Int
+  grade             String
+  sentiment         String?
+  language          String?
+  transcript        String?  @db.Text
+  transcriptSummary String?  @db.Text
+  strengthsList     Json
+  improvementsList  Json
+  categoryScores    Json
+  coachFeedback     String?  @db.Text
+  actionItems       Json
+  hasRealTranscript Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([createdAt])
+  @@index([grade])
+  @@index([tenantId])
+}
+
+// ============================================================
+// ADD THESE RELATIONS TO YOUR EXISTING User MODEL:
+// ============================================================
+// learningProgress   UserTopicProgress[]   @relation("UserLearning")
+// quizAttempts       QuizAttempt[]         @relation("UserQuizAttempts")
+// milestoneAttempts  MilestoneAttempt[]    @relation("UserMilestoneAttempts")
+// learningStreaks     DailyLearningStreak[] @relation("UserStreak")
+model SystemConfig {
+  key       String   @id
+  tenantId String
+  value     String
+  updatedAt DateTime @updatedAt
+  @@index([tenantId])
+}
+
+// ── Rate Calculator: Quote History ───────────────────────────────────────────
+model QuoteHistory {
+  id          String   @id @default(cuid())
+  tenantId String
+  calcType    String // "forward" | "reverse" | "sticker"
+  customer    String?
+  job         String?
+  product     String?
+  qty         Int?
+  breakdown   Json
+  subtotal    Float
+  total       Float
+  perPiece    Float?
+  multiplier  Float    @default(1.67)
+  inputParams Json // full input DTO for reference
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([customer])
+  @@index([tenantId])
+}
+
+// ── Reward System ────────────────────────────────────────────────────────────
+model RewardWallet {
+  id           String              @id @default(cuid())
+  tenantId String
+  userId       String
+  coins        Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  transactions RewardTransaction[]
+  @@index([tenantId])
+  @@unique([tenantId, userId])
+}
+
+model RewardTransaction {
+  id             String       @id @default(cuid())
+  tenantId String
+  walletId       String
+  coins          Int
+  reason         String
+  notificationId String?
+  orderId        String?
+  claimId        String?      // set when this credit came from an approved BonusClaim (see below)
+  createdAt      DateTime     @default(now())
+  wallet         RewardWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([tenantId])
+}
+
+// ── Bonus Points (activity-based staff rewards) ──────────────────────────────
+// Admin defines a catalog of activities worth N points each (e.g. "Get a 5-star
+// Google review" = 20 pts). MANUAL activities require the staff member to
+// submit a BonusClaim with a required evidence attachment; any ADMIN-role user
+// then approves or rejects it from the queue. On approval, points are credited
+// via a RewardTransaction against the same RewardWallet used elsewhere in this
+// file (userId is a soft reference, same convention as RewardWallet.userId
+// above — no FK to User to avoid touching that model's large relation list).
+// AUTOMATIC activities skip the claim/approval flow entirely — an admin credits
+// them directly (still logged as a BonusClaim with status APPROVED for the
+// audit trail, just with no attachment and reviewedById set immediately).
+enum BonusClaimType {
+  MANUAL
+  AUTOMATIC
+}
+
+enum BonusClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model BonusActivity {
+  id          String         @id @default(cuid())
+  tenantId String
+  name        String
+  description String?
+  points      Int
+  claimType   BonusClaimType @default(MANUAL)
+  isActive    Boolean        @default(true)
+  createdById String?        // soft reference to User.id
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  claims      BonusClaim[]
+
+  @@index([isActive])
+  @@index([tenantId])
+}
+
+model BonusClaim {
+  id             String            @id @default(cuid())
+  tenantId String
+  activityId     String
+  userId         String            // soft reference to User.id — the claimant
+  points         Int               // snapshot of BonusActivity.points at claim/credit time
+  details        String            // claimant's write-up of what they did
+  attachmentUrl  String?           // base64 data URI, same "DB is source of truth" convention as ComplaintAttachment
+  attachmentName String?
+  attachmentType String?
+  status         BonusClaimStatus  @default(PENDING)
+  reviewedById   String?           // soft reference to User.id — the approving/rejecting admin
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  activity       BonusActivity     @relation(fields: [activityId], references: [id])
+
+  @@index([userId, status])
+  @@index([status])
+  @@index([activityId])
+  @@index([tenantId])
+}
+
+// ── Customer Loyalty Points ──────────────────────────────────────────────────
+// Keyed by normalized phone number, not customerId — Customer has no unique
+// constraint on phone, and staff sometimes create a new customer record for
+// a repeat buyer. This survives duplicate customer records and walk-in
+// re-entries. Distinct from RewardWallet/RewardTransaction above, which are
+// staff-facing coin rewards keyed on User.id — a different concept.
+enum LoyaltyTxnType {
+  EARN
+  REDEEM
+  REVERSE
+  ADJUST
+}
+
+model CustomerLoyaltyWallet {
+  id           String                        @id @default(cuid())
+  tenantId String
+  phone        String // normalized, e.g. 91XXXXXXXXXX
+  customerId   String?                       // soft reference, last known Customer
+  points       Int                           @default(0)
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+  transactions CustomerLoyaltyTransaction[]
+
+  @@index([customerId])
+  @@index([tenantId])
+  @@unique([tenantId, phone])
+}
+
+model CustomerLoyaltyTransaction {
+  id          String                 @id @default(cuid())
+  tenantId String
+  walletId    String
+  orderId     String?
+  type        LoyaltyTxnType
+  points      Int                    // + for EARN, − for REDEEM/REVERSE
+  baseAmount  Decimal?               @db.Decimal(14, 2)
+  grossProfit Decimal?               @db.Decimal(14, 2)
+  discountPct Decimal?               @db.Decimal(5, 2)
+  reason      String?
+  createdAt   DateTime               @default(now())
+  wallet      CustomerLoyaltyWallet  @relation(fields: [walletId], references: [id])
+
+  @@unique([tenantId, orderId, type]) // one EARN / one REDEEM / one REVERSE per order
+  @@index([walletId])
+  @@index([tenantId])
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  tenantId String
+  type        String
+  title       String
+  message     String
+  orderId     String?
+  orderNo     String?
+  itemId      String?
+  sheetId     String?
+  jobWorkId   String?
+  toUserId    String
+  toUserName  String
+  fromSystem  Boolean   @default(true)
+  isRead      Boolean   @default(false)
+  isResolved  Boolean   @default(false)
+  resolvedAt  DateTime?
+  explanation String?
+  actionTaken String?
+  copyToAdmin Boolean   @default(false)
+  adminSeen   Boolean   @default(false)
+  priority    String    @default("NORMAL")
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([toUserId, isResolved])
+  @@index([toUserId, isRead])
+  @@index([toUserId, createdAt])
+  @@index([copyToAdmin, createdAt])
+  @@index([type, isResolved])
+  @@index([orderId])
+  @@index([tenantId])
+}
+
+// ── Paper Inventory ───────────────────────────────────────────────────────────
+
+/// A paper purchase order — can be created from an uploaded invoice image (AI-extracted)
+model PaperPurchaseOrder {
+  id               String              @id @default(cuid())
+  tenantId String
+  poNumber         String // auto e.g. PPO-2025-001
+  invoiceNumber    String? // read from invoice image
+  invoiceImagePath String? // stored file path
+  supplierId       String? // optional paper supplier (Vendor)
+  status           PaperPOStatus       @default(DRAFT)
+  notes            String?
+  isVerified       Boolean             @default(false)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  items            PaperPurchaseItem[]
+  supplier         Vendor?             @relation("POSupplier", fields: [supplierId], references: [id])
+  @@index([tenantId])
+  @@unique([tenantId, poNumber])
+}
+
+/// Each line item in a paper PO — one row per paper type, assigned to a specific press
+model PaperPurchaseItem {
+  id            String             @id @default(cuid())
+  tenantId String
+  poId          String
+  paperName     String // e.g. "Maplitho 70 GSM 18x23"
+  gsm           Int
+  quality       SheetQuality
+  sizeInches    String?
+  unit          PaperUnit // REAM or PACKET
+  unitQuantity  Float // number of reams or packets purchased
+  sheetsPerUnit Int // 500 for REAM; user-entered for PACKET (100/125/250)
+  totalSheets   Int // computed: unitQuantity * sheetsPerUnit
+  pressId       String // which press this paper is allocated to
+  createdAt     DateTime           @default(now())
+  po            PaperPurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  press         Vendor             @relation("PaperItemPress", fields: [pressId], references: [id])
+  transactions  PaperTransaction[]
+
+  @@index([poId])
+  @@index([pressId, gsm, quality])
+  @@index([tenantId])
+}
+
+/// Running balance of paper at each press, per GSM + quality combination
+model PaperInventory {
+  id            String       @id @default(cuid())
+  tenantId String
+  pressId       String
+  gsm           Int
+  quality       SheetQuality
+  balanceSheets Int          @default(0) // always in individual sheet count
+  updatedAt     DateTime     @updatedAt
+  press         Vendor       @relation("PressInventory", fields: [pressId], references: [id])
+
+  @@unique([tenantId, pressId, gsm, quality])
+  @@index([pressId])
+  @@index([tenantId])
+}
+
+/// Full ledger of all paper movements (purchases IN, printing deductions OUT)
+model PaperTransaction {
+  id              String               @id @default(cuid())
+  tenantId String
+  pressId         String
+  gsm             Int
+  quality         SheetQuality
+  transactionType PaperTransactionType
+  sheets          Int // positive = IN (purchase), negative = OUT (consumed)
+  balanceAfter    Int // snapshot of balance after this transaction
+  referenceId     String? // sheetId or poItemId
+  referenceType   String? // 'PURCHASE' | 'PRINT_SHEET'
+  notes           String?
+  purchaseItemId  String?
+  createdAt       DateTime             @default(now())
+  purchaseItem    PaperPurchaseItem?   @relation(fields: [purchaseItemId], references: [id])
+  press           Vendor               @relation("PressTransactions", fields: [pressId], references: [id])
+
+  @@index([pressId, gsm, quality, createdAt])
+  @@index([referenceId])
+  @@index([tenantId])
+}
+
+// ── WhatsApp Campaign Marketing Automation ─────────────────────────────────
+
+enum MarketingLeadTemperature {
+  COLD
+  WARM
+  HOT
+  BLOCKED
+}
+
+enum MarketingContactStatus {
+  UNKNOWN
+  VALID
+  INVALID
+  BLOCKED
+  UNSUBSCRIBED
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum MarketingTemplateType {
+  TEXT
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum MarketingJobStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum MarketingEventType {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  CLICKED
+  REPLIED
+  FAILED
+  BLOCKED
+  UNSUBSCRIBED
+  ORDER_PLACED
+}
+
+model MarketingContact {
+  id                String                   @id @default(cuid())
+  tenantId String
+  mobile            String
+  shopName          String?
+  ownerName         String?
+  city              String?
+  state             String?
+  productCategory   String?
+  tags              String[]                 @default([])
+  lastOrderDate     DateTime?
+  lastBroadcastDate DateTime?
+  lastReplyDate     DateTime?
+  leadTemperature   MarketingLeadTemperature @default(COLD)
+  engagementScore   Int                      @default(0)
+  assignedAgentId   String?
+  whatsappStatus    MarketingContactStatus   @default(UNKNOWN)
+  isBlacklisted     Boolean                  @default(false)
+  optedOutAt        DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  assignedAgent     User?                    @relation("MarketingContactAgent", fields: [assignedAgentId], references: [id])
+  broadcastJobs     MarketingBroadcastJob[]
+  events            MarketingMessageEvent[]
+
+  @@index([city])
+  @@index([state])
+  @@index([assignedAgentId])
+  @@index([engagementScore])
+  @@index([leadTemperature])
+  @@index([tenantId])
+  @@unique([tenantId, mobile])
+}
+
+model MarketingTemplate {
+  id                  String                  @id @default(cuid())
+  tenantId String
+  name                String
+  aisensyCampaignName String
+  templateType        MarketingTemplateType   @default(TEXT)
+  language            String                  @default("en")
+  body                String
+  mediaUrl            String?
+  variables           Json                    @default("[]")
+  ctaButtons          Json                    @default("[]")
+  isActive            Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  campaignSteps       MarketingCampaignStep[]
+
+  @@index([isActive, language])
+  @@index([tenantId])
+}
+
+model MarketingSegment {
+  id          String   @id @default(cuid())
+  tenantId String
+  name        String
+  description String?
+  filters     Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([tenantId])
+}
+
+model MarketingCampaign {
+  id            String                  @id @default(cuid())
+  tenantId String
+  name          String
+  status        MarketingCampaignStatus @default(DRAFT)
+  segmentId     String?
+  dailyLimit    Int                     @default(10000)
+  cooldownDays  Int                     @default(30)
+  priority      Int                     @default(0)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  lastRotatedAt DateTime?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  createdBy     User?                   @relation("MarketingCampaignCreator", fields: [createdById], references: [id])
+  steps         MarketingCampaignStep[]
+  jobs          MarketingBroadcastJob[]
+  events        MarketingMessageEvent[]
+
+  @@index([status, startsAt, priority])
+  @@index([tenantId])
+}
+
+model MarketingCampaignStep {
+  id         String                  @id @default(cuid())
+  tenantId String
+  campaignId String
+  templateId String
+  stepOrder  Int
+  delayHours Int                     @default(0)
+  filters    Json                    @default("{}")
+  campaign   MarketingCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  template   MarketingTemplate       @relation(fields: [templateId], references: [id])
+  jobs       MarketingBroadcastJob[]
+
+  @@unique([tenantId, campaignId, stepOrder])
+  @@index([campaignId])
+  @@index([tenantId])
+}
+
+model MarketingBroadcastJob {
+  id                String                @id @default(cuid())
+  tenantId String
+  campaignId        String
+  stepId            String
+  contactId         String
+  status            MarketingJobStatus    @default(QUEUED)
+  scheduledAt       DateTime              @default(now())
+  sentAt            DateTime?
+  providerMessageId String?
+  retryCount        Int                   @default(0)
+  errorMessage      String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  campaign          MarketingCampaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  step              MarketingCampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  contact           MarketingContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, campaignId, stepId, contactId])
+  @@index([status, scheduledAt])
+  @@index([providerMessageId])
+  @@index([tenantId])
+}
+
+model MarketingMessageEvent {
+  id                String             @id @default(cuid())
+  tenantId String
+  contactId         String?
+  campaignId        String?
+  providerMessageId String?
+  eventType         MarketingEventType
+  rawPayload        Json?
+  occurredAt        DateTime           @default(now())
+  contact           MarketingContact?  @relation(fields: [contactId], references: [id])
+  campaign          MarketingCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([contactId, occurredAt])
+  @@index([campaignId, occurredAt])
+  @@index([providerMessageId])
+  @@index([tenantId])
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BANK STATEMENT MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+
+model BankImportSession {
+  id              String            @id @default(cuid())
+  tenantId String
+  accountNumber   String
+  fileName        String
+  importedById    String
+  rowsFound       Int               @default(0)
+  rowsImported    Int               @default(0)
+  rowsSkipped     Int               @default(0)
+  lastSrlImported Int?
+  lastBalance     Decimal?          @db.Decimal(14, 2)
+  status          BankImportStatus  @default(PROCESSING)
+  errorMessage    String?
+  createdAt       DateTime          @default(now())
+  importedBy      User              @relation("BankImports", fields: [importedById], references: [id])
+  transactions    BankTransaction[]
+
+  @@index([accountNumber, createdAt])
+  @@index([tenantId])
+}
+
+model BankTransaction {
+  id                String              @id @default(cuid())
+  tenantId String
+  sessionId         String
+  accountNumber     String
+  importKey         String
+  srl               Int
+  txnDate           DateTime
+  txnDateTime       DateTime?
+  valueDate         DateTime
+  description       String
+  chequeNo          String?
+  crDr              BankTxnType
+  amount            Decimal             @db.Decimal(14, 2)
+  balance           Decimal             @db.Decimal(14, 2)
+  reconcileStatus   BankReconcileStatus @default(UNMATCHED)
+  matchedPaymentId  String?
+  matchedVendorId   String?
+  expenseCategoryId String?
+  matchedCommissionVerificationId String?
+  reviewNote        String?
+  reconciledAt      DateTime?
+  reconciledById    String?
+
+  // ── Accounts > Payment Verification workflow ──────────────────────────────
+  // Every matched/needs-review DEBIT bank entry surfaces in the Accounts >
+  // Payment Verification queue. An accountant/admin adds an optional note and
+  // clicks "Checked" (one-way — cannot be undone by them). Once checked, only
+  // the super-admin (Sanket) sees a "Rechecked" action, which stamps
+  // recheckedById/recheckedAt and moves the entry out of the queue into
+  // Accounts > Payment History. See AccountsService.getPaymentVerificationQueue.
+  accountantNote    String?
+  checkedById       String?
+  checkedAt         DateTime?
+  recheckedById     String?
+  recheckedAt       DateTime?
+  // Free-text override for the Vendor/Expense column (lighter than picking a
+  // linked Vendor/ExpenseCategory record — this is just a display label for
+  // the verification screen) and the accounting month an expense applies to,
+  // for cases like rent paid in July that actually belongs to June.
+  vendorExpenseOverride String?
+  expensePeriod     DateTime?
+
+  // ── Expense Tracker: "tag this withdrawal as a salary payment" ───────────
+  // Lets Accounts > Expense Tracker mark a DR transaction as the salary
+  // payout for a specific user (regular staff, or Sanket himself) for a
+  // given calendar month/year. Salary has no other "paid" record anywhere
+  // (it's calculated live off Employee attendance) — this is the only place
+  // a salary payment is ever actually recorded as paid. For Sanket, who has
+  // no fixed monthly salary figure, his accrued "salary expense" for a
+  // month IS simply the sum of transactions tagged here for that month —
+  // see ExpenseTrackerService. New MATCHED_SALARY reconcile status, same
+  // convention as MATCHED_COMMISSION/MATCHED_VENDOR/MATCHED_EXPENSE.
+  salaryForUserId   String?
+  salaryYear        Int?
+  salaryMonth       Int?      // 1-12, matches HR salary engine's convention
+
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           BankImportSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matchedPayment    Payment?            @relation("BankTxnPayment", fields: [matchedPaymentId], references: [id])
+  matchedVendor     Vendor?             @relation("BankTxnVendor", fields: [matchedVendorId], references: [id])
+  expenseCategory   ExpenseCategory?    @relation(fields: [expenseCategoryId], references: [id])
+  matchedCommissionVerification CommissionVerification? @relation("BankTxnCommission", fields: [matchedCommissionVerificationId], references: [id])
+  reconciledBy      User?               @relation("BankTxnReconciledBy", fields: [reconciledById], references: [id])
+  checkedBy         User?               @relation("BankTxnCheckedBy", fields: [checkedById], references: [id])
+  recheckedBy       User?               @relation("BankTxnRecheckedBy", fields: [recheckedById], references: [id])
+  salaryForUser     User?               @relation("BankTxnSalaryFor", fields: [salaryForUserId], references: [id])
+
+  @@unique([tenantId, accountNumber, importKey])
+  @@index([recheckedAt])
+  @@index([accountNumber, txnDate])
+  @@index([reconcileStatus])
+  @@index([txnDate])
+  @@index([salaryForUserId, salaryYear, salaryMonth])
+  @@index([tenantId])
+}
+
+// ─── Courier COD Remittance Import ─────────────────────────────────────────
+// Reconciles two courier-exported reports (e.g. Bigship "Remittance Report" +
+// "Delivered Orders Report") joined by AWB number, resolves each remittance
+// row to an ERP Order, and posts a Payment (receipt) that adjusts the order's
+// balance. See RemittanceService for the matching logic.
+
+model RemittanceImportSession {
+  id                 String             @id @default(cuid())
+  tenantId String
+  fileName           String // remittance report file name
+  deliveredFileName  String? // delivered-orders report file name
+  importedById       String
+  rowsFound          Int                @default(0)
+  rowsMatched        Int                @default(0)
+  rowsNeedReview     Int                @default(0)
+  rowsDuplicate      Int                @default(0)
+  rowsPosted         Int                @default(0)
+  // Min/max RemittanceDate across every row PARSED from the file, captured
+  // at import time regardless of whether a row turned out to be a
+  // duplicate. Previously this was derived after the fact from the
+  // session's own RemittanceRecord rows — which meant a session where
+  // every row was a duplicate (so zero records got created) always showed
+  // "—" here, even though the file plainly had a remittance date in it.
+  remittanceDateFrom DateTime?
+  remittanceDateTo   DateTime?
+  createdAt          DateTime           @default(now())
+  importedBy         User               @relation("RemittanceImports", fields: [importedById], references: [id])
+  records            RemittanceRecord[]
+
+  @@index([createdAt])
+  @@index([tenantId])
+}
+
+model RemittanceRecord {
+  id                String                @id @default(cuid())
+  tenantId String
+  sessionId         String
+  importKey         String // hash(awbNumber + remittanceDate + netPayableAmount)
+
+  // From the courier's Remittance Report
+  remittanceRef     String? // e.g. Bigship RemittanceId
+  awbNumber         String
+  courierName       String?
+  lrNumber          String?
+  // "AWB Date" from the Delivered Orders Report — when the shipment was
+  // booked/picked up. Closest thing either report has to a true pickup
+  // date; the Remittance Report itself doesn't carry one.
+  pickupDate        DateTime?
+  deliveryDate      DateTime?
+  remittanceDate    DateTime?
+  collectableAmount Decimal               @db.Decimal(14, 2)
+  earlyCodAmount    Decimal?              @db.Decimal(14, 2)
+  otherDeduction    Decimal?              @db.Decimal(14, 2)
+  netPayableAmount  Decimal               @db.Decimal(14, 2)
+  remittanceStatus  String?
+
+  // Joined in from the Delivered Orders Report by AWB number
+  channelOrderId    String? // candidate ERP orderNumber, taken from "Channel Order Id / Invoice Number"
+  receiverName      String?
+  receiverMobile    String?
+  productDetails    String?
+
+  // Matching
+  matchStatus       RemittanceMatchStatus @default(NEEDS_REVIEW)
+  matchMethod        String? // ORDER_NUMBER | SHIPMENT_AWB | PHONE_SUGGESTED | MANUAL
+  matchedOrderId     String?
+  suggestedOrderId   String? // best-guess order when matchStatus = NEEDS_REVIEW, for the reviewer to confirm
+  mobileMismatch     Boolean               @default(false) // matched order's customer phone didn't match receiverMobile
+  reviewNote         String?
+
+  // Posting (receipt creation)
+  postedPaymentId   String? @unique
+  postedAt          DateTime?
+  postedById        String?
+
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  session         RemittanceImportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  matchedOrder    Order?                  @relation("RemittanceMatchedOrder", fields: [matchedOrderId], references: [id])
+  suggestedOrder  Order?                  @relation("RemittanceSuggestedOrder", fields: [suggestedOrderId], references: [id])
+  postedPayment   Payment?                @relation("RemittancePostedPayment", fields: [postedPaymentId], references: [id])
+  postedBy        User?                   @relation("RemittancePostedBy", fields: [postedById], references: [id])
+
+  @@index([sessionId])
+  @@index([matchStatus])
+  @@index([awbNumber])
+  @@index([tenantId])
+  @@unique([tenantId, importKey])
+}
+
+enum RemittanceMatchStatus {
+  NEEDS_REVIEW
+  MATCHED
+  POSTED
+  DUPLICATE
+  REJECTED
+}
+
+// Bigship's monthly "Shipping Charges" report — one row per AWB, giving the
+// FINAL actual courier cost for that shipment ("Total Charges" already bakes
+// in freight plus any overweight/RTO adjustment; see Order Status for
+// RTO/Cancelled rows where Total > Freight). Upserted by AWB number on every
+// upload. Unlike RemittanceRecord, this needs no fuzzy order-matching/review
+// workflow — the AWB ties straight back to Shipment.awbNumber, which the ERP
+// itself set at dispatch time — so Dispatch > Courier Charges just joins on
+// awbNumber directly at read time.
+model ShippingChargeRecord {
+  id               String    @id @default(cuid())
+  tenantId String
+  awbNumber        String
+  bigshipOrderId   String? // Bigship's own "Order Id" (not the ERP order number)
+  courierName      String?
+  orderStatus      String? // Delivered | Undelivered | Cancelled | RTO In Transit | RTO Delivered | ...
+  courierCreatedAt DateTime?
+  manifestedWeight Decimal?  @db.Decimal(10, 2)
+  appliedWeight    Decimal?  @db.Decimal(10, 2)
+  weightParameter  String?
+  freightCharges   Decimal?  @db.Decimal(12, 2)
+  totalCharges     Decimal   @db.Decimal(12, 2) // the real actual cost — freight + any weight/RTO surcharge
+  orderValue       Decimal?  @db.Decimal(12, 2)
+  productsRaw      String?   @db.Text
+  sourceFileName   String?
+  importedById     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  importedBy       User?     @relation("ShippingChargeImports", fields: [importedById], references: [id])
+
+  @@index([awbNumber])
+  @@index([tenantId])
+  @@unique([tenantId, awbNumber])
+}
+
+model VendorKeyword {
+  id        String   @id @default(cuid())
+  tenantId String
+  keyword   String
+  vendorId  String
+  createdAt DateTime @default(now())
+  vendor    Vendor   @relation("VendorKeywords", fields: [vendorId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+  @@unique([tenantId, keyword])
+}
+
+// Bank Statement > Employee Keywords — same convention as VendorKeyword /
+// ExpenseKeyword above, but for staff. A DR bank transaction whose
+// description contains one of a user's keywords (e.g. how their name
+// appears in bank narration) is auto-tagged as that user's salary payment
+// (BankTransaction.salaryForUserId + MATCHED_SALARY, see
+// migration 20260725100000_add_salary_bank_tagging) at import time, the
+// same way vendor/expense keywords auto-tag matchedVendorId/expenseCategoryId.
+model UserPaymentKeyword {
+  id        String   @id @default(cuid())
+  tenantId String
+  keyword   String
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation("UserPaymentKeywords", fields: [userId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+  @@unique([tenantId, keyword])
+}
+
+model ExpenseCategory {
+  id           String            @id @default(cuid())
+  tenantId String
+  name         String
+  description  String?
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  keywords     ExpenseKeyword[]
+  transactions BankTransaction[]
+  @@index([tenantId])
+  @@unique([tenantId, name])
+}
+
+model ExpenseKeyword {
+  id         String          @id @default(cuid())
+  tenantId String
+  keyword    String
+  categoryId String
+  createdAt  DateTime        @default(now())
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+  @@unique([tenantId, keyword])
+}
+
+enum BankImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum BankTxnType {
+  CR
+  DR
+}
+
+enum BankReconcileStatus {
+  UNMATCHED
+  MATCHED_PAYMENT
+  MATCHED_VENDOR
+  MATCHED_EXPENSE
+  MATCHED_COMMISSION
+  MATCHED_SALARY
+  MANUAL_REVIEW
+  IGNORED
+}
+
+// ── In-House Sticker Stock (12×18 sheets printed in office) ─────────────────
+model InHouseStickerStock {
+  id            String   @id @default(cuid())
+  tenantId String
+  balanceSheets Int      @default(0) // current balance of 12x18 sticker sheets
+  updatedAt     DateTime @updatedAt
+  @@index([tenantId])
+}
+
+model InHouseStickerTransaction {
+  id              String               @id @default(cuid())
+  tenantId String
+  transactionType InHouseStickerTxType
+  sheets          Int // positive = IN, negative = OUT
+  balanceAfter    Int
+  referenceId     String? // e.g. job/order ID when used
+  notes           String?
+  createdAt       DateTime             @default(now())
+
+  @@index([createdAt])
+  @@index([tenantId])
+}
+
+enum InHouseStickerTxType {
+  STOCK_IN // sheets added to stock
+  USED // sheets consumed for in-house jobs
+  ADJUSTMENT // manual correction
+}
+
+// ── Business Rules ───────────────────────────────────────────────────────────
+model BusinessRule {
+  id          String   @id @default(cuid())
+  tenantId String
+  ruleCode    String // e.g. "DISPATCH-001"
+  module      String   // ORDERS | ACCOUNTS | PRODUCTION | DISPATCH | SYSTEM
+  title       String
+  description String
+  example     String
+  severity    String   // CRITICAL | HIGH | MEDIUM
+  testedBy    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([module])
+  @@index([active])
+  @@index([tenantId])
+  @@unique([tenantId, ruleCode])
+}
+
+// ── User Activity Tracking ───────────────────────────────────────────────────
+model UserActivitySession {
+  id            String   @id @default(cuid())
+  tenantId String
+  userId        String
+  user          User     @relation("UserActivitySessions", fields: [userId], references: [id], onDelete: Cascade)
+  page          String   @default("/")
+  startedAt     DateTime @default(now())
+  lastPingAt    DateTime @default(now())
+  activeSeconds Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([startedAt])
+  @@index([tenantId])
+}
+
+// ── Complaint / Ticket Management (see complaint-ticket-module-spec.md) ─────
+
+enum ComplaintChannel {
+  WHATSAPP
+  CALL
+  EMAIL
+  WEB_PORTAL
+  WALK_IN
+  SALES_AGENT
+}
+
+enum ComplaintCategory {
+  PRODUCT_QUALITY
+  DELIVERY_DELAY
+  WRONG_ITEM
+  DAMAGED_IN_TRANSIT
+  DESIGN_ERROR
+  PRODUCTION_DEFECT
+  BILLING_DISPUTE
+  PAYMENT_ISSUE
+  VENDOR_ISSUE
+  SERVICE_COMPLAINT
+  OTHER
+}
+
+enum ComplaintPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ComplaintStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  PENDING_CUSTOMER
+  PENDING_VENDOR
+  RESOLVED
+  CLOSED
+  REOPENED
+}
+
+enum ComplaintResolutionType {
+  REPRINT
+  REFUND
+  PARTIAL_REFUND
+  REPLACEMENT
+  DISCOUNT_CREDIT
+  APOLOGY_ONLY
+  NO_FAULT_FOUND
+  GOODWILL
+}
+
+enum ComplaintCommentVisibility {
+  INTERNAL
+  CUSTOMER
+}
+
+model Complaint {
+  id                 String                   @id @default(cuid())
+  tenantId String
+  ticketNumber       String // CMP-2026-00001
+  customerId         String
+  orderId            String?
+  orderItemId        String?
+  productId          String?
+  channel            ComplaintChannel
+  category           ComplaintCategory
+  priority           ComplaintPriority        @default(MEDIUM)
+  status             ComplaintStatus          @default(OPEN)
+  subject            String
+  description        String
+
+  raisedById         String?                  // staff who logged it (null if customer self-service)
+  assignedToId       String?
+  assignedTeam       String?                  // "PRODUCTION" | "DISPATCH" | "ACCOUNTS" | "DESIGN" | "SALES"
+
+  slaResponseDueAt   DateTime?
+  slaResolutionDueAt DateTime?
+  firstRespondedAt   DateTime?
+  resolvedAt         DateTime?
+  closedAt           DateTime?
+
+  resolutionType     ComplaintResolutionType?
+  resolutionNotes    String?
+  rootCause          String?
+  vendorId           String?                  // set if root cause traces to a job-work vendor
+
+  reopenCount        Int                      @default(0)
+  escalatedToAdmin   Boolean                  @default(false)
+  escalatedAt        DateTime?
+
+  csatRating         Int?                     // 1-5, captured after CLOSED
+  csatFeedback       String?
+
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  customer           Customer                 @relation(fields: [customerId], references: [id])
+  order              Order?                   @relation(fields: [orderId], references: [id])
+  raisedBy           User?                    @relation("ComplaintRaisedBy", fields: [raisedById], references: [id])
+  assignedTo         User?                    @relation("ComplaintAssignedTo", fields: [assignedToId], references: [id])
+  vendor             Vendor?                  @relation(fields: [vendorId], references: [id])
+  comments           ComplaintComment[]
+  attachments        ComplaintAttachment[]
+  statusLogs         ComplaintStatusLog[]
+
+  @@index([status, priority])
+  @@index([customerId, createdAt])
+  @@index([orderId])
+  @@index([assignedToId, status])
+  @@index([slaResolutionDueAt, status])
+  @@index([tenantId])
+  @@unique([tenantId, ticketNumber])
+}
+
+model ComplaintComment {
+  id           String                     @id @default(cuid())
+  tenantId String
+  complaintId  String
+  authorId     String?                    // null = customer/system message
+  authorName   String
+  visibility   ComplaintCommentVisibility @default(INTERNAL)
+  message      String
+  createdAt    DateTime                   @default(now())
+
+  complaint    Complaint                  @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId, createdAt])
+  @@index([tenantId])
+}
+
+model ComplaintAttachment {
+  id           String    @id @default(cuid())
+  tenantId String
+  complaintId  String
+  url          String
+  fileName     String
+  fileType     String?
+  uploadedById String?
+  createdAt    DateTime  @default(now())
+
+  complaint    Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId])
+  @@index([tenantId])
+}
+
+model ComplaintStatusLog {
+  id          String           @id @default(cuid())
+  tenantId String
+  complaintId String
+  fromStatus  ComplaintStatus?
+  toStatus    ComplaintStatus
+  changedById String?
+  reason      String?
+  createdAt   DateTime         @default(now())
+
+  complaint   Complaint        @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId, createdAt])
+  @@index([tenantId])
+}
+
+// ── Workshop machine readings (envelope-making machine meter) ───────────────
+// One row per reading entry. The machine's counter rolls over — it gets reset
+// once it hits 1,000,000 — so `wasReset` marks a reading taken right after a
+// physical reset (the person recording it ticks this box), and the diff from
+// the previous reading is computed as (1,000,000 - previous) + this reading
+// instead of a plain subtraction. The operator pays ₹50 per 1000 units
+// produced, settled in batches: marking a reading "paid" freezes the units
+// produced and amount owed since the last paid reading (or the very first
+// reading, if none have been paid yet) as a permanent record, alongside an
+// optional description/bill number.
+model MachineReading {
+  id           String   @id @default(cuid())
+  tenantId String
+  machineName  String   @default("Envelope Machine")
+  readingDate  DateTime
+  readingValue Int
+  wasReset     Boolean  @default(false)
+  notes        String?  @db.Text
+
+  isPaid        Boolean   @default(false)
+  unitsProduced Int? // diff since the last paid reading, frozen at mark-paid time
+  paidAmount    Decimal?  @db.Decimal(10, 2)
+  paidAt        DateTime?
+  paidNote      String?   @db.Text // bill number / payment description
+  paidById      String?
+  paidBy        User?     @relation("MachineReadingPaidBy", fields: [paidById], references: [id])
+
+  recordedById String?
+  recordedBy   User?    @relation("MachineReadingRecordedBy", fields: [recordedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([machineName, readingDate])
+  @@index([isPaid])
+  @@index([tenantId])
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CERTIFICATE GENERATOR MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+// Bulk certificate generation: a saved template (background image + physical
+// size/DPI + dynamic text field positions in inches) is combined with an
+// uploaded Excel/CSV file to generate one certificate per row, imposed onto
+// print-ready sheets (e.g. 2× 11.5x8.5in certs on a 12x18in sheet) and
+// exported as a single combined PDF at exact physical dimensions. No S3/Redis
+// dependency — files are stored as base64 data URIs the same way
+// Order.dispatchProductPhoto and the HR ID-proof upload already do, and
+// generation runs as a fire-and-forget async job tracked by row counters,
+// the same shape as BankImportSession's rowsFound/rowsImported/rowsSkipped.
+
+model CertificateTemplate {
+  id           String   @id @default(cuid())
+  tenantId String
+  name         String
+  imageDataUrl String   @db.Text // base64 data: URI of the uploaded template image
+  widthIn      Decimal  @db.Decimal(6, 3)
+  heightIn     Decimal  @db.Decimal(6, 3)
+  dpi          Int      @default(300)
+  fields       Json // array of {key,label,x,y,w,h,fontFamily,fontSizePt,bold,color,align,verticalAlign} — positions/sizes in inches, not browser pixels
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  jobs         CertificateJob[]
+
+  @@index([createdById])
+  @@index([tenantId])
+}
+
+enum CertificateJobStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model CertificateJob {
+  id             String               @id @default(cuid())
+  tenantId String
+  templateId     String
+  template       CertificateTemplate  @relation(fields: [templateId], references: [id])
+  fileName       String
+  rawRows        Json // parsed Excel/CSV rows (array of {column: value}), kept so generate can be re-run without re-uploading
+  columnMapping  Json // {fieldKey: excelColumnName}
+  sheetSettings  Json // {sheetWidthIn, sheetHeightIn, marginIn, gapIn, allowRotation}
+  invalidRowMode String               @default("SKIP") // SKIP | BLANK
+  rowsTotal      Int                  @default(0)
+  rowsGenerated  Int                  @default(0)
+  rowsFailed     Int                  @default(0)
+  status         CertificateJobStatus @default(DRAFT)
+  errorMessage   String?              @db.Text
+  resultPdfUrl   String?              @db.Text // base64 data URI of the final combined, imposed PDF
+  createdById    String
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([templateId])
+  @@index([status])
+  @@index([tenantId])
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EVENTS MODULE (Birthday / Anniversary / Festival WhatsApp wishes)
+// ══════════════════════════════════════════════════════════════════════════════
+// Register a customer, friend, or anyone else with a DOB/anniversary date and a
+// WhatsApp number (EventPerson). A saved flyer template (background image +
+// variable NAME/PHOTO/text field positions — positions are fractions 0..1 of
+// the template image's own pixel dimensions, not inches/DPI like
+// CertificateTemplate, since this is composited to a raster JPEG for WhatsApp
+// and never printed) is rendered per person by events/flyer-render.ts (sharp:
+// composites the person's photo + rasterized text onto the template image)
+// and sent via WhatsAppService.sendEventWish — one shared AiSensy WhatsApp
+// template (AISENSY_EVENTS_CAMPAIGN) reused for birthdays, anniversaries, and
+// every festival, per Sanket's choice (least AiSensy/Meta approvals needed).
+// Festivals recur by month/day (added once, fires every year), same as
+// birthdays/anniversaries — also Sanket's explicit choice, so festivals are
+// never re-added yearly. Images are stored as base64 data URIs, same
+// convention as CertificateTemplate.imageDataUrl / Order.dispatchProductPhoto.
+//
+// SHARED CONTEXT FOR FUTURE SESSIONS: read docs/Events_Module_Context.md
+// before changing anything in this module — it records these decisions plus
+// the ones below that aren't self-evident from the code.
+
+enum EventOccasionType {
+  BIRTHDAY
+  ANNIVERSARY
+  FESTIVAL
+  // A separate category from FESTIVAL (added 2026-08-28) for templates
+  // designed to feature a CLIENT BUSINESS's own branding (via CLIENT_LOGO/
+  // CLIENT_TEXT fields), not RarePrint's own EventPerson contacts or
+  // RarePrint's own brand identity — see EventClientBusiness below and
+  // docs/Events_Module_Context.md's "client wish cards" section.
+  CLIENT_FESTIVAL
+}
+
+enum EventSendStatus {
+  SUCCESS
+  FAILED
+}
+
+model EventFlyerTemplate {
+  id           String            @id @default(cuid())
+  tenantId String
+  name         String
+  occasionType EventOccasionType
+  imageDataUrl String            @db.Text // base64 data: URI of the uploaded flyer background image
+  fields       Json // array of {key,label,type:'TEXT'|'PHOTO'|'BRAND_LOGO'|'BRAND_TEXT'|'CLIENT_LOGO'|'CLIENT_TEXT',x,y,w,h,fontFamily,fontSizePt,bold,color,align,verticalAlign,circle,brandKey,clientKey} — x/y/w/h are fractions (0..1) of the template image's own width/height, not pixels or inches
+  isActive     Boolean           @default(true)
+  createdById  String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  sendLogs     EventSendLog[]
+  festivals    Festival[]
+  // Back-relation for Festival.clientTemplateId — a CLIENT_FESTIVAL template
+  // can be the "client wish card" template for one or more festivals, kept
+  // distinct from `festivals` above (which is the own-customer templateId
+  // relation) since a Festival links to two different templates now.
+  clientFestivals Festival[]        @relation("FestivalClientTemplate")
+  clientWishLogs  EventClientWishLog[]
+
+  @@index([occasionType])
+  @@index([createdById])
+  @@index([tenantId])
+}
+
+model EventPerson {
+  id              String         @id @default(cuid())
+  tenantId String
+  name            String
+  whatsappNumber  String
+  relation        String         @default("CUSTOMER") // free text, not an enum: CUSTOMER | FRIEND | OTHER | anything else Sanket wants to label people with
+  dob             DateTime?      @db.Date
+  anniversaryDate DateTime?      @db.Date
+  photoDataUrl    String?        @db.Text // base64 data: URI — used for both the birthday and anniversary flyer (one photo per person)
+  notes           String?        @db.Text
+  isActive        Boolean        @default(true) // paused people are skipped by the daily scheduler and festival broadcasts
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  sendLogs        EventSendLog[]
+
+  @@index([isActive])
+  @@index([tenantId])
+}
+
+model Festival {
+  id          String              @id @default(cuid())
+  tenantId String
+  name        String
+  isRecurring Boolean             @default(true) // true (default): month/day recur every year — added once, Sanket's original choice over re-adding an exact date yearly. false: a one-off custom-date festival — oneTimeDate fires once and is never matched again (added 2026-08-27, "custom date festival" request).
+  month       Int? // set when isRecurring=true; 1-12
+  day         Int? // set when isRecurring=true; 1-31, validated against month in the service layer; a Feb 29 festival simply doesn't fire on non-leap years
+  oneTimeDate DateTime?           @db.Date // set when isRecurring=false; an exact calendar date, matched on year+month+day so it only ever fires once
+  templateId  String? // which flyer artwork to use for this specific festival (Diwali art vs. Christmas art) — nullable so a festival can be added before its template is designed; scheduler skips (and logs why) if still unset when the date arrives
+  template    EventFlyerTemplate? @relation(fields: [templateId], references: [id])
+  // Second, independent template link (added 2026-08-28) for the "client
+  // wish cards" feature — a CLIENT_FESTIVAL-type template whose CLIENT_LOGO/
+  // CLIENT_TEXT fields get filled in once per active EventClientBusiness,
+  // instead of once per EventPerson like `template` above. A festival can
+  // have either, both, or neither set independently; the scheduler skips
+  // (and logs why) whichever side has no template assigned — same "skip and
+  // warn, don't throw" behavior `templateId` already has.
+  clientTemplateId String?
+  clientTemplate    EventFlyerTemplate? @relation("FestivalClientTemplate", fields: [clientTemplateId], references: [id])
+  isActive    Boolean             @default(true)
+  createdById String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  sendLogs    EventSendLog[]
+  clientWishLogs EventClientWishLog[]
+
+  @@index([month, day])
+  @@index([oneTimeDate])
+  @@index([templateId])
+  @@index([clientTemplateId])
+  @@index([tenantId])
+}
+
+// Sanket's firm identity — logo, name, address, phone, products — set once
+// and reused across every flyer template via BRAND_LOGO/BRAND_TEXT fields
+// (see FlyerField in flyer-render.ts), instead of being baked into each
+// template's background image. Singleton row (fixed id) — one firm, no
+// per-user or per-template brand identity needed. Added 2026-08-27.
+model EventBrandProfile {
+  id          String   @id @default("singleton")
+  tenantId String
+  logoDataUrl String?  @db.Text
+  firmName    String?
+  address     String?  @db.Text
+  phone       String?
+  email       String?
+  website     String?
+  products    String?  @db.Text // free text — e.g. a short product list line for the flyer footer
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([tenantId])
+}
+
+// Client Business Festival Wish Cards (added 2026-08-28) — see
+// docs/Events_Module_Client_Wish_Cards_Build_Prompt.md and
+// docs/Events_Module_Context.md. Explicitly NOT the same thing as
+// EventBrandProfile above: EventBrandProfile is a SINGLETON holding
+// RarePrint's own identity, reused across RarePrint's own outbound wishes to
+// EventPerson contacts. EventClientBusiness is a LIST — one row per RarePrint
+// client (a shop/clinic/firm that is RarePrint's own printing/design
+// customer) — and each row gets its own generated festival wish image,
+// delivered to THAT business's own WhatsApp number so they can share it with
+// THEIR customers however they like (WhatsApp Status, forwarding, etc.).
+// RarePrint's involvement stops at delivering the image.
+model EventClientBusiness {
+  id             String   @id @default(cuid())
+  tenantId String
+  businessName   String
+  logoDataUrl    String?  @db.Text
+  phone          String? // shown on the wish image, if the template has a CLIENT_TEXT field for it — display only, not where the image is delivered
+  address        String?  @db.Text
+  tagline        String? // optional short category/slogan line for the wish image
+  whatsappNumber String // where the finished wish image is delivered — the business's OWN number, not their customers'
+  isActive       Boolean  @default(true) // paused businesses are skipped by the daily scheduler
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  wishLogs       EventClientWishLog[]
+
+  @@index([isActive])
+  @@index([tenantId])
+}
+
+// Parallel to EventSendLog, not a reuse of it — EventSendLog.personId is
+// relied on as non-null by existing queries (History tab, idempotency check,
+// public flyer route); adding a second nullable recipient shape to that
+// table risked those, so this is its own table instead. Same idempotency
+// convention as everywhere else in this module: a SUCCESS row for
+// (clientBusinessId, festivalId, occasionYear) means "already sent," not a
+// flag on EventClientBusiness or Festival — a recurring festival must still
+// fire again next year.
+model EventClientWishLog {
+  id                String               @id @default(cuid())
+  tenantId String
+  clientBusinessId  String
+  clientBusiness    EventClientBusiness  @relation(fields: [clientBusinessId], references: [id])
+  templateId        String?
+  template          EventFlyerTemplate?  @relation(fields: [templateId], references: [id])
+  festivalId        String
+  festival          Festival             @relation(fields: [festivalId], references: [id])
+  occasionYear      Int // same 0-sentinel-for-manual-test-send convention as EventSendLog.occasionYear
+  recipientPhone    String
+  flyerImageDataUrl String?              @db.Text
+  status            EventSendStatus
+  errorMessage      String?              @db.Text
+  createdAt         DateTime             @default(now())
+
+  @@index([clientBusinessId, festivalId, occasionYear])
+  @@index([festivalId])
+  @@index([createdAt])
+  @@index([tenantId])
+}
+
+model EventSendLog {
+  id                String              @id @default(cuid())
+  tenantId String
+  personId          String
+  person            EventPerson         @relation(fields: [personId], references: [id])
+  templateId        String?
+  template          EventFlyerTemplate? @relation(fields: [templateId], references: [id])
+  festivalId        String?
+  festival          Festival?           @relation(fields: [festivalId], references: [id])
+  occasionType      EventOccasionType
+  occasionYear      Int // calendar year this send covers — prevents re-sending the same birthday/anniversary/festival twice in one year (0 = manual test send, excluded from that check)
+  recipientPhone    String
+  sentToOwner       Boolean             @default(false)
+  flyerImageDataUrl String?             @db.Text // the generated flyer — kept for the History view and served (base64-decoded) by the public flyer-image route AiSensy fetches from
+  status            EventSendStatus
+  errorMessage      String?             @db.Text
+  createdAt         DateTime            @default(now())
+
+  @@index([personId, occasionType, occasionYear])
+  @@index([festivalId])
+  @@index([createdAt])
+  @@index([tenantId])
+}

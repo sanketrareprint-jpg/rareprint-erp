@@ -1,35 +1,12 @@
--- Phase 1 of docs/SaaS_Conversion_Roadmap_v2.md: multi-tenant SaaS
--- foundation. Adds the `Tenant` table only — purely additive, a brand new
--- table with no foreign keys into any existing table yet. Zero impact on
--- existing data or queries.
+-- NO-OP: SaaS tenantId conversion was reverted 2026-09-09.
 --
--- Deliberately NOT included here (next step, after the model-by-model list
--- is reviewed): adding `tenantId` to ~100 existing tables, backfilling
--- every row with a "RarePrint" tenant, and the composite-unique changes to
--- orderNumber/invoiceNumber/etc. That is a much higher-risk change and
--- should ship as its own separate, reviewed migration.
-
-DO $$ BEGIN
-  CREATE TYPE "TenantStatus" AS ENUM ('TRIAL', 'ACTIVE', 'SUSPENDED', 'CANCELLED');
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END $$;
-
-CREATE TABLE IF NOT EXISTS "Tenant" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "subdomain" TEXT NOT NULL,
-    "status" "TenantStatus" NOT NULL DEFAULT 'TRIAL',
-    "planId" TEXT,
-    "settings" JSONB,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Tenant_pkey" PRIMARY KEY ("id")
-);
-
-DO $$ BEGIN
-  CREATE UNIQUE INDEX "Tenant_subdomain_key" ON "Tenant"("subdomain");
-EXCEPTION
-  WHEN duplicate_table THEN NULL;
-END $$;
+-- This migration used to create a `Tenant` table as phase 1 of the SaaS
+-- conversion (docs/SaaS_Conversion_Roadmap_v2.md). The ERP is not being
+-- converted to multi-tenant right now, and this migration was never
+-- actually applied to the production database (see the P2022 outage this
+-- reversion fixes) so it's safe to neutralize in place instead of deleting
+-- the file (file deletion isn't available in this environment).
+--
+-- If/when the SaaS conversion resumes, do it on the `saas-conversion`
+-- branch with a fresh migration instead of reviving this one.
+SELECT 1;

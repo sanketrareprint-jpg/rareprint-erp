@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const COINS_PER_TASK = 5;
 
@@ -11,8 +10,8 @@ export class RewardsService {
   // ── Get (or create) wallet for a user ────────────────────────────────────
   async getWallet(userId: string) {
     const wallet = await (this.prisma as any).rewardWallet.upsert({
-      where: { tenantId_userId: { tenantId: DEFAULT_TENANT_ID, userId } },
-      create: { tenantId: DEFAULT_TENANT_ID, userId, coins: 0 },
+      where: { userId },
+      create: { userId, coins: 0 },
       update: {},
       include: {
         transactions: {
@@ -83,8 +82,8 @@ export class RewardsService {
 
     // 5. Upsert wallet, increment coins, record transaction
     const wallet = await (this.prisma as any).rewardWallet.upsert({
-      where: { tenantId_userId: { tenantId: DEFAULT_TENANT_ID, userId: prajakta.id } },
-      create: { tenantId: DEFAULT_TENANT_ID, userId: prajakta.id, coins: 0 },
+      where: { userId: prajakta.id },
+      create: { userId: prajakta.id, coins: 0 },
       update: {},
     });
 
@@ -95,7 +94,6 @@ export class RewardsService {
       }),
       (this.prisma as any).rewardTransaction.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           walletId: wallet.id,
           coins: COINS_PER_TASK,
           reason,

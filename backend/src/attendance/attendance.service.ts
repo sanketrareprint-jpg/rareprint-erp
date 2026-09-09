@@ -34,7 +34,6 @@
 // MANUAL or EDITED), re-importing the same month will not overwrite it.
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import * as XLSX from 'xlsx';
 
 type ParsedRow = {
@@ -275,7 +274,7 @@ export class AttendanceService {
     const byBiometricId = new Map(employees.map((e) => [e.biometricId as string, e]));
 
     const session = await this.prisma.attendanceImportSession.create({
-      data: { tenantId: DEFAULT_TENANT_ID, fileName, periodStart, periodEnd, importedById, rowsFound: rows.length },
+      data: { fileName, periodStart, periodEnd, importedById, rowsFound: rows.length },
     });
 
     let rowsImported = 0;
@@ -315,9 +314,8 @@ export class AttendanceService {
 
       upserts.push(
         this.prisma.attendanceRecord.upsert({
-          where: { tenantId_employeeId_date: { tenantId: DEFAULT_TENANT_ID, employeeId: employee.id, date: row.date } },
+          where: { employeeId_date: { employeeId: employee.id, date: row.date } },
           create: {
-            tenantId: DEFAULT_TENANT_ID,
             employeeId: employee.id,
             date: row.date,
             timeIn: row.onDuty1,
@@ -483,7 +481,7 @@ export class AttendanceService {
     if (isNaN(parsedDate.getTime())) throw new BadRequestException('Invalid date');
 
     const existing = await this.prisma.attendanceRecord.findUnique({
-      where: { tenantId_employeeId_date: { tenantId: DEFAULT_TENANT_ID, employeeId, date: parsedDate } },
+      where: { employeeId_date: { employeeId, date: parsedDate } },
     });
 
     const timeIn = dto.timeIn !== undefined ? dto.timeIn : existing?.timeIn ?? null;
@@ -499,9 +497,8 @@ export class AttendanceService {
     const source = existing && existing.source === 'IMPORTED' ? 'EDITED' : existing ? existing.source : 'MANUAL';
 
     return this.prisma.attendanceRecord.upsert({
-      where: { tenantId_employeeId_date: { tenantId: DEFAULT_TENANT_ID, employeeId, date: parsedDate } },
+      where: { employeeId_date: { employeeId, date: parsedDate } },
       create: {
-        tenantId: DEFAULT_TENANT_ID,
         employeeId,
         date: parsedDate,
         timeIn,
@@ -550,7 +547,7 @@ export class AttendanceService {
     if (isNaN(date.getTime())) throw new BadRequestException('Invalid date');
     try {
       return await this.prisma.companyHoliday.create({
-        data: { tenantId: DEFAULT_TENANT_ID, date, label: dto.label.trim(), type: dto.type ?? 'HOLIDAY', createdById },
+        data: { date, label: dto.label.trim(), type: dto.type ?? 'HOLIDAY', createdById },
       });
     } catch (err: any) {
       if (err?.code === 'P2002') throw new BadRequestException('A holiday/extra leave is already recorded for this date');

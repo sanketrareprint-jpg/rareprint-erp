@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } fro
 import { AuthGuard } from '@nestjs/passport';
 import { ErpConfigService, type ErpConfig } from './erp-config.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 @Controller('erp-config')
 @UseGuards(AuthGuard('jwt'))
@@ -42,7 +41,6 @@ export class ErpConfigController {
   }) {
     return this.prisma.offerCode.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         code: body.code.toUpperCase().trim(),
         description: body.description,
         offerType: body.offerType ?? 'FREE_ITEM',
@@ -93,7 +91,7 @@ export class ErpConfigController {
   upsertProductRule(@Body() body: { productId: string; minQty: number }) {
     return this.prisma.productRule.upsert({
       where: { productId: body.productId },
-      create: { tenantId: DEFAULT_TENANT_ID, productId: body.productId, minQty: body.minQty },
+      create: { productId: body.productId, minQty: body.minQty },
       update: { minQty: body.minQty, isActive: true },
     });
   }

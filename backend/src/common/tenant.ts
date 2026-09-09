@@ -1,6 +1,10 @@
-// Single-tenant default used everywhere until real multi-tenant tenant
-// resolution (per-request, via subdomain/auth) is built. Every existing row
-// in the database was backfilled onto this exact tenant id by the
-// 20260907140000_add_tenant_id_rollout migration — do not change this
-// value without a corresponding data migration.
-export const DEFAULT_TENANT_ID = 'tenant_rareprint_default';
+// UNUSED — left over from the SaaS tenantId conversion, reverted 2026-09-09
+// (the migration that added tenantId columns was never applied to
+// production and the code shipped ahead of it, causing a site-wide P2022
+// outage). Nothing imports DEFAULT_TENANT_ID anymore.
+//
+// File deletion isn't available in this environment, so this is a stub
+// instead of a removed file. Safe to delete manually via `git rm
+// backend/src/common/tenant.ts`, or just leave it — it's dead code, not a
+// bug. If SaaS conversion resumes, do it on the `saas-conversion` branch.
+export {};

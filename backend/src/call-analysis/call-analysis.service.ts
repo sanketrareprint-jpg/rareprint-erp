@@ -1,6 +1,5 @@
 ﻿import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 type JwtUser = { id: string; role: string; fullName?: string };
 
@@ -46,7 +45,6 @@ export class CallAnalysisService {
     const normalized = this.normalizeAnalysis(payload);
     return this.prisma.callAnalysis.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         agentId: agent.id,
         agentName: payload.agentName || agent.fullName,
         customerName: payload.customerName,

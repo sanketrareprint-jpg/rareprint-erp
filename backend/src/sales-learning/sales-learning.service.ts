@@ -3,7 +3,6 @@
 // ============================================================
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 @Injectable()
 export class SalesLearningService {
@@ -70,8 +69,8 @@ export class SalesLearningService {
 
     // Mark as read
     await this.prisma.userTopicProgress.upsert({
-      where: { tenantId_userId_topicId: { tenantId: DEFAULT_TENANT_ID, userId, topicId } },
-      create: { tenantId: DEFAULT_TENANT_ID, userId, topicId, topicRead: true, topicReadAt: new Date(), isUnlocked: true },
+      where: { userId_topicId: { userId, topicId } },
+      create: { userId, topicId, topicRead: true, topicReadAt: new Date(), isUnlocked: true },
       update: { topicRead: true, topicReadAt: new Date() },
     });
 
@@ -114,12 +113,12 @@ export class SalesLearningService {
 
     // Save attempt
     await this.prisma.quizAttempt.create({
-      data: { tenantId: DEFAULT_TENANT_ID, userId, topicId, answers, score, passed, timeTakenSecs },
+      data: { userId, topicId, answers, score, passed, timeTakenSecs },
     });
 
     // Update progress
     const existing = await this.prisma.userTopicProgress.findUnique({
-      where: { tenantId_userId_topicId: { tenantId: DEFAULT_TENANT_ID, userId, topicId } },
+      where: { userId_topicId: { userId, topicId } },
     });
 
     const updateData: any = {
@@ -134,9 +133,9 @@ export class SalesLearningService {
     }
 
     await this.prisma.userTopicProgress.upsert({
-      where: { tenantId_userId_topicId: { tenantId: DEFAULT_TENANT_ID, userId, topicId } },
+      where: { userId_topicId: { userId, topicId } },
       create: {
-        tenantId: DEFAULT_TENANT_ID, userId, topicId, topicRead: true, isUnlocked: true,
+        userId, topicId, topicRead: true, isUnlocked: true,
         quizAttempts: 1, bestScore: score,
         quizPassed: passed, quizPassedAt: passed ? new Date() : null,
         completedAt: passed ? new Date() : null,
@@ -188,7 +187,7 @@ export class SalesLearningService {
     const passed = percentage >= 60;
 
     await this.prisma.milestoneAttempt.create({
-      data: { tenantId: DEFAULT_TENANT_ID, userId, testId, answers, score, percentage, passed, timeTakenSecs },
+      data: { userId, testId, answers, score, percentage, passed, timeTakenSecs },
     });
 
     return { score, totalMarks: test.totalMarks, percentage, passed, results };
@@ -309,9 +308,9 @@ export class SalesLearningService {
       : { quizzesDone: { increment: 1 }, pointsEarned: { increment: 25 } };
 
     await this.prisma.dailyLearningStreak.upsert({
-      where: { tenantId_userId_date: { tenantId: DEFAULT_TENANT_ID, userId, date: today } },
+      where: { userId_date: { userId, date: today } },
       create: {
-        tenantId: DEFAULT_TENANT_ID, userId, date: today,
+        userId, date: today,
         topicsRead: type === 'read' ? 1 : 0,
         quizzesDone: type === 'quiz' ? 1 : 0,
         pointsEarned: type === 'read' ? 10 : 25,

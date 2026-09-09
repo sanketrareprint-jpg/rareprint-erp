@@ -8,7 +8,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { ComplaintsNotifications } from './complaints.notifications';
 import { ComplaintStatus, StatusInterval, computePausedDurationMs, effectiveResolutionDueAt, isEligibleForAutoClose, shouldEscalate } from './complaints.calc';
 
@@ -99,7 +98,6 @@ export class ComplaintsSlaService {
         await (tx as any).complaint.update({ where: { id: complaint.id }, data: { status: 'CLOSED', closedAt: now } });
         await (tx as any).complaintStatusLog.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             complaintId: complaint.id,
             fromStatus: 'RESOLVED',
             toStatus: 'CLOSED',

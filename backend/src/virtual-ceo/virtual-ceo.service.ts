@@ -3,7 +3,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import {
   OrderStatus,
   OrderProductionStage,
@@ -137,7 +136,7 @@ export class VirtualCeoService {
     await this.prisma.systemConfig.upsert({
       where: { key: 'vceo_required_reviewers' },
       update: { value: JSON.stringify(userIds) },
-      create: { key: 'vceo_required_reviewers', tenantId: DEFAULT_TENANT_ID, value: JSON.stringify(userIds) },
+      create: { key: 'vceo_required_reviewers', value: JSON.stringify(userIds) },
     });
     return { requiredReviewers: userIds };
   }
@@ -207,7 +206,7 @@ export class VirtualCeoService {
     }
     const deadlineAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
     await this.prisma.systemConfig.create({
-      data: { key: `vceo_pending_${userId}`, tenantId: DEFAULT_TENANT_ID, value: JSON.stringify({ deadlineAt, shownAt: new Date().toISOString() }) },
+      data: { key: `vceo_pending_${userId}`, value: JSON.stringify({ deadlineAt, shownAt: new Date().toISOString() }) },
     });
     return { deadlineAt };
   }
@@ -224,7 +223,7 @@ export class VirtualCeoService {
     await this.prisma.systemConfig.upsert({
       where: { key },
       update: { value: JSON.stringify(next) },
-      create: { key, tenantId: DEFAULT_TENANT_ID, value: JSON.stringify(next) },
+      create: { key, value: JSON.stringify(next) },
     });
     return { taskActions };
   }
@@ -237,7 +236,7 @@ export class VirtualCeoService {
     await this.prisma.systemConfig.upsert({
       where: { key },
       update: { value: JSON.stringify({ ...current, completedAt: new Date().toISOString() }) },
-      create: { key, tenantId: DEFAULT_TENANT_ID, value: JSON.stringify({ ...current, completedAt: new Date().toISOString() }) },
+      create: { key, value: JSON.stringify({ ...current, completedAt: new Date().toISOString() }) },
     });
     await this.prisma.systemConfig.deleteMany({ where: { key: `vceo_pending_${userId}` } });
     this.logger.log(`Virtual CEO: review completed by ${userId}`);
@@ -249,7 +248,7 @@ export class VirtualCeoService {
     await this.prisma.systemConfig.upsert({
       where: { key: `vceo_locked_${userId}` },
       update: { value: JSON.stringify({ lockedAt, reason }) },
-      create: { key: `vceo_locked_${userId}`, tenantId: DEFAULT_TENANT_ID, value: JSON.stringify({ lockedAt, reason }) },
+      create: { key: `vceo_locked_${userId}`, value: JSON.stringify({ lockedAt, reason }) },
     });
     await this.prisma.systemConfig.deleteMany({ where: { key: `vceo_pending_${userId}` } });
     try {

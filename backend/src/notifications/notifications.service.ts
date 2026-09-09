@@ -4,7 +4,6 @@ import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { RewardsService } from '../rewards/rewards.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 @Injectable()
 export class NotificationsService {
@@ -84,7 +83,7 @@ export class NotificationsService {
     toUserId: string; toUserName: string; orderId?: string; orderNo?: string;
     itemId?: string; sheetId?: string; jobWorkId?: string; copyToAdmin?: boolean;
   }) {
-    return this.prisma.notification.create({ data: { ...data, tenantId: DEFAULT_TENANT_ID, priority: data.priority ?? 'NORMAL' } });
+    return this.prisma.notification.create({ data: { ...data, priority: data.priority ?? 'NORMAL' } });
   }
 
   private async withProductDetails(notifications: any[]) {
@@ -526,7 +525,6 @@ export class NotificationsService {
 
       await this.prisma.orderReassuranceLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           orderId: order.id,
           orderNo: order.orderNumber,
           campaignName,

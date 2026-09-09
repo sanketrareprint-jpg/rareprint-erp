@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 export type CustomFieldType = 'text' | 'number' | 'date' | 'select' | 'textarea';
 
@@ -126,7 +125,7 @@ export class ErpConfigService {
     await this.prisma.systemConfig.upsert({
       where: { key: DB_KEY },
       update: { value: JSON.stringify(next) },
-      create: { key: DB_KEY, tenantId: DEFAULT_TENANT_ID, value: JSON.stringify(next) },
+      create: { key: DB_KEY, value: JSON.stringify(next) },
     });
     return next;
   }

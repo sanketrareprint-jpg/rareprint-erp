@@ -8,7 +8,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { renderFlyer, type FlyerField, type FlyerFieldAlign, type FlyerFieldVAlign, type BrandKey, type ClientKey } from './flyer-render';
 import { isFlyerFontFamily, FLYER_FONT_FAMILIES } from './fonts';
@@ -153,7 +152,6 @@ export class EventsService {
 
     return this.prisma.eventFlyerTemplate.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: params.name.trim(),
         occasionType: params.occasionType as TemplateOccasionType,
         imageDataUrl: fileToDataUrl(params.file),
@@ -269,7 +267,7 @@ export class EventsService {
     }
     return this.prisma.eventBrandProfile.upsert({
       where: { id: 'singleton' },
-      create: { id: 'singleton', tenantId: DEFAULT_TENANT_ID, ...data },
+      create: { id: 'singleton', ...data },
       update: data,
     });
   }
@@ -319,7 +317,6 @@ export class EventsService {
     }
     return this.prisma.eventClientBusiness.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         businessName: params.businessName.trim(),
         whatsappNumber: phone,
         phone: params.phone?.trim() || null,
@@ -412,7 +409,6 @@ export class EventsService {
 
     return this.prisma.eventPerson.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: params.name.trim(),
         whatsappNumber: phone,
         relation: params.relation?.trim() || 'CUSTOMER',
@@ -537,7 +533,6 @@ export class EventsService {
     if (params.clientTemplateId) await this.validateClientTemplateId(params.clientTemplateId);
     return this.prisma.festival.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: params.name.trim(),
         isRecurring,
         month,
@@ -752,7 +747,6 @@ export class EventsService {
   }) {
     return this.prisma.eventSendLog.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         personId: params.person.id,
         templateId: params.template.id,
         festivalId: params.festivalId ?? null,
@@ -855,20 +849,12 @@ export class EventsService {
       occasionLabel: params.festivalName,
     });
 
-    // Bug fixed 2026-08-27: this used to hardcode a generic "see backend
-    // logs" errorMessage and drop `result.errorMessage` (the actual AiSensy
-    // rejection reason / phone-validation reason from
-    // WhatsAppService.sendClientWishReady) on the floor entirely — neither
-    // the DB row nor this method's own return value carried it, so both the
-    // History tab and the test-send banner only ever showed a generic
-    // fallback string, never the real reason. Now both carry it through,
-    // matching how renderAndSend/sendEventWish already surface personError.
     await this.prisma.eventClientWishLog.update({
       where: { id: logId },
-      data: result.sent ? {} : { status: 'FAILED', errorMessage: result.errorMessage ?? 'AiSensy send to the client business failed — see backend logs' },
+      data: result.sent ? {} : { status: 'FAILED', errorMessage: 'AiSensy send to the client business failed — see backend logs' },
     });
 
-    return { sent: result.sent, errorMessage: result.sent ? undefined : result.errorMessage };
+    return { sent: result.sent };
   }
 
   private async logClientWishSend(params: {
@@ -882,7 +868,6 @@ export class EventsService {
   }) {
     return this.prisma.eventClientWishLog.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         clientBusinessId: params.clientBusiness.id,
         templateId: params.template.id,
         festivalId: params.festivalId,

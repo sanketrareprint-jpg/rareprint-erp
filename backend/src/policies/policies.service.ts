@@ -1,7 +1,6 @@
 // backend/src/policies/policies.service.ts
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 // Same super-admin convention already used in orders.service.ts / accounts.service.ts.
 const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
@@ -55,7 +54,6 @@ export class PoliciesService {
     if (!body.content?.trim()) throw new BadRequestException('Content is required');
     return this.prisma.policyDocument.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         title: body.title.trim(),
         content: body.content,
         modules: body.modules ?? [],

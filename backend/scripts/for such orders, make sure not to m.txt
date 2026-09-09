@@ -1,0 +1,30 @@
+for such orders, make sure not to move them to history, because since awb is not create it doesn't even make sense, and well need to bring it back to queue tab anyway, so it becomes extra work
+4.3
+100
+200
+100
+
+
+
+400
+mummy sent 2000
+
+Sandip sir 300
+snacks 300
+shreyash 100
+cake 200
+snacks 120
+egg puff 30
+200 transactions* 6 = 1200
+1000 rs transaction 1 = 1000     refunded 1200
+
+rice 340
+screen protector 100
+cocktail rice 50
+
+balance 1180
+
+
+
+82.3
+52.3-4.3

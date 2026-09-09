@@ -16,7 +16,6 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { registerCertificateFonts, FONT_FAMILIES, isFontFamily } from './fonts';
 import { drawCertificate, type CertificateField, type FieldAlign, type FieldVAlign } from './render';
 import { computeImposition, computeSheetCount, type ImpositionInput } from './imposition';
@@ -168,7 +167,6 @@ export class CertificateGeneratorService {
 
     return this.prisma.certificateTemplate.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: params.name.trim(),
         imageDataUrl,
         widthIn,
@@ -263,7 +261,6 @@ export class CertificateGeneratorService {
 
     const job = await this.prisma.certificateJob.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         templateId: template.id,
         fileName: params.file.originalname,
         rawRows: rows as unknown as object,

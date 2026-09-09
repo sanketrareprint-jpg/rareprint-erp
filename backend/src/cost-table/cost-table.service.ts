@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -310,7 +309,6 @@ export class CostTableService {
   }) {
     return this.prisma.productCostSlab.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         productId: dto.productId,
         minQuantity: dto.minQuantity,
         maxQuantity: dto.maxQuantity ?? null,
@@ -370,7 +368,6 @@ export class CostTableService {
       slabs.map((s) =>
         this.prisma.productCostSlab.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             productId,
             minQuantity: s.minQuantity,
             maxQuantity: s.maxQuantity ?? null,
@@ -829,7 +826,6 @@ export class CostTableService {
       slabs.map((s) =>
         (this.prisma as any).productRateSlab.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             productId,
             minQuantity: s.minQuantity,
             maxQuantity: s.maxQuantity ?? null,
@@ -1141,7 +1137,7 @@ export class CostTableService {
         },
       }),
       (this.prisma as any).commissionVerification?.findUnique?.({
-        where: { tenantId_agentId_year_month: { tenantId: DEFAULT_TENANT_ID, agentId: userId, year, month } },
+        where: { agentId_year_month: { agentId: userId, year, month } },
         include: {
           verifiedBy: { select: { fullName: true } },
           bankTransactions: { select: { id: true, description: true, amount: true, txnDate: true } },
@@ -1518,7 +1514,7 @@ export class CostTableService {
     const doUpsert = () =>
       (this.prisma as any).commissionOverride.upsert({
         where: { orderItemId },
-        create: { id: require('crypto').randomUUID(), tenantId: DEFAULT_TENANT_ID, orderItemId, agentId, amount, setById },
+        create: { id: require('crypto').randomUUID(), orderItemId, agentId, amount, setById },
         update: { amount, setById, agentId },
       });
 
@@ -1549,8 +1545,8 @@ export class CostTableService {
     verifiedByRole: string,
   ) {
     const result = await (this.prisma as any).commissionVerification.upsert({
-      where: { tenantId_agentId_year_month: { tenantId: DEFAULT_TENANT_ID, agentId, year, month } },
-      create: { id: require('crypto').randomUUID(), tenantId: DEFAULT_TENANT_ID, agentId, year, month, verifiedById },
+      where: { agentId_year_month: { agentId, year, month } },
+      create: { id: require('crypto').randomUUID(), agentId, year, month, verifiedById },
       update: { verifiedById, verifiedAt: new Date() },
     });
 
@@ -1579,7 +1575,7 @@ export class CostTableService {
   async unverifyCommission(agentId: string, year: number, month: number) {
     try {
       await (this.prisma as any).commissionVerification.delete({
-        where: { tenantId_agentId_year_month: { tenantId: DEFAULT_TENANT_ID, agentId, year, month } },
+        where: { agentId_year_month: { agentId, year, month } },
       });
     } catch { /* not found — that's fine */ }
     return { success: true };
@@ -1592,7 +1588,7 @@ export class CostTableService {
   // sheet's "paid" state is just derived from whether any transaction points here.
   async markCommissionPaid(agentId: string, year: number, month: number, transactionId: string, reconciledById: string) {
     const verification = await (this.prisma as any).commissionVerification.findUnique({
-      where: { tenantId_agentId_year_month: { tenantId: DEFAULT_TENANT_ID, agentId, year, month } },
+      where: { agentId_year_month: { agentId, year, month } },
     });
     if (!verification) {
       throw new BadRequestException('Verify this month\'s commission before marking it paid.');
@@ -1618,7 +1614,7 @@ export class CostTableService {
 
   async unmarkCommissionPaid(agentId: string, year: number, month: number) {
     const verification = await (this.prisma as any).commissionVerification.findUnique({
-      where: { tenantId_agentId_year_month: { tenantId: DEFAULT_TENANT_ID, agentId, year, month } },
+      where: { agentId_year_month: { agentId, year, month } },
     });
     if (!verification) return { success: true };
 
@@ -1784,13 +1780,13 @@ export class CostTableService {
   async addAgencyRateProduct(sku: string) {
     const trimmed = sku?.trim();
     if (!trimmed) throw new BadRequestException('Product code is required');
-    const product = await (this.prisma as any).product.findUnique({ where: { tenantId_sku: { tenantId: DEFAULT_TENANT_ID, sku: trimmed } } });
+    const product = await (this.prisma as any).product.findUnique({ where: { sku: trimmed } });
     if (!product) throw new NotFoundException(`No product with code "${trimmed}"`);
     const existing = await (this.prisma as any).agencyRateProduct.findUnique({ where: { productId: product.id } });
     if (existing) throw new BadRequestException(`${trimmed} is already in the Agency Rates table`);
     const count = await (this.prisma as any).agencyRateProduct.count();
     return (this.prisma as any).agencyRateProduct.create({
-      data: { tenantId: DEFAULT_TENANT_ID, productId: product.id, sortOrder: count },
+      data: { productId: product.id, sortOrder: count },
     });
   }
 
@@ -1803,11 +1799,11 @@ export class CostTableService {
 
   async addAgencyRateColumn(quantity: number) {
     if (!Number.isFinite(quantity) || quantity <= 0) throw new BadRequestException('Enter a valid quantity');
-    const existing = await (this.prisma as any).agencyRateQuantityColumn.findUnique({ where: { tenantId_quantity: { tenantId: DEFAULT_TENANT_ID, quantity } } });
+    const existing = await (this.prisma as any).agencyRateQuantityColumn.findUnique({ where: { quantity } });
     if (existing) throw new BadRequestException(`A column for quantity ${quantity} already exists`);
     const count = await (this.prisma as any).agencyRateQuantityColumn.count();
     return (this.prisma as any).agencyRateQuantityColumn.create({
-      data: { tenantId: DEFAULT_TENANT_ID, quantity, sortOrder: count },
+      data: { quantity, sortOrder: count },
     });
   }
 
@@ -1835,8 +1831,8 @@ export class CostTableService {
     if (rate < 0) throw new BadRequestException('Rate cannot be negative');
 
     return (this.prisma as any).agencyRate.upsert({
-      where: { tenantId_productId_quantity: { tenantId: DEFAULT_TENANT_ID, productId, quantity } },
-      create: { tenantId: DEFAULT_TENANT_ID, productId, quantity, rate },
+      where: { productId_quantity: { productId, quantity } },
+      create: { productId, quantity, rate },
       update: { rate },
     });
   }

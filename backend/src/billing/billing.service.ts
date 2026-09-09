@@ -8,7 +8,6 @@ import { buildInvoicePdf, InvoicePdfCompanyProfile, InvoicePdfData } from './inv
 import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 import { extractSizeFromNote } from '../common/resolve-item-details';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 // ── SystemConfig keys for Company Profile ───────────────────────────────────
 // Same "individual key per setting" convention as loyalty.service.ts's CFG
@@ -124,7 +123,7 @@ export class BillingService {
       pairs.map(([key, value]) =>
         (this.prisma as any).systemConfig.upsert({
           where: { key },
-          create: { key, tenantId: DEFAULT_TENANT_ID, value },
+          create: { key, value },
           update: { value },
         }),
       ),
@@ -135,7 +134,7 @@ export class BillingService {
   private async setImageConfig(key: string, dataUrl: string) {
     await (this.prisma as any).systemConfig.upsert({
       where: { key },
-      create: { key, tenantId: DEFAULT_TENANT_ID, value: dataUrl },
+      create: { key, value: dataUrl },
       update: { value: dataUrl },
     });
   }

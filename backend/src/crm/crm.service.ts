@@ -3,7 +3,6 @@ import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/com
 import { PrismaService } from '../prisma/prisma.service';
 import { LeadStatus, LeadSource, ActivityType } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 @Injectable()
 export class CrmService {
@@ -90,7 +89,6 @@ export class CrmService {
 
     const lead = await this.prisma.lead.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: data.name,
         phone: data.phone,
         email: data.email,
@@ -114,7 +112,6 @@ export class CrmService {
     // Log activity
     await this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId: lead.id,
         type: ActivityType.NOTE_ADDED,
         description: 'Lead created',
@@ -136,7 +133,6 @@ export class CrmService {
 
     await this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId: id,
         type: ActivityType.STATUS_CHANGED,
         description: `Status changed: ${old!.status} → ${status}`,
@@ -149,7 +145,6 @@ export class CrmService {
     if (status === 'LOST') {
       await this.prisma.leadFollowUp.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           leadId: id,
           scheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           note: 'Recycle — check if requirement still exists',
@@ -200,7 +195,6 @@ export class CrmService {
 
     await this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId,
         type: typeMap[outcome] ?? ActivityType.CALL_MADE,
         description: note || `Call outcome: ${outcome}`,
@@ -212,7 +206,6 @@ export class CrmService {
     let daysLater = outcome === 'ANSWERED' ? 3 : 1;
     await this.prisma.leadFollowUp.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId,
         scheduledAt: new Date(Date.now() + daysLater * 24 * 60 * 60 * 1000),
         note: `After ${outcome.toLowerCase()} call`,
@@ -226,7 +219,6 @@ export class CrmService {
   async addNote(leadId: string, note: string, agentId: string) {
     return this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId,
         type: ActivityType.NOTE_ADDED,
         description: note,
@@ -300,7 +292,6 @@ export class CrmService {
 
         await this.prisma.lead.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             name: String(row.name).trim(),
             phone,
             email: row.email ? String(row.email).trim() : null,
@@ -409,7 +400,6 @@ export class CrmService {
     const now = Date.now();
     await this.prisma.leadFollowUp.createMany({
       data: days.map((d) => ({
-        tenantId: DEFAULT_TENANT_ID,
         leadId,
         scheduledAt: new Date(now + d * 24 * 60 * 60 * 1000),
         note: `Day ${d} follow-up`,
@@ -502,7 +492,6 @@ export class CrmService {
 
     const lead = await this.prisma.lead.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: data.name,
         phone: data.phone,
         email: data.email,
@@ -525,7 +514,6 @@ export class CrmService {
     // Log activity
     await this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId: lead.id,
         type: 'NOTE_ADDED' as any,
         description: `Lead received from Meta Ads and assigned to ${lead.agent.fullName}`,
@@ -561,7 +549,6 @@ export class CrmService {
       if (incoming.messageText) {
         await this.prisma.leadActivity.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             leadId: existing.id,
             type: ActivityType.NOTE_ADDED,
             description: `AiSensy message received: ${incoming.messageText}`,
@@ -588,7 +575,6 @@ export class CrmService {
     const leadName = incoming.name || `WhatsApp Lead ${incoming.phone.slice(-4)}`;
     const lead = await this.prisma.lead.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         name: leadName,
         phone: incoming.phone,
         source: LeadSource.WHATSAPP,
@@ -610,7 +596,6 @@ export class CrmService {
 
     await this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId: lead.id,
         type: ActivityType.NOTE_ADDED,
         description: `Lead created from AiSensy and assigned to ${agent.fullName}`,
@@ -630,7 +615,6 @@ export class CrmService {
     if (assignmentSent) {
       await this.prisma.leadActivity.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           leadId: lead.id,
           type: ActivityType.WHATSAPP_SENT,
           description: `Assignment WhatsApp sent with agent ${agent.fullName} (${agent.phone ?? '9637318960'})`,
@@ -693,7 +677,6 @@ export class CrmService {
     // Log the activity
     await this.prisma.leadActivity.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         leadId: lead.id,
         type: 'WHATSAPP_SENT' as any,
         description: `WhatsApp sent to ${lead!.phone} via AiSensy (template: question) by ${lead.agent.fullName}`,

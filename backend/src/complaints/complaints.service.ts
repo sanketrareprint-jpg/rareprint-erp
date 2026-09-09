@@ -1,7 +1,6 @@
 // backend/src/complaints/complaints.service.ts
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { ComplaintsNotifications } from './complaints.notifications';
 import {
   ComplaintPriority,
@@ -63,7 +62,7 @@ export class ComplaintsService {
       if (v?.resolutionHours != null) pairs.push([`${SLA_CFG_PREFIX}${p}.resolutionHours`, String(v.resolutionHours)]);
     }
     await Promise.all(
-      pairs.map(([key, value]) => (this.prisma as any).systemConfig.upsert({ where: { key }, create: { key, tenantId: DEFAULT_TENANT_ID, value }, update: { value } })),
+      pairs.map(([key, value]) => (this.prisma as any).systemConfig.upsert({ where: { key }, create: { key, value }, update: { value } })),
     );
     return this.getSlaConfig();
   }
@@ -82,7 +81,7 @@ export class ComplaintsService {
     if (body.reopenWindowDays != null) pairs.push([REOPEN_WINDOW_KEY, String(body.reopenWindowDays)]);
     if (body.autoCloseDays != null) pairs.push([AUTO_CLOSE_KEY, String(body.autoCloseDays)]);
     await Promise.all(
-      pairs.map(([key, value]) => (this.prisma as any).systemConfig.upsert({ where: { key }, create: { key, tenantId: DEFAULT_TENANT_ID, value }, update: { value } })),
+      pairs.map(([key, value]) => (this.prisma as any).systemConfig.upsert({ where: { key }, create: { key, value }, update: { value } })),
     );
     return this.getGeneralConfig();
   }
@@ -141,7 +140,6 @@ export class ComplaintsService {
       } else {
         const created = await this.prisma.customer.create({
           data: {
-            tenantId: DEFAULT_TENANT_ID,
             customerCode: `CUST-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
             businessName: name,
             phone,
@@ -175,7 +173,6 @@ export class ComplaintsService {
           const created = await this.prisma.$transaction(async (tx) => {
             const complaint = await (tx as any).complaint.create({
               data: {
-                tenantId: DEFAULT_TENANT_ID,
                 ticketNumber,
                 customerId,
                 orderId: dto.orderId ?? null,
@@ -192,7 +189,7 @@ export class ComplaintsService {
               },
             });
             await (tx as any).complaintStatusLog.create({
-              data: { tenantId: DEFAULT_TENANT_ID, complaintId: complaint.id, fromStatus: null, toStatus: 'OPEN', changedById: raisedById ?? null, reason: 'Ticket created' },
+              data: { complaintId: complaint.id, fromStatus: null, toStatus: 'OPEN', changedById: raisedById ?? null, reason: 'Ticket created' },
             });
             return complaint;
           });
@@ -323,7 +320,6 @@ export class ComplaintsService {
       });
       await (tx as any).complaintStatusLog.create({
         data: {
-          tenantId: DEFAULT_TENANT_ID,
           complaintId: id,
           fromStatus: currentStatus,
           toStatus: nextStatus,
@@ -363,7 +359,7 @@ export class ComplaintsService {
     await this.prisma.$transaction(async (tx) => {
       await (tx as any).complaint.update({ where: { id }, data });
       await (tx as any).complaintStatusLog.create({
-        data: { tenantId: DEFAULT_TENANT_ID, complaintId: id, fromStatus: currentStatus, toStatus, changedById: actorId ?? null, reason: body.reason ?? null },
+        data: { complaintId: id, fromStatus: currentStatus, toStatus, changedById: actorId ?? null, reason: body.reason ?? null },
       });
     });
 
@@ -395,7 +391,7 @@ export class ComplaintsService {
         },
       });
       await (tx as any).complaintStatusLog.create({
-        data: { tenantId: DEFAULT_TENANT_ID, complaintId: id, fromStatus: currentStatus, toStatus: 'RESOLVED', changedById: actorId ?? null, reason: 'Resolved' },
+        data: { complaintId: id, fromStatus: currentStatus, toStatus: 'RESOLVED', changedById: actorId ?? null, reason: 'Resolved' },
       });
     });
 
@@ -422,7 +418,7 @@ export class ComplaintsService {
         data: { status: 'REOPENED', reopenCount: { increment: 1 } },
       });
       await (tx as any).complaintStatusLog.create({
-        data: { tenantId: DEFAULT_TENANT_ID, complaintId: id, fromStatus: 'CLOSED', toStatus: 'REOPENED', changedById: actorId ?? null, reason: body.reason ?? 'Reopened' },
+        data: { complaintId: id, fromStatus: 'CLOSED', toStatus: 'REOPENED', changedById: actorId ?? null, reason: body.reason ?? 'Reopened' },
       });
     });
 
@@ -452,7 +448,6 @@ export class ComplaintsService {
 
     const comment = await (this.prisma as any).complaintComment.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         complaintId: id,
         authorId: body.authorId ?? actorId ?? null,
         authorName: body.authorName?.trim() || 'Staff',
@@ -473,7 +468,6 @@ export class ComplaintsService {
     await this.getRawById(id);
     return (this.prisma as any).complaintAttachment.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         complaintId: id,
         url: body.url.trim(),
         fileName: body.fileName?.trim() || 'attachment',

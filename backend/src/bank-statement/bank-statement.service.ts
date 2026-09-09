@@ -1,7 +1,6 @@
 // backend/src/bank-statement/bank-statement.service.ts
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { BankReconcileStatus, BankTxnType, Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { createHash } from 'crypto';
@@ -260,7 +259,6 @@ export class BankStatementService {
     // Create import session
     const session = await this.prisma.bankImportSession.create({
       data: {
-        tenantId: DEFAULT_TENANT_ID,
         accountNumber,
         fileName,
         importedById,
@@ -334,7 +332,6 @@ export class BankStatementService {
       }
 
       toCreate.push({
-        tenantId: DEFAULT_TENANT_ID,
         sessionId: session.id,
         accountNumber,
         importKey: buildImportKey(row),
@@ -633,8 +630,8 @@ export class BankStatementService {
       throw new BadRequestException('Keyword is required');
 
     const rule = await this.prisma.vendorKeyword.upsert({
-      where: { tenantId_keyword: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword } },
-      create: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword, vendorId },
+      where: { keyword: normalizedKeyword },
+      create: { keyword: normalizedKeyword, vendorId },
       update: { vendorId },
     });
 
@@ -661,7 +658,7 @@ export class BankStatementService {
   }
 
   async createExpenseCategory(name: string, description?: string) {
-    return this.prisma.expenseCategory.create({ data: { tenantId: DEFAULT_TENANT_ID, name, description } });
+    return this.prisma.expenseCategory.create({ data: { name, description } });
   }
 
   async upsertExpenseKeyword(keyword: string, categoryId: string) {
@@ -670,8 +667,8 @@ export class BankStatementService {
       throw new BadRequestException('Keyword is required');
 
     const rule = await this.prisma.expenseKeyword.upsert({
-      where: { tenantId_keyword: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword } },
-      create: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword, categoryId },
+      where: { keyword: normalizedKeyword },
+      create: { keyword: normalizedKeyword, categoryId },
       update: { categoryId },
     });
 
@@ -713,8 +710,8 @@ export class BankStatementService {
       throw new BadRequestException('Keyword is required');
 
     const rule = await (this.prisma as any).userPaymentKeyword.upsert({
-      where: { tenantId_keyword: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword } },
-      create: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword, userId },
+      where: { keyword: normalizedKeyword },
+      create: { keyword: normalizedKeyword, userId },
       update: { userId },
     });
 
