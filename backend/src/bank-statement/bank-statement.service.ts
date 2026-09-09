@@ -334,6 +334,7 @@ export class BankStatementService {
       }
 
       toCreate.push({
+        tenantId: DEFAULT_TENANT_ID,
         sessionId: session.id,
         accountNumber,
         importKey: buildImportKey(row),
@@ -712,8 +713,8 @@ export class BankStatementService {
       throw new BadRequestException('Keyword is required');
 
     const rule = await (this.prisma as any).userPaymentKeyword.upsert({
-      where: { keyword: normalizedKeyword },
-      create: { keyword: normalizedKeyword, userId },
+      where: { tenantId_keyword: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword } },
+      create: { tenantId: DEFAULT_TENANT_ID, keyword: normalizedKeyword, userId },
       update: { userId },
     });
 

@@ -9,6 +9,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 type ComplaintForNotify = {
   id: string;
@@ -43,6 +44,7 @@ export class ComplaintsNotifications {
       if (!user) return;
       await (this.prisma as any).notification.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           type: 'COMPLAINT_ASSIGNED',
           priority: 'HIGH',
           title: `Ticket ${complaint.ticketNumber} assigned to you`,
@@ -62,6 +64,7 @@ export class ComplaintsNotifications {
     try {
       await (this.prisma as any).notification.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           type: 'COMPLAINT_SLA_BREACHED',
           priority: 'URGENT',
           title: `🔴 SLA breached — Ticket ${complaint.ticketNumber}`,

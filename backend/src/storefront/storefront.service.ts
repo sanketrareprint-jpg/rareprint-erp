@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OrderStatus, PaymentMethod, PaymentStatus, PaymentVerificationStatus, Prisma, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const fallbackCatalog = [
   'Medicine Paper Pouch',
@@ -148,7 +149,7 @@ export class StorefrontService {
     await this.prisma.systemConfig.upsert({
       where: { key },
       update: { value: JSON.stringify(value) },
-      create: { key, value: JSON.stringify(value) },
+      create: { key, tenantId: DEFAULT_TENANT_ID, value: JSON.stringify(value) },
     });
     return value;
   }
@@ -335,7 +336,7 @@ export class StorefrontService {
     const last = await this.prisma.order.findFirst({ where: { isTest: { not: true } }, orderBy: { createdAt: 'desc' } });
     const lastNum = last ? parseInt(last.orderNumber, 10) : 1200;
     const next = (Number.isFinite(lastNum) ? lastNum : 1200) + 1;
-    const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
+    const exists = await this.prisma.order.findUnique({ where: { tenantId_orderNumber: { tenantId: DEFAULT_TENANT_ID, orderNumber: String(next) } } });
     return exists ? `WEB-${Date.now()}` : String(next);
   }
 
@@ -349,9 +350,9 @@ export class StorefrontService {
     if (existing) return existing;
 
     const category = await this.prisma.productCategory.upsert({
-      where: { name: 'Web To Print' },
+      where: { tenantId_name: { tenantId: DEFAULT_TENANT_ID, name: 'Web To Print' } },
       update: { isActive: true },
-      create: { name: 'Web To Print', description: 'Public web-to-print storefront products' },
+      create: { tenantId: DEFAULT_TENANT_ID, name: 'Web To Print', description: 'Public web-to-print storefront products' },
     });
 
     const skuBase = cleanSku(item?.productSlug ?? productName) || 'WEB-PRINT';
@@ -359,6 +360,7 @@ export class StorefrontService {
 
     return this.prisma.product.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         sku,
         name: productName,
         description: 'Created from public web-to-print storefront order',
@@ -369,6 +371,7 @@ export class StorefrontService {
         sides: ProductSides.SINGLE_SIDE,
         costSlabs: {
           create: [{
+            tenantId: DEFAULT_TENANT_ID,
             minQuantity: Number(item?.quantity ?? 1),
             unitPrice: new Prisma.Decimal(Number(item?.unitPrice ?? 0)),
           }],
@@ -407,6 +410,7 @@ export class StorefrontService {
     const order = await this.prisma.$transaction(async (tx) => {
       const createdCustomer = await tx.customer.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           customerCode,
           businessName: name,
           contactPerson: name,
@@ -421,6 +425,7 @@ export class StorefrontService {
 
       const createdOrder = await tx.order.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderNumber,
           customerId: createdCustomer.id,
           status: OrderStatus.PENDING_APPROVAL,
@@ -441,6 +446,7 @@ export class StorefrontService {
           ].filter(Boolean).join(' | '),
           items: {
             create: rows.map((row) => ({
+              tenantId: DEFAULT_TENANT_ID,
               productId: row.product.id,
               quantity: row.quantity,
               unitPrice: new Prisma.Decimal(row.unitPrice),
@@ -457,6 +463,7 @@ export class StorefrontService {
 
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId: createdOrder.id,
           fromStatus: null,
           toStatus: OrderStatus.PENDING_APPROVAL,
@@ -555,6 +562,7 @@ export class StorefrontService {
     if (!account) {
       account = await this.prisma.paymentAccount.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           name: 'Razorpay Web Storefront',
           accountType: 'ONLINE_GATEWAY',
           currentBalance: new Prisma.Decimal(0),
@@ -565,6 +573,7 @@ export class StorefrontService {
     const amount = new Prisma.Decimal(order.grandTotal).div(2);
     await this.prisma.payment.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId,
         paymentAccountId: account.id,
         amount,

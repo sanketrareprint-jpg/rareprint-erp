@@ -1,6 +1,7 @@
 ﻿// backend/src/vendors/vendors.service.ts
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 @Injectable()
 export class VendorsService {
@@ -14,6 +15,6 @@ export class VendorsService {
   }
 
   async createVendor(data: { name: string; phone?: string; email?: string; address?: string; gstNumber?: string }) {
-    return this.prisma.vendor.create({ data });
+    return this.prisma.vendor.create({ data: { ...data, tenantId: DEFAULT_TENANT_ID } });
   }
 }

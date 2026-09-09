@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -181,9 +182,10 @@ export class RateCalculatorService {
     const json = JSON.stringify(rates);
     try {
       await (this.prisma as any).$queryRawUnsafe(
-        `INSERT INTO "SystemConfig" (key, value, "updatedAt") VALUES ('rate_calculator_rates', $1, NOW())
+        `INSERT INTO "SystemConfig" (key, "tenantId", value, "updatedAt") VALUES ('rate_calculator_rates', $2, $1, NOW())
          ON CONFLICT (key) DO UPDATE SET value = $1, "updatedAt" = NOW()`,
-        json
+        json,
+        DEFAULT_TENANT_ID
       );
     } catch {}
     writeRatesFile(rates);
@@ -205,9 +207,10 @@ export class RateCalculatorService {
     const json = JSON.stringify(data);
     try {
       await (this.prisma as any).$queryRawUnsafe(
-        `INSERT INTO "SystemConfig" (key, value, "updatedAt") VALUES ('clubbing_vendor_rates', $1, NOW())
+        `INSERT INTO "SystemConfig" (key, "tenantId", value, "updatedAt") VALUES ('clubbing_vendor_rates', $2, $1, NOW())
          ON CONFLICT (key) DO UPDATE SET value = $1, "updatedAt" = NOW()`,
-        json
+        json,
+        DEFAULT_TENANT_ID
       );
     } catch {}
     return { success: true };
@@ -222,7 +225,7 @@ export class RateCalculatorService {
   // statement, so concurrent requests can never be handed the same number.
   async nextQuotationNumber(): Promise<number> {
     const rows: any = await (this.prisma as any).$queryRawUnsafe(
-      `INSERT INTO "SystemConfig" (key, value, "updatedAt") VALUES ('rate_calculator_quotation_counter', '1', NOW())
+      `INSERT INTO "SystemConfig" (key, "tenantId", value, "updatedAt") VALUES ('rate_calculator_quotation_counter', '${DEFAULT_TENANT_ID}', '1', NOW())
        ON CONFLICT (key) DO UPDATE SET value = (CAST("SystemConfig".value AS INTEGER) + 1)::text, "updatedAt" = NOW()
        RETURNING value`
     );
@@ -234,6 +237,7 @@ export class RateCalculatorService {
     try {
       const rec = await (this.prisma as any).quoteHistory.create({
         data: {
+          tenantId:    DEFAULT_TENANT_ID,
           calcType:    dto.calcType    ?? 'forward',
           customer:    dto.customer    ?? null,
           job:         dto.job         ?? null,

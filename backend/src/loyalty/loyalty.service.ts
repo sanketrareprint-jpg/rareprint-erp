@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CostTableService } from '../cost-table/cost-table.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { computeEarnPoints, computeRedemption, computeReversal } from './loyalty.calc';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 // ─── SystemConfig keys for loyalty settings ─────────────────────────────────
 // Same "individual key per setting, JSON-free" convention as marketing.service.ts
@@ -64,7 +65,7 @@ export class LoyaltyService {
       pairs.map(([key, value]) =>
         (this.prisma as any).systemConfig.upsert({
           where: { key },
-          create: { key, value },
+          create: { key, tenantId: DEFAULT_TENANT_ID, value },
           update: { value },
         }),
       ),
@@ -82,7 +83,7 @@ export class LoyaltyService {
   // opted-out numbers. No contact record at all just means this phone has
   // never been in a marketing campaign — that's not an opt-out.
   private async isOptedOut(phone: string): Promise<boolean> {
-    const contact = await (this.prisma as any).marketingContact.findUnique({ where: { mobile: phone } });
+    const contact = await (this.prisma as any).marketingContact.findUnique({ where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile: phone } } });
     if (!contact) return false;
     return !!(contact.isBlacklisted || contact.optedOutAt);
   }
@@ -151,8 +152,8 @@ export class LoyaltyService {
     try {
       walletBalance = await this.prisma.$transaction(async (tx) => {
         const wallet = await (tx as any).customerLoyaltyWallet.upsert({
-          where: { phone },
-          create: { phone, customerId: order.customerId ?? null, points: 0 },
+          where: { tenantId_phone: { tenantId: DEFAULT_TENANT_ID, phone } },
+          create: { tenantId: DEFAULT_TENANT_ID, phone, customerId: order.customerId ?? null, points: 0 },
           update: order.customerId ? { customerId: order.customerId } : {},
         });
 
@@ -165,6 +166,7 @@ export class LoyaltyService {
 
         await (tx as any).customerLoyaltyTransaction.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             walletId: updatedWallet.id,
             orderId,
             type: 'EARN',
@@ -252,6 +254,7 @@ export class LoyaltyService {
       });
       await (tx as any).customerLoyaltyTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           walletId: wallet.id,
           orderId,
           type: 'REDEEM',
@@ -314,6 +317,7 @@ export class LoyaltyService {
         });
         await (tx as any).customerLoyaltyTransaction.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             walletId: wallet.id,
             orderId,
             type: 'REVERSE',
@@ -379,8 +383,8 @@ export class LoyaltyService {
     const orderId = this.testOrderId('EARN');
     const walletBalance = await this.prisma.$transaction(async (tx) => {
       const wallet = await (tx as any).customerLoyaltyWallet.upsert({
-        where: { phone },
-        create: { phone, points: 0 },
+        where: { tenantId_phone: { tenantId: DEFAULT_TENANT_ID, phone } },
+        create: { tenantId: DEFAULT_TENANT_ID, phone, points: 0 },
         update: {},
       });
       const updated = calc.points > 0
@@ -391,6 +395,7 @@ export class LoyaltyService {
         : wallet;
       await (tx as any).customerLoyaltyTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           walletId: updated.id,
           orderId,
           type: 'EARN',
@@ -440,6 +445,7 @@ export class LoyaltyService {
         });
         await (tx as any).customerLoyaltyTransaction.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             walletId: wallet.id,
             orderId,
             type: 'REDEEM',
@@ -461,7 +467,7 @@ export class LoyaltyService {
     const normalized = this.normalizePhoneOrNull(phone);
     if (!normalized) throw new BadRequestException('Invalid phone number');
 
-    const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({ where: { phone: normalized } });
+    const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({ where: { tenantId_phone: { tenantId: DEFAULT_TENANT_ID, phone: normalized } } });
     if (!wallet) throw new BadRequestException('No test wallet found for this phone');
 
     const lastEarn = await (this.prisma as any).customerLoyaltyTransaction.findFirst({
@@ -486,6 +492,7 @@ export class LoyaltyService {
       await (tx as any).customerLoyaltyWallet.update({ where: { id: fresh.id }, data: { points: calc.newBalance } });
       await (tx as any).customerLoyaltyTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           walletId: fresh.id,
           orderId: lastEarn.orderId,
           type: 'REVERSE',
@@ -505,7 +512,7 @@ export class LoyaltyService {
     const normalized = this.normalizePhoneOrNull(phone);
     if (!normalized) throw new BadRequestException('Invalid phone number');
 
-    const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({ where: { phone: normalized } });
+    const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({ where: { tenantId_phone: { tenantId: DEFAULT_TENANT_ID, phone: normalized } } });
     if (!wallet) return { cleared: 0, walletBalance: 0 };
 
     return this.prisma.$transaction(async (tx) => {
@@ -530,7 +537,7 @@ export class LoyaltyService {
     if (!phone) throw new BadRequestException('Invalid phone number');
 
     const wallet = await (this.prisma as any).customerLoyaltyWallet.findUnique({
-      where: { phone },
+      where: { tenantId_phone: { tenantId: DEFAULT_TENANT_ID, phone } },
       include: { transactions: { orderBy: { createdAt: 'desc' }, take: 200 } },
     });
     if (!wallet) return { phone, points: 0, transactions: [] };

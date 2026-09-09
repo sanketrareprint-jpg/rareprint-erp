@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 function clean(value: unknown): string | null {
   const text = String(value ?? '').trim();
@@ -295,7 +296,7 @@ export class CustomerDirectoryService {
         result.updated++;
       } else {
         await this.prisma.customer.create({
-          data: { ...data, customerCode: customerCode() },
+          data: { ...data, tenantId: DEFAULT_TENANT_ID, customerCode: customerCode() },
         });
         result.created++;
       }

@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 // Same convention as AccountsService — Sanket is the super-admin, identified
 // by email rather than a Role enum value, since this app has never had a
@@ -362,7 +363,7 @@ export class OrdersService {
     const maxNum = parseInt(result[0]?.max ?? '1200', 10);
     const next = (isNaN(maxNum) ? 1200 : maxNum) + 1;
     // Verify uniqueness; fall back to timestamp-based number if taken (should be very rare)
-    const exists = await this.prisma.order.findUnique({ where: { orderNumber: String(next) } });
+    const exists = await this.prisma.order.findUnique({ where: { tenantId_orderNumber: { tenantId: DEFAULT_TENANT_ID, orderNumber: String(next) } } });
     if (exists) return String(Date.now());
     return String(next);
   }
@@ -378,7 +379,7 @@ export class OrdersService {
     const maxNum = parseInt(result[0]?.max ?? '0', 10);
     const next = (isNaN(maxNum) ? 0 : maxNum) + 1;
     const candidate = `S-${String(next).padStart(3, '0')}`;
-    const exists = await this.prisma.order.findUnique({ where: { orderNumber: candidate } });
+    const exists = await this.prisma.order.findUnique({ where: { tenantId_orderNumber: { tenantId: DEFAULT_TENANT_ID, orderNumber: candidate } } });
     if (exists) return `S-${Date.now()}`;
     return candidate;
   }
@@ -658,6 +659,7 @@ export class OrdersService {
     const customerCode = `CUST-${Date.now()}-${randomSuffix()}`;
 
     const itemsData = dto.items.map((i) => ({
+      tenantId: DEFAULT_TENANT_ID,
       productId: i.productId,
       quantity: i.quantity,
       unitPrice: new Prisma.Decimal(i.unitPrice),
@@ -711,6 +713,7 @@ export class OrdersService {
           })
         : await tx.customer.create({
             data: {
+              tenantId: DEFAULT_TENANT_ID,
               customerCode,
               businessName: customerNameUpper,
               contactPerson: customerNameUpper,
@@ -727,6 +730,7 @@ export class OrdersService {
 
       const order = await tx.order.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderNumber,
           orderDate: new Date(),
           customerId: customer.id,
@@ -766,6 +770,7 @@ export class OrdersService {
       if (advance > 0 && dto.paymentAccountId) {
         await tx.payment.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             orderId: order.id,
             paymentAccountId: dto.paymentAccountId,
             receivedById: salesAgentId,
@@ -778,6 +783,7 @@ export class OrdersService {
       const toStatus = (dto.isSample ?? false) ? OrderStatus.READY_FOR_DISPATCH : OrderStatus.PENDING_APPROVAL;
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId: order.id,
           fromStatus: null,
           toStatus,
@@ -894,6 +900,7 @@ export class OrdersService {
       await tx.orderItem.deleteMany({ where: { orderId } });
 
       const itemsData = body.items.map((i: any) => ({
+        tenantId: DEFAULT_TENANT_ID,
         productId: i.productId,
         quantity: i.quantity,
         unitPrice: new Prisma.Decimal(i.unitPrice),
@@ -1086,6 +1093,7 @@ export class OrdersService {
       const after = { productName: product.name, quantity, unitPrice, lineTotal, productionNotes };
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId: order.id,
           fromStatus: previousOrderStatus,
           toStatus: OrderStatus.PENDING_APPROVAL,
@@ -1167,6 +1175,7 @@ export class OrdersService {
       // notification is added later.
       const customer = await tx.customer.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           customerCode,
           businessName: 'TEST CUSTOMER (DELETE ME)',
           contactPerson: 'Test',
@@ -1175,6 +1184,7 @@ export class OrdersService {
 
       const order = await tx.order.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderNumber: testOrderNumber,
           orderDate: new Date(),
           customerId: customer.id,
@@ -1190,6 +1200,7 @@ export class OrdersService {
           notes: 'TEST ORDER — safe to delete. Excluded from billing, invoicing totals, commissions, payroll and all reports; behaves like a real order everywhere else so you can exercise the full approval → production → dispatch pipeline.',
           items: {
             create: [{
+              tenantId: DEFAULT_TENANT_ID,
               productId: product.id,
               quantity: 100,
               unitPrice: new Prisma.Decimal(5),
@@ -1245,6 +1256,7 @@ export class OrdersService {
 
     const payment = await this.prisma.payment.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId,
         paymentAccountId: data.paymentAccountId,
         receivedById,
@@ -1270,6 +1282,7 @@ export class OrdersService {
 
     await this.prisma.statusLog.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId,
         fromStatus: order.status,
         toStatus: order.status,
@@ -1497,6 +1510,7 @@ export class OrdersService {
 
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
@@ -1571,6 +1585,7 @@ export class OrdersService {
       });
       await tx.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId,
           fromStatus: order.status,
           toStatus: order.status,
@@ -1824,6 +1839,7 @@ export class OrdersService {
 
         await tx.statusLog.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             orderId,
             fromStatus: order.status,
             toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,

@@ -28,6 +28,7 @@ import { OrdersService } from '../orders/orders.service';
 import { Prisma, RemittanceMatchStatus } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { createHash } from 'crypto';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const BIGSHIP_ACCOUNT_NAME = 'Bigship COD Remittance';
 
@@ -233,6 +234,7 @@ export class RemittanceService {
 
     const session = await this.prisma.remittanceImportSession.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         fileName: remittanceFileName,
         deliveredFileName: deliveredFileName ?? undefined,
         importedById,
@@ -266,7 +268,7 @@ export class RemittanceService {
       if (seenInFile.has(importKey)) { duplicate++; continue; }
       seenInFile.add(importKey);
 
-      const existing = await this.prisma.remittanceRecord.findUnique({ where: { importKey } });
+      const existing = await this.prisma.remittanceRecord.findUnique({ where: { tenantId_importKey: { tenantId: DEFAULT_TENANT_ID, importKey } } });
       if (existing) {
         duplicate++;
         continue;
@@ -280,6 +282,7 @@ export class RemittanceService {
 
       await this.prisma.remittanceRecord.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           sessionId: session.id,
           importKey,
           remittanceRef: row.remittanceRef,
@@ -795,6 +798,7 @@ export class RemittanceService {
     if (!account) {
       account = await this.prisma.paymentAccount.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           name: BIGSHIP_ACCOUNT_NAME,
           accountType: 'COURIER_COD',
           currentBalance: new Prisma.Decimal(0),

@@ -32,6 +32,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Employee, EmployeeKraType, LeaveType, OrderStatus, Prisma } from '@prisma/client';
 import { GmailDraftService } from '../production/gmail-draft.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 // The one person who can approve an employee's master record for payroll.
 // Checked by email (not a new role tier) so it doesn't disturb the existing
@@ -171,6 +172,7 @@ export class HrService {
     try {
       return await this.prisma.salesIncentivePlan.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           label: dto.label.trim(),
           monthlyTarget: dto.monthlyTarget,
           incentivePct: dto.incentivePct,
@@ -238,6 +240,7 @@ export class HrService {
     try {
       return await this.prisma.employee.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           employeeCode: dto.employeeCode.trim().toUpperCase(),
           biometricId: dto.biometricId || null,
           userId: dto.userId || null,
@@ -396,6 +399,7 @@ export class HrService {
     if (!dto.title?.trim()) throw new BadRequestException('title is required');
     return this.prisma.employeeKra.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         employeeId,
         type: dto.type ?? 'KRA',
         title: dto.title.trim(),
@@ -434,6 +438,7 @@ export class HrService {
     if (!dto.date) throw new BadRequestException('date is required');
     return this.prisma.employeeLeaveEntry.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         employeeId,
         date: new Date(dto.date),
         endDate: dto.endDate ? new Date(dto.endDate) : null,
@@ -717,6 +722,7 @@ export class HrService {
       await tx.companyTerms.updateMany({ where: { isActive: true }, data: { isActive: false } });
       return tx.companyTerms.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           version: nextVersion,
           title: dto.title.trim(),
           content: dto.content,

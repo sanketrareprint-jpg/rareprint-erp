@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const AISENSY_API_URL = process.env.AISENSY_API_URL ?? 'https://backend.aisensy.com/campaign/t1/api/v2';
 const DAILY_DEFAULT_LIMIT = 10000;
@@ -57,7 +58,7 @@ export class MarketingService {
       pairs.map(([key, value]) =>
         (this.prisma as any).systemConfig.upsert({
           where: { key },
-          create: { key, value },
+          create: { key, tenantId: DEFAULT_TENANT_ID, value },
           update: { value },
         }),
       ),
@@ -156,18 +157,18 @@ export class MarketingService {
 
     for (const contact of contacts) {
       const existing = await (this.prisma as any).marketingContact.findUnique({
-        where: { mobile: contact.mobile },
+        where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile: contact.mobile } },
         select: { id: true },
       });
 
       if (existing) {
         await (this.prisma as any).marketingContact.update({
-          where: { mobile: contact.mobile },
+          where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile: contact.mobile } },
           data: this.compactContactUpdate(contact),
         });
         result.updated++;
       } else {
-        await (this.prisma as any).marketingContact.create({ data: contact });
+        await (this.prisma as any).marketingContact.create({ data: { ...contact, tenantId: DEFAULT_TENANT_ID } });
         result.success++;
       }
     }
@@ -203,13 +204,13 @@ export class MarketingService {
       };
 
       const existing = await (this.prisma as any).marketingContact.findUnique({
-        where: { mobile },
+        where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile } },
         select: { id: true, tags: true },
       });
 
       if (existing) {
         await (this.prisma as any).marketingContact.update({
-          where: { mobile },
+          where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile } },
           data: {
             ...this.compactContactUpdate(data),
             tags: this.mergeTags(existing.tags, data.tags),
@@ -217,7 +218,7 @@ export class MarketingService {
         });
         result.updated++;
       } else {
-        await (this.prisma as any).marketingContact.create({ data });
+        await (this.prisma as any).marketingContact.create({ data: { ...data, tenantId: DEFAULT_TENANT_ID } });
         result.success++;
       }
     }
@@ -260,6 +261,7 @@ export class MarketingService {
   createSegment(body: any) {
     return (this.prisma as any).marketingSegment.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         name: body.name,
         description: body.description,
         filters: body.filters ?? {},
@@ -283,6 +285,7 @@ export class MarketingService {
   createTemplate(body: any) {
     return (this.prisma as any).marketingTemplate.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         name: body.name,
         aisensyCampaignName: body.aisensyCampaignName,
         templateType: body.templateType ?? 'TEXT',
@@ -321,6 +324,7 @@ export class MarketingService {
     if (!body.steps?.length) throw new BadRequestException('At least one campaign step is required');
     return (this.prisma as any).marketingCampaign.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         name: body.name,
         segmentId: body.segmentId || null,
         dailyLimit: Number(body.dailyLimit ?? DAILY_DEFAULT_LIMIT),
@@ -331,6 +335,7 @@ export class MarketingService {
         createdById: userId,
         steps: {
           create: body.steps.map((step: any, index: number) => ({
+            tenantId: DEFAULT_TENANT_ID,
             templateId: step.templateId,
             stepOrder: Number(step.stepOrder ?? index + 1),
             delayHours: Number(step.delayHours ?? 0),
@@ -498,6 +503,7 @@ export class MarketingService {
     let queued = 0;
     const jobs = contacts.flatMap((contact) =>
       campaign.steps.map((step) => ({
+        tenantId: DEFAULT_TENANT_ID,
         campaignId: campaign.id,
         stepId: step.id,
         contactId: contact.id,
@@ -620,7 +626,7 @@ export class MarketingService {
               data: { lastBroadcastDate: new Date() },
             }),
             (this.prisma as any).marketingMessageEvent.create({
-              data: { contactId: job.contactId, campaignId: job.campaignId, providerMessageId: result.providerMessageId, eventType: 'SENT', rawPayload: result.raw ?? {} },
+              data: { tenantId: DEFAULT_TENANT_ID, contactId: job.contactId, campaignId: job.campaignId, providerMessageId: result.providerMessageId, eventType: 'SENT', rawPayload: result.raw ?? {} },
             }),
           ]);
           sent++;
@@ -674,13 +680,14 @@ export class MarketingService {
     const providerMessageId = body.messageId ?? body.message_id ?? body.id ?? body.msgId;
     const mobile = this.normalizePhone(body.phone ?? body.mobile ?? body.destination ?? body.wa_id);
     const eventType = kind === 'reply' ? 'REPLIED' : this.mapWebhookStatus(body.status ?? body.event ?? body.type);
-    const contact = mobile ? await (this.prisma as any).marketingContact.findUnique({ where: { mobile } }) : null;
+    const contact = mobile ? await (this.prisma as any).marketingContact.findUnique({ where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile } } }) : null;
     const job = providerMessageId
       ? await (this.prisma as any).marketingBroadcastJob.findFirst({ where: { providerMessageId } })
       : null;
 
     await (this.prisma as any).marketingMessageEvent.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         contactId: contact?.id ?? job?.contactId,
         campaignId: job?.campaignId,
         providerMessageId,
@@ -962,7 +969,7 @@ export class MarketingService {
       if (!mobile || mobile.length < 12) continue;
 
       const existing = await (this.prisma as any).marketingContact.findUnique({
-        where: { mobile },
+        where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile } },
         select: { id: true, tags: true },
       });
 
@@ -972,13 +979,14 @@ export class MarketingService {
 
       if (existing) {
         await (this.prisma as any).marketingContact.update({
-          where: { mobile },
+          where: { tenantId_mobile: { tenantId: DEFAULT_TENANT_ID, mobile } },
           data: { tags },
         });
         updated++;
       } else {
         await (this.prisma as any).marketingContact.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             mobile,
             ownerName: lead.name ?? undefined,
             shopName: lead.businessName ?? undefined,

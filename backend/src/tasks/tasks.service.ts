@@ -11,6 +11,7 @@ import {
   TaskStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 type JwtUser = { id: string; role: string };
 
@@ -148,6 +149,7 @@ export class TasksService {
     }
 
     const data = {
+      tenantId: DEFAULT_TENANT_ID,
       title,
       description: body.description?.trim() || null,
       assignedToId,

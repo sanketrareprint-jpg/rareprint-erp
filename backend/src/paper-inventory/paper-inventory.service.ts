@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 import { InHouseStickerTxType, PaperPOStatus, PaperTransactionType, PaperUnit, SheetQuality } from '@prisma/client';
 
 const INHOUSE_STOCK_ID = 'inhouse-sticker-stock-singleton';
@@ -166,6 +167,7 @@ Return ONLY valid JSON, no explanation:
     return this.prisma.$transaction(async (tx) => {
       const po = await tx.paperPurchaseOrder.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           poNumber,
           invoiceNumber: dto.invoiceNumber,
           invoiceImagePath: dto.invoiceImagePath,
@@ -186,6 +188,7 @@ Return ONLY valid JSON, no explanation:
 
         const poItem = await tx.paperPurchaseItem.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             poId: po.id,
             paperName: item.paperName,
             gsm: item.gsm,
@@ -206,20 +209,21 @@ Return ONLY valid JSON, no explanation:
 
         // Update or create PaperInventory for this press + gsm + quality
         const existing = await tx.paperInventory.findUnique({
-          where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
+          where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
         });
 
         const newBalance = (existing?.balanceSheets ?? 0) + totalSheets;
 
         await tx.paperInventory.upsert({
-          where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
+          where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
           update: { balanceSheets: newBalance },
-          create: { pressId: item.pressId, gsm: item.gsm, quality: item.quality, balanceSheets: totalSheets },
+          create: { tenantId: DEFAULT_TENANT_ID, pressId: item.pressId, gsm: item.gsm, quality: item.quality, balanceSheets: totalSheets },
         });
 
         // Record transaction
         await tx.paperTransaction.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             pressId: item.pressId,
             gsm: item.gsm,
             quality: item.quality,
@@ -273,7 +277,7 @@ Return ONLY valid JSON, no explanation:
 
     // Check balance
     const inventory = await this.prisma.paperInventory.findUnique({
-      where: { pressId_gsm_quality: { pressId, gsm, quality } },
+      where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId, gsm, quality } },
     });
 
     const currentBalance = inventory?.balanceSheets ?? 0;
@@ -292,12 +296,13 @@ Return ONLY valid JSON, no explanation:
 
     await this.prisma.$transaction(async (tx) => {
       await tx.paperInventory.update({
-        where: { pressId_gsm_quality: { pressId, gsm, quality } },
+        where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId, gsm, quality } },
         data: { balanceSheets: newBalance },
       });
 
       await tx.paperTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           pressId,
           gsm,
           quality,
@@ -330,20 +335,21 @@ Return ONLY valid JSON, no explanation:
     const sheetsToRestore = Math.abs(sheets);
 
     const inventory = await this.prisma.paperInventory.findUnique({
-      where: { pressId_gsm_quality: { pressId, gsm, quality } },
+      where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId, gsm, quality } },
     });
 
     const newBalance = (inventory?.balanceSheets ?? 0) + sheetsToRestore;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.paperInventory.upsert({
-        where: { pressId_gsm_quality: { pressId, gsm, quality } },
+        where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId, gsm, quality } },
         update: { balanceSheets: newBalance },
-        create: { pressId, gsm, quality, balanceSheets: sheetsToRestore },
+        create: { tenantId: DEFAULT_TENANT_ID, pressId, gsm, quality, balanceSheets: sheetsToRestore },
       });
 
       await tx.paperTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           pressId,
           gsm,
           quality,
@@ -534,12 +540,12 @@ Return ONLY valid JSON, no explanation:
       // 1. Reverse inventory for each old item (no reversal transaction — delete old ones instead)
       for (const oldItem of existing.items) {
         const inv = await tx.paperInventory.findUnique({
-          where: { pressId_gsm_quality: { pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
+          where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
         });
         const newBalance = Math.max(0, (inv?.balanceSheets ?? 0) - oldItem.totalSheets);
         if (inv) {
           await tx.paperInventory.update({
-            where: { pressId_gsm_quality: { pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
+            where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId: oldItem.pressId, gsm: oldItem.gsm, quality: oldItem.quality } },
             data: { balanceSheets: newBalance },
           });
         }
@@ -582,6 +588,7 @@ Return ONLY valid JSON, no explanation:
 
         const poItem = await tx.paperPurchaseItem.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             poId: id,
             paperName: item.paperName,
             gsm: item.gsm,
@@ -601,18 +608,19 @@ Return ONLY valid JSON, no explanation:
         }
 
         const existingInv = await tx.paperInventory.findUnique({
-          where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
+          where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
         });
         const newBalance = (existingInv?.balanceSheets ?? 0) + totalSheets;
 
         await tx.paperInventory.upsert({
-          where: { pressId_gsm_quality: { pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
+          where: { tenantId_pressId_gsm_quality: { tenantId: DEFAULT_TENANT_ID, pressId: item.pressId, gsm: item.gsm, quality: item.quality } },
           update: { balanceSheets: newBalance },
-          create: { pressId: item.pressId, gsm: item.gsm, quality: item.quality, balanceSheets: totalSheets },
+          create: { tenantId: DEFAULT_TENANT_ID, pressId: item.pressId, gsm: item.gsm, quality: item.quality, balanceSheets: totalSheets },
         });
 
         await tx.paperTransaction.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             pressId: item.pressId,
             gsm: item.gsm,
             quality: item.quality,
@@ -640,7 +648,7 @@ Return ONLY valid JSON, no explanation:
   private async getOrCreateStickerStock() {
     let stock = await this.prisma.inHouseStickerStock.findUnique({ where: { id: INHOUSE_STOCK_ID } });
     if (!stock) {
-      stock = await this.prisma.inHouseStickerStock.create({ data: { id: INHOUSE_STOCK_ID, balanceSheets: 0 } });
+      stock = await this.prisma.inHouseStickerStock.create({ data: { id: INHOUSE_STOCK_ID, tenantId: DEFAULT_TENANT_ID, balanceSheets: 0 } });
     }
     return stock;
   }
@@ -658,10 +666,11 @@ Return ONLY valid JSON, no explanation:
       const stock = await tx.inHouseStickerStock.upsert({
         where: { id: INHOUSE_STOCK_ID },
         update: { balanceSheets: { increment: sheets } },
-        create: { id: INHOUSE_STOCK_ID, balanceSheets: sheets },
+        create: { id: INHOUSE_STOCK_ID, tenantId: DEFAULT_TENANT_ID, balanceSheets: sheets },
       });
       await tx.inHouseStickerTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           transactionType: 'STOCK_IN',
           sheets,
           balanceAfter: stock.balanceSheets,
@@ -689,6 +698,7 @@ Return ONLY valid JSON, no explanation:
       });
       await tx.inHouseStickerTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           transactionType: 'USED',
           sheets: -sheets,
           balanceAfter: updated.balanceSheets,
@@ -710,10 +720,11 @@ Return ONLY valid JSON, no explanation:
       await tx.inHouseStickerStock.upsert({
         where: { id: INHOUSE_STOCK_ID },
         update: { balanceSheets: newBalance },
-        create: { id: INHOUSE_STOCK_ID, balanceSheets: newBalance },
+        create: { id: INHOUSE_STOCK_ID, tenantId: DEFAULT_TENANT_ID, balanceSheets: newBalance },
       });
       await tx.inHouseStickerTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           transactionType: 'ADJUSTMENT',
           sheets: diff,
           balanceAfter: newBalance,

@@ -4,6 +4,7 @@ import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/c
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { getPrintUnitMultiplier } from './clubbing-sheet.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const STAGE_LABEL: Record<string, string> = {
   PRINTING:           'Printing 🖨️',
@@ -182,6 +183,7 @@ export class ProductionService {
 
     await this.prisma.statusLog.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId: item.orderId,
         fromStatus: item.order.status,
         toStatus: item.order.status,
@@ -203,6 +205,7 @@ export class ProductionService {
       });
       await this.prisma.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId: item.orderId,
           fromStatus: item.order.status,
           toStatus: OrderStatus.IN_PRODUCTION,
@@ -309,6 +312,7 @@ export class ProductionService {
       ?? (item.product as any).sizeInches ?? '';
     await this.prisma.statusLog.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId: item.orderId,
         fromStatus: item.order.status,
         toStatus: item.order.status,
@@ -364,6 +368,7 @@ export class ProductionService {
       });
       await this.prisma.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId: item.orderId,
           fromStatus: item.order.status,
           toStatus: newOrderStatus,

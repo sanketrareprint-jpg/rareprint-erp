@@ -3,6 +3,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { JobWorkStatus, OrderStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaperInventoryService } from '../paper-inventory/paper-inventory.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 function summarizeDesignFiles(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -386,13 +387,14 @@ export class ClubbingSheetService {
     const vendor = await this.prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { name: true } });
     const poNumber = await this.generatePoNumber();
     const jobWork = await this.prisma.jobWork.create({
-      data: { orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null },
+      data: { tenantId: DEFAULT_TENANT_ID, orderItemId: data.orderItemId, vendorId: data.vendorId, description: data.description, cost: data.cost, vendorInvoiceNo: data.vendorInvoiceNo, dueDate: data.dueDate ? new Date(data.dueDate) : null },
       include: { vendor: true },
     });
     // Set poNumber via raw SQL — Prisma client doesn't know about it yet (no migration file)
     await this.prisma.$executeRaw`UPDATE "JobWork" SET "poNumber" = ${poNumber} WHERE id = ${jobWork.id}`;
     await this.prisma.statusLog.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId: item.orderId,
         fromStatus: item.order.status,
         toStatus: item.order.status,
@@ -436,6 +438,7 @@ export class ClubbingSheetService {
     if (data.status && data.status !== existing.status) {
       await this.prisma.statusLog.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           orderId: existing.orderItem.orderId,
           fromStatus: existing.orderItem.order.status,
           toStatus: existing.orderItem.order.status,
@@ -555,7 +558,7 @@ export class ClubbingSheetService {
     const sheetNo = await this.nextSheetNo();
     const [w, h] = data.sizeInches.split('x').map(Number);
     if (!w || !h) throw new BadRequestException('Invalid size format. Use WxH e.g. 18x23');
-    return this.prisma.printSheet.create({ data: { sheetNo, ...data, actualPrintedQuantity: data.actualPrintedQuantity ?? null, areaSqInches: w * h } });
+    return this.prisma.printSheet.create({ data: { tenantId: DEFAULT_TENANT_ID, sheetNo, ...data, actualPrintedQuantity: data.actualPrintedQuantity ?? null, areaSqInches: w * h } });
   }
 
   async autoOrganizeSheets(userId?: string) {
@@ -625,6 +628,7 @@ export class ClubbingSheetService {
           const usedAreaSqInches = plan.placements.reduce((sum, placement) => sum + placement.areaSqInches, 0);
           const sheet = await tx.printSheet.create({
             data: {
+              tenantId: DEFAULT_TENANT_ID,
               sheetNo,
               gsm: active[0].gsm,
               quality: plan.pattern.quality,
@@ -641,6 +645,7 @@ export class ClubbingSheetService {
           for (const placement of plan.placements) {
             const sheetItem = await tx.printSheetItem.create({
               data: {
+                tenantId: DEFAULT_TENANT_ID,
                 sheetId: sheet.id,
                 orderItemId: placement.item.id,
                 productId: placement.item.productId,
@@ -651,6 +656,7 @@ export class ClubbingSheetService {
             });
             await tx.statusLog.create({
               data: {
+                tenantId: DEFAULT_TENANT_ID,
                 orderId: placement.item.orderId,
                 fromStatus: OrderStatus.IN_PRODUCTION,
                 toStatus: OrderStatus.IN_PRODUCTION,
@@ -799,6 +805,7 @@ export class ClubbingSheetService {
           });
           await tx.statusLog.create({
             data: {
+              tenantId: DEFAULT_TENANT_ID,
               orderId: si.orderItem.orderId,
               fromStatus: si.orderItem.order.status,
               toStatus: si.orderItem.order.status,
@@ -846,7 +853,7 @@ export class ClubbingSheetService {
     if (data.status === SheetStatus.PRINTING && sheet.status !== SheetStatus.PRINTING && data.activityType === 'PRINTING') {
       // Pre-create the stage vendor record so the paper check can find it
       await this.prisma.sheetStageVendor.create({
-        data: { sheetId, stage: SheetProductionStage.PRINTING, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo },
+        data: { tenantId: DEFAULT_TENANT_ID, sheetId, stage: SheetProductionStage.PRINTING, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo },
       });
       // Now check & deduct paper (will find the vendor we just created)
       await this.paperInventoryService.consumePaperForSheet(sheetId);
@@ -859,6 +866,7 @@ export class ClubbingSheetService {
           await tx.orderItem.update({ where: { id: si.orderItemId }, data: { itemProductionStage: 'PRINTING' } });
           await tx.statusLog.create({
             data: {
+              tenantId: DEFAULT_TENANT_ID,
               orderId: si.orderItem.orderId,
               fromStatus: si.orderItem.order.status,
               toStatus: si.orderItem.order.status,
@@ -890,13 +898,14 @@ export class ClubbingSheetService {
 
     return this.prisma.$transaction(async (tx) => {
       const updatedSheet = await tx.printSheet.update({ where: { id: sheetId }, data: { status: data.status } });
-      await tx.sheetStageVendor.create({ data: { sheetId, stage, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo } });
+      await tx.sheetStageVendor.create({ data: { tenantId: DEFAULT_TENANT_ID, sheetId, stage, vendorId: data.vendorId, description: data.description, cost: data.cost ?? 0, vendorInvoiceNo: data.vendorInvoiceNo } });
       const sheetItems = await tx.printSheetItem.findMany({ where: { sheetId }, include: { orderItem: { select: { orderId: true, product: { select: { name: true } }, order: { select: { status: true } } } } } });
       for (const si of sheetItems) {
         if (!si.orderItem) continue;
         await tx.orderItem.update({ where: { id: si.orderItemId }, data: { itemProductionStage: 'PRINTING' } });
         await tx.statusLog.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             orderId: si.orderItem.orderId,
             fromStatus: si.orderItem.order.status,
             toStatus: si.orderItem.order.status,
@@ -990,7 +999,7 @@ export class ClubbingSheetService {
     const newUsed = data.areaSqInches > 1 ? sheet.usedAreaSqInches + data.areaSqInches : sheet.usedAreaSqInches;
     if (data.areaSqInches > 1 && newUsed > sheet.areaSqInches) throw new BadRequestException('Not enough space on sheet');
     const [, updatedSheet] = await this.prisma.$transaction([
-      this.prisma.printSheetItem.create({ data: { sheetId, orderItemId: data.orderItemId, productId, multiple: data.multiple, quantityOnSheet: data.quantityOnSheet, areaSqInches: data.areaSqInches } }),
+      this.prisma.printSheetItem.create({ data: { tenantId: DEFAULT_TENANT_ID, sheetId, orderItemId: data.orderItemId, productId, multiple: data.multiple, quantityOnSheet: data.quantityOnSheet, areaSqInches: data.areaSqInches } }),
       this.prisma.printSheet.update({ where: { id: sheetId }, data: { usedAreaSqInches: newUsed } }),
     ]);
     const item = await this.prisma.printSheetItem.findFirstOrThrow({
@@ -1000,6 +1009,7 @@ export class ClubbingSheetService {
     });
     await this.prisma.statusLog.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         orderId: item.orderItem.order.id,
         fromStatus: item.orderItem.order.status,
         toStatus: item.orderItem.order.status,
@@ -1038,7 +1048,7 @@ export class ClubbingSheetService {
 
   async addSheetStageVendor(data: { sheetId: string; stage: SheetProductionStage; vendorId: string; description?: string; cost: number; vendorInvoiceNo?: string }, userId?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const stageVendor = await tx.sheetStageVendor.create({ data, include: { vendor: true } });
+      const stageVendor = await tx.sheetStageVendor.create({ data: { ...data, tenantId: DEFAULT_TENANT_ID }, include: { vendor: true } });
       const sheetItems = await tx.printSheetItem.findMany({
         where: { sheetId: data.sheetId },
         include: { orderItem: { select: { orderId: true, product: { select: { name: true } } } } },
@@ -1047,6 +1057,7 @@ export class ClubbingSheetService {
       for (const si of sheetItems) {
         await tx.statusLog.create({
           data: {
+            tenantId: DEFAULT_TENANT_ID,
             orderId: si.orderItem.orderId,
             fromStatus: OrderStatus.IN_PRODUCTION,
             toStatus: OrderStatus.IN_PRODUCTION,

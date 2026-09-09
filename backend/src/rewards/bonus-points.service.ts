@@ -17,6 +17,7 @@
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 type ClaimType = 'MANUAL' | 'AUTOMATIC';
 
@@ -45,6 +46,7 @@ export class BonusPointsService {
 
     return (this.prisma as any).bonusActivity.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         name,
         description: data.description?.trim() || null,
         points: Math.round(points),
@@ -96,6 +98,7 @@ export class BonusPointsService {
     const dataUri = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     return (this.prisma as any).bonusClaim.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         activityId,
         userId,
         points: activity.points,
@@ -125,8 +128,8 @@ export class BonusPointsService {
     if (claim.status !== 'PENDING') throw new BadRequestException('This claim was already reviewed');
 
     const wallet = await (this.prisma as any).rewardWallet.upsert({
-      where: { userId: claim.userId },
-      create: { userId: claim.userId, coins: 0 },
+      where: { tenantId_userId: { tenantId: DEFAULT_TENANT_ID, userId: claim.userId } },
+      create: { tenantId: DEFAULT_TENANT_ID, userId: claim.userId, coins: 0 },
       update: {},
     });
 
@@ -142,6 +145,7 @@ export class BonusPointsService {
       }),
       (this.prisma as any).rewardTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           walletId: wallet.id,
           coins: claim.points,
           reason: `Bonus: ${claim.activity.name}`,
@@ -177,13 +181,14 @@ export class BonusPointsService {
 
     return this.prisma.$transaction(async (tx) => {
       const wallet = await (tx as any).rewardWallet.upsert({
-        where: { userId },
-        create: { userId, coins: 0 },
+        where: { tenantId_userId: { tenantId: DEFAULT_TENANT_ID, userId } },
+        create: { tenantId: DEFAULT_TENANT_ID, userId, coins: 0 },
         update: {},
       });
 
       const claim = await (tx as any).bonusClaim.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           activityId,
           userId,
           points: activity.points,
@@ -202,6 +207,7 @@ export class BonusPointsService {
 
       await (tx as any).rewardTransaction.create({
         data: {
+          tenantId: DEFAULT_TENANT_ID,
           walletId: wallet.id,
           coins: activity.points,
           reason: `Bonus: ${activity.name}`,

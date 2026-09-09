@@ -25,6 +25,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CallComplianceService } from '../call-compliance/call-compliance.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 export interface MonthRoi {
   monthKey: string; // "YYYY-MM"
@@ -61,8 +62,9 @@ export class MarketingRoiService {
   async upsertSpend(monthKey: string, body: { metaAdSpend?: number; aisensySpend?: number; notes?: string }, userId: string) {
     this.assertMonthKey(monthKey);
     await (this.prisma as any).marketingRoiSpend.upsert({
-      where: { monthKey },
+      where: { tenantId_monthKey: { tenantId: DEFAULT_TENANT_ID, monthKey } },
       create: {
+        tenantId: DEFAULT_TENANT_ID,
         monthKey,
         metaAdSpend: body.metaAdSpend ?? 0,
         aisensySpend: body.aisensySpend ?? 0,
@@ -231,7 +233,7 @@ export class MarketingRoiService {
     const { start, end } = this.monthRange(monthKey);
 
     const [spendRow, contacts] = await Promise.all([
-      (this.prisma as any).marketingRoiSpend.findUnique({ where: { monthKey } }),
+      (this.prisma as any).marketingRoiSpend.findUnique({ where: { tenantId_monthKey: { tenantId: DEFAULT_TENANT_ID, monthKey } } }),
       (this.prisma as any).importedContact.findMany({
         where: { createdOnAt: { gte: start, lt: end } },
         select: { phone: true },

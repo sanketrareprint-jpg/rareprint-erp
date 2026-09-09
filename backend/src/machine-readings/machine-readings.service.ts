@@ -12,6 +12,7 @@
 // instead of a plain subtraction.
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TENANT_ID } from '../common/tenant';
 
 const RESET_THRESHOLD = 1_000_000;
 const RATE_PER_THOUSAND = 50;
@@ -73,6 +74,7 @@ export class MachineReadingsService {
     }
     return (this.prisma as any).machineReading.create({
       data: {
+        tenantId: DEFAULT_TENANT_ID,
         readingDate: new Date(dto.readingDate),
         readingValue: dto.readingValue,
         wasReset: dto.wasReset ?? false,
