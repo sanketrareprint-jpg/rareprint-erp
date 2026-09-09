@@ -1,0 +1,55 @@
+# Normalize line endings so Windows autocrlf and this repo's mixed CRLF/LF
+# history stop producing giant phantom diffs on every checkout/commit.
+# See: recurring "300+ files modified, ~equal insertions/deletions" issue
+# caused by core.autocrlf rewriting files on checkout.
+
+# Default: treat as text, normalize to LF in the repository.
+* text=auto eol=lf
+
+# Explicit source/config file types (always LF).
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.mdx text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.prisma text eol=lf
+*.env text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+
+# Windows-authored scripts keep CRLF (native PowerShell expectation).
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never touch, never diff as text. Critical for this repo
+# since real .xlsx/.docx/.apk assets live in it.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+*.docx binary
+*.doc binary
+*.apk binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
