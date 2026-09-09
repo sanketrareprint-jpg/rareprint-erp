@@ -1,6 +1,8 @@
 {
   "exclude": [
     "prisma/seed-topics.ts",
+    "_diag_invoice_ref_match.ts",
+    "_diag_invoice_repro.ts",
     "node_modules",
     "prisma"
   ],
