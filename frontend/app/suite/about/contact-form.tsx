@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { CONTACT_EMAIL } from "../lib/site-config";
 
 // No lead-capture backend exists yet (Phase D in
@@ -14,6 +14,7 @@ export function ContactForm() {
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
   const [message, setMessage] = useState("");
+  const idPrefix = useId();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -34,35 +35,55 @@ export function ContactForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <input
-        type="text"
-        required
-        placeholder="Your name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
-      />
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
-      />
-      <input
-        type="tel"
-        placeholder="Mobile"
-        value={mobile}
-        onChange={(e) => setMobile(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
-      />
-      <textarea
-        rows={4}
-        placeholder="Message"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
-      />
+      <div className="space-y-1.5">
+        <label htmlFor={`${idPrefix}-name`} className="text-sm font-medium text-slate-700">
+          Your name
+        </label>
+        <input
+          id={`${idPrefix}-name`}
+          type="text"
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor={`${idPrefix}-email`} className="text-sm font-medium text-slate-700">
+          Email
+        </label>
+        <input
+          id={`${idPrefix}-email`}
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor={`${idPrefix}-mobile`} className="text-sm font-medium text-slate-700">
+          Mobile
+        </label>
+        <input
+          id={`${idPrefix}-mobile`}
+          type="tel"
+          value={mobile}
+          onChange={(e) => setMobile(e.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor={`${idPrefix}-message`} className="text-sm font-medium text-slate-700">
+          Message
+        </label>
+        <textarea
+          id={`${idPrefix}-message`}
+          rows={4}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none"
+        />
+      </div>
       <button
         type="submit"
         className="w-full rounded-full bg-brand-700 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-800"

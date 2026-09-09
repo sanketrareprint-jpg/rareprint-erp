@@ -17,11 +17,10 @@ export default async function PricingPage() {
       <div className="mx-auto max-w-6xl px-6">
         <FadeIn>
           <div className="mx-auto max-w-xl text-center">
-            <span className="inline-block rounded-full bg-brand-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-brand-700">
-              Pricing
-            </span>
-            <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">Choose your plan</h1>
-            <p className="mt-3 text-slate-600">Simple, transparent pricing. Final numbers not locked yet.</p>
+            <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Choose your plan</h1>
+            <p className="mt-3 text-slate-600">
+              Simple, transparent pricing. Final numbers not locked yet.
+            </p>
             <Link
               href="/suite/start-free"
               className="mt-6 inline-block rounded-full bg-emerald-50 px-4 py-1.5 text-sm font-semibold text-emerald-700"

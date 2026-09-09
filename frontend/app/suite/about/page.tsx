@@ -14,33 +14,27 @@ export default function AboutPage() {
   return (
     <div>
       <div className="bg-slate-50 py-20">
-        <FadeIn>
-          <div className="mx-auto max-w-3xl px-6 text-center">
-            <span className="inline-block rounded-full bg-brand-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-brand-700">
-              About
-            </span>
-            <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2">
+          <FadeIn>
+            <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">
               Built by a printing business, for printing businesses
             </h1>
-            <p className="mt-6 text-slate-600">
+            <p className="mt-6 text-slate-600 leading-relaxed">
               {BRAND_NAME} grew out of RarePrint&apos;s own operations: production tracking, accounts,
               CRM and dispatch software we built to run our own print shop, because nothing
               off-the-shelf fit how printing businesses actually work. We&apos;re now opening it up to
               other printers.
             </p>
-            <p className="mt-4 text-slate-600">
+            <p className="mt-4 text-slate-600 leading-relaxed">
               That means everything in here has been used to run a real shop, not designed in the
               abstract, and it keeps improving as we use it ourselves.
             </p>
-          </div>
-        </FadeIn>
-      </div>
-
-      <FadeIn delay={100}>
-        <div className="mx-auto max-w-3xl px-6 pb-4">
-          <HeroPhoto variant="team" caption="Built by running a real print shop, not designed in the abstract." />
+          </FadeIn>
+          <FadeIn delay={120}>
+            <HeroPhoto variant="team" caption="Built by running a real print shop, not designed in the abstract." />
+          </FadeIn>
         </div>
-      </FadeIn>
+      </div>
 
       {/*
         No lead-capture backend yet (Phase D in docs/Marketing_Site_Roadmap.md
@@ -56,48 +50,51 @@ export default function AboutPage() {
       */}
       <div className="mx-auto max-w-6xl px-6 py-20">
         <FadeIn>
-        <div className="grid gap-12 lg:grid-cols-2">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">Get in touch</h2>
-            <p className="mt-3 text-sm text-slate-600">
-              Fastest way to reach us is WhatsApp. Prefer email? That works too, either way we
-              respond directly, no ticket queue.
-            </p>
-            <div className="mt-8 space-y-5">
-              <div className="flex items-center gap-4">
-                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                  <MessageCircle size={20} />
-                </span>
-                <div>
-                  <p className="text-xs text-slate-500">WhatsApp</p>
-                  <a
-                    href={whatsappLink(`Hi! I'd like to know more about ${BRAND_NAME}.`)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm font-semibold text-slate-900 hover:text-brand-700"
-                  >
-                    Message us directly
-                  </a>
+          <div className="grid gap-12 lg:grid-cols-2">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">Get in touch</h2>
+              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
+                Fastest way to reach us is WhatsApp. Prefer email? That works too, either way we
+                respond directly, no ticket queue.
+              </p>
+              <div className="mt-8 space-y-5">
+                <div className="flex items-center gap-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <MessageCircle size={20} />
+                  </span>
+                  <div>
+                    <p className="text-xs text-slate-500">WhatsApp</p>
+                    <a
+                      href={whatsappLink(`Hi! I'd like to know more about ${BRAND_NAME}.`)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-semibold text-slate-900 hover:text-brand-700"
+                    >
+                      Message us directly
+                    </a>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
-                  <Mail size={20} />
-                </span>
-                <div>
-                  <p className="text-xs text-slate-500">Email</p>
-                  <a href={`mailto:${CONTACT_EMAIL}`} className="text-sm font-semibold text-slate-900 hover:text-brand-700">
-                    {CONTACT_EMAIL}
-                  </a>
+                <div className="flex items-center gap-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                    <Mail size={20} />
+                  </span>
+                  <div>
+                    <p className="text-xs text-slate-500">Email</p>
+                    <a
+                      href={`mailto:${CONTACT_EMAIL}`}
+                      className="text-sm font-semibold text-slate-900 hover:text-brand-700"
+                    >
+                      {CONTACT_EMAIL}
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-            <ContactForm />
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+              <ContactForm />
+            </div>
           </div>
-        </div>
         </FadeIn>
       </div>
     </div>
