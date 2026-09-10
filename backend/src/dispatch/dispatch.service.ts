@@ -1205,18 +1205,26 @@ export class DispatchService {
       // pickupOverride)) carries a real Fship address id (fshipAddressId)
       // when the dispatcher picked one of the addresses configured in
       // Settings > Carrier Config from the Dispatch page's pickup dropdown.
-      // Fall back to the first configured address, then the single global
-      // default, only when no Fship-specific pickup was selected (a plain
-      // custom/typed pickup, or a Bigship/Shiprocket warehouse picked while
-      // Fship was chosen as the per-shipment carrier). Before this fix
-      // (2026-09-08), every Fship booking used the global default
-      // unconditionally -- that's why bookings always showed the default
-      // (Chandrapur) address in Fship's own dashboard no matter what pickup
-      // was selected in the ERP.
+      // Fall back to the single global default (Settings > Carrier Config >
+      // Default Pickup Address Id -- this is the address explicitly promised
+      // in that page's own copy as "used when no specific pickup address
+      // below is selected"), and only then to whichever additional address
+      // happens to be first in the array, as a last resort. Before
+      // 2026-09-10, this order was reversed (first configured address before
+      // the global default) -- harmless while the additional-addresses array
+      // was empty, but as soon as it was populated it meant any booking that
+      // didn't explicitly pick an Fship address (a Bigship/Shiprocket
+      // warehouse, a plain custom/typed pickup, or a local warehouse picked
+      // while Fship was chosen as the per-shipment carrier) would silently
+      // use whichever address was entered first in Settings instead of the
+      // intended default. Before the original 2026-09-08 fix, every Fship
+      // booking used the global default unconditionally -- that's why
+      // bookings always showed the default (Chandrapur) address in Fship's
+      // own dashboard no matter what pickup was selected in the ERP.
       const pickAddressId =
         warehouse.fshipAddressId
-        ?? fshipCfg.pickupAddresses?.[0]?.id
         ?? fshipCfg.pickupAddressId
+        ?? fshipCfg.pickupAddresses?.[0]?.id
         ?? undefined;
       if (!pickAddressId) {
         shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
