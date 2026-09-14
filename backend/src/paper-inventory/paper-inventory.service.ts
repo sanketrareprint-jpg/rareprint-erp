@@ -238,7 +238,7 @@ Return ONLY valid JSON, no explanation:
         where: { id: po.id },
         include: { items: { include: { press: true } }, supplier: true },
       });
-    });
+    }, { timeout: 20000, maxWait: 10000 });
   }
 
   // -- Deduct paper when sheet goes to PRINTING -------------------------------
