@@ -1,0 +1,8 @@
+# Real secrets — never commit.
+.env
+
+# The real customer registry contains database connection strings
+# (passwords included) for every customer. Never commit it.
+registry.json
+
+node_modules/

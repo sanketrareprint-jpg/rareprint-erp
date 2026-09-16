@@ -1,0 +1,146 @@
+# saas-ops
+
+Provisioning and fleet-rollout tooling for RarePrint's SaaS customers. This is
+Phase 1 of `docs/SaaS_Conversion_Roadmap_v3.md` — read that first if you haven't,
+it explains why this exists and the decisions behind it. This folder is
+internal tooling, not part of the ERP app itself, and never gets deployed
+anywhere.
+
+## One-time setup (do this once, not per customer)
+
+1. **Create a new, dedicated Railway project.** In the Railway dashboard,
+   create a brand new project — name it something like
+   `rareprint-saas-customers`. Do NOT use the project that runs RarePrint's
+   own production backend/frontend. This is the one project every customer's
+   environment will live inside.
+2. **Generate a Railway API token.** From your Railway account (not a
+   project-scoped token — this needs to create new environments/services).
+   See [Railway's API docs](https://docs.railway.com/integrations/api) for
+   where to generate one.
+3. **Copy `.env.example` to `.env`** in this folder and fill in:
+   - `RAILWAY_API_TOKEN` — from step 2.
+   - `RAILWAY_CUSTOMERS_PROJECT_ID` — from step 1 (visible in that project's
+     Railway dashboard URL/settings).
+   - `GITHUB_REPO` / `BACKEND_ROOT_DIRECTORY` — already filled with sensible
+     defaults, confirm they're right for this repo.
+4. **Install dependencies:** `cd saas-ops && npm install`.
+
+## Before touching a real customer — test this first
+
+Run `node provision-customer.js "Test Customer"` and actually check the
+result: log into the Railway dashboard, confirm the environment, database,
+and backend service all exist and the app boots, confirm you can hit its API.
+Only after that has worked cleanly once should you run this against a real
+customer. This isn't optional caution — it's the same lesson from the 2026-09
+outage: things that look like they should work still need to be watched
+actually work before you trust them.
+
+When you're done testing, delete that test environment from the Railway
+dashboard (and remove its entry from `registry.json`) before it accumulates as
+clutter or, worse, gets mistaken for a real customer later.
+
+## Schema status (as of 2026-09-15)
+
+Every mutation `lib/railway-api.js` uses has been checked field-by-field
+against Railway's live schema (via `railway.com/graphiql`), not just their
+docs: `environmentCreate`, `serviceCreate`, `variableUpsert`,
+`serviceInstanceDeploy`, the `variables` query, `serviceInstanceUpdate`
+(needed for `rootDirectory` — it turned out this is NOT part of
+`serviceCreate`'s input, a real mismatch caught during verification),
+`volumeCreate`, and `tcpProxyCreate` (deprecated by Railway in favor of their
+newer "staged changes" system, but still functional — it just requires a
+redeploy afterward to activate, which the code already does).
+
+**What's still NOT verified: an actual end-to-end run.** Your Railway
+account hit its trial limit mid-testing (2026-09-15), before
+`provision-customer.js` could be run successfully against a live database.
+The schema-level checks give high confidence the pieces are correct, but the
+first real run after your plan is active should still be treated as the
+real test — watch it end to end, don't assume it'll work just because the
+schema matched.
+
+**Migration script fixed — twice (2026-09-15):** the first full end-to-end
+test run completed "successfully" but silently left the new customer's
+database missing several tables and an enum type. Root cause:
+`provision-customer.js` was reusing `backend/scripts/railway-migrate.js`,
+which pre-marks a hardcoded list of migrations as "already applied" without
+running them — correct for RarePrint's own production database (it
+reconciles known historical drift), actively harmful on a brand-new, empty
+database (it skips real schema-creating SQL forever).
+
+First fix attempt — `backend/scripts/provision-new-customer-migrate.js`
+running a plain `prisma migrate deploy` — also failed on retest: migration
+`20260520000100_performance_indexes` indexes `OrderItem.itemProductionStage`,
+but NO migration file anywhere actually creates that column. It was
+evidently added to production by hand outside the tracked migration
+history at some point — the same kind of drift `RECOVERABLE_MIGRATIONS`
+and `ensure-all-columns.js` exist to paper over elsewhere. There's no
+confidence this is the only such gap in the 89-migration history.
+
+**Final fix:** `provision-new-customer-migrate.js` now uses `prisma db push`
+instead — syncs a new database directly to match current `schema.prisma`
+(the real, working target schema) in one shot, bypassing the migration
+history and its gaps entirely. It then "baselines" the migration history
+(marks all existing migration files as applied, per Prisma's own documented
+baselining workflow) so `rollout-migration.js`'s future incremental rollouts
+to this customer still work normally afterward. `railway-migrate.js` itself
+was left completely untouched throughout; it's still correct for production.
+
+**What building a Postgres service this way actually involves:** clicking
+"Add Database" → "PostgreSQL" in Railway's dashboard uses a different
+mechanism (a template deploy) that auto-generates credentials, a volume, and
+network access for you. Creating a Postgres service via the API from a raw
+Docker image (`serviceCreate` + `source: { image: ... }`) does none of that
+automatically — `createPostgresService` in `lib/railway-api.js` now does it
+by hand: attaches a volume at `/var/lib/postgresql/data`, sets
+`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`/`PGDATA` itself, exposes
+port 5432 via a TCP proxy (needed because `provision-customer.js`'s
+migration step runs from your own machine, outside Railway's private
+network), and builds `DATABASE_URL` from all of that. An earlier version of
+this script skipped all of this and created a database with no volume, no
+credentials, and no `DATABASE_URL` — confirmed by inspecting the resulting
+service in the Railway dashboard during testing.
+
+## Day-to-day usage, once set up
+
+**New customer:**
+```powershell
+cd saas-ops
+node provision-customer.js "Customer Name"
+```
+Creates their environment, database, and backend deploy, and runs the
+initial migration once against their new (empty) database. Records the
+result in `registry.json`.
+
+**Rolling out a schema change to every existing customer:**
+```powershell
+cd saas-ops
+node rollout-migration.js
+```
+Loops through every customer in `registry.json` and runs the migration
+against each one's database in turn. If one customer fails, it's logged and
+the script continues to the rest — you fix and re-run just for the failed
+one(s), not everyone.
+
+**Rolling out a plain code change (no schema change) to every customer:**
+No script needed for this — if every customer's backend service is connected
+to the same GitHub branch as RarePrint's own production backend, pushing to
+that branch redeploys every customer automatically through Railway's normal
+Git integration.
+
+## Files
+
+- `provision-customer.js` — new customer setup.
+- `rollout-migration.js` — run a migration against every existing customer.
+- `customer-env-template.js` — the environment variables a new customer's
+  backend needs, and which ones are intentionally left blank (RarePrint's own
+  integration accounts — Shiprocket, BigShip, Razorpay, Gmail — must never be
+  copied to a customer).
+- `lib/railway-api.js` — Railway GraphQL API wrapper.
+- `lib/registry.js` — reads/writes `registry.json`.
+- `registry.json` (gitignored, created on first provision) — the list of
+  every customer and their Railway/database details. Contains real database
+  passwords in plain text — never commit it, back it up somewhere safe.
+- `.env` (gitignored) — this tooling's own config (Railway API token, project
+  ID). Not to be confused with a customer's own environment variables, which
+  live on their Railway service, not in this repo anywhere.

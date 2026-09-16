@@ -1,0 +1,13 @@
+{
+  "name": "rareprint-saas-ops",
+  "private": true,
+  "type": "module",
+  "description": "Provisioning and fleet-rollout tooling for RarePrint SaaS customer instances. Not part of the ERP app itself — talks to Railway's API to create/manage per-customer environments. See README.md before running anything against a real customer.",
+  "scripts": {
+    "provision": "node provision-customer.js",
+    "rollout-migration": "node rollout-migration.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}

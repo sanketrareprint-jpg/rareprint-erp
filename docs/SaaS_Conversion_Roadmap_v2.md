@@ -1,3 +1,13 @@
+> **Superseded 2026-09-12.** The isolation model in this document (shared database,
+> `tenantId` column) was built, deployed to `main` ahead of its own migration, and
+> caused a site-wide production outage (login and most core ERP functionality down
+> for ~2 days, 2026-09-07 to 2026-09-09). The tenantId code was reverted off `main`
+> entirely. Sanket has since decided against a shared database for the SaaS
+> conversion, for good. The current plan is `SaaS_Conversion_Roadmap_v3.md` —
+> read that instead. This file is kept for history only; do not implement anything
+> from Sections 1 or 2 below, and do not resurrect the `saas-conversion` branch's
+> existing tenantId work.
+
 # RarePrint ERP → Multi-Tenant SaaS: Conversion Roadmap
 
 Based on: audit of `backend/prisma/schema.prisma` (90+ models, zero tenant concept), `backend/src` (30+ NestJS modules, single global `PrismaService`, JWT with no tenant claim), and your answers below.
