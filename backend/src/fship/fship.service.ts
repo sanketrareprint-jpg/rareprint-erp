@@ -178,6 +178,11 @@ export class FshipService {
     codAmount: number;
     orderAmount: number;
     totalAmount: number;
+    // Real courier freight charge for this shipment, sent as Fship's
+    // extra_Charges field so their invoice/label has a correct standalone
+    // freight figure instead of Rs 0 or the COD balance. Optional/defaults
+    // to 0 for any other caller.
+    extraCharges?: number;
     weightKg: number;
     lengthCm: number;
     widthCm: number;
@@ -204,7 +209,7 @@ export class FshipService {
         is_Ndd: 0,
         order_Amount: input.orderAmount,
         tax_Amount: 0,
-        extra_Charges: 0,
+        extra_Charges: input.extraCharges ?? 0,
         total_Amount: input.totalAmount,
         cod_Amount: input.isCod ? input.codAmount : 0,
         shipment_Weight: input.weightKg,
