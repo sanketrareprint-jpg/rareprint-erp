@@ -174,6 +174,10 @@ export default function DispatchPage() {
   const [search, setSearch] = useState("");
   const [courierFilter, setCourierFilter] = useState("ALL");
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  // Globally active carrier (Settings > Carrier Config) -- needed so the
+  // pickup dropdown can tell when a shipment is effectively going via Fship
+  // even when the per-shipment "Ship via" override is left at "Default".
+  const [activeCarrier, setActiveCarrier] = useState<string>("");
   const [selectedWarehouse, setSelectedWarehouse] = useState<Record<string, string>>({});
   const [customPickup, setCustomPickup] = useState<Record<string, { name: string; pincode: string }>>({});
   const [weightOverride, setWeightOverride] = useState<Record<string, string>>({});
@@ -557,6 +561,30 @@ export default function DispatchPage() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/carrier-config`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { activeCarrier?: string } | null) => { if (data?.activeCarrier) setActiveCarrier(data.activeCarrier); })
+      .catch(() => {});
+  }, []);
+
+  // Pickup addresses selectable for a given order's shipment. When that
+  // shipment is effectively going via Fship (either "Ship via: Fship" was
+  // picked for it, or it's left at "Default" and Fship is the globally
+  // active carrier), only Fship-registered addresses (Settings > Carrier
+  // Config > Fship > Additional Pickup Addresses) are offered -- every other
+  // entry in `warehouses` is a Shiprocket/Bigship pickup location with no
+  // corresponding Fship address id, so picking one always silently fell back
+  // to the Fship default (reported 2026-09-16/17; the fallback itself is
+  // correct given no Fship id exists for those, but dispatchers had no way
+  // to tell which entries actually worked before booking). "compare" is left
+  // unfiltered since it quotes Bigship + Fship together and needs both
+  // carriers' addresses visible.
+  function warehousesForOrder(orderId: string): Warehouse[] {
+    const carrier = selectedCarrier[orderId] || activeCarrier;
+    return carrier === "fship" ? warehouses.filter(w => w.source === "fship") : warehouses;
+  }
+
   function toggleItem(orderId: string, itemId: string) {
     setSelectedItems(prev => {
       const set = new Set(prev[orderId] ?? []);
@@ -622,9 +650,10 @@ export default function DispatchPage() {
   async function fetchRates(orderId: string) {
     setRatesLoading(orderId);
     try {
-      const wid = selectedWarehouse[orderId] || warehouses[0]?.id || "";
+      const orderWarehouses = warehousesForOrder(orderId);
+      const wid = selectedWarehouse[orderId] || orderWarehouses[0]?.id || "";
       const pickup = customPickup[orderId];
-      const warehouse = warehouses.find(w => w.id === wid);
+      const warehouse = orderWarehouses.find(w => w.id === wid);
       const wkg = parseFloat(weightOverride[orderId] || "0");
       const orderData = orders.find(o => o.id === orderId);
       const selected = selectedItems[orderId] ?? new Set();
@@ -673,9 +702,10 @@ export default function DispatchPage() {
     if (!rateId) { alert("Fetch and select a shipping rate first"); return; }
     const selectedQuote = (rates[orderId] ?? []).find(r => r.rateId === rateId);
     const orderData = orders.find(o => o.id === orderId);
-    const wid = selectedWarehouse[orderId] || warehouses[0]?.id;
+    const orderWarehouses = warehousesForOrder(orderId);
+    const wid = selectedWarehouse[orderId] || orderWarehouses[0]?.id;
     const pickup = customPickup[orderId];
-    const warehouse = warehouses.find(w => w.id === wid);
+    const warehouse = orderWarehouses.find(w => w.id === wid);
     if (wid === "CUSTOM" && !pickup?.pincode?.trim()) { alert("Enter pickup pincode"); return; }
     const selectedWeight = orderData?.readyItems.filter(i => (selectedItems[orderId] ?? new Set()).has(i.id)).reduce((s, i) => s + i.weightKg, 0) ?? 0.5;
     const sanitizedBoxes = multiBoxEnabled[orderId] ? sanitizePackageBoxes(getPackageRows(orderId, selectedWeight)) : [];
@@ -1309,11 +1339,12 @@ export default function DispatchPage() {
                 const someSelected = o.readyItems.some(i => orderSelected.has(i.id));
                 const orderRates = rates[o.id] ?? [];
                 const selectedWeight = o.readyItems.filter(i => orderSelected.has(i.id)).reduce((s, i) => s + i.weightKg, 0);
-                const selectedPickupId = selectedWarehouse[o.id] || warehouses[0]?.id || "CUSTOM";
+                const orderWarehouses = warehousesForOrder(o.id);
+                const selectedPickupId = selectedWarehouse[o.id] || orderWarehouses[0]?.id || "CUSTOM";
                 const pickupDraft = customPickup[o.id] || { name: "", pincode: "" };
                 const activeWarehouse = selectedPickupId === "CUSTOM"
                   ? { id: "CUSTOM", name: pickupDraft.name || "Custom Pickup", pincode: pickupDraft.pincode || "—", location: pickupDraft.name || "Custom Pickup" }
-                  : warehouses.find(w => w.id === selectedPickupId) ?? warehouses[0];
+                  : orderWarehouses.find(w => w.id === selectedPickupId) ?? orderWarehouses[0];
                 const activePickupAddress = pickupAddressText(activeWarehouse);
                 const method = dispatchMethod[o.id] || o.dispatchType || "COURIER";
                 const transport = transportForm[o.id] || { transportName: "", lrNumber: "", transportChargesType: "TOPAY", transportBy: "", totalTransportCharges: "", notes: "" };
@@ -1481,7 +1512,7 @@ export default function DispatchPage() {
                         <MobileSelect value={selectedPickupId}
                           onChange={v => { setSelectedWarehouse(prev => ({ ...prev, [o.id]: v })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
                           className="flex-1 min-w-[160px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
-                          options={[...warehouses.map(w => ({ value: w.id, label: `${w.name} (${w.pincode})` })), { value: "CUSTOM", label: "Edit pickup…" }]} />
+                          options={[...orderWarehouses.map(w => ({ value: w.id, label: `${w.name} (${w.pincode})` })), { value: "CUSTOM", label: "Edit pickup…" }]} />
                         {selectedPickupId === "CUSTOM" && (
                           <div className="flex gap-1.5 w-full">
                             <input type="text" placeholder="Pickup name" value={pickupDraft.name}
@@ -1500,7 +1531,17 @@ export default function DispatchPage() {
                           onChange={e => setWeightOverride(prev => ({ ...prev, [o.id]: e.target.value }))}
                           className="w-20 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
                         <MobileSelect value={selectedCarrier[o.id] || ""}
-                          onChange={v => { setSelectedCarrier(prev => ({ ...prev, [o.id]: v })); setRates(prev => ({ ...prev, [o.id]: [] })); setSelectedRate(prev => ({ ...prev, [o.id]: "" })); }}
+                          onChange={v => {
+                            setSelectedCarrier(prev => ({ ...prev, [o.id]: v }));
+                            setRates(prev => ({ ...prev, [o.id]: [] }));
+                            setSelectedRate(prev => ({ ...prev, [o.id]: "" }));
+                            // Switching carrier can change which pickup addresses are valid for
+                            // this shipment (see warehousesForOrder) -- clear the current pickup
+                            // selection so it falls back to the first address that's actually
+                            // valid for the new carrier, instead of leaving a stale selection
+                            // that may no longer be in the (now-filtered) dropdown options.
+                            setSelectedWarehouse(prev => ({ ...prev, [o.id]: "" }));
+                          }}
                           className="min-w-[130px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
                           options={[
                             { value: "", label: "Ship via: Default" },
