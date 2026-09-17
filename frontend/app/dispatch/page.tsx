@@ -549,10 +549,19 @@ export default function DispatchPage() {
       .then(r => r.ok ? r.json() : [])
       .then((data: Warehouse[]) => {
         if (Array.isArray(data) && data.length > 0) {
-          // Put RAZA ENVELOP FACTORY 3 first as default pickup location
+          // Put RAZA ENVELOP FACTORY 3 first as default pickup location --
+          // Bigship/Shiprocket only. This predates Fship's per-shipment
+          // pickup addresses and matches purely on the substring "RAZA" in
+          // the name, with no source check. Two of the saved Fship pickup
+          // addresses happen to be named "Raza Envelope MAHAL OFFICE" and
+          // "Raza Envelope NAGPUR FACTORY" (added 2026-09), so without this
+          // exclusion they'd get swept into the same top-priority group by
+          // pure name coincidence, and warehousesForOrder()'s Fship-filtered
+          // list would silently default to Mahal Office for every shipment
+          // with no pickup explicitly chosen yet -- reported 2026-09-17.
           const sorted = [...data].sort((a, b) => {
-            const aIsRaza = a.name.toUpperCase().includes("RAZA") ? -1 : 0;
-            const bIsRaza = b.name.toUpperCase().includes("RAZA") ? -1 : 0;
+            const aIsRaza = a.source !== "fship" && a.name.toUpperCase().includes("RAZA") ? -1 : 0;
+            const bIsRaza = b.source !== "fship" && b.name.toUpperCase().includes("RAZA") ? -1 : 0;
             return aIsRaza - bIsRaza;
           });
           setWarehouses(sorted);
