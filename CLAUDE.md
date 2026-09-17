@@ -772,7 +772,46 @@ If any answer is "no", fix it before reporting completion.
 
 ---
 
-# 29. GOLDEN RULE
+# 29. RESOLVER / FALLBACK PRECEDENCE
+
+This class of bug has shipped more than once in this codebase (see
+`dispatch.service.ts`'s `resolveWarehouse()`, Fship pickup-address selection,
+fixed 2026-09-17): a function takes both a specific selector (an id) and a
+generic override/fallback value, checks the override first because it's
+"simpler," and the override turns out to be non-empty on almost every real
+call — not because the caller wants a custom value, but because the field
+is also reused for display/logging convenience. Result: the specific
+selector is silently dead code. Every caller "works" (no error, no crash),
+the UI shows a selection, and the wrong thing happens anyway — exactly the
+kind of bug that survives a build, a lint pass, and a casual glance at the
+diff, and is only caught by watching the actual downstream system (in this
+case, the address that showed up in Fship's own dashboard).
+
+When writing or reviewing a function that resolves "what to use" from
+several possible inputs (an id/selector, a manual override, a configured
+default):
+
+1. Match the most specific, explicit selector FIRST. An id that names one
+   exact thing always wins over a generic override, no matter what order is
+   easiest to write.
+2. Only fall through to a manual/typed override when no specific selector
+   was given or it didn't resolve to anything known.
+3. Only fall through to a configured default (env var, Settings value) when
+   neither of the above applied.
+4. If a request body/query sends a field for display purposes on EVERY call
+   (not only when the user genuinely means to override something), that
+   field cannot double as "is this a real override" signal — a non-empty
+   value proves nothing about caller intent. Either stop sending it
+   unconditionally, or make the resolver ignore it whenever a specific
+   selector is present.
+5. Before declaring a fix like this complete, trace an existing selector
+   branch that predates your change and confirm it is still actually
+   reachable with real request payloads — not just syntactically present in
+   the function. A branch that's correct in isolation but preceded by an
+   unconditional early return is functionally dead code, and `tsc`/build
+   will never flag that for you.
+
+# 30. GOLDEN RULE
 
 ## Understand → Inspect → Plan → Implement → Verify → Report
 

@@ -331,25 +331,39 @@ export class DispatchService {
   }
 
   private resolveWarehouse(warehouseId?: string, pickupOverride?: PickupOverride): Warehouse {
-    if (pickupOverride?.pincode?.trim()) {
-      const name = pickupOverride.name?.trim() || pickupOverride.location?.trim() || 'Custom Pickup';
-      return {
-        id: 'custom',
-        name,
-        pincode: pickupOverride.pincode.trim(),
-        location: pickupOverride.location?.trim() || name,
-      };
-    }
+    // ── ROOT-CAUSE NOTE (2026-09-17) ────────────────────────────────────────
+    // warehouseId-based resolution (Stage A below) MUST run BEFORE the
+    // pickupOverride fallback (Stage B). The Dispatch page's book()/getRates()
+    // calls send pickupName/pickupPincode/pickupLocation on EVERY booking --
+    // not only when the dispatcher explicitly picks "Edit pickup..." -- these
+    // fields double as the display copy for whatever was selected (see
+    // frontend/app/dispatch/page.tsx's book(): pickupPincode is always
+    // warehouse?.pincode for a normal selection, never empty). If
+    // pickupOverride is checked first (as it briefly was), its non-empty
+    // pincode makes EVERY booking match the generic 'custom' id below, so
+    // warehouseId -- and therefore fshipAddressId/bigshipWarehouseId -- is
+    // silently ignored, and every Fship booking falls through to the single
+    // global default pickup address in Settings > Carrier Config no matter
+    // which saved address was picked on screen. This is exactly why the
+    // 2026-09-08 fship-<id> matching below (Stage A) had no effect when it
+    // first shipped: pickupOverride's short-circuit ran first and this code
+    // was never reached. If you touch this function, keep an explicit
+    // warehouseId match ahead of pickupOverride, or this regresses silently
+    // again -- there is no test that would catch it, since both branches
+    // "succeed" and only Fship's own dashboard shows the wrong address.
+    //
+    // Stage A: warehouseId names one specific saved pickup -- always wins.
+    // Stage B: no specific saved pickup matched -- a genuinely dispatcher-
+    //          typed custom pickup (the "Edit pickup..." option, or any
+    //          caller that only ever sends pickupOverride and no warehouseId).
+    // Stage C: nothing matched at all -- carrier/global defaults.
 
+    // ── Stage A: explicit warehouseId match ─────────────────────────────────
     // Fship pickup addresses are matched by id ("fship-<id>") before
     // anything else, regardless of which carrier is globally "active" -- a
     // dispatcher can pick "Fship" as the per-shipment carrier (see
     // carrierOverride in getRates/bookItems) even when Bigship/Shiprocket is
-    // the global default. Without this check (added 2026-09-08), selecting
-    // one of these addresses in the Dispatch page's pickup dropdown had no
-    // effect on what got sent to Fship -- the booking call fell straight
-    // through to the single global default pickup address configured in
-    // Settings, no matter what was picked on screen.
+    // the global default.
     if (warehouseId?.startsWith('fship-')) {
       const fshipCfg = this.carrierConfig.getConfig().fship;
       const match = (fshipCfg.pickupAddresses ?? []).find((a) => `fship-${a.id}` === warehouseId);
@@ -366,15 +380,50 @@ export class DispatchService {
     }
 
     // For Bigship, warehouseId is the numeric bigshipWarehouseId sent as a string (e.g. "111821").
-    // loadWarehouses() only knows about Shiprocket warehouses, so we must handle Bigship separately.
+    // Only an explicit numeric id counts as a Stage A match here -- the
+    // Settings-configured Bigship default (cfg.pickupWarehouseId) is a
+    // Stage C fallback below, so it doesn't preempt a genuine Stage B custom
+    // pickupOverride (e.g. "Edit pickup..." selected while Bigship is active).
     const activeCarrier = this.carrierConfig.getActiveCarrier();
+    if (activeCarrier === 'bigship' && warehouseId && /^\d+$/.test(warehouseId)) {
+      const resolvedId = parseInt(warehouseId, 10);
+      const cached = this.bigship.warehouseCache.find(w => w.bigshipWarehouseId === resolvedId);
+      const pincode = cached?.pincode || process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032';
+      const name    = cached?.name    || `Bigship Warehouse ${resolvedId}`;
+      return {
+        id:                 String(resolvedId),
+        name,
+        pincode,
+        location:           cached ? `${cached.city}, ${cached.state}` : `Bigship #${resolvedId}`,
+        address:            cached?.address,
+        city:               cached?.city,
+        state:              cached?.state,
+        source:             'bigship',
+        bigshipWarehouseId: resolvedId,
+      } as Warehouse & { bigshipWarehouseId: number };
+    }
+
+    // loadWarehouses() only knows about Shiprocket/local warehouses.
+    const warehouses = loadWarehouses();
+    const localMatch = warehouseId ? warehouses.find(w => w.id === warehouseId) : undefined;
+    if (localMatch) return localMatch;
+
+    // ── Stage B: genuinely custom pickup (no specific saved id matched) ────
+    if (pickupOverride?.pincode?.trim()) {
+      const name = pickupOverride.name?.trim() || pickupOverride.location?.trim() || 'Custom Pickup';
+      return {
+        id: 'custom',
+        name,
+        pincode: pickupOverride.pincode.trim(),
+        location: pickupOverride.location?.trim() || name,
+      };
+    }
+
+    // ── Stage C: nothing matched -- carrier/global defaults ─────────────────
     if (activeCarrier === 'bigship') {
       const cfg = this.carrierConfig.getConfig().bigship;
-      const resolvedId = (warehouseId && /^\d+$/.test(warehouseId))
-        ? parseInt(warehouseId, 10)
-        : cfg.pickupWarehouseId ?? null;
+      const resolvedId = cfg.pickupWarehouseId ?? null;
       if (resolvedId) {
-        // Try to get real name/pincode from cache
         const cached = this.bigship.warehouseCache.find(w => w.bigshipWarehouseId === resolvedId);
         const pincode = cached?.pincode || process.env.BIGSHIP_PICKUP_PINCODE?.trim() || '440032';
         const name    = cached?.name    || `Bigship Warehouse ${resolvedId}`;
@@ -392,8 +441,7 @@ export class DispatchService {
       }
     }
 
-    const warehouses = loadWarehouses();
-    return warehouses.find(w => w.id === warehouseId) ?? warehouses[0]!;
+    return warehouses[0]!;
   }
 
   private computeLocalRates(weightKg: number): LocalRateQuote[] {

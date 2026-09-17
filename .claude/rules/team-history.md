@@ -54,6 +54,24 @@ deploy status ("not yet deployed" items may have shipped since).
    overflow/layout passes) is deep; grep prior commits/PRs before re-debugging a "known" issue
    there rather than starting from scratch.
 
+5. **`dispatch.service.ts`'s `resolveWarehouse()`: never let `pickupOverride` be checked
+   before an explicit `warehouseId` match again.** Root cause of the "Fship dispatch always
+   uses the default pickup address, even after adding every address's id and picking a
+   different one" bug (reported 2026-09-16, fixed 2026-09-17): the Dispatch page's `book()`/
+   `getRates()` calls in `frontend/app/dispatch/page.tsx` send `pickupName`/`pickupPincode`/
+   `pickupLocation` on **every** booking (they double as display copy for whatever was
+   selected), not only when the dispatcher picks "Edit pickup...". `resolveWarehouse()` used
+   to check `pickupOverride?.pincode?.trim()` first and return immediately if it was
+   non-empty — which it always was — so the `warehouseId?.startsWith('fship-')` matching
+   added 2026-09-08 was unreachable dead code from day one; every Fship booking silently fell
+   through to `fshipCfg.pickupAddressId` (the global default) no matter what was picked in
+   the UI. Same latent bug existed for Bigship's numeric warehouse ids. Fixed by resolving an
+   explicit `warehouseId` match (fship-id, numeric bigship id, local warehouse) FIRST, and
+   only falling back to `pickupOverride` when no specific id matched, with the Bigship
+   Settings default demoted to a final fallback stage. See CLAUDE.md's "RESOLVER / FALLBACK
+   PRECEDENCE" rule (added the same day) for the general pattern — check that rule before
+   touching any function shaped like this one.
+
 ## Other standing context
 
 - **SaaS conversion plan**: roadmap to sell this ERP to other printers exists at
