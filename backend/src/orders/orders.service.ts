@@ -78,14 +78,15 @@ function resolveLockedItemIds(order: {
   latestShipmentCreatedAt?: Date | null;
 }): Set<string> {
   const submittedIds = order.pendingDispatchItemIds ?? [];
-  if (submittedIds.length > 0) return new Set(submittedIds);
-  if (order.status === 'PENDING_DISPATCH_APPROVAL') return new Set(order.items.map((i) => i.id));
-  // DISPATCHED orders have no reliable per-item lock signal to fall back on:
-  // pendingDispatchItemIds is empty (nothing currently pending), and
-  // dispatchedAt can ALSO be null on a genuinely already-shipped item --
-  // either because it predates the dispatchedAt column (2026-08-10) or
-  // because it went out via markManuallyDispatched, which never stamped it
-  // (see dispatch.service.ts). Without this, removing DISPATCHED from
+
+  // DISPATCHED orders have no single reliable per-item lock signal:
+  // pendingDispatchItemIds only records items that are (or were) in a
+  // TRACKED partial-submission cycle -- it is not a guarantee that every
+  // other item on the order is still free. dispatchedAt can ALSO be null
+  // on a genuinely already-shipped item -- either because it predates the
+  // dispatchedAt column (2026-08-10) or because it went out via
+  // markManuallyDispatched, which never stamped it (see
+  // dispatch.service.ts). Without this, removing DISPATCHED from
   // getOrdersWithReadyItems's EXCLUDED_STATUSES (needed so a genuinely NEW
   // item added after full dispatch can surface — see that function) made
   // every already-delivered order missing dispatchedAt resurface too,
@@ -98,19 +99,45 @@ function resolveLockedItemIds(order: {
   // already on the order when it shipped — lock/hide it, same as if it had
   // dispatchedAt set. One created after is genuinely new.
   //
+  // Crucially, this shipment-cutoff check must run for every item NOT
+  // already covered by pendingDispatchItemIds, rather than being skipped
+  // whenever pendingDispatchItemIds happens to be non-empty. An order can
+  // have some items shipped the old/whole-order way (or in an earlier,
+  // untracked batch) while OTHER items on the SAME order later go through
+  // a tracked partial-submission cycle -- pendingDispatchItemIds then only
+  // lists the tracked ones. Short-circuiting on "non-empty
+  // pendingDispatchItemIds" here previously let those other, already-
+  // shipped items fall through to "nothing locked" and resurface.
+  // Confirmed against real data 2026-09-17 (orders 1454, 1477: a 2nd/3rd
+  // item on the order, not present in pendingDispatchItemIds, incorrectly
+  // showed as free/showing).
+  //
   // latestShipmentCreatedAt === undefined means the caller never fetched
   // shipments at all (didn't opt in) — skip this branch entirely rather
   // than guessing, so callers that only touch findAllForTable-style badge
-  // data keep their pre-existing, unrelated behavior unchanged. A caller
-  // that DID fetch shipments but genuinely found none for a DISPATCHED
-  // order (shouldn't happen, but be conservative) passes null explicitly,
-  // which locks everything — the same safe, blanket-hidden behavior this
-  // whole order status used to get unconditionally.
+  // data keep their pre-existing, unrelated behavior unchanged (they fall
+  // through to the plain pendingDispatchItemIds check below, same as
+  // always). A caller that DID fetch shipments but genuinely found none
+  // for a DISPATCHED order (shouldn't happen, but be conservative) passes
+  // null explicitly, which locks everything — the same safe, blanket-
+  // hidden behavior this whole order status used to get unconditionally.
   if (order.status === 'DISPATCHED' && order.latestShipmentCreatedAt !== undefined) {
-    if (order.latestShipmentCreatedAt === null) return new Set(order.items.map((i) => i.id));
-    const cutoff = order.latestShipmentCreatedAt;
-    return new Set(order.items.filter((i) => !i.createdAt || i.createdAt <= cutoff).map((i) => i.id));
+    const locked = new Set(submittedIds);
+    if (order.latestShipmentCreatedAt === null) {
+      // No shipment record at all -- conservative: lock everything.
+      order.items.forEach((i) => locked.add(i.id));
+    } else {
+      const cutoff = order.latestShipmentCreatedAt;
+      order.items.forEach((i) => {
+        if (locked.has(i.id)) return; // already covered by pendingDispatchItemIds
+        if (!i.createdAt || i.createdAt <= cutoff) locked.add(i.id);
+      });
+    }
+    return locked;
   }
+
+  if (submittedIds.length > 0) return new Set(submittedIds);
+  if (order.status === 'PENDING_DISPATCH_APPROVAL') return new Set(order.items.map((i) => i.id));
   return new Set<string>();
 }
 
