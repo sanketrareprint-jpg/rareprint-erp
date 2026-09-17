@@ -1718,12 +1718,23 @@ export class OrdersService {
       // that's already pending approval. See the merge (not overwrite) of
       // pendingDispatchItemIds further down — required so this doesn't
       // lose track of the item that was already pending.
+      // DISPATCHED added 2026-09-17: same class of gap as PARTIALLY_DISPATCHED
+      // and PENDING_DISPATCH_APPROVAL above. An order can pick up a new ready
+      // item after it already reached DISPATCHED (see the EXCLUDED_STATUSES
+      // comment in getOrdersWithReadyItems for how/why) — getOrdersWithReadyItems
+      // now correctly shows that order again, but submitting was still
+      // hard-blocked with "Order status (DISPATCHED) isn't eligible for
+      // dispatch submission." Confirmed via a real order (1572). Safe to
+      // allow: readyItems below already excludes anything with dispatchedAt
+      // set, so this can only ever submit the genuinely new, undispatched
+      // item(s) — never re-touch anything already shipped.
       const allowedStatuses: OrderStatus[] = [
         OrderStatus.APPROVED,
         OrderStatus.IN_PRODUCTION,
         OrderStatus.READY_FOR_DISPATCH,
         OrderStatus.PARTIALLY_DISPATCHED,
         OrderStatus.PENDING_DISPATCH_APPROVAL,
+        OrderStatus.DISPATCHED,
       ];
       if (!allowedStatuses.includes(order.status)) {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: `Order status (${order.status}) isn't eligible for dispatch submission.` });
@@ -1906,8 +1917,25 @@ export class OrdersService {
     // earlier partial batch" apart from "still genuinely ready," so
     // including these orders risked re-showing already-shipped items as
     // free again. Now that dispatchedAt exists, that risk is gone.
+    //
+    // DISPATCHED removed from this list 2026-09-17: same reasoning as
+    // PARTIALLY_DISPATCHED above, just discovered later. A fully-DISPATCHED
+    // order's items are expected to all have dispatchedAt set, so the
+    // per-item filter below already hides it correctly with no help from
+    // this list. But an order CAN get a new item finish production after it
+    // reached DISPATCHED (e.g. a reprint/extra item added to an already-
+    // shipped order) — production.service.ts's updateItemStage only
+    // recomputes order.status while the order is still APPROVED/
+    // IN_PRODUCTION (deliberately, so a sibling item finishing production
+    // doesn't clobber an order already mid-dispatch-approval), so order.status
+    // is left stuck at DISPATCHED forever even though the new item's
+    // itemProductionStage genuinely is READY_FOR_DISPATCH with no
+    // dispatchedAt. Hard-excluding DISPATCHED here hid that order (and its
+    // ready item) permanently. Root-caused via a real order (1572) on
+    // 2026-09-17. Submitting such an item still requires
+    // submitDispatchBatch's allowedStatuses to include DISPATCHED too — see
+    // that function below.
     const EXCLUDED_STATUSES = [
-      OrderStatus.DISPATCHED,
       OrderStatus.DELIVERED,
       OrderStatus.CANCELLED,
     ];

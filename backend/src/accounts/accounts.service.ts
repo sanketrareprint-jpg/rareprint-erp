@@ -433,8 +433,15 @@ export class AccountsService {
       // submission that genuinely covered everything) falls back to
       // showing every item, unchanged from before.
       const submittedIds: string[] = (order as any).pendingDispatchItemIds ?? [];
+      // Also exclude anything with dispatchedAt already set -- submittedIds
+      // is merged, not overwritten, on each submission (see
+      // submitDispatchBatch), so an order that was previously DISPATCHED and
+      // later had a new item submitted still carries the OLD, already-
+      // shipped item's id in this list too. Without this, that already-
+      // shipped item would show up here again looking like it's newly
+      // pending approval. Confirmed via a real order (1572), 2026-09-17.
       const itemsForApproval = submittedIds.length > 0
-        ? order.items.filter((i) => submittedIds.includes(i.id))
+        ? order.items.filter((i) => submittedIds.includes(i.id) && !(i as any).dispatchedAt)
         : order.items;
 
       return {
