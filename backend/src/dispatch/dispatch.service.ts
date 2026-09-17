@@ -1277,6 +1277,69 @@ export class DispatchService {
       if (!pickAddressId) {
         shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
       } else if (Number.isFinite(courierId) && courierId > 0) {
+        // 2026-09-17 correction (order 1570, JAN AUSHADHI) attempt #1: made
+        // totalAmount honestly follow Fship's documented formula (Amount +
+        // Tax + Extra Charges) instead of the discounted COD balance, on the
+        // theory that a self-contradictory totalAmount was why Fship's
+        // label fell back to the plain goods value. That theory turned out
+        // to be wrong -- confirmed via 4 controlled staging bookings the
+        // same day: the printed label ignores cod_Amount, total_Amount, AND
+        // order_Amount entirely. It sums the "products" array's own
+        // unitPrice x quantity and prints THAT as the amount to collect.
+        // Sending the real, full item prices (as this always did) means any
+        // order with an advance payment already collected shows the
+        // courier's FULL price on the label, not the reduced balance
+        // actually owed -- exactly what happened on order 1570 (₹2,000
+        // order, ₹1,000 already paid, so only ₹1,300 should have been
+        // collected; label printed "COD Rs. 2000" regardless of cod_Amount).
+        // Reported to Fship support as cod_Amount apparently having no
+        // effect on the printed label -- this is a stopgap pending their
+        // reply, not a confirmed-correct long-term fix.
+        //
+        // Stopgap (attempt #2): when this is a COD shipment where cod_Amount
+        // is genuinely less than the shipment's real value -- i.e. an
+        // advance payment reduced what's owed -- replace the itemized
+        // product list with a single synthetic "Balance Due" line priced at
+        // exactly the remaining goods balance (cod_Amount minus the courier
+        // charge, since the courier charge is declared separately via
+        // extraCharges), and keep orderAmount/totalAmount consistent with
+        // that same figure. A normal COD order with no advance payment, or a
+        // Prepaid order, is untouched -- it still sends the real itemized
+        // products, because there's nothing to reconcile.
+        //
+        // Trade-off (flagged to Sanket, accepted 2026-09-17 as an interim
+        // measure): the shipment value declared to Fship/Delhivery drops to
+        // this balance-due figure for these orders, instead of the true
+        // value of the printed materials -- which may matter for the
+        // courier's own liability/insurance if the package is lost or
+        // damaged in transit.
+        const isDiscountedCod = orderIsCod
+          && orderCodAmt != null
+          && orderCodAmt < dispatchItemsValue - 0.5; // 0.5 = rounding tolerance
+        // fshipBalanceDue is the exact figure the printed label needs to
+        // show -- orderCodAmt IS already the full amount to be collected at
+        // the door (RarePrint's own "Suggested COD" formula folds the
+        // courier charge into it: balance owed + courier charge), so
+        // nothing gets subtracted from it here. Since the label ignores
+        // extraCharges entirely (same 4-test finding), extraCharges is set
+        // to 0 for this path rather than double-counting the courier charge
+        // that's already inside fshipBalanceDue -- otherwise totalAmount
+        // (orderAmount + extraCharges) would overstate the real total even
+        // though it still wouldn't affect what's printed.
+        const fshipBalanceDue = isDiscountedCod
+          ? Math.max(0, Math.round(orderCodAmt as number))
+          : dispatchItemsValue;
+        const fshipExtraCharges = isDiscountedCod ? 0 : picked.amount;
+        const fshipProducts = isDiscountedCod
+          ? [{ productId: 'BALANCE-DUE', productName: 'Balance Due', unitPrice: fshipBalanceDue, quantity: 1 }]
+          : itemsToDispatch.map((i) => ({
+              productId: i.id,
+              productName: i.product.name,
+              unitPrice: Number(i.unitPrice),
+              quantity: i.quantity,
+              sku: i.product.sku ?? undefined,
+            }));
+
         const fs = await this.fship.createForwardOrder({
           customerName,
           customerMobile: customerPhone,
@@ -1288,54 +1351,31 @@ export class DispatchService {
           externalOrderId: order.orderNumber,
           invoiceNumber: order.orderNumber,
           isCod: orderIsCod,
+          // cod_Amount is Fship's documented field for "collect less than
+          // the full order value" (passing 0/null here makes Fship treat
+          // the order as Prepaid) -- kept as-is regardless of the stopgap
+          // above; orderCodAmt already accounts for the advance payment.
           codAmount: orderIsCod ? (orderCodAmt ?? 0) : 0,
-          // Fship's own dispatch app appears to tell the delivery rider to
-          // collect order_Amount/total_Amount, NOT the separate cod_Amount
-          // field above -- confirmed via order 1574 (PALLAVI MEDICAL,
-          // 2026-09-08): cod_Amount was correctly sent as 300 (parsed from
-          // "COD: ₹300 to be collected on delivery" in the order notes) but
-          // Fship still booked/collected the full order value of 3000.
-          // So for COD shipments, order_Amount/total_Amount must themselves
-          // be the actual amount to collect -- cod_Amount is still sent too
-          // in case Fship starts honoring it, but can't be relied on alone.
-          // Falls back to the full item value only when isCod is true but
-          // no specific COD amount could be parsed from the order notes
-          // (safer to assume the whole order is COD than to tell Fship to
-          // collect nothing).
-          // orderAmount is the real value of the goods in THIS shipment --
-          // always dispatchItemsValue, for both COD and Prepaid. Before this
-          // fix it was set equal to the COD/balance-due amount for COD
-          // orders (same value as totalAmount below), which meant Fship had
-          // no correct standalone goods figure and its own auto-generated
-          // invoice/shipping label ended up printing a "Shipping Charge"
-          // line that was really just the outstanding COD balance (wrong
-          // whenever balance-due != goods value, e.g. after an advance
-          // payment -- order 1519 printed Rs 3625 instead of the real Rs 625
-          // courier rate). orderAmount no longer needs to equal totalAmount:
-          // Fship's collection step only reads totalAmount/cod_Amount.
-          orderAmount: dispatchItemsValue,
-          // totalAmount stays exactly what it was -- the actual amount to
-          // collect on delivery -- so the order-1574 collection fix is
-          // unaffected by this change.
-          totalAmount: orderIsCod ? (orderCodAmt ?? dispatchItemsValue) : dispatchItemsValue,
+          // fshipBalanceDue is dispatchItemsValue normally (unchanged), or
+          // the full collectible amount (see isDiscountedCod above) when
+          // there's an advance payment to reconcile.
+          orderAmount: fshipBalanceDue,
+          // Kept equal to Fship's own documented formula -- Amount + Tax +
+          // Extra Charges (tax is always 0 here) -- using fshipExtraCharges
+          // so nothing is double-counted; unchanged from before in the
+          // normal (non-discounted) path.
+          totalAmount: fshipBalanceDue + fshipExtraCharges,
           // The real courier freight charge for this shipment (same number
-          // saved as Order.shippingCharge). Previously never sent to Fship --
-          // extra_Charges was hardcoded to 0, so their invoice/label had no
-          // correct freight figure to print.
-          extraCharges: picked.amount,
+          // saved as Order.shippingCharge) -- 0 here specifically when
+          // isDiscountedCod, because fshipBalanceDue already includes it.
+          extraCharges: fshipExtraCharges,
           weightKg,
           lengthCm: normalizedBoxes?.[0]?.length ?? 10,
           widthCm: normalizedBoxes?.[0]?.breadth ?? 10,
           heightCm: normalizedBoxes?.[0]?.height ?? 10,
           pickAddressId,
           courierId,
-          products: itemsToDispatch.map((i) => ({
-            productId: i.id,
-            productName: i.product.name,
-            unitPrice: Number(i.unitPrice),
-            quantity: i.quantity,
-            sku: i.product.sku ?? undefined,
-          })),
+          products: fshipProducts,
         });
         if (fs.waybill) {
           courierConfirmedBooking = true; // real AWB assigned — order genuinely exists in Fship's system
