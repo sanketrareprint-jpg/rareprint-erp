@@ -66,12 +66,51 @@ function sanitizePhone(value?: string | null): string | null | undefined {
 // pendingDispatchItemIds.
 function resolveLockedItemIds(order: {
   status: string;
-  items: Array<{ id: string }>;
+  items: Array<{ id: string; createdAt?: Date }>;
   pendingDispatchItemIds?: string[] | null;
+  // Only consulted for status === DISPATCHED — see the block below.
+  // Three-way: omit the key entirely (don't pass this property at all) to
+  // opt OUT of the DISPATCHED check and keep the pre-2026-09-17 behavior
+  // (nothing locked) — every caller that hasn't been updated to fetch
+  // shipments does this automatically, e.g. findAllForTable's badge query.
+  // Pass an actual Date, or explicitly pass null when a query legitimately
+  // found no shipment row, to opt IN.
+  latestShipmentCreatedAt?: Date | null;
 }): Set<string> {
   const submittedIds = order.pendingDispatchItemIds ?? [];
   if (submittedIds.length > 0) return new Set(submittedIds);
   if (order.status === 'PENDING_DISPATCH_APPROVAL') return new Set(order.items.map((i) => i.id));
+  // DISPATCHED orders have no reliable per-item lock signal to fall back on:
+  // pendingDispatchItemIds is empty (nothing currently pending), and
+  // dispatchedAt can ALSO be null on a genuinely already-shipped item --
+  // either because it predates the dispatchedAt column (2026-08-10) or
+  // because it went out via markManuallyDispatched, which never stamped it
+  // (see dispatch.service.ts). Without this, removing DISPATCHED from
+  // getOrdersWithReadyItems's EXCLUDED_STATUSES (needed so a genuinely NEW
+  // item added after full dispatch can surface — see that function) made
+  // every already-delivered order missing dispatchedAt resurface too,
+  // looking freshly "ready." Confirmed via real orders, 2026-09-17.
+  //
+  // Fix: compare each item's createdAt against the order's most recent
+  // Shipment record (every dispatch path creates one, including
+  // markManuallyDispatched, so this predates the dispatchedAt column and
+  // covers all of them). An item created at/before that shipment was
+  // already on the order when it shipped — lock/hide it, same as if it had
+  // dispatchedAt set. One created after is genuinely new.
+  //
+  // latestShipmentCreatedAt === undefined means the caller never fetched
+  // shipments at all (didn't opt in) — skip this branch entirely rather
+  // than guessing, so callers that only touch findAllForTable-style badge
+  // data keep their pre-existing, unrelated behavior unchanged. A caller
+  // that DID fetch shipments but genuinely found none for a DISPATCHED
+  // order (shouldn't happen, but be conservative) passes null explicitly,
+  // which locks everything — the same safe, blanket-hidden behavior this
+  // whole order status used to get unconditionally.
+  if (order.status === 'DISPATCHED' && order.latestShipmentCreatedAt !== undefined) {
+    if (order.latestShipmentCreatedAt === null) return new Set(order.items.map((i) => i.id));
+    const cutoff = order.latestShipmentCreatedAt;
+    return new Set(order.items.filter((i) => !i.createdAt || i.createdAt <= cutoff).map((i) => i.id));
+  }
   return new Set<string>();
 }
 
@@ -1605,7 +1644,12 @@ export class OrdersService {
   async getOrderItems(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: { include: { product: true } },
+        // For resolveLockedItemIds' DISPATCHED-status fallback — see that
+        // function and the matching comment in getOrdersWithReadyItems.
+        shipments: { select: { createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+      },
     });
     if (!order) throw new NotFoundException('Order not found');
 
@@ -1625,7 +1669,7 @@ export class OrdersService {
     // queue) shouldn't be offered again in the booking modal's checklist --
     // otherwise the same item could be submitted a second time on top of
     // its existing pending/approved submission.
-    const lockedIds = resolveLockedItemIds({ status: order.status, items: order.items, pendingDispatchItemIds: (order as any).pendingDispatchItemIds });
+    const lockedIds = resolveLockedItemIds({ status: order.status, items: order.items, pendingDispatchItemIds: (order as any).pendingDispatchItemIds, latestShipmentCreatedAt: (order as any).shipments?.[0]?.createdAt ?? null });
 
     return order.items.map((i) => ({
       id: i.id,
@@ -1673,6 +1717,8 @@ export class OrdersService {
               product: { select: { name: true } },
             },
           },
+          // For resolveLockedItemIds' DISPATCHED-status fallback below.
+          shipments: { select: { createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
         },
       });
       if (!order) continue;
@@ -1763,8 +1809,18 @@ export class OrdersService {
       // dispatchLocked (getOrderItems), but guard here too against a stale
       // frontend list or a direct API call re-submitting an item that's
       // already been physically shipped.
+      //
+      // For a DISPATCHED-status order specifically, dispatchedAt alone isn't
+      // enough — see resolveLockedItemIds' DISPATCHED branch (an item can be
+      // already-shipped with no dispatchedAt, e.g. via markManuallyDispatched
+      // or because it predates the dispatchedAt column). Reuse the same
+      // shipment-cutoff logic so this endpoint can't be tricked into
+      // resubmitting one of those legacy items either.
+      const dispatchedLockedIds = order.status === OrderStatus.DISPATCHED
+        ? resolveLockedItemIds({ status: order.status, items: order.items, pendingDispatchItemIds: (order as any).pendingDispatchItemIds, latestShipmentCreatedAt: (order as any).shipments?.[0]?.createdAt ?? null })
+        : new Set<string>();
       const readyItems = order.items.filter(
-        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt,
+        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt && !dispatchedLockedIds.has(i.id),
       );
       if (readyItems.length === 0) {
         skipped.push({ orderId, orderNumber: order.orderNumber, reason: 'No items are ready for dispatch yet.' });
@@ -1995,6 +2051,9 @@ export class OrdersService {
             // Plain key, not a spread -- see the matching comment in
             // findAllForTable above; a spread here broke Railway's build.
             dispatchedAt: true,
+            // Needed by resolveLockedItemIds' DISPATCHED-status fallback —
+            // see that function.
+            createdAt: true,
           }
         },
         payments: true,
@@ -2002,6 +2061,12 @@ export class OrdersService {
         // findAllForTable above; the same spread pattern here broke
         // Railway's build too (TS2322 on 2026-08-10).
         pendingDispatchItemIds: true,
+        // Also for resolveLockedItemIds' DISPATCHED-status fallback: the
+        // most recent Shipment record marks when this order was last
+        // actually dispatched (every dispatch path creates one), used as
+        // the cutoff to tell an already-shipped item apart from a
+        // genuinely new one when dispatchedAt itself is missing/null.
+        shipments: { select: { createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
     // Drop orders where every ready item is already locked into an active
@@ -2016,7 +2081,7 @@ export class OrdersService {
     // (submitted before that column existed) leak back into this tab even
     // though they're already sitting in Accounts' Dispatch Approval queue.
     const readyOrders = orders.filter((o) => {
-      const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds });
+      const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds, latestShipmentCreatedAt: (o as any).shipments?.[0]?.createdAt ?? null });
       return o.items.some((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt);
     });
     const slabsByProductId = (includeMargin || includeCommission)
@@ -2044,7 +2109,8 @@ export class OrdersService {
       // already locked into an active submission are excluded (see
       // readyOrders/resolveLockedItemIds above); this keeps the tab's
       // "Ready" count and the booking checklist in sync with each other.
-      const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds });
+      const latestShipmentCreatedAt = (o as any).shipments?.[0]?.createdAt ?? null;
+      const lockedIds = resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds, latestShipmentCreatedAt });
       const readyCount = o.items.filter((i) => i.itemProductionStage === 'READY_FOR_DISPATCH' && !lockedIds.has(i.id) && !(i as any).dispatchedAt).length;
       // Value of items already physically shipped in an earlier partial
       // batch of this order — used by the Book Shipment modal to work out
@@ -2085,7 +2151,7 @@ export class OrdersService {
         readyItemsCount: readyCount,
         totalItemsCount: o.items.length,
         itemDetails: buildItemDetails(o.items as any, {
-          lockedIds: resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds }),
+          lockedIds: resolveLockedItemIds({ status: o.status, items: o.items, pendingDispatchItemIds: (o as any).pendingDispatchItemIds, latestShipmentCreatedAt }),
           orderStatus: o.status,
         }),
         items: o.items.map((i) => ({

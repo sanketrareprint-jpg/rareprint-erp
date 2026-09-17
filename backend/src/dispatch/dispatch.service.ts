@@ -2049,6 +2049,22 @@ export class DispatchService {
         },
       });
 
+      // Unlike bookItems/bookTransport/sendDirectOtp, this path never
+      // stamped dispatchedAt on the order's items -- it only ever flipped
+      // order.status to DISPATCHED. itemProductionStage never changes away
+      // from READY_FOR_DISPATCH on its own (see OrderItem.dispatchedAt in
+      // schema.prisma), so any order marked dispatched this way looked
+      // permanently "still ready to dispatch" to anything that reads
+      // dispatchedAt -- orders.service.ts's getOrdersWithReadyItems has a
+      // shipment-timestamp fallback for the historical gap this already
+      // caused, but new manual dispatches shouldn't keep adding to it.
+      // Confirmed via real orders resurfacing in Ready for Dispatch after
+      // already being delivered, 2026-09-17.
+      await tx.orderItem.updateMany({
+        where: { orderId },
+        data: { dispatchedAt: new Date() },
+      });
+
       await tx.order.update({
         where: { id: orderId },
         data: { status: OrderStatus.DISPATCHED },
