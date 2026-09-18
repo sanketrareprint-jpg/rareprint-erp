@@ -282,6 +282,55 @@ export class CostTableService {
     });
   }
 
+  // See cost-table.controller.ts's createProduct() comment — this was
+  // previously impossible to do through the app at all.
+  async createProduct(dto: {
+    sku: string; name: string; categoryName: string; gsm: number;
+    paperType?: string; sizeInches: string; printingType: string; sides: string;
+  }) {
+    const sku = dto.sku?.trim();
+    const name = dto.name?.trim();
+    const categoryName = dto.categoryName?.trim();
+    const sizeInches = dto.sizeInches?.trim();
+    const paperType = dto.paperType?.trim();
+
+    if (!sku) throw new BadRequestException('SKU is required');
+    if (!name) throw new BadRequestException('Product name is required');
+    if (!categoryName) throw new BadRequestException('Category is required');
+    if (!sizeInches) throw new BadRequestException('Size is required');
+    if (!dto.gsm || dto.gsm <= 0) throw new BadRequestException('GSM must be a positive number');
+    if (!['OFFSET', 'DIGITAL', 'SCREEN', 'FLEX'].includes(dto.printingType)) {
+      throw new BadRequestException('Printing type must be one of OFFSET, DIGITAL, SCREEN, FLEX');
+    }
+    if (!['SINGLE_SIDE', 'DOUBLE_SIDE'].includes(dto.sides)) {
+      throw new BadRequestException('Sides must be SINGLE_SIDE or DOUBLE_SIDE');
+    }
+
+    const existing = await this.prisma.product.findUnique({ where: { sku } });
+    if (existing) throw new BadRequestException(`SKU "${sku}" already exists`);
+
+    // Same upsert-by-name pattern as ProductCategory has nowhere else to be
+    // created from either — there's no dedicated category management UI.
+    const category = await this.prisma.productCategory.upsert({
+      where: { name: categoryName },
+      update: {},
+      create: { name: categoryName },
+    });
+
+    return this.prisma.product.create({
+      data: {
+        sku,
+        name,
+        categoryId: category.id,
+        gsm: dto.gsm,
+        paperType: paperType || null,
+        sizeInches,
+        printingType: dto.printingType as any,
+        sides: dto.sides as any,
+      },
+    });
+  }
+
   async getSlabsForProduct(productId: string) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },

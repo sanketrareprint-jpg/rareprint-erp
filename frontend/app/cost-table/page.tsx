@@ -352,6 +352,14 @@ export default function CostTablePage() {
   const [modalSlab, setModalSlab] = useState({ minQuantity: "", maxQuantity: "", unitPrice: "", setupCost: "" });
   const [modalSaving, setModalSaving] = useState(false);
 
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "",
+    printingType: "DIGITAL", sides: "SINGLE_SIDE",
+  });
+  const [newProductSaving, setNewProductSaving] = useState(false);
+  const [newProductError, setNewProductError] = useState("");
+
   const headers = getAuthHeaders();
 
   const load = useCallback(async () => {
@@ -737,6 +745,36 @@ export default function CostTablePage() {
     (p.category?.name || "").toLowerCase().includes(search.toLowerCase())
   );
 
+  // ── Add Product Modal ────────────────────────────────────────────────────
+
+  async function saveNewProduct() {
+    setNewProductError("");
+    if (!newProduct.sku.trim() || !newProduct.name.trim() || !newProduct.categoryName.trim() || !newProduct.sizeInches.trim() || !newProduct.gsm) {
+      setNewProductError("SKU, name, category, size and GSM are required.");
+      return;
+    }
+    setNewProductSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/cost-table/products`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newProduct, gsm: Number(newProduct.gsm) }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setNewProductError(body?.message || "Failed to create product.");
+        return;
+      }
+      setShowAddProductModal(false);
+      setNewProduct({ sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "", printingType: "DIGITAL", sides: "SINGLE_SIDE" });
+      load();
+    } catch {
+      setNewProductError("Failed to create product.");
+    } finally {
+      setNewProductSaving(false);
+    }
+  }
+
   // ── Add Cost Modal ────────────────────────────────────────────────────────
 
   async function saveModalCostSlab() {
@@ -916,6 +954,9 @@ export default function CostTablePage() {
             <p className="text-sm text-gray-500 mt-0.5">Manage product cost slabs, margin rules &amp; agent commission</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setShowAddProductModal(true)} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">
+              <Plus size={14} /> Add Product
+            </button>
             <button onClick={downloadSampleCsv} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
               <Download size={14} /> Sample CSV
             </button>
@@ -1041,7 +1082,13 @@ export default function CostTablePage() {
             {loading ? (
               <div className="text-center py-16 text-gray-400">Loading products…</div>
             ) : filtered.length === 0 ? (
-              <div className="text-center py-16 text-gray-400">No products found</div>
+              <div className="text-center py-16 text-gray-400">
+                {products.length === 0 ? (
+                  <>No products yet — click <strong className="text-gray-500">Add Product</strong> above to create your first one.</>
+                ) : (
+                  "No products found"
+                )}
+              </div>
             ) : (
               <div className="space-y-2">
                 {filtered.map(product => (
@@ -1991,6 +2038,122 @@ export default function CostTablePage() {
 
       </div>
 
+      {/* Add Product Modal */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-gray-900">Add Product</h2>
+              <button onClick={() => { setShowAddProductModal(false); setNewProductError(""); }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            {newProductError && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{newProductError}</div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">SKU <span className="text-red-500">*</span></label>
+                <input
+                  value={newProduct.sku}
+                  onChange={e => setNewProduct(p => ({ ...p, sku: e.target.value }))}
+                  placeholder="e.g. STK-001"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Category <span className="text-red-500">*</span></label>
+                <input
+                  value={newProduct.categoryName}
+                  onChange={e => setNewProduct(p => ({ ...p, categoryName: e.target.value }))}
+                  placeholder="e.g. Stickers"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Product Name <span className="text-red-500">*</span></label>
+                <input
+                  value={newProduct.name}
+                  onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Prescription Sticker Roll"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Size (inches) <span className="text-red-500">*</span></label>
+                <input
+                  value={newProduct.sizeInches}
+                  onChange={e => setNewProduct(p => ({ ...p, sizeInches: e.target.value }))}
+                  placeholder="e.g. 3x3"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">GSM <span className="text-red-500">*</span></label>
+                <input
+                  type="number"
+                  value={newProduct.gsm}
+                  onChange={e => setNewProduct(p => ({ ...p, gsm: e.target.value }))}
+                  placeholder="e.g. 80"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Paper Type</label>
+                <input
+                  value={newProduct.paperType}
+                  onChange={e => setNewProduct(p => ({ ...p, paperType: e.target.value }))}
+                  placeholder="optional, e.g. Sticker"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Printing Type</label>
+                <select
+                  value={newProduct.printingType}
+                  onChange={e => setNewProduct(p => ({ ...p, printingType: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="DIGITAL">Digital</option>
+                  <option value="OFFSET">Offset</option>
+                  <option value="SCREEN">Screen</option>
+                  <option value="FLEX">Flex</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Sides</label>
+                <select
+                  value={newProduct.sides}
+                  onChange={e => setNewProduct(p => ({ ...p, sides: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="SINGLE_SIDE">Single</option>
+                  <option value="DOUBLE_SIDE">Double</option>
+                </select>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              A new category name creates that category automatically. Once created, add cost/rate slabs for this product in the Cost Slabs tab.
+            </p>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={saveNewProduct}
+                disabled={newProductSaving}
+                className="flex-1 py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {newProductSaving ? "Saving..." : "Create Product"}
+              </button>
+              <button onClick={() => { setShowAddProductModal(false); setNewProductError(""); }} className="px-4 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Add Cost Modal */}
       {addCostModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

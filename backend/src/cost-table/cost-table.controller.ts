@@ -41,6 +41,23 @@ export class CostTableController {
     return this.svc.getAllProductsWithSlabs();
   }
 
+  // There was previously no way to create a Product anywhere in the app
+  // (Cost Table's CSV import only sets slabs on products that already
+  // exist; Design Studio's "Create Product" form only writes to local
+  // React state). Added 2026-09-18 so a brand-new SaaS customer — whose
+  // database starts with zero products — has a way to add their first one.
+  @Post('products')
+  createProduct(
+    @Body() dto: {
+      sku: string; name: string; categoryName: string; gsm: number;
+      paperType?: string; sizeInches: string; printingType: string; sides: string;
+    },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    return this.svc.createProduct(dto);
+  }
+
   @Get('products/:productId/slabs')
   getSlabsForProduct(@Param('productId') productId: string) {
     return this.svc.getSlabsForProduct(productId);
