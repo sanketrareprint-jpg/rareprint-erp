@@ -338,6 +338,14 @@ export class OrdersService {
     const category = order.salesAgent?.salesAgentCategory ?? 'B';
     let commissionTotal = 0;
     for (const item of order.items) {
+      // Cancelled items were never actually sold -- excluding them keeps
+      // commissionTotal in sync with order.grandTotal (used as the % denominator
+      // below), which approveCancellation() already reduces on cancellation.
+      // Without this, a cancelled item's commission stayed baked into the
+      // total while the order total shrank, pushing commissionPctOfSale above
+      // the agent's real rate (e.g. 10% -> 11.7%). Same convention as the
+      // cancelledAt check at line ~1140's lineTotal sum.
+      if (item.cancelledAt) continue;
       const slab = item.matchingCostSlab;
       const lineTotal = Number(item.lineTotal);
       // See calculateOrderMargin above for why this is derived from
@@ -2081,6 +2089,12 @@ export class OrdersService {
             // Needed by resolveLockedItemIds' DISPATCHED-status fallback —
             // see that function.
             createdAt: true,
+            // Needed by calculateOrderCommission's cancelledAt skip below --
+            // without this the field comes back undefined here (Prisma only
+            // returns selected columns) and a cancelled item's commission
+            // silently stayed counted even though findAllForTable's query
+            // already excludes it. See the fix at calculateOrderCommission.
+            cancelledAt: true,
           }
         },
         payments: true,
