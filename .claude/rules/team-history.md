@@ -370,3 +370,23 @@ customer" (auto-creates new customer from ticket form).
   error-prone for this. Never print the actual variable *values* this way without a specific
   need — this check only confirmed presence/blankness, consistent with not exposing secrets
   unnecessarily.
+
+## Session 2026-09-19 (cont'd 5) — "Create New Order" tested from scratch, closes out the core walkthrough
+
+- Every order used earlier in this walkthrough (1201, 1202) already existed before this
+  session — the literal first action a brand-new customer takes, clicking "+ Create New
+  Order" and filling in a brand-new customer + product from an empty form, had never actually
+  been tested. Did so now: new customer "Fresh Walkthrough Customer 2", Pune/Maharashtra/
+  411001, Walk In lead source, 50x `TEST-VCARD-001` @ ₹5/unit. Created cleanly as order 1203,
+  ₹250 total, correct 10%-of-margin commission (₹25), correct starting stage (`Not Printed`).
+  No issues found.
+- **With this, the core "brand-new SaaS customer, day one" walkthrough is now genuinely
+  complete end-to-end**: signup → Settings setup (Add Product, Add Payment Account, Company
+  Profile) → Create New Order from scratch → record payment → verify payment → add cost slab
+  → Accounts approval → assign production → advance to Ready → submit for dispatch → Accounts
+  dispatch approval → Dispatch queue → mark dispatched → invoice auto-generated. Every stage
+  of that chain has now been personally clicked through and confirmed working on
+  `demo-test-co`, not just read in code. The one open finding from this whole walkthrough is
+  the GST=0% issue above (flagged, not fixed, pending the user's boss). Courier booking itself
+  is intentionally untestable here (real courier credentials are customer-supplied, confirmed
+  blank on this environment).
