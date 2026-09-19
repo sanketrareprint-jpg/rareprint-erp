@@ -261,3 +261,51 @@ customer" (auto-creates new customer from ticket form).
   user whether to correct that section; no answer yet as of this note.
 - No code was written or changed in this session — pure verification, one throwaway live test
   (the `demo-test-co` account above), and roadmap/codebase auditing.
+
+## Session 2026-09-19 (cont'd 2) — full order→payment→approval→production→dispatch cycle walked end-to-end on demo-test-co
+
+- **Ran a complete lifecycle test on order 1202** (the pre-existing "Walkthrough Test
+  Customer" test order) to validate the whole pipeline a real customer would depend on, not
+  just the Payment Account feature in isolation: recorded a ₹500 cash payment against "Test
+  HDFC Current Account" → verified it in Accounts → Receipts Pending (no bank statement
+  configured on this test env, used "Verify Manually") → hit "Cost data missing" block on
+  Order Approval → added a ₹2.50/unit cost slab for `TEST-VCARD-001` in Cost Table → order
+  approved (50% margin, 100% advance) → assigned to Inhouse production → advanced item stage
+  to `READY_FOR_DISPATCH` → **initially got stuck here, see false-alarm below** → correctly
+  submitted via Orders → "Ready for Dispatch" tab → "Book Shipment" modal (courier name +
+  charges, payment-account dropdown again defaulted to Test HDFC Current Account) → "Send to
+  Accounts for Approval" → order appeared in Accounts → Dispatch Approval → approved there →
+  order appeared in the real Dispatch → Queue → "Mark Dispatched" → order 1202's stage is now
+  `Dispatched`. Every stage of the pipeline works correctly end-to-end on this environment.
+- **False alarm, corrected in-session — do not repeat this mistake**: after moving the item's
+  production stage to `READY_FOR_DISPATCH` via the raw stage dropdown on the Production page,
+  the order appeared in neither the Dispatch queue nor Accounts → Dispatch Approval. Traced
+  this in `dispatch.service.ts`'s `listReadyForDispatch()` / `assertCanDispatch()`: both
+  require a `statusLog` entry `PENDING_DISPATCH_APPROVAL → READY_FOR_DISPATCH`, which is only
+  ever created by `orders.service.ts`'s `submitForDispatch()`. Searched the frontend for the
+  literal string `submit-for-dispatch` (that function's route) and found zero callers, and
+  initially reported this to the user as a likely real bug ("nothing in the UI can request
+  dispatch approval"). **That was wrong** — `submitForDispatch`/`submit-for-dispatch` is a
+  legacy single-order route that genuinely has no caller, but it is NOT the one the live app
+  uses. The real, current, fully-wired flow is a *different* endpoint,
+  `POST /orders/submit-dispatch-batch` (`orders.controller.ts` line ~175), triggered from the
+  Orders page's "Ready for Dispatch" tab → select order → "Book Shipment" modal → "Send to
+  Accounts for Approval". Manually forcing the item's production stage via the Production
+  page's raw dropdown bypasses this submission step entirely, which is why the order got
+  stuck. **Lesson: `grep`-ing for one specific route name proved "no caller" for that route,
+  but did not prove "no path exists" — there was a sibling/newer route doing the same job.**
+  Before reporting "no UI wires up to endpoint X" as a bug, check for renamed/batch sibling
+  endpoints (e.g. `submit-for-dispatch` vs `submit-dispatch-batch`) before concluding a gap is
+  real. The three-stage pipeline design itself (`Ready` → agent submits w/ courier details →
+  Accounts approves dispatch → Dispatch queue) is intentional and working as designed, per the
+  user's direct confirmation.
+- **Unrelated transient issue, not an app bug**: partway through, the Chrome tab driving
+  `localhost:3001` (a local Next.js dev server) hung — viewport briefly reported 0x0, then
+  screenshot/get_page_text calls timed out for ~30-45s (likely a dev-server hot-reload/compile
+  stall). Resolved itself after a `navigate()` to force a fresh load; no data was lost, order
+  1202's state was intact and correct throughout. If this recurs, don't assume it's a real app
+  freeze — check whether the target is a local dev server (prone to this) vs a real
+  deployment.
+- No application code was changed in this session — the "bug" investigated above turned out
+  to require no fix. Only test data was created/advanced on `demo-test-co` (order 1202 fully
+  paid, approved, produced and dispatched; one cost slab added to `TEST-VCARD-001`).
