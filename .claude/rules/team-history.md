@@ -344,3 +344,29 @@ customer" (auto-creates new customer from ticket form).
   whether it actually reproduces on RarePrint's real production (not yet checked), (2) confirm
   with the user/their boss whether this is a known, intentional gap or a genuine long-standing
   bug, before writing any fix.
+
+## Session 2026-09-19 (cont'd 4) — confirmed BIGSHIP_*/SHIPROCKET_* are genuinely blank on demo-test-co-backend
+
+- Per the user's explicit instruction ("we removed the shipping provider APIs because that's
+  something the customers have to put their own"), verified this directly against Railway's
+  live API rather than assuming — used `saas-ops/lib/railway-api.js`'s existing
+  `getServiceVariables(environmentId, serviceId)` (the same function the provisioning tooling
+  itself uses) with `demo-test-co`'s `environmentId`/`backendServiceId` from `registry.json`.
+  Ran read-only from `saas-ops/` so `dotenv/config` picked up the real `RAILWAY_API_TOKEN` in
+  `saas-ops/.env` — no dashboard clicking, no guessing.
+- **Confirmed**: all of `BIGSHIP_ACCESS_KEY`, `BIGSHIP_PASSWORD`,
+  `BIGSHIP_PICKUP_WAREHOUSE_ID`, `BIGSHIP_RETURN_WAREHOUSE_ID`, `BIGSHIP_USERNAME`,
+  `SHIPROCKET_DEFAULT_DELIVERY_PINCODE`, `SHIPROCKET_EMAIL`, `SHIPROCKET_PASSWORD`,
+  `SHIPROCKET_PICKUP_LOCATION`, `SHIPROCKET_PICKUP_PINCODE` exist as keys on
+  `demo-test-co-backend` but every single one is genuinely blank. `ACTIVE_CARRIER` also exists
+  as a key on this service (value not checked/printed — wasn't part of what was asked).
+- **Reusable pattern**: for any future "is X env var actually set on customer Y's Railway
+  service" question, prefer this API approach (`getServiceVariables` from
+  `saas-ops/lib/railway-api.js`, run from inside `saas-ops/` so `.env`'s `RAILWAY_API_TOKEN`
+  loads) over manually clicking through Railway's dashboard — the 16 projects on this Railway
+  account have auto-generated adjective-noun names (e.g. `perceptive-transformation`) with no
+  visible link to which customer/environment they contain, and Railway's own project search
+  only matches project names, not service/environment names, making the dashboard slow and
+  error-prone for this. Never print the actual variable *values* this way without a specific
+  need — this check only confirmed presence/blankness, consistent with not exposing secrets
+  unnecessarily.
