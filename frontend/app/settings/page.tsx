@@ -61,6 +61,7 @@ type OfferCode = {
   isActive: boolean; createdAt: string;
 };
 type ProductRule = { id: string; productId: string; minQty: number; isActive: boolean; product?: { id: string; name: string; sku: string } };
+type PaymentAccount = { id: string; name: string; accountType: string; bankName?: string | null; upiId?: string | null };
 type ProductOption = { id: string; name: string; sku: string };
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
 type ProductionStage = { id: string; label: string; substages: string[] };
@@ -111,6 +112,13 @@ export default function SettingsPage() {
 
   // Products list for selectors
   const [products, setProducts] = useState<ProductOption[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
+  const [showAddPaymentAccountModal, setShowAddPaymentAccountModal] = useState(false);
+  const [newPaymentAccount, setNewPaymentAccount] = useState({
+    name: "", accountType: "BANK", accountNumber: "", bankName: "", ifscCode: "", upiId: "", openingBalance: "",
+  });
+  const [newPaymentAccountSaving, setNewPaymentAccountSaving] = useState(false);
+  const [newPaymentAccountError, setNewPaymentAccountError] = useState("");
 
   // Test connection state
   const [testing, setTesting]         = useState(false);
@@ -140,12 +148,13 @@ export default function SettingsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [res, erpRes, offerRes, rulesRes, prodsRes] = await Promise.all([
+      const [res, erpRes, offerRes, rulesRes, prodsRes, paymentAccountsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/carrier-config`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/erp-config/offer-codes`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/erp-config/product-rules`, { headers: getAuthHeaders() }),
         fetch(`${API_BASE_URL}/products?limit=500`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers: getAuthHeaders() }),
       ]);
       if (!res.ok) { setError("Could not load settings"); return; }
       const data: CarrierCfg = await res.json();
@@ -156,6 +165,7 @@ export default function SettingsPage() {
         const pd = await prodsRes.json();
         setProducts(Array.isArray(pd) ? pd : (pd.items ?? pd.data ?? []));
       }
+      if (paymentAccountsRes.ok) setPaymentAccounts(await paymentAccountsRes.json());
       setCfg(data);
       setActiveCarrier(data.activeCarrier);
       setBsUsername(data.bigship.username);
@@ -207,6 +217,37 @@ export default function SettingsPage() {
   };
 
   useEffect(() => { void load(); }, [load]);
+
+  async function saveNewPaymentAccount() {
+    setNewPaymentAccountError("");
+    if (!newPaymentAccount.name.trim() || !newPaymentAccount.accountType.trim()) {
+      setNewPaymentAccountError("Name and account type are required.");
+      return;
+    }
+    setNewPaymentAccountSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/payment-accounts`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newPaymentAccount,
+          openingBalance: newPaymentAccount.openingBalance ? Number(newPaymentAccount.openingBalance) : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setNewPaymentAccountError(body?.message || "Failed to create payment account.");
+        return;
+      }
+      setShowAddPaymentAccountModal(false);
+      setNewPaymentAccount({ name: "", accountType: "BANK", accountNumber: "", bankName: "", ifscCode: "", upiId: "", openingBalance: "" });
+      load();
+    } catch {
+      setNewPaymentAccountError("Failed to create payment account.");
+    } finally {
+      setNewPaymentAccountSaving(false);
+    }
+  }
 
   const handleSave = async () => {
     setSaving(true); setSaved(false); setError(null);
@@ -772,6 +813,41 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* ── Payment Accounts ────────────────────────────────────────────── */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-gray-800 text-base flex items-center gap-2">
+              <Wallet size={18} className="text-indigo-500" /> Payment Accounts
+            </h2>
+            <button
+              onClick={() => setShowAddPaymentAccountModal(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <Plus size={14} /> Add Account
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 -mt-2">
+            Bank/cash/UPI accounts payments can be recorded against. Recording an order's advance
+            payment (required before Accounts can approve it) needs at least one account here.
+          </p>
+          {paymentAccounts.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2">
+              No payment accounts yet — click <strong className="text-gray-500">Add Account</strong> above to create your first one.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {paymentAccounts.map(a => (
+                <div key={a.id} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+                  <div className="font-medium text-gray-800">{a.name}</div>
+                  <div className="text-xs text-gray-500">
+                    {a.accountType}{a.bankName ? ` · ${a.bankName}` : ""}{a.upiId ? ` · ${a.upiId}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {/* ── Active Carrier Toggle ───────────────────────────────────────── */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
           <h2 className="font-semibold text-gray-800 text-base flex items-center gap-2">
@@ -1062,6 +1138,111 @@ export default function SettingsPage() {
         </div>
 
       </div>
+
+      {/* Add Payment Account Modal */}
+      {showAddPaymentAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-gray-900">Add Payment Account</h2>
+              <button onClick={() => { setShowAddPaymentAccountModal(false); setNewPaymentAccountError(""); }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            {newPaymentAccountError && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{newPaymentAccountError}</div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Account Name <span className="text-red-500">*</span></label>
+                <input
+                  value={newPaymentAccount.name}
+                  onChange={e => setNewPaymentAccount(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. HDFC Current Account"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type <span className="text-red-500">*</span></label>
+                <select
+                  value={newPaymentAccount.accountType}
+                  onChange={e => setNewPaymentAccount(p => ({ ...p, accountType: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="BANK">Bank</option>
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Opening Balance</label>
+                <input
+                  type="number"
+                  value={newPaymentAccount.openingBalance}
+                  onChange={e => setNewPaymentAccount(p => ({ ...p, openingBalance: e.target.value }))}
+                  placeholder="0"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              {newPaymentAccount.accountType === "BANK" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Bank Name</label>
+                    <input
+                      value={newPaymentAccount.bankName}
+                      onChange={e => setNewPaymentAccount(p => ({ ...p, bankName: e.target.value }))}
+                      placeholder="e.g. HDFC Bank"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Account Number</label>
+                    <input
+                      value={newPaymentAccount.accountNumber}
+                      onChange={e => setNewPaymentAccount(p => ({ ...p, accountNumber: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">IFSC Code</label>
+                    <input
+                      value={newPaymentAccount.ifscCode}
+                      onChange={e => setNewPaymentAccount(p => ({ ...p, ifscCode: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </>
+              )}
+              {newPaymentAccount.accountType === "UPI" && (
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">UPI ID</label>
+                  <input
+                    value={newPaymentAccount.upiId}
+                    onChange={e => setNewPaymentAccount(p => ({ ...p, upiId: e.target.value }))}
+                    placeholder="e.g. business@upi"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={saveNewPaymentAccount}
+                disabled={newPaymentAccountSaving}
+                className="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {newPaymentAccountSaving ? "Saving..." : "Create Account"}
+              </button>
+              <button onClick={() => { setShowAddPaymentAccountModal(false); setNewPaymentAccountError(""); }} className="px-4 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardShell>
   );
 }

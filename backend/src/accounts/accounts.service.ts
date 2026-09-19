@@ -1256,6 +1256,34 @@ export class AccountsService {
     });
   }
 
+  async createPaymentAccount(dto: {
+    name: string; accountType: string; accountNumber?: string;
+    bankName?: string; ifscCode?: string; upiId?: string; openingBalance?: number;
+  }) {
+    const name = dto.name?.trim();
+    const accountType = dto.accountType?.trim();
+
+    if (!name) throw new BadRequestException('Account name is required');
+    if (!accountType) throw new BadRequestException('Account type is required');
+
+    const existing = await this.prisma.paymentAccount.findFirst({ where: { name } });
+    if (existing) throw new BadRequestException(`A payment account named "${name}" already exists`);
+
+    const openingBalance = dto.openingBalance ?? 0;
+    return this.prisma.paymentAccount.create({
+      data: {
+        name,
+        accountType,
+        accountNumber: dto.accountNumber?.trim() || null,
+        bankName: dto.bankName?.trim() || null,
+        ifscCode: dto.ifscCode?.trim() || null,
+        upiId: dto.upiId?.trim() || null,
+        openingBalance,
+        currentBalance: openingBalance,
+      },
+    });
+  }
+
   async getAccountingSummary() {
     const [invoices, purchaseBills, notes, ledger] = await Promise.all([
       this.prisma.invoice.findMany({

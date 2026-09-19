@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Patch, Param, Post, Query, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Patch, Param, Post, Query, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { AccountsService } from './accounts.service';
@@ -10,6 +10,12 @@ type JwtUser = { id: string; role: string; email: string };
 @Controller('accounts')
 export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
+
+  private assertAdmin(req: Request & { user: JwtUser }) {
+    if (req.user?.role !== 'ADMIN') {
+      throw new ForbiddenException('Admin only');
+    }
+  }
 
   @Get('pending')
   getPendingOrders() {
@@ -48,6 +54,24 @@ export class AccountsController {
   @Get('payment-accounts')
   getPaymentAccounts() {
     return this.accountsService.getPaymentAccounts();
+  }
+
+  // There was previously no way to create a PaymentAccount anywhere in the
+  // app — the table only ever got rows via two internal auto-create paths
+  // (Remittance/Storefront reconciliation) or the raw Settings > Database
+  // table editor. Added 2026-09-19 so a brand-new SaaS customer — whose
+  // database starts with zero payment accounts — can record their first
+  // advance payment at all (order approval requires one).
+  @Post('payment-accounts')
+  createPaymentAccount(
+    @Body() dto: {
+      name: string; accountType: string; accountNumber?: string;
+      bankName?: string; ifscCode?: string; upiId?: string; openingBalance?: number;
+    },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    this.assertAdmin(req);
+    return this.accountsService.createPaymentAccount(dto);
   }
 
   @Get('customer-outstanding')
