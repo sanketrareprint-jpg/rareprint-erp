@@ -8,6 +8,22 @@ import { GmailDraftService } from '../production/gmail-draft.service';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+// Roles self-signup is allowed to create — must exclude ADMIN. The frontend
+// signup form already hides ADMIN from its role dropdown (see
+// frontend/app/signup/page.tsx's ROLE_OPTIONS), but that's UI-only: this
+// public, unauthenticated endpoint must enforce the same restriction
+// server-side, or any caller can POST role:"ADMIN" directly and self-grant
+// owner-level access (found during the 2026-09-19 SaaS test-customer
+// walkthrough, confirmed exploitable end-to-end against demo-test-co).
+const SELF_SIGNUP_ROLES: UserRole[] = [
+  UserRole.SALES_AGENT,
+  UserRole.ACCOUNTS,
+  UserRole.PRODUCTION,
+  UserRole.DISPATCH,
+  UserRole.DESIGNER,
+  UserRole.INHOUSE,
+];
+
 type JwtUserPayload = {
   sub: string;
   email: string;
@@ -103,6 +119,10 @@ export class AuthService {
     tokenType: 'Bearer';
     user: { id: string; fullName: string; email: string; role: string };
   }> {
+    if (role && !SELF_SIGNUP_ROLES.includes(role)) {
+      throw new BadRequestException('Self-signup cannot create this role');
+    }
+
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new ConflictException('An account with this email already exists');
