@@ -309,3 +309,38 @@ customer" (auto-creates new customer from ticket form).
 - No application code was changed in this session — the "bug" investigated above turned out
   to require no fix. Only test data was created/advanced on `demo-test-co` (order 1202 fully
   paid, approved, produced and dispatched; one cost slab added to `TEST-VCARD-001`).
+
+## Session 2026-09-19 (cont'd 3) — GST/invoice check on order 1202; possible major finding, flagged not fixed
+
+- **Checked Billing & GST on order 1202**: an invoice auto-generated correctly (Total ₹500,
+  Balance ₹0), but GST showed ₹0.00 everywhere — invoice list, GST Summary tab, HSN/SAC
+  breakdown (HSN/SAC column literally blank `-`). Company Profile (Business Name, GSTIN,
+  Address, State) was also completely unfilled by default — filled it in via the working
+  Company Profile tab (a real, functional form, not missing) to rule that out as the cause;
+  GST on the already-issued invoice correctly did NOT retroactively change (expected/safe
+  behavior per CLAUDE.md's "never silently change historical financial records" rule) — a
+  freshly-created invoice after filling the profile was not separately tested.
+- **Root cause traced in code, not guessed — appears to be systemic, not demo-test-co-only**:
+  `OrderItem.taxRatePct` is set to `new Prisma.Decimal(0)` unconditionally at every single
+  order-item creation site — `orders.service.ts` lines ~756, ~992, ~1288, and
+  `storefront.service.ts` line ~448. None of these read a rate from anywhere; it is not a
+  fallback default, it is the only value ever written. The `Product` model has no
+  GST-rate/HSN-SAC field at all (`schema.prisma`), and the order-creation frontend
+  (`frontend/app/orders/`) has no GST-rate input field anywhere (grepped, zero matches). The
+  actual GST-splitting math (`accounts.service.ts`'s `splitGst()`, correctly separating
+  CGST/SGST vs IGST) is real and appears correct — it's just always fed a 0% rate, so it always
+  computes ₹0.00.
+- **Implication if this reproduces on RarePrint's own production** (not confirmed — production
+  has NOT been checked for this): since this is the same single codebase deployed everywhere
+  (see the multi-deploy note at the top of this file), every invoice this app has ever
+  generated through the normal order flow may have charged ₹0.00 GST, including RarePrint's
+  real business, not just test customers.
+- **Explicitly flagged to the user, not fixed.** User's own words: "that we really don't know
+  for sure, I'll have to talk about it with my boss. So keep in the back of your mind, and move
+  on to the next step." **Do not touch `taxRatePct`, `splitGst()`, the Product model, or any
+  order-creation GST logic until this is discussed and a decision comes back** — this is
+  exactly the kind of high-stakes, business-impacting financial/compliance change CLAUDE.md's
+  "ask before touching" rules (section 24/25) are for. Before ever acting on this: (1) confirm
+  whether it actually reproduces on RarePrint's real production (not yet checked), (2) confirm
+  with the user/their boss whether this is a known, intentional gap or a genuine long-standing
+  bug, before writing any fix.
