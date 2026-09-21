@@ -115,12 +115,19 @@ result in `registry.json`.
 **Rolling out a schema change to every existing customer:**
 ```powershell
 cd saas-ops
-node rollout-migration.js
+node rollout-migration.js                      # every customer
+node rollout-migration.js --only demo-test-co  # one customer (comma-separate for several)
 ```
-Loops through every customer in `registry.json` and runs the migration
-against each one's database in turn. If one customer fails, it's logged and
-the script continues to the rest — you fix and re-run just for the failed
-one(s), not everyone.
+Loops through every customer in `registry.json` and runs `prisma migrate
+deploy` against each one's database in turn. If one customer fails, it's
+logged and the script continues to the rest — you fix and re-run with
+`--only <slug>` for just the failed one(s), not everyone.
+
+First validated end-to-end against `demo-test-co` on 2026-09-21 (a no-op run:
+89/89 migrations already applied, real exit code, correct datasource printed
+by Prisma). The path that actually *applies* a new migration to a customer
+has not yet been exercised — there has been no new migration since
+`demo-test-co` was provisioned. Watch the first real one.
 
 **Rolling out a plain code change (no schema change) to every customer:**
 No script needed for this — if every customer's backend service is connected

@@ -1,8 +1,8 @@
-// Runs backend/scripts/railway-migrate.js against every existing customer's
-// database, one at a time, from the registry. This is what you run after a
-// schema change ships, to bring every customer's database up to date —
-// separate from just pushing code, since Railway's own git-deploy already
-// handles redeploying the app itself if every customer's backend service is
+// Runs `prisma migrate deploy` against every existing customer's database,
+// one at a time, from the registry. This is what you run after a schema
+// change ships, to bring every customer's database up to date — separate
+// from just pushing code, since Railway's own git-deploy already handles
+// redeploying the app itself if every customer's backend service is
 // connected to the same branch.
 //
 // A failure on one customer's database does NOT stop the run — it's logged
@@ -11,8 +11,20 @@
 // docs/SaaS_Conversion_Roadmap_v3.md, Section 2): one tenant's migration
 // failing must never block or corrupt the others.
 //
+// This deliberately does NOT reuse backend/scripts/railway-migrate.js
+// (2026-09-21). That script is RarePrint production's boot-time migrator: it
+// pre-resolves a hardcoded list of drifted migrations, runs
+// ensure-all-columns.js, and ALWAYS exits 0 so a migration problem can never
+// crash the app boot. Reusing it here meant this loop's ✔/✘ was fiction —
+// every customer reported success no matter what happened (including two
+// registry entries whose databases no longer existed). Customer databases
+// are provisioned via `db push` + baseline (see README), match
+// schema.prisma exactly, and have none of production's historical drift, so
+// a plain `migrate deploy` with a real exit code is both correct and honest.
+//
 // Usage:
-//   node rollout-migration.js
+//   node rollout-migration.js                    # every customer in the registry
+//   node rollout-migration.js --only demo-test-co  # one customer (comma-separate for several)
 //
 // Run from your own machine, same reasoning as provision-customer.js.
 
@@ -45,14 +57,32 @@ if (productionEntries.length > 0) {
   process.exit(1);
 }
 
+const onlyArgIndex = process.argv.indexOf('--only');
+let targets = registry.customers;
+if (onlyArgIndex !== -1) {
+  const wantedSlugs = (process.argv[onlyArgIndex + 1] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (wantedSlugs.length === 0) {
+    console.error('[rollout-migration] --only requires a customer slug (comma-separate for several).');
+    process.exit(1);
+  }
+  const knownSlugs = new Set(registry.customers.map((c) => c.slug));
+  const unknown = wantedSlugs.filter((s) => !knownSlugs.has(s));
+  if (unknown.length > 0) {
+    console.error(`[rollout-migration] Unknown customer slug(s): ${unknown.join(', ')}. Known: ${[...knownSlugs].join(', ')}`);
+    process.exit(1);
+  }
+  targets = registry.customers.filter((c) => wantedSlugs.includes(c.slug));
+}
+
 const backendDir = path.join(import.meta.dirname, '..', 'backend');
+const prismaBin = path.join(backendDir, 'node_modules', '.bin', 'prisma');
 const results = [];
 
-console.log(`Running migration against ${registry.customers.length} customer database(s)...\n`);
+console.log(`Running migration against ${targets.length} customer database(s)...\n`);
 
-for (const customer of registry.customers) {
+for (const customer of targets) {
   console.log(`── ${customer.name} (${customer.slug}) ──`);
-  const result = spawnSync('node', ['scripts/railway-migrate.js'], {
+  const result = spawnSync(prismaBin, ['migrate', 'deploy'], {
     cwd: backendDir,
     env: { ...process.env, DATABASE_URL: customer.databaseUrl },
     stdio: 'inherit',
