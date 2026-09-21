@@ -54,6 +54,7 @@ type DispatchPendingOrder = {
   items: OrderItem[];
   totalAmount: number; totalPaid: number; balanceDue: number;
   orderDate: string; notes?: string; payments: Payment[];
+  dispatchSubmittedAt?: string | null;
   courierCharge?: number; courierCreditApplied?: number; netCourierCharge?: number;
   paymentType?: string; codAmount?: number;
   isTest?: boolean;
@@ -2881,7 +2882,12 @@ export default function AccountsPage() {
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-bold text-blue-700">{order.orderNo}</span>
                       {order.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST</span>}
-                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
+                      <span title="Order age" className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
+                      {order.dispatchSubmittedAt && (
+                        <span title="Time waiting in dispatch approval" className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.dispatchSubmittedAt)}`}>
+                          In approval: {orderAge(order.dispatchSubmittedAt)}
+                        </span>
+                      )}
                       <span className="font-semibold text-slate-800">{order.customerName}</span>
                       {order.salesAgentName && <span className="rounded-full bg-purple-50 text-purple-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                       {order.paymentType && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.paymentType === "COD" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>{order.paymentType}</span>}

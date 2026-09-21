@@ -406,6 +406,14 @@ export class AccountsService {
           include: { paymentAccount: true },
           orderBy: { paymentDate: 'desc' },
         },
+        // Latest entry into this stage — an order can be submitted, rejected
+        // and resubmitted, so the most recent one is the current wait.
+        statusLogs: {
+          where: { toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -480,6 +488,7 @@ export class AccountsService {
         totalPaid,
         balanceDue,
         orderDate: order.orderDate.toISOString(),
+        dispatchSubmittedAt: order.statusLogs[0]?.createdAt.toISOString() ?? null,
         notes: order.notes,
         courierCharge,
         courierCreditApplied,
