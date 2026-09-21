@@ -1,5 +1,9 @@
 # CLAUDE.md — ERP Engineering Rules
 
+> **IMPORTANT: Before any code task, follow `.claude/rules/regression-prevention.md`.**
+> It is the mandatory step-by-step procedure for locating the right code, mapping what a
+> change can break, verifying against a recorded baseline, and reporting what was touched.
+
 ## 1. PRIMARY OBJECTIVE
 
 You are working on a production ERP application.
