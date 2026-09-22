@@ -74,7 +74,7 @@ type DispatchOrder = {
   totalItems: number; readyItems: ReadyItem[];
   dispatchType?: DispatchMethod;
   paymentType?: "COD" | "PREPAID";
-  isCod: boolean; codAmount: number | null;
+  isCod: boolean; codAmount: number | null; balanceDue?: number;
   isSample?: boolean; samplePaymentType?: string | null;
   // Courier charge the sales agent entered while submitting this batch for
   // dispatch — distinct from whatever Dispatch itself later books/collects.
@@ -147,6 +147,26 @@ function ageColor(dateStr: string): string {
   if (days <= 3) return 'bg-green-50 text-green-700';
   if (days <= 7) return 'bg-yellow-50 text-yellow-700';
   return 'bg-red-50 text-red-700';
+}
+
+function moneyColor(n: number) {
+  if (n < 0) return "text-blue-700";
+  if (n > 0) return "text-red-500";
+  return "text-emerald-600";
+}
+// The delivery address shown in the queue's customer block: shipTo plus
+// whichever of city/state/pincode isn't already spelled out inside it, merged
+// into one line so Dispatch can copy the whole address in a single selection
+// instead of reassembling it from separate fields.
+function fullShippingAddress(o: DispatchOrder): string {
+  const base = (o.shipTo && o.shipTo !== "—" ? o.shipTo : o.customerShippingAddress || "").trim();
+  const parts = base ? [base] : [];
+  const lower = base.toLowerCase();
+  for (const extra of [o.customerCity, o.customerState, o.customerPincode]) {
+    const v = (extra || "").trim();
+    if (v && !lower.includes(v.toLowerCase())) parts.push(v);
+  }
+  return parts.join(", ");
 }
 
 export default function DispatchPage() {
@@ -1368,11 +1388,12 @@ export default function DispatchPage() {
                     {/* ── Compact Header ── */}
                     <div className="bg-slate-50 border-b border-slate-200 px-3 py-2 flex flex-wrap items-start gap-x-4 gap-y-1">
                       {/* Left: order info */}
-                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                        <span className="font-bold text-slate-900 text-sm">{o.orderNo}</span>
-                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <span className="font-bold text-blue-700 text-sm">{o.orderNo}</span>
+                        <span title="Order age" className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ageColor(o.orderDate)}`}>{orderAge(o.orderDate)}</span>
                         {o.isSample && <span className="rounded-full bg-amber-200 text-amber-900 px-1.5 py-0.5 text-[10px] font-bold">📦 SAMPLE</span>}
-                        {o.salesAgentName && <span className="text-[10px] text-blue-600 font-semibold">👤 {o.salesAgentName}</span>}
+                        <span className="font-semibold text-slate-800 text-xs">{o.customerName}</span>
+                        {o.salesAgentName && <span className="rounded-full bg-purple-50 text-purple-700 px-1.5 py-0.5 text-[10px]">👤 {o.salesAgentName}</span>}
                         {o.isSample && o.samplePaymentType
                           ? o.samplePaymentType === "COD"
                             ? <span className="rounded-full bg-orange-100 text-orange-800 px-1.5 py-0.5 text-[10px] font-bold">💵 COD</span>
@@ -1385,30 +1406,12 @@ export default function DispatchPage() {
                             🚚 {fmt(o.courierChargeQuoted)}
                           </span>
                         )}
-                        <span className="font-semibold text-slate-800 text-xs">{o.customerName}</span>
-                        {o.customerPhone && <span className="text-[10px] text-slate-500">{o.customerPhone}</span>}
-                        {o.shipTo && o.shipTo !== "—" && (
-                          <span className="text-[10px] text-slate-500 flex items-center gap-0.5 truncate max-w-[300px]">
-                            <MapPin className="h-2.5 w-2.5 shrink-0" />{o.shipTo}
-                            {o.customerPincode && <span className="text-slate-400">· {o.customerPincode}</span>}
-                          </span>
-                        )}
-                        <button
-                          onClick={() => editAddressOpenId === o.id ? setEditAddressOpenId(null) : openEditAddress(o)}
-                          className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 hover:text-blue-800"
-                          title="Edit this customer's address/pincode"
-                        >
-                          <Pencil className="h-2.5 w-2.5" /> Edit address
-                        </button>
                       </div>
-                      {/* Right: weight + pickup */}
-                      <div className="flex items-center gap-3 text-[10px] text-slate-500 shrink-0">
-                        <span>Items <strong className="text-emerald-600">{o.readyItems.length}/{o.totalItems}</strong></span>
-                        <span>Wt <strong className="text-slate-700">{selectedWeight.toFixed(2)}kg</strong></span>
-                        {activeWarehouse && (
-                          <span className="flex items-center gap-0.5">
-                            <Building2 className="h-2.5 w-2.5 shrink-0" />
-                            <strong className="text-slate-700">{activeWarehouse.name}</strong> · {activeWarehouse.pincode}
+                      {/* Right: balance + mark dispatched */}
+                      <div className="flex items-center gap-2 shrink-0 ml-auto">
+                        {o.balanceDue != null && (
+                          <span title="Balance due on this order" className={`text-[11px] font-bold whitespace-nowrap ${moneyColor(o.balanceDue)}`}>
+                            Balance: {fmt(o.balanceDue)}
                           </span>
                         )}
                       <button
@@ -1428,6 +1431,65 @@ export default function DispatchPage() {
                       >
                         <CheckSquare className="h-3 w-3" /> Mark Dispatched
                       </button>
+                      </div>
+                    </div>
+
+                    {/* ── Customer / shipment summary (same layout as Accounts › Dispatch
+                        Approval, so the whole delivery address reads as one copyable
+                        block instead of separate fields) ── */}
+                    <div className="grid gap-2 sm:grid-cols-2 px-3 py-2.5 border-b border-slate-100">
+                      <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-blue-800 text-[10px] uppercase tracking-wide">Customer</p>
+                          <button
+                            onClick={() => editAddressOpenId === o.id ? setEditAddressOpenId(null) : openEditAddress(o)}
+                            className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 hover:text-blue-800 shrink-0"
+                            title="Edit this customer's address/pincode"
+                          >
+                            <Pencil className="h-2.5 w-2.5" /> Edit address
+                          </button>
+                        </div>
+                        <p className="font-semibold text-slate-800">{o.customerName}</p>
+                        {o.customerPhone && <p className="text-slate-700">📞 {o.customerPhone}</p>}
+                        {fullShippingAddress(o) && <p className="text-slate-600">📍 {fullShippingAddress(o)}</p>}
+                        {o.salesAgentName && <p className="text-slate-500">Agent: {o.salesAgentName}</p>}
+                      </div>
+                      <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs space-y-1">
+                        <p className="font-semibold text-slate-600 text-[10px] uppercase tracking-wide mb-1">Shipment</p>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">Items Ready</span>
+                          <span className="font-semibold text-emerald-600">{o.readyItems.length}/{o.totalItems}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">Selected Weight</span>
+                          <span className="font-semibold text-slate-800">{selectedWeight.toFixed(2)} kg</span>
+                        </div>
+                        {activeWarehouse && (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-500 shrink-0">Pickup</span>
+                            <span className="font-semibold text-slate-800 text-right">
+                              <Building2 className="h-2.5 w-2.5 inline mb-0.5 mr-0.5" />
+                              {activeWarehouse.name} · {activeWarehouse.pincode}
+                            </span>
+                          </div>
+                        )}
+                        {o.isCod ? (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-orange-600 font-semibold">COD Amount</span>
+                            <span className="font-bold text-orange-700">{o.codAmount != null ? fmt(o.codAmount) : "—"}</span>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-500">Payment</span>
+                            <span className="font-semibold text-emerald-600">PREPAID</span>
+                          </div>
+                        )}
+                        {o.courierChargeQuoted != null && (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-500" title="Courier charge entered by the sales agent when this order was submitted for dispatch approval">Courier Charge</span>
+                            <span className="font-semibold text-sky-700">{fmt(o.courierChargeQuoted)}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1462,7 +1524,8 @@ export default function DispatchPage() {
                       );
                     })()}
 
-                    {/* ── Items (compact rows) ── */}
+                    {/* ── Items (selectable table — same columns as Dispatch Approval,
+                        plus per-item weight, which Dispatch needs) ── */}
                     <div className="px-3 py-2 border-b border-slate-100">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Items</span>
@@ -1472,29 +1535,45 @@ export default function DispatchPage() {
                           {allSelected ? "Deselect All" : "Select All"}
                         </button>
                       </div>
-                      <div className="space-y-1">
-                        {o.readyItems.map((item, idx) => {
-                          const { size, gsm, paper, sides, printingType } = item;
-                          const isSelected = orderSelected.has(item.id);
-                          return (
-                            <div key={item.id} onClick={() => toggleItem(o.id, item.id)}
-                              className={`cursor-pointer rounded-md border px-2 py-1.5 flex items-center gap-2 transition ${isSelected ? "border-brand-400 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
-                              {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-brand-600 shrink-0" /> : <Square className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
-                              <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold shrink-0">{o.orderNo}-{idx + 1}</span>
-                              <span className="font-semibold text-slate-900 text-xs">{item.productName}</span>
-                              <span className="text-[10px] text-slate-400">({item.sku})</span>
-                              <span className="text-[10px] text-slate-500 ml-auto flex gap-2 shrink-0">
-                                <span>Qty <strong>{item.quantity}</strong></span>
-                                {size && <span>Size <strong>{size}</strong></span>}
-                                {gsm && <span>GSM <strong>{gsm}</strong></span>}
-                                {paper && <span>Paper <strong>{paper}</strong></span>}
-                                {sides && <span>Sides <strong>{sides === "SINGLE_SIDE" ? "S" : sides === "DOUBLE_SIDE" ? "D" : sides}</strong></span>}
-                                {printingType && <span>Print <strong>{printingType}</strong></span>}
-                                <span>Wt <strong>{item.weightKg.toFixed(2)}kg</strong></span>
-                              </span>
-                            </div>
-                          );
-                        })}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs min-w-[620px]">
+                          <thead><tr className="border-b border-slate-100 text-slate-500">
+                            <th className="pb-1 w-6" />
+                            <th className="pb-1 text-left font-medium">Product</th>
+                            <th className="pb-1 text-left font-medium">Size</th>
+                            <th className="pb-1 text-left font-medium">GSM</th>
+                            <th className="pb-1 text-left font-medium">Paper</th>
+                            <th className="pb-1 text-left font-medium">Sides</th>
+                            <th className="pb-1 text-left font-medium">Print</th>
+                            <th className="pb-1 text-right font-medium">Qty</th>
+                            <th className="pb-1 text-right font-medium">Wt</th>
+                          </tr></thead>
+                          <tbody>
+                            {o.readyItems.map((item, idx) => {
+                              const isSelected = orderSelected.has(item.id);
+                              return (
+                                <tr key={item.id} onClick={() => toggleItem(o.id, item.id)}
+                                  className={`cursor-pointer border-b border-slate-50 transition ${isSelected ? "bg-brand-50" : "hover:bg-slate-50"}`}>
+                                  <td className="py-1.5 align-middle">
+                                    {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-brand-600" /> : <Square className="h-3.5 w-3.5 text-slate-400" />}
+                                  </td>
+                                  <td className="py-1.5">
+                                    <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold mr-1">{o.orderNo}-{idx + 1}</span>
+                                    <span className="font-medium text-slate-800">{item.productName}</span>
+                                    <span className="text-[10px] text-slate-400 ml-1">({item.sku})</span>
+                                  </td>
+                                  <td className="py-1.5 text-slate-600">{item.size || "—"}</td>
+                                  <td className="py-1.5 text-slate-600">{item.gsm || "—"}</td>
+                                  <td className="py-1.5 text-slate-600">{item.paper || "—"}</td>
+                                  <td className="py-1.5 text-slate-600">{item.sides === "SINGLE_SIDE" ? "Single" : item.sides === "DOUBLE_SIDE" ? "Double" : item.sides || "—"}</td>
+                                  <td className="py-1.5 text-slate-600">{item.printingType || "—"}</td>
+                                  <td className="py-1.5 text-right text-slate-600">{item.quantity}</td>
+                                  <td className="py-1.5 text-right font-medium text-slate-700">{item.weightKg.toFixed(2)}kg</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
 
