@@ -12,6 +12,10 @@
 // query, and serviceInstanceDeploy. Check those in Docs the same way before
 // running provision-customer.js against a real customer — if a field name is
 // off, you'll get a clear GraphQL error naming it, not silent wrong behavior.
+//   - `domains` query — verified by introspection on 2026-09-21 (args
+//     environmentId!/projectId!/serviceId!, returns AllDomains with
+//     serviceDomains[].domain and customDomains[].domain) and by a real call
+//     that returned demo-test-co's live backend domain.
 
 import 'dotenv/config';
 import crypto from 'node:crypto';
@@ -59,6 +63,25 @@ export async function createEnvironment(name) {
   `;
   const data = await graphqlRequest(query, { input: { projectId, name } });
   return data.environmentCreate; // { id, name }
+}
+
+/**
+ * Public hostnames for a service in an environment. Custom domains first
+ * (the address a customer would actually use), then Railway-generated ones.
+ * Empty if the service has no public domain at all.
+ */
+export async function getServiceDomains(environmentId, serviceId) {
+  const projectId = requireEnv('RAILWAY_CUSTOMERS_PROJECT_ID');
+  const query = `
+    query Domains($environmentId: String!, $projectId: String!, $serviceId: String!) {
+      domains(environmentId: $environmentId, projectId: $projectId, serviceId: $serviceId) {
+        customDomains { domain }
+        serviceDomains { domain }
+      }
+    }
+  `;
+  const data = await graphqlRequest(query, { environmentId, projectId, serviceId });
+  return [...data.domains.customDomains, ...data.domains.serviceDomains].map((d) => d.domain);
 }
 
 /**

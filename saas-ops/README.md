@@ -129,6 +129,24 @@ by Prisma). The path that actually *applies* a new migration to a customer
 has not yet been exercised — there has been no new migration since
 `demo-test-co` was provisioned. Watch the first real one.
 
+**Checking on every customer (fleet status):**
+```powershell
+cd saas-ops
+node customer-status.js                      # every customer
+node customer-status.js --only demo-test-co  # one customer
+```
+Read-only. One row per customer: from their database — reachable or not,
+migrations applied vs. the repo (with pending ones named), stuck migration
+rows, table/user/order counts, last order date — and from their backend —
+whether `/health` answers OK (that endpoint also checks the app's own DB
+connection from inside Railway). The backend's hostname is looked up from
+Railway each run since the registry doesn't store it; if `RAILWAY_API_TOKEN`
+/ `RAILWAY_CUSTOMERS_PROJECT_ID` aren't set the backend column is skipped
+rather than failing the report. Exits 1 if anything needs attention, so it
+doubles as a pre-rollout check — run it before `rollout-migration.js`, and
+again after. This is the first increment of the superadmin console (roadmap
+Section 5); create/suspend, impersonation and audit logging are not built.
+
 **Rolling out a plain code change (no schema change) to every customer:**
 No script needed for this — if every customer's backend service is connected
 to the same GitHub branch as RarePrint's own production backend, pushing to
@@ -139,6 +157,7 @@ Git integration.
 
 - `provision-customer.js` — new customer setup.
 - `rollout-migration.js` — run a migration against every existing customer.
+- `customer-status.js` — read-only health/usage row per customer, from their database.
 - `customer-env-template.js` — the environment variables a new customer's
   backend needs, and which ones are intentionally left blank (RarePrint's own
   integration accounts — Shiprocket, BigShip, Razorpay, Gmail — must never be

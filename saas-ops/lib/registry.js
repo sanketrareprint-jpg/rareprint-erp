@@ -29,3 +29,17 @@ export function addCustomer(entry) {
   registry.customers.push({ ...entry, provisionedAt: new Date().toISOString() });
   saveRegistry(registry);
 }
+
+// Resolves `--only slug1,slug2` from argv to the matching registry entries.
+// Every customer when the flag is absent; throws on a missing or unknown slug
+// so a typo can never silently run against nobody (or everybody).
+export function selectCustomers(registry, argv) {
+  const flagIndex = argv.indexOf('--only');
+  if (flagIndex === -1) return registry.customers;
+  const wantedSlugs = (argv[flagIndex + 1] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (wantedSlugs.length === 0) throw new Error('--only requires a customer slug (comma-separate for several).');
+  const knownSlugs = new Set(registry.customers.map((c) => c.slug));
+  const unknown = wantedSlugs.filter((s) => !knownSlugs.has(s));
+  if (unknown.length > 0) throw new Error(`Unknown customer slug(s): ${unknown.join(', ')}. Known: ${[...knownSlugs].join(', ')}`);
+  return registry.customers.filter((c) => wantedSlugs.includes(c.slug));
+}
