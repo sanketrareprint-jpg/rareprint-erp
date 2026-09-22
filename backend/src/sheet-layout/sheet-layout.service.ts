@@ -159,12 +159,21 @@ export function computeSlotGeometry(
 
     const numCols = row.length;
     const totalColGapPx = (numCols - 1) * gapPx;
-    const slotWPx = Math.round(
-      (sheet.usableW / numCols) * DPI - totalColGapPx / numCols,
-    );
+
+    // Column widths follow each slot's real physical width (SLOT_TYPES),
+    // scaled so the row still fills the usable width exactly — not an
+    // equal split, which only matches reality when every slot in the row
+    // is the same size (mixing e.g. Small + Large in one row otherwise
+    // squeezes both to the same, wrong, width).
+    const rawWIn = row.map((st) => SLOT_TYPES[st].wIn);
+    const sumWIn = rawWIn.reduce((a, b) => a + b, 0);
+    const scale = sumWIn > 0 ? sheet.usableW / sumWIn : 1;
 
     let curX = marginPx;
     for (let c = 0; c < numCols; c++) {
+      const slotWPx = Math.round(
+        rawWIn[c] * scale * DPI - totalColGapPx / numCols,
+      );
       result.push({
         row: r,
         col: c,

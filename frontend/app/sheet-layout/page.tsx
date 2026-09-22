@@ -25,6 +25,17 @@ const SLOT_META: Record<SlotType, { label: string; color: string; bg: string }> 
   XL_11x17:       { label: '11×17"',   color: '#d97706', bg: 'rgba(217,119,6,0.10)'  },
 };
 
+/** Real physical width/height (inches) per slot type — mirrors backend SLOT_TYPES.
+ *  Used to give each slot its true footprint instead of splitting a row's
+ *  columns evenly (which only happens to be correct when every slot in the
+ *  row is the same type). */
+const SLOT_DIMS: Record<SlotType, { wIn: number; hIn: number }> = {
+  SMALL_5_5x8_5:  { wIn: 5.5,    hIn: 8.5 },
+  MEDIUM_7_5x8_5: { wIn: 7.3333, hIn: 8.5 },
+  LARGE_8_5x11:   { wIn: 11.0,   hIn: 8.5 },
+  XL_11x17:       { wIn: 11.0,   hIn: 17.0 },
+};
+
 const ALL_PATTERNS: SlotPattern[] = [
   { id:'18x23_8S',      label:'8× Small (5.5×8.5)',      sheetSize:'18x23', rows:[['SMALL_5_5x8_5','SMALL_5_5x8_5','SMALL_5_5x8_5','SMALL_5_5x8_5'],['SMALL_5_5x8_5','SMALL_5_5x8_5','SMALL_5_5x8_5','SMALL_5_5x8_5']], totalSlots:8, slotCounts:{ SMALL_5_5x8_5:8 } },
   { id:'18x23_6M',      label:'6× Medium (7.5×8.5)',     sheetSize:'18x23', rows:[['MEDIUM_7_5x8_5','MEDIUM_7_5x8_5','MEDIUM_7_5x8_5'],['MEDIUM_7_5x8_5','MEDIUM_7_5x8_5','MEDIUM_7_5x8_5']], totalSlots:6, slotCounts:{ MEDIUM_7_5x8_5:6 } },
@@ -65,10 +76,17 @@ function computeGeos(pattern: SlotPattern, cw: number, ch: number, gapMm: number
     const numCols  = row.length;
     const rowHIn   = row[0] === 'XL_11x17' ? s.usableH : s.usableH / 2;
     const rowH     = rowHIn * scY - ((numRows - 1) * gapY) / numRows;
-    const slotW    = (s.usableW / numCols) * scX - ((numCols - 1) * gapX) / numCols;
+
+    // Column widths follow each slot's real physical width, scaled so the
+    // row still fills the usable width exactly — not an equal split, which
+    // only matches reality when every slot in the row is the same size.
+    const rawWIn  = row.map(st => SLOT_DIMS[st].wIn);
+    const sumWIn  = rawWIn.reduce((a, b) => a + b, 0);
+    const scale   = sumWIn > 0 ? s.usableW / sumWIn : 1;
     let curX = mx;
 
     for (let c = 0; c < numCols; c++) {
+      const slotW = rawWIn[c] * scale * scX - ((numCols - 1) * gapX) / numCols;
       result.push({ row: r, col: c, slotType: row[c], xPx: curX, yPx: curY, wPx: slotW, hPx: rowH });
       curX += slotW + gapX;
     }
