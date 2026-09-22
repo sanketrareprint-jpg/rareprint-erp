@@ -1077,9 +1077,9 @@ export default function ProductionPage() {
           <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit flex-wrap">
             {tabs.filter(tab => userRole === "INHOUSE" ? tab.key === "inhouse" : userRole === "DESIGNER" ? tab.key === "sheets" : true).map(tab => (
               <button key={tab.key} onClick={() => { if (userRole !== "INHOUSE" && userRole !== "DESIGNER") setActiveTab(tab.key); }}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {tab.label}
-                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${activeTab === tab.key ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>{tab.count}</span>
+                <span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${activeTab === tab.key ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>{tab.count}</span>
               </button>
             ))}
           </div>
@@ -1562,9 +1562,9 @@ export default function ProductionPage() {
           {/* ── SHEETS TAB ── */}
           {!loading && activeTab === "sheets" && (
             <div className="space-y-3">
-              <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 bg-slate-50/95 pb-2 backdrop-blur">
-                <div className="flex flex-wrap gap-2 items-center w-full">
-                  <div className="flex gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 w-fit">
+              <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-1 bg-slate-50/95 pb-1 backdrop-blur">
+                <div className="flex flex-wrap gap-1 items-center w-full">
+                  <div className="flex gap-0.5 bg-slate-50 border border-slate-200 rounded-lg p-0.5 w-fit">
                     {[
                       { key: "unassigned", label: "Unassigned", color: "text-slate-600" },
                       { key: "created",    label: "Created Sheets", color: "text-cyan-700" },
@@ -1580,16 +1580,16 @@ export default function ProductionPage() {
                         : sheetHistory.total;
                       return (
                         <button key={t.key} onClick={() => { if (userRole !== "DESIGNER") setSheetSubTab(t.key); }}
-                          className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
+                          className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap ${sheetSubTab === t.key ? "bg-white shadow-sm border border-slate-200 " + t.color : "text-slate-500 hover:text-slate-700"}`}>
                           {t.label}
-                          <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${sheetSubTab === t.key ? (t.key === "history" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700") : "bg-slate-200 text-slate-500"}`}>{count}</span>
+                          <span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${sheetSubTab === t.key ? (t.key === "history" ? "bg-purple-100 text-purple-700" : "bg-cyan-100 text-cyan-700") : "bg-slate-200 text-slate-500"}`}>{count}</span>
                         </button>
                       );
                     })}
                   </div>
-                  <div className="flex-1 flex items-center gap-2 min-w-[200px]">
+                  <div className="flex-1 flex items-center gap-1.5 min-w-[160px]">
                     <div className="relative flex-1 max-w-xs">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
                       <input
                         type="text"
                         value={sheetSubTab === "history" ? sheetHistorySearch : sheetSearch}
@@ -1601,15 +1601,16 @@ export default function ProductionPage() {
                             setSheetSearch(e.target.value);
                           }
                         }}
-                        placeholder={sheetSubTab === "history" ? "Search sheet no, order, product…" : "Search order, customer, sheet…"}
-                        className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                        placeholder={sheetSubTab === "history" ? "Search sheet, order, product…" : "Search order, customer…"}
+                        className="w-full rounded-lg border border-slate-200 bg-white pl-6 pr-2 py-1 text-[11px] outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
                       />
                     </div>
                     {sheetSubTab !== "history" && (
                       <button onClick={autoOrganizeSheets} disabled={autoOrganizing}
-                        className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60">
-                        {autoOrganizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                        Auto Create ERP Sheets
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60 whitespace-nowrap shrink-0">
+                        {autoOrganizing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                        <span className="hidden sm:inline">Auto Create ERP Sheets</span>
+                        <span className="sm:hidden">Auto Create</span>
                       </button>
                     )}
                   </div>
@@ -1638,25 +1639,25 @@ export default function ProductionPage() {
                 if (rawItems.length === 0) return <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">All sheet items are fully assigned.</div>;
                 return (
                   <div className="space-y-2">
-                    <div className="sticky top-12 z-20 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <div className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 shadow-sm">
+                      <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
                         {([
                           ["product", "Product", filterOptions.product],
                           ["size", "Size", filterOptions.size],
                           ["gsm", "GSM", filterOptions.gsm],
                           ["sides", "Sides", filterOptions.sides],
                         ] as const).map(([key, label, options]) => (
-                          <label key={key} className="flex items-center gap-1 text-xs font-semibold text-slate-600">
+                          <label key={key} className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-slate-600">
                             {label}
-                            <MobileSelect value={sheetFilters[key]} onChange={v => setSheetFilters(p => ({ ...p, [key]: v }))} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none"
+                            <MobileSelect value={sheetFilters[key]} onChange={v => setSheetFilters(p => ({ ...p, [key]: v }))} className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 outline-none"
                               placeholder="All"
                               options={[{ value: "", label: "All" }, ...options.map(option => ({ value: option, label: option }))]} />
                           </label>
                         ))}
-                        <button onClick={() => setSheetFilters({ product: "", size: "", gsm: "", sides: "" })} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50">
+                        <button onClick={() => setSheetFilters({ product: "", size: "", gsm: "", sides: "" })} className="shrink-0 rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-50">
                           Clear
                         </button>
-                        <span className="ml-auto text-xs text-slate-400">{items.length} of {rawItems.length}</span>
+                        <span className="ml-auto shrink-0 pl-1 text-[10px] text-slate-400">{items.length}/{rawItems.length}</span>
                       </div>
                     </div>
                     {items.length === 0 ? <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-400 text-sm">No items match these filters.</div> : (
@@ -2073,46 +2074,48 @@ export default function ProductionPage() {
                     return (
                       <div className="space-y-3">
                         {/* ── Filter bar ── */}
-                        <div className="sticky top-12 z-20 rounded-xl border border-slate-200 bg-white shadow-sm p-3 space-y-2">
-                          {/* Row 1: Search */}
-                          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
-                            <svg className="h-3.5 w-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                            <input
-                              type="text" placeholder="Search order no, customer, product, agent..."
-                              value={processingSearch} onChange={e => setProcessingSearch(e.target.value)}
-                              className="bg-transparent text-xs outline-none w-full text-slate-700 placeholder-slate-400"
-                            />
-                            {processingSearch && <button onClick={() => setProcessingSearch("")} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>}
+                        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-1.5 space-y-1">
+                          {/* Row 1: Search + count */}
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex flex-1 min-w-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
+                              <svg className="h-3 w-3 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                              <input
+                                type="text" placeholder="Search order, customer, product, agent..."
+                                value={processingSearch} onChange={e => setProcessingSearch(e.target.value)}
+                                className="bg-transparent text-[11px] outline-none w-full text-slate-700 placeholder-slate-400"
+                              />
+                              {processingSearch && <button onClick={() => setProcessingSearch("")} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>}
+                            </div>
+                            <span className="text-[10px] text-slate-400 whitespace-nowrap shrink-0">{allItems.length} pending</span>
                           </div>
-                          {/* Row 2: Dropdowns */}
-                          <div className="flex flex-wrap items-center gap-2">
+                          {/* Row 2: Dropdowns — one row, scrolls sideways on narrow screens instead of wrapping */}
+                          <div className="flex flex-nowrap items-center gap-1 overflow-x-auto">
                             <MobileSelect value={processingSheetFilter} onChange={setProcessingSheetFilter}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              className="shrink-0 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] outline-none text-slate-700 font-medium"
                               placeholder="All Sheets"
                               options={[{ value: "", label: "All Sheets" }, ...Array.from(new Set(allItems.map(si => si.sheet.sheetNo))).sort((a, b) => Number(a) - Number(b)).map(no => ({ value: no, label: `Sheet ${no}` }))]} />
                             <MobileSelect value={processingProductFilter} onChange={setProcessingProductFilter}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              className="shrink-0 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] outline-none text-slate-700 font-medium"
                               placeholder="All Products"
                               options={[{ value: "", label: "All Products" }, ...Array.from(new Set(allItems.map(si => si.orderItem.product.name))).sort().map(name => ({ value: name, label: name }))]} />
                             <MobileSelect value={processingGsmFilter} onChange={setProcessingGsmFilter}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              className="shrink-0 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] outline-none text-slate-700 font-medium"
                               placeholder="All GSM"
                               options={[{ value: "", label: "All GSM" }, ...Array.from(new Set(allItems.map(si => String(si.sheet.gsm)))).sort((a, b) => Number(a) - Number(b)).map(g => ({ value: g, label: `${g} GSM` }))]} />
                             <MobileSelect value={processingSizeFilter} onChange={setProcessingSizeFilter}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              className="shrink-0 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] outline-none text-slate-700 font-medium"
                               placeholder="All Sizes"
                               options={[{ value: "", label: "All Sizes" }, ...Array.from(new Set(allItems.map(si => si.orderItem.product.sizeInches))).sort().map(s => ({ value: s, label: `${s}"` }))]} />
                             <MobileSelect value={processingVendorFilter} onChange={setProcessingVendorFilter}
-                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none text-slate-700 font-medium"
+                              className="shrink-0 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] outline-none text-slate-700 font-medium"
                               placeholder="All Vendors"
                               options={[{ value: "", label: "All Vendors" }, ...vendorsData.map(v => ({ value: v.id, label: v.name }))]} />
                             {(processingSearch || processingVendorFilter || processingSheetFilter || processingProductFilter || processingSizeFilter || processingGsmFilter) && (
                               <button onClick={() => { setProcessingSearch(""); setProcessingVendorFilter(""); setProcessingSheetFilter(""); setProcessingProductFilter(""); setProcessingSizeFilter(""); setProcessingGsmFilter(""); }}
-                                className="text-xs font-semibold text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-100 hover:bg-red-50 whitespace-nowrap">
-                                ✕ Clear All
+                                className="shrink-0 text-[10px] font-semibold text-red-500 hover:text-red-700 px-1.5 py-1 rounded-lg border border-red-100 hover:bg-red-50 whitespace-nowrap">
+                                ✕ Clear
                               </button>
                             )}
-                            <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">{allItems.length} items pending</span>
                           </div>
                         </div>
                         {allItems.length === 0 ? (
