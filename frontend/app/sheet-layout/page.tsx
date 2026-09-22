@@ -107,6 +107,7 @@ function SheetLayoutContent() {
   const [slotFiles,  setSlotFiles]  = useState<(File | null)[]>([]);
   const [rotations,  setRotations]  = useState<RotDeg[]>([]);
   const [gapMm,      setGapMm]      = useState<number>(2);
+  const [sheetNumber, setSheetNumber] = useState<string>('');
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -154,6 +155,8 @@ function SheetLayoutContent() {
     ctx.fillStyle = '#f9fafb'; ctx.fillRect(mx, my, uw, uh);
 
     const geos = computeGeos(pattern, cw, ch, gapMm);
+    // fixed-size preview badges/borders scale with canvas resolution (baseline 900px wide)
+    const ui = cw / 900;
 
     const render = (imgs: (HTMLImageElement | null)[]) => {
       geos.forEach((g, i) => {
@@ -177,10 +180,10 @@ function SheetLayoutContent() {
           // rotation badge
           if (deg) {
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
-            ctx.fillRect(g.xPx + g.wPx - 29, g.yPx + 3, 26, 13);
-            ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace';
+            ctx.fillRect(g.xPx + g.wPx - 29 * ui, g.yPx + 3 * ui, 26 * ui, 13 * ui);
+            ctx.fillStyle = '#fff'; ctx.font = `bold ${8 * ui}px monospace`;
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(`${deg}°`, g.xPx + g.wPx - 16, g.yPx + 9.5);
+            ctx.fillText(`${deg}°`, g.xPx + g.wPx - 16 * ui, g.yPx + 9.5 * ui);
           }
         } else {
           ctx.fillStyle = isAct ? 'rgba(99,102,241,0.18)' : meta.bg;
@@ -196,15 +199,15 @@ function SheetLayoutContent() {
 
         // Slot border — subtle grey, active = indigo (NO red lines)
         ctx.strokeStyle = isAct ? '#4f46e5' : 'rgba(150,150,150,0.35)';
-        ctx.lineWidth   = isAct ? 1.5 : 0.6;
+        ctx.lineWidth   = (isAct ? 1.5 : 0.6) * ui;
         ctx.strokeRect(g.xPx + 0.5, g.yPx + 0.5, g.wPx - 1, g.hPx - 1);
 
         // Slot number badge
         ctx.fillStyle = isAct ? '#4f46e5' : 'rgba(0,0,0,0.28)';
-        ctx.fillRect(g.xPx + 3, g.yPx + 3, 16, 13);
-        ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace';
+        ctx.fillRect(g.xPx + 3 * ui, g.yPx + 3 * ui, 16 * ui, 13 * ui);
+        ctx.fillStyle = '#fff'; ctx.font = `bold ${8 * ui}px monospace`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(i + 1), g.xPx + 11, g.yPx + 9.5);
+        ctx.fillText(String(i + 1), g.xPx + 11 * ui, g.yPx + 9.5 * ui);
       });
     };
 
@@ -242,6 +245,11 @@ function SheetLayoutContent() {
     e.target.value = '';
   };
 
+  const safeSheetName = sheetNumber.trim().replace(/[\\\/:*?"<>|]+/g, '-').replace(/\s+/g, '_').slice(0, 60);
+  const downloadFileName = safeSheetName
+    ? `Sheet-${safeSheetName}-600dpi.jpg`
+    : `Sheet-${pattern?.id ?? 'layout'}-600dpi.jpg`;
+
   const handleDownload = async () => {
     if (!pattern || !slotFiles.some(Boolean)) return;
     setIsGenerating(true);
@@ -256,7 +264,7 @@ function SheetLayoutContent() {
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `Sheet-${pattern.id}-600dpi.jpg`; a.click();
+      a.download = downloadFileName; a.click();
     } catch (err) { alert(err instanceof Error ? err.message : String(err)); }
     finally { setIsGenerating(false); }
   };
@@ -291,6 +299,20 @@ function SheetLayoutContent() {
 
         {/* ── LEFT PANEL ── */}
         <div style={{ width:256, flexShrink:0, borderRight:'1px solid #e5e7eb', background:'#fff', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+
+          {/* Sheet number */}
+          <div style={{ padding:'8px 10px 7px', borderBottom:'1px solid #f3f4f6' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5 }}>Sheet Number</div>
+            <input type="text" value={sheetNumber} maxLength={60} placeholder="e.g. 001 or MED-12"
+              onChange={e => setSheetNumber(e.target.value)}
+              style={{ width:'100%', boxSizing:'border-box', padding:'5px 7px', fontSize:12, fontWeight:700, fontFamily:'inherit', borderRadius:6, border:`1.5px solid ${sheetNumber.trim()?'#4f46e5':'#e5e7eb'}`, background:sheetNumber.trim()?'#eef2ff':'#f9fafb', color:'#374151', outline:'none' }}
+            />
+            {!!pattern && (
+              <div style={{ fontSize:9, color:'#9ca3af', marginTop:3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                Saves as {downloadFileName}
+              </div>
+            )}
+          </div>
 
           {/* Sheet size */}
           <div style={{ padding:'8px 10px 7px', borderBottom:'1px solid #f3f4f6' }}>
@@ -411,7 +433,7 @@ function SheetLayoutContent() {
         </div>
 
         {/* ── CANVAS ── */}
-        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background:'#f1f5f9', padding:12, overflow:'hidden' }}>
+        <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', justifyContent:'center', background:'#f1f5f9', padding:8, overflow:'hidden' }}>
           {!pattern ? (
             <div style={{ textAlign:'center', color:'#9ca3af' }}>
               <div style={{ fontSize:36, marginBottom:8 }}>📐</div>
@@ -419,12 +441,10 @@ function SheetLayoutContent() {
               <div style={{ fontSize:11, marginTop:4 }}>Preview will appear here</div>
             </div>
           ) : (
-            <div style={{ boxShadow:'0 4px 24px rgba(0,0,0,0.13)', borderRadius:4, overflow:'hidden', maxHeight:'100%', maxWidth:'100%', aspectRatio:`${aspect}`, cursor:'crosshair' }}>
-              <canvas ref={canvasRef} width={900} height={Math.round(900/aspect)}
-                onClick={handleCanvasClick}
-                style={{ display:'block', width:'100%', height:'100%', maxHeight:'calc(100vh - 90px)' }}
-              />
-            </div>
+            <canvas ref={canvasRef} width={1400} height={Math.round(1400/aspect)}
+              onClick={handleCanvasClick}
+              style={{ display:'block', width:'auto', height:'auto', maxWidth:'100%', maxHeight:'100%', background:'#fff', borderRadius:4, boxShadow:'0 4px 24px rgba(0,0,0,0.13)', cursor:'crosshair' }}
+            />
           )}
         </div>
       </div>
