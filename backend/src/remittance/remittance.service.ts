@@ -67,6 +67,30 @@ export function sheetToObjects(buffer: Buffer, headerHints: string[]): Record<st
   return rows;
 }
 
+/**
+ * Describes what an uploaded workbook actually contains: every sheet name plus
+ * the first non-blank row of the first sheet (its most likely header row).
+ * Used only on the "no rows parsed" error path, so a report the parser does not
+ * understand says WHICH columns it found instead of dead-ending on a generic
+ * message -- the Bigship column names below are hardcoded, so any other
+ * courier's export (Fship, for one) parses to zero rows with no clue why.
+ */
+export function describeWorkbook(buffer: Buffer): { sheetNames: string[]; headers: string[] } {
+  try {
+    const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) return { sheetNames: wb.SheetNames ?? [], headers: [] };
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
+    for (const row of aoa.slice(0, 10)) {
+      const cells = (row ?? []).map((c) => String(c ?? '').trim()).filter((c) => c !== '');
+      if (cells.length > 1) return { sheetNames: wb.SheetNames ?? [], headers: cells };
+    }
+    return { sheetNames: wb.SheetNames ?? [], headers: [] };
+  } catch {
+    return { sheetNames: [], headers: [] };
+  }
+}
+
 function parseAmount(raw: unknown): number {
   if (typeof raw === 'number') return raw;
   if (typeof raw === 'string') {
@@ -220,7 +244,21 @@ export class RemittanceService {
   ) {
     const remittanceRows = this.parseRemittanceXlsx(remittanceBuffer);
     if (remittanceRows.length === 0) {
-      throw new BadRequestException('No valid rows found in the remittance report');
+      // Name the columns that were actually in the file. The parser only
+      // knows Bigship's export layout; anything else (an Fship remittance
+      // export, a re-saved/edited sheet, the wrong sheet in the workbook)
+      // parses to zero rows, and without this the user just sees a dead end.
+      const found = describeWorkbook(remittanceBuffer);
+      const detail = found.headers.length
+        ? ` Columns found: ${found.headers.join(', ')}.`
+        : found.sheetNames.length
+          ? ` Sheets found: ${found.sheetNames.join(', ')}, but no header row was readable.`
+          : '';
+      throw new BadRequestException(
+        'No valid rows found in the remittance report. This importer reads the Bigship' +
+          ' remittance export (AWBNumber + CollectableAmount/NetPayableAmount columns).' +
+          detail,
+      );
     }
     const deliveredMap = deliveredBuffer ? this.parseDeliveredOrdersXlsx(deliveredBuffer) : new Map<string, ParsedDeliveredRow>();
 
