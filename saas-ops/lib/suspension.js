@@ -14,13 +14,10 @@
 // the change is live only once that deploy finishes (a few minutes; watch
 // the service's Deployments tab, then confirm with customer-status.js).
 
-import { loadRegistry, updateCustomer } from './registry.js';
+import { updateCustomer } from './registry.js';
 import { deployService, deleteServiceVariable, getServiceVariables, setServiceVariable } from './railway-api.js';
 
 export const SUSPENSION_VARIABLE = 'CUSTOMER_SUSPENDED';
-
-// Same guard as rollout-migration.js / customer-status.js.
-const PRODUCTION_HOST_FRAGMENT = 'monorail.proxy.rlwy.net';
 
 // Positional slug: `node suspend-customer.js demo-test-co [--reason "..."]`.
 export function parseArgs(argv, scriptName) {
@@ -33,21 +30,6 @@ export function parseArgs(argv, scriptName) {
     throw new Error(`Usage: node ${scriptName} <customer-slug> [--reason "why"]`);
   }
   return { slug: positional[0], reason };
-}
-
-export function findCustomer(slug) {
-  const registry = loadRegistry();
-  const customer = registry.customers.find((c) => c.slug === slug);
-  if (!customer) {
-    throw new Error(`Unknown customer slug: ${slug}. Known: ${registry.customers.map((c) => c.slug).join(', ') || '(none)'}`);
-  }
-  if ((customer.databaseUrl || '').includes(PRODUCTION_HOST_FRAGMENT)) {
-    throw new Error(`REFUSING: ${customer.name}'s databaseUrl looks like RarePrint's own production database. Fix registry.json first.`);
-  }
-  if (!customer.environmentId || !customer.backendServiceId) {
-    throw new Error(`${customer.name} has no environmentId/backendServiceId in registry.json — cannot reach its backend service.`);
-  }
-  return customer;
 }
 
 /**

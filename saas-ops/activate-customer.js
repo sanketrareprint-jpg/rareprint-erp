@@ -8,7 +8,8 @@
 
 import 'dotenv/config';
 import os from 'node:os';
-import { findCustomer, parseArgs, setCustomerSuspended } from './lib/suspension.js';
+import { parseArgs, setCustomerSuspended } from './lib/suspension.js';
+import { findCustomer } from './lib/registry.js';
 
 try {
   const { slug } = parseArgs(process.argv, 'activate-customer.js');

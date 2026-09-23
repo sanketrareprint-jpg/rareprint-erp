@@ -41,6 +41,30 @@ export function updateCustomer(slug, patch) {
   return customer;
 }
 
+// RarePrint's own production database lives on this Railway proxy host. No
+// ops tool here may ever act on it — they exist to manage *customer*
+// instances. Same guard rollout-migration.js / customer-status.js apply.
+const PRODUCTION_HOST_FRAGMENT = 'monorail.proxy.rlwy.net';
+
+// Looks up the one customer with this slug, refusing anything that points at
+// RarePrint's own production database or that is missing the Railway ids the
+// ops tools need to reach the customer's backend service. Shared by
+// suspend-/activate-/impersonate-customer.js.
+export function findCustomer(slug) {
+  const registry = loadRegistry();
+  const customer = registry.customers.find((c) => c.slug === slug);
+  if (!customer) {
+    throw new Error(`Unknown customer slug: ${slug}. Known: ${registry.customers.map((c) => c.slug).join(', ') || '(none)'}`);
+  }
+  if ((customer.databaseUrl || '').includes(PRODUCTION_HOST_FRAGMENT)) {
+    throw new Error(`REFUSING: ${customer.name}'s databaseUrl looks like RarePrint's own production database. Fix registry.json first.`);
+  }
+  if (!customer.environmentId || !customer.backendServiceId) {
+    throw new Error(`${customer.name} has no environmentId/backendServiceId in registry.json — cannot reach its backend service.`);
+  }
+  return customer;
+}
+
 // Resolves `--only slug1,slug2` from argv to the matching registry entries.
 // Every customer when the flag is absent; throws on a missing or unknown slug
 // so a typo can never silently run against nobody (or everybody).

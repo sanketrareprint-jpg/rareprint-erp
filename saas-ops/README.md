@@ -149,7 +149,8 @@ suspended, see below) next to what the backend itself reports from
 `/health`; a MISMATCH means a redeploy is still in flight or someone changed
 the variable by hand in Railway. This is the first increment of the
 superadmin console (roadmap Section 5); suspend/activate is the second (next
-paragraph). Impersonation and audit logging are not built.
+paragraph) and impersonation the third. Audit logging exists only for
+impersonation so far, and only as a machine-local file (see below).
 
 **Suspending / re-activating a customer (e.g. unpaid invoice):**
 ```powershell
@@ -175,11 +176,47 @@ life on the next push. A variable survives redeploys. The customer's
 database, environment and data are never touched; `rollout-migration.js`
 keeps migrating suspended customers too, so re-activation needs nothing
 extra. The `--reason` is stored in `registry.json` (`status`, `suspendedAt`,
-`suspendedBy`, `suspendReason`); there is no separate audit log yet.
+`suspendedBy`, `suspendReason`); these two don't write to `audit-log.jsonl`
+yet — see the impersonation section below.
 
 The backend side (`backend/src/common/suspended-customer.middleware.ts`) is
 a no-op unless the variable is set, so it's inert on RarePrint's own
 production deployment.
+
+**Impersonating a customer's user for support:**
+```powershell
+cd saas-ops
+node impersonate-customer.js demo-test-co
+node impersonate-customer.js demo-test-co --email owner@printco.in --minutes 10
+```
+Prints a login token for one customer's backend, valid 30 minutes by default
+(`--minutes`, capped at 240). With no `--email` it picks that customer's
+oldest active ADMIN. Use it as `Authorization: Bearer <token>` against their
+API, or paste it into `localStorage` (`rareprint_token` / `rareprint_user`)
+on a frontend pointed at their backend via `NEXT_PUBLIC_API_URL` — there is
+no per-customer frontend deployment yet, so that means your own local
+frontend.
+
+There is no backend side to this and no new endpoint on customer instances.
+Every customer's backend already has its own random `JWT_SECRET` (see
+`customer-env-template.js`) and `jwt.strategy.ts` accepts any HS256 token
+signed with it, so the token is signed locally from the secret Railway
+already holds. A token is therefore scoped to exactly one customer — it is
+useless against any other customer or against RarePrint's own production.
+
+**This is a real login as a real user.** Inside the customer's app, anything
+done with the token is indistinguishable from that user doing it themselves;
+the `impersonatedBy` claim is carried in the token but the app ignores it.
+Prefer read-only actions, and don't paste a token anywhere shared.
+
+Every mint is appended to `audit-log.jsonl` (gitignored) with who ran it,
+which customer, which user, and the expiry — never the token or any secret.
+Known limitation: that file is local to the machine that ran the command, so
+it's evidence for one operator, not a centralised or tamper-proof trail. If
+superadmin access ever spreads beyond one or two trusted people, it needs to
+move to a real append-only store. `suspend-customer.js` /
+`activate-customer.js` don't write to it yet — their record is the `status` /
+`suspendedBy` / `suspendReason` fields in `registry.json`.
 
 **Rolling out a plain code change (no schema change) to every customer:**
 No script needed for this — if every customer's backend service is connected
@@ -195,6 +232,11 @@ Git integration.
 - `suspend-customer.js` / `activate-customer.js` — turn a customer's backend
   access off/on via the `CUSTOMER_SUSPENDED` variable (see above).
 - `lib/suspension.js` — the shared flow behind those two.
+- `impersonate-customer.js` — mint a short-lived support login token for one
+  customer's instance (see above).
+- `lib/audit.js` — appends superadmin actions to `audit-log.jsonl`.
+- `lib/registry.js` — reads/writes `registry.json`; `findCustomer()` is the
+  shared lookup that refuses RarePrint's own production database.
 - `customer-env-template.js` — the environment variables a new customer's
   backend needs, and which ones are intentionally left blank (RarePrint's own
   integration accounts — Shiprocket, BigShip, Razorpay, Gmail — must never be

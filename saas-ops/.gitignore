@@ -6,3 +6,7 @@
 registry.json
 
 node_modules/
+
+# Local record of superadmin actions (impersonation etc). Operational
+# history, machine-local — not committed.
+audit-log.jsonl
