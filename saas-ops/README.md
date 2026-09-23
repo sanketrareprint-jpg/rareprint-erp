@@ -149,8 +149,9 @@ suspended, see below) next to what the backend itself reports from
 `/health`; a MISMATCH means a redeploy is still in flight or someone changed
 the variable by hand in Railway. This is the first increment of the
 superadmin console (roadmap Section 5); suspend/activate is the second (next
-paragraph) and impersonation the third. Audit logging exists only for
-impersonation so far, and only as a machine-local file (see below).
+paragraph) and impersonation the third. Audit logging is the fourth: all
+three write to `audit-log.jsonl`, but only as a machine-local file (see
+below).
 
 **Suspending / re-activating a customer (e.g. unpaid invoice):**
 ```powershell
@@ -176,8 +177,9 @@ life on the next push. A variable survives redeploys. The customer's
 database, environment and data are never touched; `rollout-migration.js`
 keeps migrating suspended customers too, so re-activation needs nothing
 extra. The `--reason` is stored in `registry.json` (`status`, `suspendedAt`,
-`suspendedBy`, `suspendReason`); these two don't write to `audit-log.jsonl`
-yet — see the impersonation section below.
+`suspendedBy`, `suspendReason`), and each run is also appended to
+`audit-log.jsonl` — including a run that changed nothing, since "someone ran
+activate on an already-active customer" is worth seeing.
 
 The backend side (`backend/src/common/suspended-customer.middleware.ts`) is
 a no-op unless the variable is set, so it's inert on RarePrint's own
@@ -214,9 +216,9 @@ which customer, which user, and the expiry — never the token or any secret.
 Known limitation: that file is local to the machine that ran the command, so
 it's evidence for one operator, not a centralised or tamper-proof trail. If
 superadmin access ever spreads beyond one or two trusted people, it needs to
-move to a real append-only store. `suspend-customer.js` /
-`activate-customer.js` don't write to it yet — their record is the `status` /
-`suspendedBy` / `suspendReason` fields in `registry.json`.
+move to a real append-only store. `suspend-customer.js` and
+`activate-customer.js` write to the same file, so every superadmin action
+that reaches a customer's instance lands in one place.
 
 **Rolling out a plain code change (no schema change) to every customer:**
 No script needed for this — if every customer's backend service is connected

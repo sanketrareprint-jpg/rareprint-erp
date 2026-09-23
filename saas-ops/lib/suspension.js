@@ -15,6 +15,7 @@
 // the service's Deployments tab, then confirm with customer-status.js).
 
 import { updateCustomer } from './registry.js';
+import { recordAuditEvent } from './audit.js';
 import { deployService, deleteServiceVariable, getServiceVariables, setServiceVariable } from './railway-api.js';
 
 export const SUSPENSION_VARIABLE = 'CUSTOMER_SUSPENDED';
@@ -60,9 +61,11 @@ export async function setCustomerSuspended(customer, suspended, { reason, actor 
 
   // Only redeploy when the live value actually changed; a redeploy on an
   // already-correct deployment is just downtime for nothing.
+  let redeployed = false;
   if (currentlySuspended !== suspended) {
     console.log(`[${label}-customer] Redeploying backend so the change takes effect...`);
     await deployService(environmentId, backendServiceId);
+    redeployed = true;
     console.log(`[${label}-customer] Redeploy triggered. It is live once the deploy finishes (a few minutes).`);
   } else {
     console.log(`[${label}-customer] Live value already matched — no redeploy needed.`);
@@ -74,5 +77,14 @@ export async function setCustomerSuspended(customer, suspended, { reason, actor 
     : { status: 'active', activatedAt: now, activatedBy: actor, suspendReason: undefined };
   updateCustomer(customer.slug, patch);
   console.log(`[${label}-customer] registry.json updated: status=${patch.status}.`);
+
+  // Recorded even when nothing changed: "someone ran activate on an already
+  // active customer" is exactly the kind of thing an audit trail should show.
+  const auditPath = recordAuditEvent(label, customer.slug, {
+    reason,
+    redeployed,
+    wasAlreadyInThisState: currentlySuspended === suspended,
+  });
+  console.log(`[${label}-customer] Audited in: ${auditPath}`);
   console.log(`[${label}-customer] Verify after the deploy finishes: node customer-status.js --only ${customer.slug}`);
 }
