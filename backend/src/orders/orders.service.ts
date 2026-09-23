@@ -1823,12 +1823,30 @@ export class OrdersService {
       }
 
       // Defense in depth against the AMAN PHARMACY-style resubmission loop:
-      // getOrdersWithReadyItems already excludes already-approved orders from
-      // the list this is called from, but guard here too in case of a stale
-      // frontend list or a direct API call — an order that's already been
-      // through accounts approval should never be resubmitted, it just needs
-      // the Dispatch team to book it.
-      if (order.status === OrderStatus.READY_FOR_DISPATCH) {
+      // an order that's already been through accounts approval shouldn't be
+      // resubmitted, it just needs the Dispatch team to book it.
+      //
+      // Scoped to orders with NO per-item record (pendingDispatchItemIds
+      // empty — submitted before that column existed on 2026-08-10). For
+      // those, "was this order approved before?" is the only signal there
+      // is, so stay conservative and block.
+      //
+      // When per-item tracking IS present, this order-wide history check is
+      // both unnecessary and wrong: unnecessary because readyItems below
+      // already excludes every item locked into an active submission (so a
+      // true resubmission ends up with nothing to submit and is skipped
+      // anyway), and wrong because an item that finished production AFTER
+      // an earlier batch was approved is genuinely new and must be
+      // submittable. Blocking it left such an item permanently unbookable —
+      // the Book Shipment modal offered it (getOrderItems uses the same
+      // per-item lock), but submitting answered "Already approved by
+      // accounts". Confirmed via a real order (1572, G SAMHITH SAI): status
+      // READY_FOR_DISPATCH with FILE + REFERENCE PAD approved and sitting in
+      // Dispatch's queue, while its ENVELOPE item reached
+      // READY_FOR_DISPATCH six days later and could never be submitted.
+      // Same class of gap as the allowedStatuses list above.
+      const hasPerItemTracking = (((order as any).pendingDispatchItemIds ?? []) as string[]).length > 0;
+      if (order.status === OrderStatus.READY_FOR_DISPATCH && !hasPerItemTracking) {
         const alreadyApproved = await this.prisma.statusLog.findFirst({
           where: { orderId, fromStatus: OrderStatus.PENDING_DISPATCH_APPROVAL, toStatus: OrderStatus.READY_FOR_DISPATCH },
           select: { id: true },
@@ -1839,26 +1857,36 @@ export class OrdersService {
         }
       }
 
-      // Defense in depth, same reasoning as the approval check above: the
-      // booking modal already excludes already-dispatched items via
-      // dispatchLocked (getOrderItems), but guard here too against a stale
-      // frontend list or a direct API call re-submitting an item that's
-      // already been physically shipped.
-      //
-      // For a DISPATCHED-status order specifically, dispatchedAt alone isn't
-      // enough — see resolveLockedItemIds' DISPATCHED branch (an item can be
-      // already-shipped with no dispatchedAt, e.g. via markManuallyDispatched
-      // or because it predates the dispatchedAt column). Reuse the same
-      // shipment-cutoff logic so this endpoint can't be tricked into
-      // resubmitting one of those legacy items either.
-      const dispatchedLockedIds = order.status === OrderStatus.DISPATCHED
-        ? resolveLockedItemIds({ status: order.status, items: order.items, pendingDispatchItemIds: (order as any).pendingDispatchItemIds, latestShipmentCreatedAt: (order as any).shipments?.[0]?.createdAt ?? null })
-        : new Set<string>();
+      // Which items are already locked into an active dispatch cycle —
+      // pending accounts approval, approved and waiting on Dispatch's queue,
+      // or already shipped. Uses the SAME helper as getOrderItems (the
+      // booking modal's checklist) and getOrdersWithReadyItems (the tab this
+      // is submitted from), so all three agree on what's free; previously
+      // this only consulted the helper for DISPATCHED orders and relied on
+      // the order-wide approval check above for everything else.
+      const lockedItemIds = resolveLockedItemIds({
+        status: order.status,
+        items: order.items,
+        pendingDispatchItemIds: (order as any).pendingDispatchItemIds,
+        latestShipmentCreatedAt: (order as any).shipments?.[0]?.createdAt ?? null,
+      });
       const readyItems = order.items.filter(
-        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt && !dispatchedLockedIds.has(i.id),
+        (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt && !lockedItemIds.has(i.id),
       );
       if (readyItems.length === 0) {
-        skipped.push({ orderId, orderNumber: order.orderNumber, reason: 'No items are ready for dispatch yet.' });
+        // Separate the two reasons: nothing has finished production yet, vs.
+        // everything that IS ready is already in an active dispatch cycle
+        // (the resubmission case the guard above used to catch).
+        const lockedReady = order.items.some(
+          (i) => i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH && !(i as any).dispatchedAt && lockedItemIds.has(i.id),
+        );
+        skipped.push({
+          orderId,
+          orderNumber: order.orderNumber,
+          reason: lockedReady
+            ? 'Already submitted for dispatch — this needs Accounts to approve it, or the Dispatch team to book it, not resubmission.'
+            : 'No items are ready for dispatch yet.',
+        });
         continue;
       }
 
