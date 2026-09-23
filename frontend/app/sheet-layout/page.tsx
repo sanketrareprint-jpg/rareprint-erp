@@ -3,6 +3,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { API_BASE_URL } from '@/lib/api';
+import {
+  listSavedSheets, getSavedSheet, putSavedSheet, deleteSavedSheet, newSheetId, formatBytes,
+  type SavedSheetSummary,
+} from '@/lib/sheetLayoutStore';
 
 type SheetSize = '18x23' | '19x25';
 type SlotType = 'SMALL_5_5x8_5' | 'MEDIUM_7_5x8_5' | 'LARGE_8_5x11' | 'XL_11x17';
@@ -129,9 +133,15 @@ function SheetLayoutContent() {
   const [sheetNumber, setSheetNumber] = useState<string>('');
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [savedSheets, setSavedSheets] = useState<SavedSheetSummary[]>([]);
+  const [savingSheet, setSavingSheet] = useState(false);
+  const [loadedSheetId, setLoadedSheetId] = useState<string | null>(null);
 
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Set to the pattern a saved sheet is being loaded into, so the effect below
+  // keeps that sheet's restored slots instead of blanking them.
+  const skipPatternResetRef = useRef<SlotPattern | null>(null);
 
   const patterns      = ALL_PATTERNS.filter(p => p.sheetSize === sheetSize);
   const sheet         = SHEET_DEFS[sheetSize];
@@ -139,12 +149,13 @@ function SheetLayoutContent() {
   const uploadedCount = slotImages.filter(Boolean).length;
 
   useEffect(() => {
-    if (pattern) {
-      setSlotImages(Array(pattern.totalSlots).fill(null));
-      setSlotFiles(Array(pattern.totalSlots).fill(null));
-      setRotations(Array(pattern.totalSlots).fill(0));
-      setActiveSlot(null);
-    }
+    if (!pattern) return;
+    // A sheet just loaded from the saved list already populated these.
+    if (skipPatternResetRef.current === pattern) { skipPatternResetRef.current = null; return; }
+    setSlotImages(Array(pattern.totalSlots).fill(null));
+    setSlotFiles(Array(pattern.totalSlots).fill(null));
+    setRotations(Array(pattern.totalSlots).fill(0));
+    setActiveSlot(null);
   }, [pattern]);
 
   const setRotation = (i: number, deg: RotDeg) =>
@@ -269,6 +280,88 @@ function SheetLayoutContent() {
     ? `Sheet-${safeSheetName}-600dpi.jpg`
     : `Sheet-${pattern?.id ?? 'layout'}-600dpi.jpg`;
 
+  // ── Saved sheets (this browser only — see lib/sheetLayoutStore.ts) ──
+  const refreshSavedSheets = useCallback(async () => {
+    try { setSavedSheets(await listSavedSheets()); }
+    catch { /* a browser with IndexedDB blocked just shows an empty list */ }
+  }, []);
+
+  useEffect(() => { void refreshSavedSheets(); }, [refreshSavedSheets]);
+
+  const saveCurrentSheet = async () => {
+    if (!pattern) return;
+    const name = sheetNumber.trim();
+    if (!name) {
+      alert('Enter a Sheet Number first — that is the name the sheet is saved under.');
+      return;
+    }
+    const existing = savedSheets.find(s => s.name.toLowerCase() === name.toLowerCase());
+    // Only ask before writing over a DIFFERENT sheet. Pressing "Save changes"
+    // on the sheet you already have open is not an overwrite worth a prompt.
+    const wouldReplaceAnother = !!existing && existing.id !== loadedSheetId;
+    if (wouldReplaceAnother && !window.confirm(`A saved sheet named "${name}" already exists. Replace it?`)) return;
+    setSavingSheet(true);
+    try {
+      await putSavedSheet({
+        id: existing?.id ?? newSheetId(),
+        name,
+        sheetSize,
+        patternId: pattern.id,
+        gapMm,
+        rotations: rotations.slice(),
+        // The ORIGINAL uploaded files, unrotated — rotation stays a separate
+        // setting so a reopened sheet is still editable, and re-downloading
+        // rebuilds the same 600 DPI JPG the live composer would.
+        slots: slotFiles.map(f => f ? { fileName: f.name, type: f.type || 'image/jpeg', blob: f } : null),
+        updatedAt: Date.now(),
+      });
+      setLoadedSheetId(existing?.id ?? null);
+      await refreshSavedSheets();
+    } catch (err) {
+      alert(`Could not save this sheet: ${err instanceof Error ? err.message : String(err)}`);
+    } finally { setSavingSheet(false); }
+  };
+
+  const loadSavedSheet = async (id: string) => {
+    try {
+      const saved = await getSavedSheet(id);
+      if (!saved) { alert('That saved sheet is no longer available.'); await refreshSavedSheets(); return; }
+      const p = ALL_PATTERNS.find(x => x.id === saved.patternId);
+      if (!p) { alert(`This sheet used layout "${saved.patternId}", which no longer exists.`); return; }
+      // Rebuild to the pattern's CURRENT slot count — layout patterns are code
+      // constants and can gain/lose slots between releases, and a mismatched
+      // array length would break the canvas draw.
+      const files = Array.from({ length: p.totalSlots }, (_, i) => {
+        const slot = saved.slots[i];
+        return slot ? new File([slot.blob], slot.fileName, { type: slot.type || 'image/jpeg' }) : null;
+      });
+      // Tell the pattern-change effect below to keep these instead of clearing them.
+      skipPatternResetRef.current = p;
+      setSheetSize(saved.sheetSize as SheetSize);
+      setPattern(p);
+      setGapMm(saved.gapMm);
+      setSheetNumber(saved.name);
+      setRotations(Array.from({ length: p.totalSlots }, (_, i) => (saved.rotations[i] ?? 0) as RotDeg));
+      setSlotFiles(files);
+      setSlotImages(files.map(f => f ? URL.createObjectURL(f) : null));
+      setActiveSlot(null);
+      setLoadedSheetId(id);
+    } catch (err) {
+      alert(`Could not open that sheet: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const removeSavedSheet = async (id: string, name: string) => {
+    if (!window.confirm(`Delete saved sheet "${name}"? This cannot be undone.`)) return;
+    try {
+      await deleteSavedSheet(id);
+      if (loadedSheetId === id) setLoadedSheetId(null);
+      await refreshSavedSheets();
+    } catch (err) {
+      alert(`Could not delete that sheet: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   const handleDownload = async () => {
     if (!pattern || !slotFiles.some(Boolean)) return;
     setIsGenerating(true);
@@ -333,12 +426,50 @@ function SheetLayoutContent() {
             )}
           </div>
 
+          {/* Saved sheets — re-openable, editable copies kept in this browser */}
+          <div style={{ padding:'7px 10px', borderBottom:'1px solid #f3f4f6' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:'0.08em', textTransform:'uppercase' }}>Saved Sheets</div>
+              {savedSheets.length > 0 && <span style={{ fontSize:9, color:'#9ca3af' }}>{savedSheets.length}</span>}
+            </div>
+            <button onClick={saveCurrentSheet} disabled={!pattern || savingSheet}
+              title={pattern ? 'Save this sheet so it can be reopened and edited later' : 'Pick a layout first'}
+              style={{ width:'100%', padding:'5px 7px', fontSize:11, fontWeight:700, fontFamily:'inherit', borderRadius:6, border:'1.5px solid #4f46e5', background:pattern&&!savingSheet?'#4f46e5':'#e5e7eb', color:pattern&&!savingSheet?'#fff':'#9ca3af', borderColor:pattern&&!savingSheet?'#4f46e5':'#e5e7eb', cursor:pattern&&!savingSheet?'pointer':'not-allowed' }}>
+              {savingSheet ? 'Saving…' : loadedSheetId ? '💾 Save changes' : '💾 Save sheet'}
+            </button>
+            {savedSheets.length > 0 && (
+              <div style={{ maxHeight:124, overflowY:'auto', marginTop:5 }}>
+                {savedSheets.map(s => {
+                  const isOpen = loadedSheetId === s.id;
+                  return (
+                    <div key={s.id} style={{ display:'flex', alignItems:'stretch', gap:3, marginBottom:3 }}>
+                      <button onClick={() => loadSavedSheet(s.id)} title="Open this sheet for editing"
+                        style={{ flex:1, minWidth:0, textAlign:'left', padding:'4px 6px', borderRadius:5, border:`1px solid ${isOpen?'#4f46e5':'#e5e7eb'}`, background:isOpen?'#eef2ff':'#f9fafb', cursor:'pointer', fontFamily:'inherit' }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:isOpen?'#4f46e5':'#374151', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.name}</div>
+                        <div style={{ fontSize:9, color:'#9ca3af', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                          {s.filledCount}/{s.slotCount} designs · {formatBytes(s.bytes)} · {new Date(s.updatedAt).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}
+                        </div>
+                      </button>
+                      <button onClick={() => removeSavedSheet(s.id, s.name)} title="Delete this saved sheet"
+                        style={{ width:22, flexShrink:0, borderRadius:5, border:'1px solid #e5e7eb', background:'#fff', color:'#9ca3af', cursor:'pointer', fontSize:11, fontFamily:'inherit' }}>
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontSize:9, color:'#9ca3af', marginTop:4, lineHeight:1.35 }}>
+              Kept on this PC in this browser — not shared with other users.
+            </div>
+          </div>
+
           {/* Sheet size */}
           <div style={{ padding:'8px 10px 7px', borderBottom:'1px solid #f3f4f6' }}>
             <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5 }}>Sheet Size</div>
             <div style={{ display:'flex', gap:5 }}>
               {(['18x23','19x25'] as SheetSize[]).map(sz => (
-                <button key={sz} onClick={() => { setSheetSize(sz); setPattern(null); }}
+                <button key={sz} onClick={() => { setSheetSize(sz); skipPatternResetRef.current = null; setPattern(null); }}
                   style={{ flex:1, padding:'5px 4px', fontSize:12, fontWeight:700, borderRadius:6, border:`1.5px solid ${sheetSize===sz?'#4f46e5':'#e5e7eb'}`, background:sheetSize===sz?'#eef2ff':'#f9fafb', color:sheetSize===sz?'#4f46e5':'#374151', cursor:'pointer' }}>
                   {SHEET_DEFS[sz].label}
                 </button>
@@ -372,7 +503,7 @@ function SheetLayoutContent() {
             {patterns.map(p => {
               const active = pattern?.id === p.id;
               return (
-                <button key={p.id} onClick={() => setPattern(p)}
+                <button key={p.id} onClick={() => { skipPatternResetRef.current = null; setPattern(p); }}
                   style={{ width:'100%', textAlign:'left', padding:'5px 6px', marginBottom:2, borderRadius:5, border:`1px solid ${active?'#4f46e5':'transparent'}`, background:active?'#eef2ff':'transparent', cursor:'pointer' }}
                   onMouseEnter={e=>{ if(!active)(e.currentTarget as HTMLElement).style.background='#f9fafb'; }}
                   onMouseLeave={e=>{ if(!active)(e.currentTarget as HTMLElement).style.background='transparent'; }}>
