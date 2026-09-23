@@ -4,6 +4,30 @@ Carried over from prior AI-assisted sessions on this repo. Facts here are point-
 verify against current code/git log before treating anything as still true, especially
 deploy status ("not yet deployed" items may have shipped since).
 
+
+## ⚠️ This repo is multi-deployed — read before pushing anything
+
+This single codebase is not RarePrint-only. It is deployed **multiple times from the same
+`main` branch**:
+
+1. **RarePrint's own live production** — the company's actual, currently-operating ERP.
+   Real orders, real customers, real money. `backend/.env`'s `DATABASE_URL` points here.
+2. **One deployment per SaaS customer** — currently `demo-test-co` (Railway services
+   `demo-test-co-backend` / `demo-test-co-db`), a test customer used to validate the
+   SaaS-provisioning flow before onboarding real external customers. More will be added as
+   `saas-ops/provision-customer.js` provisions them.
+
+**There is no separate SaaS codebase.** A single push to `main` deploys to every environment
+watching that branch simultaneously — RarePrint's live production included. Before pushing:
+- Assume any change ships to production immediately, not just to a test customer.
+- A Railway service only auto-deploys if its environment is actually connected to a branch
+  (Settings → Source Repo → Branch) — this was found disconnected for `demo-test-co-backend`
+  on 2026-09-19 (see that day's session note below), so don't assume "I pushed" means "every
+  environment updated." Check the target service's Deployments tab if in doubt.
+- Schema/data changes must stay backward-compatible across every environment's database at
+  once — you cannot assume a test customer's DB is empty or a production DB has been migrated
+  ahead of a test one, or vice versa.
+
 ## Stack & deploy model
 
 - NestJS + Prisma + Postgres backend (`backend/`), Next.js App Router frontend (`frontend/`),
@@ -120,3 +144,79 @@ live or still pending:
 
 Already deployed & confirmed working, for reference: Marketing Ad ROI tab, Complaints "any
 customer" (auto-creates new customer from ticket form).
+
+
+
+## Session 2026-09-19 — SaaS test-customer walkthrough, Add Product feature, hydration fix
+
+- **Product creation was completely missing from the app.** Confirmed via code read (not
+  guessing): `products.controller.ts` was GET-only, `cost-table.service.ts`'s CSV import only
+  sets slabs on products that already exist, and Design Studio's "Create Product" form
+  (`frontend/app/design-studio/page.tsx`) only wrote to local React state, never called the
+  backend. A brand-new SaaS customer's database starts with zero products and had no way to
+  add one. Fixed: added `POST /cost-table/products` (`cost-table.controller.ts` /
+  `cost-table.service.ts`, admin-gated via the existing `assertAdmin` pattern, validates
+  required fields, auto-upserts `ProductCategory` by name since there's still no separate
+  category-management UI anywhere) + a matching "Add Product" modal in
+  `frontend/app/cost-table/page.tsx`. Confirmed working end-to-end by the user on
+  `demo-test-co-backend` on 2026-09-19.
+- **demo-test-co environment had no branch connected at all.** Root cause of "pushed to main,
+  Railway boot log even shows the route registered, but the live request still 404s" — that
+  boot log was actually from a *different* service (production), not `demo-test-co-backend`.
+  The real `demo-test-co-backend`'s Settings → Source Repo showed "Connect Environment to
+  Branch" instead of a connected branch name, meaning it never auto-deployed on push at all —
+  it was still running a container from 2026-09-16, several commits behind. Fixed by clicking
+  "Connect Environment to Branch" → `main` in the Railway dashboard. **If a demo/test Railway
+  service ever seems to be running stale code despite a clean push+build, check this first**
+  (Settings → Source Repo → Branch) before assuming it's a caching or routing issue — don't
+  trust a pasted boot log's route list without confirming which service it's actually from.
+- **Real hydration bug, fixed**: `frontend/components/dashboard-shell.tsx`'s `user` state used
+  to be `useState<StoredUser | null>(() => getStoredUser())` — a lazy initializer that reads
+  `localStorage` synchronously. On the client this returns the real user on the very first
+  (hydration) render, while the server-rendered HTML always has `user = null` (no
+  `localStorage` on the server) — guaranteed mismatch on every authenticated page load
+  (visible as e.g. avatar showing "…" server-side vs. the real initial client-side). Fixed by
+  starting `user` at `null` on both sides and loading the real value in a `useEffect` right
+  after mount, merged into the same effect that already redirected to `/login` when there's no
+  user (kept as one effect specifically to avoid a race where the redirect effect would fire
+  on the transient `null` before the load effect populated `user`). `npx tsc --noEmit` in
+  `frontend/` confirmed no new errors from this change (5 pre-existing, unrelated errors exist
+  elsewhere in the repo — `accounts/page.tsx`, `dashboard/page.tsx`, `orders/edit/page.tsx`,
+  `rate-calculator/page.tsx`, `next.config.ts` — none touched, none introduced by this fix).
+- New one-off scripts added under `backend/scripts/`, same safety-guard pattern as
+  `provision-new-customer-migrate.js` (refuses to run if `DATABASE_URL` looks like production):
+  `seed-test-product.js` (superseded by the real Add Product feature above — kept for
+  reference only, prefer the UI now) and `promote-test-admin.js` (promotes a user to ADMIN by
+  email — useful any time a fresh signup ends up as the default `SALES_AGENT` role and needs
+  Cost Table / admin-only endpoints).
+
+
+
+## Addendum to 2026-09-19 session — registry.json gap found and fixed
+
+- **`saas-ops/registry.json` was missing `demo-test-co` entirely.** It only listed two
+  earlier disposable test entries (`test-customer`, `test-customer-3`) from 2026-09-15.
+  `lib/registry.js`'s `addCustomer()` only ever appends — nothing in this codebase removes
+  a registry entry automatically — so either `demo-test-co` was created by hand outside
+  `provision-customer.js`, or a prior session removed its entry (`saas-ops/README.md`
+  itself instructs deleting a *test* environment's registry entry after testing — plausible
+  a session mistook the actively-used `demo-test-co` for one of those). Root cause was not
+  conclusively determined; `registry.json` is gitignored, so there was no version history
+  to check.
+- **Fixed by manual reconstruction, 2026-09-19**: pulled `environmentId`,
+  `backendServiceId`, `dbServiceId`, and `databaseUrl` directly from the Railway dashboard
+  and added the entry back. `demo-test-co-db`'s Variables tab has only 5 hand-set variables
+  (`DATABASE_URL`, `PGDATA`, `POSTGRES_DB`, `POSTGRES_PASSWORD`, `POSTGRES_USER`, no separate
+  `DATABASE_PUBLIC_URL`) — this exact fingerprint matches what `createPostgresService` in
+  `lib/railway-api.js` sets by hand per the README, meaning `DATABASE_URL` on this service
+  already **is** the public/proxy-reachable one (unlike Railway's own one-click Postgres
+  template, which would give a private `railway.internal` URL plus a separate public one).
+  Good evidence `demo-test-co` genuinely was provisioned via `provision-customer.js`
+  originally, supporting "entry got removed" over "created by hand."
+- The reconstructed entry carries a `_reconstructedNote` field flagging that `provisionedAt`
+  is an estimate (inferred from `demo-test-co-backend`'s earliest known container boot log,
+  `2026-09-16T10:23:28Z`), not a certainty — confirmed safe, `rollout-migration.js` only
+  reads `customer.name`/`.slug`/`.databaseUrl` by key and ignores unknown fields.
+- **Not yet done**: `rollout-migration.js` has never been run against `demo-test-co` since
+  this reconstruction. Treat the next run as an untested first run for this specific entry,
+  same caution the README already gives for the whole toolchain.
