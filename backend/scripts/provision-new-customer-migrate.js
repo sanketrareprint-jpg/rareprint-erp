@@ -105,16 +105,61 @@ const migrationFolders = fs
   .map((entry) => entry.name)
   .sort();
 
+// Baselining loop is resumable and retries transient connection drops —
+// added 2026-09-16 after a real run failed 47/48 migrations in, hitting a
+// one-off P1001 ("can't reach database server") on the Railway TCP proxy
+// mid-loop (each migration spawns a brand-new `prisma` process/connection,
+// so a single dropped connection shouldn't be fatal). Without this, re-running
+// the script from scratch would immediately fail on migration #1, since
+// Prisma's `migrate resolve --applied` errors (P3008) on a migration that's
+// already baselined instead of treating it as a no-op.
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+const ALREADY_APPLIED_PATTERN = /already recorded as applied|P3008/i;
+const CONNECTION_ERROR_PATTERN = /P1001|can't reach database server/i;
+const MAX_ATTEMPTS = 4;
+
+let baselinedCount = 0;
+let skippedCount = 0;
+
 for (const migration of migrationFolders) {
-  const resolveResult = run(PRISMA_BIN, ['migrate', 'resolve', '--applied', migration]);
-  if (resolveResult.status !== 0) {
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    const resolveResult = spawnSync(PRISMA_BIN, ['migrate', 'resolve', '--applied', migration], {
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+    });
+    const output = `${resolveResult.stdout || ''}${resolveResult.stderr || ''}`;
+    if (resolveResult.stdout) process.stdout.write(resolveResult.stdout);
+    if (resolveResult.stderr) process.stderr.write(resolveResult.stderr);
+
+    if (resolveResult.status === 0) {
+      baselinedCount += 1;
+      break;
+    }
+    if (ALREADY_APPLIED_PATTERN.test(output)) {
+      console.log(`[provision-new-customer-migrate] ${migration} was already baselined (from a prior run) — skipping.`);
+      skippedCount += 1;
+      break;
+    }
+    if (CONNECTION_ERROR_PATTERN.test(output) && attempt < MAX_ATTEMPTS) {
+      const delayMs = 5000 * attempt;
+      console.warn(
+        `[provision-new-customer-migrate] transient connection error baselining ${migration}, retrying in ${delayMs / 1000}s (attempt ${attempt}/${MAX_ATTEMPTS - 1})...`
+      );
+      sleepSync(delayMs);
+      continue;
+    }
     console.error(
-      `[provision-new-customer-migrate] FATAL: failed to baseline migration ${migration} (exit code ${resolveResult.status}). The database schema itself is correct (db push succeeded), but future rollouts via rollout-migration.js will not work correctly for this customer until baselining is fixed — investigate before treating this customer as fully provisioned.`
+      `[provision-new-customer-migrate] FATAL: failed to baseline migration ${migration} (exit code ${resolveResult.status}). The database schema itself is correct (db push succeeded), but future rollouts via rollout-migration.js will not work correctly for this customer until baselining is fixed — investigate before treating this customer as fully provisioned. This script is safe to re-run: already-baselined migrations will be skipped automatically.`
     );
     process.exit(resolveResult.status ?? 1);
   }
 }
-console.log(`[provision-new-customer-migrate] Baselined ${migrationFolders.length} migrations as applied.`);
+console.log(`[provision-new-customer-migrate] Baselined ${baselinedCount} migrations as applied (${skippedCount} were already done from a prior run).`);
 
 console.log('[provision-new-customer-migrate] Running ensure-all-columns.js as a defensive extra check (should be a no-op after db push)...');
 run('node', ['scripts/ensure-all-columns.js']);
