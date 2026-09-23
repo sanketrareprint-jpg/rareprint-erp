@@ -259,8 +259,17 @@ Unchanged from v2.
 2. Build and test the new-customer provisioning script against 1-2 disposable
    Railway environments (Section 1) — no real customer yet.
 3. Build and test the migration-orchestrator script the same way (Section 2).
-4. Superadmin console, internal-only, reading from the customer registry
-   (Section 5).
+4. ~~Superadmin console, internal-only, reading from the customer registry
+   (Section 5).~~ — built 2026-09-21..23 as CLI tools in `saas-ops/`, not a
+   web UI: `customer-status.js` (fleet health/usage), `suspend-customer.js` /
+   `activate-customer.js` (access on/off via the `CUSTOMER_SUSPENDED`
+   variable), `impersonate-customer.js` (short-lived support login token,
+   signed from the customer's own `JWT_SECRET`, no backend endpoint), and
+   `lib/audit.js` (every action appended to `audit-log.jsonl`). All four
+   verified end-to-end against `demo-test-co`. Known gap: the audit log is
+   machine-local, so it is evidence for one operator rather than a
+   centralised, tamper-proof trail — revisit before superadmin access spreads
+   beyond one or two trusted people.
 5. Signup/onboarding wizard wired to the provisioning script (Section 6).
 6. Razorpay subscription billing (Section 4).
 7. Frontend white-labeling via per-deployment env vars (Section 6).
