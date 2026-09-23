@@ -511,6 +511,20 @@ textarea {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
+  /* Orders card stats row (Total/Paid/Ready/Margin/Comm.) on the mobile WEB
+     view — same treatment the native app already gets above. Must stay AFTER
+     the generic .grid-cols-N rule: both selectors are equally specific and
+     both use !important, so whichever comes last wins. Without this the
+     stats collapse to one amount per row and each order card gets very tall
+     (reported 2026-09-22). Column count varies (3/4/5) with what the viewer
+     is allowed to see, so let grid auto-generate one equal column per child
+     instead of hardcoding a count. */
+  .erp-main .order-stats-grid {
+    grid-template-columns: none !important;
+    grid-auto-flow: column !important;
+    grid-auto-columns: minmax(0, 1fr) !important;
+  }
+
   .erp-main .lg\:p-6,
   .erp-main .lg\:p-8,
   .erp-main .p-8,
@@ -801,6 +815,21 @@ textarea {
   .erp-main .md\:grid-cols-3,
   .erp-main .md\:grid-cols-4 {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* Keep the Orders stats on one row below 430px too (the rule above this
+     media query collapses every grid to a single column here). Trim only the
+     side padding so 5 columns fit on a narrow phone — font sizes are left
+     alone so the amounts stay readable. */
+  .erp-main .order-stats-grid {
+    grid-template-columns: none !important;
+    grid-auto-flow: column !important;
+    grid-auto-columns: minmax(0, 1fr) !important;
+  }
+
+  html:not(.is-native-app) .erp-main .order-stats-grid > * {
+    padding-left: 0.25rem !important;
+    padding-right: 0.25rem !important;
   }
 
   .erp-main h1 {
