@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isCustomerSuspended } from '../common/suspended-customer.middleware';
 
 @Controller('health')
 export class HealthController {
@@ -16,6 +17,9 @@ export class HealthController {
     return {
       status: 'ok',
       database: 'ok',
+      // SaaS: true when this deployment has CUSTOMER_SUSPENDED=true (the only
+      // route still answering in that state) — read by saas-ops/customer-status.js.
+      suspended: isCustomerSuspended(),
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     };

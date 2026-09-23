@@ -116,10 +116,23 @@ async function checkBackend(customer) {
     if (!res.ok) return { label: `DOWN (HTTP ${res.status})`, healthy: false, domain };
     const body = await res.json();
     if (body.status !== 'ok') return { label: `DOWN (${JSON.stringify(body)})`, healthy: false, domain };
-    return { label: `ok (up ${Math.floor(body.uptime / 3600)}h)`, healthy: true, domain };
+    // `suspended` is reported by the backend since 2026-09-22; older builds omit it.
+    return { label: `ok (up ${Math.floor(body.uptime / 3600)}h)`, healthy: true, domain, suspended: typeof body.suspended === 'boolean' ? body.suspended : undefined };
   } catch (e) {
     return { label: `DOWN (${e.name === 'TimeoutError' ? 'timeout' : e.message})`, healthy: false, domain };
   }
+}
+
+// Access state: what registry.json says (set by suspend-/activate-customer.js)
+// next to what the backend actually reports. They disagree while a redeploy
+// is still in flight, or if someone changed the variable by hand in Railway.
+// Backend builds older than 2026-09-22 don't report it, so only the registry
+// side is shown then.
+function accessLabel(customer, backend) {
+  const registrySays = customer.status === 'suspended' ? 'suspended' : 'active';
+  if (backend.suspended === undefined) return registrySays;
+  const backendSays = backend.suspended ? 'suspended' : 'active';
+  return registrySays === backendSays ? registrySays : `MISMATCH (registry ${registrySays}, backend ${backendSays})`;
 }
 
 const daysAgo = (date) => (date ? `${Math.floor((Date.now() - new Date(date).getTime()) / 86400000)}d ago` : 'never');
@@ -128,13 +141,13 @@ console.log(`Repo has ${repoMigrations.length} migrations. Checking ${targets.le
 const rows = [];
 for (const customer of targets) {
   const [db, backend] = await Promise.all([inspectCustomer(customer), checkBackend(customer)]);
-  rows.push({ ...db, backend });
+  rows.push({ ...db, backend, access: accessLabel(customer, backend) });
 }
 
-const columns = ['customer', 'db', 'migrations', 'stuck', 'tables', 'users', 'orders', 'last order', 'backend'];
+const columns = ['customer', 'access', 'db', 'migrations', 'stuck', 'tables', 'users', 'orders', 'last order', 'backend'];
 const table = rows.map((r) => r.reachable
-  ? [r.name, 'ok', `${r.applied}/${repoMigrations.length}${r.pending.length ? ` (${r.pending.length} pending)` : ''}`, String(r.stuck), String(r.tables), String(r.users), String(r.orders), daysAgo(r.lastOrder), r.backend.label]
-  : [r.name, 'UNREACHABLE', '-', '-', '-', '-', '-', '-', r.backend.label]);
+  ? [r.name, r.access, 'ok', `${r.applied}/${repoMigrations.length}${r.pending.length ? ` (${r.pending.length} pending)` : ''}`, String(r.stuck), String(r.tables), String(r.users), String(r.orders), daysAgo(r.lastOrder), r.backend.label]
+  : [r.name, r.access, 'UNREACHABLE', '-', '-', '-', '-', '-', '-', r.backend.label]);
 const widths = columns.map((c, i) => Math.max(c.length, ...table.map((t) => t[i].length)));
 console.log(columns.map((c, i) => c.padEnd(widths[i])).join('  '));
 console.log(widths.map((w) => '-'.repeat(w)).join('  '));
@@ -145,6 +158,7 @@ for (const r of rows) {
   if (!r.reachable) { needsAttention = true; console.log(`\n✘ ${r.name}: unreachable — ${r.error}`); }
   else if (r.pending.length) { needsAttention = true; console.log(`\n! ${r.name}: ${r.pending.length} migration(s) pending: ${r.pending.join(', ')}`); }
   if (r.reachable && r.stuck) { needsAttention = true; console.log(`\n✘ ${r.name}: ${r.stuck} stuck/rolled-back migration row(s) — migrate deploy will refuse to apply anything until resolved`); }
+  if (r.access.startsWith('MISMATCH')) { needsAttention = true; console.log(`\n! ${r.name}: access ${r.access} — a redeploy may still be in flight, or the variable was changed by hand in Railway`); }
   if (r.backend.healthy === false) { needsAttention = true; console.log(`\n✘ ${r.name}: backend ${r.backend.label}${r.backend.domain ? ` at https://${r.backend.domain}/health` : ''}${r.backend.error ? ` — ${r.backend.error}` : ''}`); }
 }
 console.log(needsAttention ? '\nSome customers need attention.' : '\nAll customers healthy.');

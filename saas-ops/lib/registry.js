@@ -30,6 +30,17 @@ export function addCustomer(entry) {
   saveRegistry(registry);
 }
 
+// Merges `patch` into the one customer with this slug and saves. Throws on an
+// unknown slug so a typo never silently writes nothing.
+export function updateCustomer(slug, patch) {
+  const registry = loadRegistry();
+  const customer = registry.customers.find((c) => c.slug === slug);
+  if (!customer) throw new Error(`Unknown customer slug: ${slug}. Known: ${registry.customers.map((c) => c.slug).join(', ')}`);
+  Object.assign(customer, patch);
+  saveRegistry(registry);
+  return customer;
+}
+
 // Resolves `--only slug1,slug2` from argv to the matching registry entries.
 // Every customer when the flag is absent; throws on a missing or unknown slug
 // so a typo can never silently run against nobody (or everybody).

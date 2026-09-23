@@ -144,8 +144,42 @@ Railway each run since the registry doesn't store it; if `RAILWAY_API_TOKEN`
 / `RAILWAY_CUSTOMERS_PROJECT_ID` aren't set the backend column is skipped
 rather than failing the report. Exits 1 if anything needs attention, so it
 doubles as a pre-rollout check — run it before `rollout-migration.js`, and
-again after. This is the first increment of the superadmin console (roadmap
-Section 5); create/suspend, impersonation and audit logging are not built.
+again after. The `access` column shows what `registry.json` says (active /
+suspended, see below) next to what the backend itself reports from
+`/health`; a MISMATCH means a redeploy is still in flight or someone changed
+the variable by hand in Railway. This is the first increment of the
+superadmin console (roadmap Section 5); suspend/activate is the second (next
+paragraph). Impersonation and audit logging are not built.
+
+**Suspending / re-activating a customer (e.g. unpaid invoice):**
+```powershell
+cd saas-ops
+node suspend-customer.js demo-test-co --reason "invoice overdue 30d"
+node activate-customer.js demo-test-co
+```
+Suspending sets `CUSTOMER_SUSPENDED=true` on the customer's backend service
+in Railway and redeploys it. From then on the backend refuses every request
+(login included) with HTTP 403 "This account is suspended. Please contact
+RarePrint support to restore access." — the login page shows that message
+verbatim (it prints the body's `message` for anything that isn't a 503);
+other screens wrap it as "Could not load data (This account is
+suspended...)". Only `/health` still answers (reporting
+`suspended: true`), so `customer-status.js` can tell "suspended" apart from
+"down". Activating removes the variable and redeploys. Either way the change
+is live only once that redeploy finishes (a few minutes) — confirm with
+`node customer-status.js --only <slug>`.
+
+Why a variable and not a stopped container: every customer's backend is
+connected to `main`, so a stopped deployment would silently come back to
+life on the next push. A variable survives redeploys. The customer's
+database, environment and data are never touched; `rollout-migration.js`
+keeps migrating suspended customers too, so re-activation needs nothing
+extra. The `--reason` is stored in `registry.json` (`status`, `suspendedAt`,
+`suspendedBy`, `suspendReason`); there is no separate audit log yet.
+
+The backend side (`backend/src/common/suspended-customer.middleware.ts`) is
+a no-op unless the variable is set, so it's inert on RarePrint's own
+production deployment.
 
 **Rolling out a plain code change (no schema change) to every customer:**
 No script needed for this — if every customer's backend service is connected
@@ -158,6 +192,9 @@ Git integration.
 - `provision-customer.js` — new customer setup.
 - `rollout-migration.js` — run a migration against every existing customer.
 - `customer-status.js` — read-only health/usage row per customer, from their database.
+- `suspend-customer.js` / `activate-customer.js` — turn a customer's backend
+  access off/on via the `CUSTOMER_SUSPENDED` variable (see above).
+- `lib/suspension.js` — the shared flow behind those two.
 - `customer-env-template.js` — the environment variables a new customer's
   backend needs, and which ones are intentionally left blank (RarePrint's own
   integration accounts — Shiprocket, BigShip, Razorpay, Gmail — must never be

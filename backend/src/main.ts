@@ -21,6 +21,7 @@ console.log('[main] ./app.module required successfully.');
 
 import { PrismaExceptionFilter } from './prisma/prisma-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { suspendedCustomerMiddleware } from './common/suspended-customer.middleware';
 console.log('[main] all imports done, defining bootstrap()...');
 
 async function bootstrap() {
@@ -91,6 +92,11 @@ async function bootstrap() {
     },
     credentials: true,
   });
+  // Registered AFTER enableCors so a suspended customer's browser receives the
+  // 403 + message rather than an opaque CORS failure (the cors middleware also
+  // answers OPTIONS preflights before this runs). No-op unless the deployment
+  // has CUSTOMER_SUSPENDED=true — see the middleware file.
+  app.use(suspendedCustomerMiddleware);
   const port = process.env.PORT ?? 3000;
   console.log(`[main] Calling app.listen(${port})...`);
   await app.listen(port);

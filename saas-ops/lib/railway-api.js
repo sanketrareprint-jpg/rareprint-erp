@@ -274,6 +274,25 @@ export async function setServiceVariable(environmentId, serviceId, key, value) {
   });
 }
 
+/**
+ * Removes one environment variable from a service in one environment.
+ * Verified by introspection 2026-09-22: variableDelete(input:
+ * VariableDeleteInput!) with environmentId!/name!/projectId!/serviceId.
+ * Behaviour when the variable isn't set is not documented — callers check
+ * with getServiceVariables() first rather than relying on it being a no-op.
+ */
+export async function deleteServiceVariable(environmentId, serviceId, key) {
+  const projectId = requireEnv('RAILWAY_CUSTOMERS_PROJECT_ID');
+  const query = `
+    mutation VariableDelete($input: VariableDeleteInput!) {
+      variableDelete(input: $input)
+    }
+  `;
+  await graphqlRequest(query, {
+    input: { projectId, environmentId, serviceId, name: key },
+  });
+}
+
 export async function setServiceVariables(environmentId, serviceId, variables) {
   for (const [key, value] of Object.entries(variables)) {
     await setServiceVariable(environmentId, serviceId, key, value);
