@@ -108,6 +108,10 @@ export const PATTERNS: SlotPattern[] = [
     ['LARGE_8_5x11', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5'],
     ['LARGE_8_5x11', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5'],
   ]),
+  buildPattern('18x23_6S_1L', '6× Small + 1× Large', '18x23', [
+    ['SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5'],
+    ['SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'LARGE_8_5x11'],
+  ]),
   buildPattern('19x25_8S', '8× Small', '19x25', [
     ['SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5'],
     ['SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5', 'SMALL_5_5x8_5'],
