@@ -6,6 +6,7 @@ import { MobileSelect } from "@/components/MobileSelect";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
+import { sortPickupWarehouses, pickupWarehousesForCarrier } from "@/lib/dispatchPickup";
 import { Loader2, Package, Truck, CheckSquare, Square, Search, X, History, MapPin, Building2, Plus, Trash2, Boxes, PackageCheck, IndianRupee, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -569,22 +570,8 @@ export default function DispatchPage() {
       .then(r => r.ok ? r.json() : [])
       .then((data: Warehouse[]) => {
         if (Array.isArray(data) && data.length > 0) {
-          // Put RAZA ENVELOP FACTORY 3 first as default pickup location --
-          // Bigship/Shiprocket only. This predates Fship's per-shipment
-          // pickup addresses and matches purely on the substring "RAZA" in
-          // the name, with no source check. Two of the saved Fship pickup
-          // addresses happen to be named "Raza Envelope MAHAL OFFICE" and
-          // "Raza Envelope NAGPUR FACTORY" (added 2026-09), so without this
-          // exclusion they'd get swept into the same top-priority group by
-          // pure name coincidence, and warehousesForOrder()'s Fship-filtered
-          // list would silently default to Mahal Office for every shipment
-          // with no pickup explicitly chosen yet -- reported 2026-09-17.
-          const sorted = [...data].sort((a, b) => {
-            const aIsRaza = a.source !== "fship" && a.name.toUpperCase().includes("RAZA") ? -1 : 0;
-            const bIsRaza = b.source !== "fship" && b.name.toUpperCase().includes("RAZA") ? -1 : 0;
-            return aIsRaza - bIsRaza;
-          });
-          setWarehouses(sorted);
+          // RAZA-first default ordering -- see sortPickupWarehouses().
+          setWarehouses(sortPickupWarehouses(data));
         }
       })
       .catch(() => {});
@@ -597,21 +584,10 @@ export default function DispatchPage() {
       .catch(() => {});
   }, []);
 
-  // Pickup addresses selectable for a given order's shipment. When that
-  // shipment is effectively going via Fship (either "Ship via: Fship" was
-  // picked for it, or it's left at "Default" and Fship is the globally
-  // active carrier), only Fship-registered addresses (Settings > Carrier
-  // Config > Fship > Additional Pickup Addresses) are offered -- every other
-  // entry in `warehouses` is a Shiprocket/Bigship pickup location with no
-  // corresponding Fship address id, so picking one always silently fell back
-  // to the Fship default (reported 2026-09-16/17; the fallback itself is
-  // correct given no Fship id exists for those, but dispatchers had no way
-  // to tell which entries actually worked before booking). "compare" is left
-  // unfiltered since it quotes Bigship + Fship together and needs both
-  // carriers' addresses visible.
+  // Pickup addresses selectable for a given order's shipment -- see
+  // pickupWarehousesForCarrier() for the Fship filtering rule.
   function warehousesForOrder(orderId: string): Warehouse[] {
-    const carrier = selectedCarrier[orderId] || activeCarrier;
-    return carrier === "fship" ? warehouses.filter(w => w.source === "fship") : warehouses;
+    return pickupWarehousesForCarrier(warehouses, selectedCarrier[orderId] ?? "", activeCarrier);
   }
 
   function toggleItem(orderId: string, itemId: string) {

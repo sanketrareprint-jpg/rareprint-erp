@@ -5,6 +5,7 @@ import { PoliciesWidget } from "@/components/PoliciesWidget";
 import DateInput from "@/components/DateInput";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
+import { type PickupWarehouse, sortPickupWarehouses, pickupWarehousesForCarrier } from "@/lib/dispatchPickup";
 import {
   Loader2, Plus, X, CreditCard, ChevronDown, ChevronUp,
   Truck, CheckSquare, Square, AlertTriangle, Search,
@@ -606,6 +607,21 @@ export default function OrdersPage() {
       // was unchecked in the modal. Confirmed via a real order (1498), 2026-08-19.
       const checkedIds = Array.from(selectedItemIds[firstOrderId] ?? []);
       const params = new URLSearchParams();
+      // Quote from the same default pickup address the Dispatch page uses,
+      // so both pages show the same rates. Without a warehouse the backend
+      // falls back to the Settings default pickup, which can differ.
+      const [warehouseData, carrierConfig] = await Promise.all([
+        fetch(`${API_BASE_URL}/dispatch/warehouses`, { headers: getAuthHeaders() }).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`${API_BASE_URL}/carrier-config`, { headers: getAuthHeaders() }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      const warehouses: PickupWarehouse[] = Array.isArray(warehouseData) ? sortPickupWarehouses(warehouseData) : [];
+      const warehouse = pickupWarehousesForCarrier(warehouses, selectedCarrier, carrierConfig?.activeCarrier ?? "")[0];
+      if (warehouse) {
+        params.set("warehouseId", warehouse.id);
+        params.set("pickupName", warehouse.name);
+        params.set("pickupLocation", warehouse.location);
+        params.set("pickupPincode", warehouse.pincode);
+      }
       if (checkedIds.length > 0) params.set("itemIds", checkedIds.join(','));
       if (selectedCarrier) params.set("carrier", selectedCarrier);
       const qs = params.toString();
