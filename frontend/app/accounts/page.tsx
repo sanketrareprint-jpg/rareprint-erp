@@ -1458,7 +1458,10 @@ export default function AccountsPage() {
         toDate: paymentDate,
         limit: "50",
       });
-      if (payment.paymentAccountName.toUpperCase().includes("GST")) {
+      // GST-bank receipts only match GST-bank statement entries; receipts
+      // into any other account must never be matched against GST-bank entries.
+      const isGstAccount = payment.paymentAccountName.toUpperCase().includes("GST");
+      if (isGstAccount) {
         params.set("accountNumber", GST_BANK_ACCOUNT);
       }
       const res = await fetch(`${API_BASE_URL}/bank-statement/transactions?${params}`, { headers: getAuthHeaders() });
@@ -1466,9 +1469,7 @@ export default function AccountsPage() {
         const data = await res.json();
         const rows: BankTxn[] = data.data ?? [];
         setBankMatchResults(
-          payment.paymentAccountName.toUpperCase().includes("CC")
-            ? rows.filter((txn) => txn.accountNumber !== GST_BANK_ACCOUNT)
-            : rows,
+          isGstAccount ? rows : rows.filter((txn) => txn.accountNumber !== GST_BANK_ACCOUNT),
         );
       }
     } finally { setBankMatchLoading(false); }
