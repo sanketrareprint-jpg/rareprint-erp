@@ -83,6 +83,21 @@ const METHOD_LABELS: Record<string, string> = {
   CHEQUE: "Cheque", CARD: "Card (POS)",
 };
 
+// Add Payment: only offer "Received In" accounts that fit the chosen method —
+// Cash → CASH-type accounts; UPI/bank/cheque/card → bank accounts (the
+// Bigship COD account is posted automatically by remittance import, never by
+// hand). Root-caused 2026-09-24: method defaulted to Cash and the account to
+// GST BANK with no link between them, so UPI receipts were routinely saved
+// as "Cash into GST BANK". Falls back to every account if none match (e.g.
+// a new deployment with no CASH-type account set up yet).
+function accountsForMethod(accounts: PaymentAccount[], method: string): PaymentAccount[] {
+  if (!method) return [];
+  const matching = method === "CASH"
+    ? accounts.filter(a => a.accountType === "CASH")
+    : accounts.filter(a => a.accountType !== "CASH" && a.accountType !== "COURIER_COD");
+  return matching.length > 0 ? matching : accounts;
+}
+
 const STATUS_OPTIONS = [
   "ALL","PENDING_APPROVAL","APPROVED","IN_PRODUCTION",
   "READY_FOR_DISPATCH","PENDING_DISPATCH_APPROVAL",
@@ -372,7 +387,7 @@ export default function OrdersPage() {
     productPhoto: string;
   }>(null);
   const [newPayment, setNewPayment] = useState({
-    amount: "", method: "CASH", paymentAccountId: "",
+    amount: "", method: "", paymentAccountId: "",
     referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10),
   });
 
@@ -473,8 +488,8 @@ export default function OrdersPage() {
   }
 
   async function submitPayment() {
-    if (!paymentModal || !newPayment.amount || !newPayment.paymentAccountId) {
-      alert("Please fill amount and select account"); return;
+    if (!paymentModal || !newPayment.amount || !newPayment.method || !newPayment.paymentAccountId) {
+      alert("Please fill amount, payment method and account"); return;
     }
     setSubmitting(true);
     try {
@@ -493,7 +508,7 @@ export default function OrdersPage() {
       await loadPayments(paymentModal.id);
       setExpandedPayments(paymentModal.id);
       setPaymentModal(null);
-      setNewPayment({ amount: "", method: "CASH", paymentAccountId: accounts[0]?.id ?? "", referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10) });
+      setNewPayment({ amount: "", method: "", paymentAccountId: "", referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10) });
       await load();
       setUploadSuccess("✅ File attached successfully!");
       setTimeout(() => setUploadSuccess(null), 3000);
@@ -1143,7 +1158,7 @@ export default function OrdersPage() {
                         ))}
                       </div>
                       <div className={cx("flex gap-2 pt-1", "flex gap-2 pt-0.5")}>
-                        <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
+                        <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, method: "", paymentAccountId: "" })); }}
                           className={cx("flex-1 rounded-lg bg-emerald-600 p-2 text-white", "flex-1 rounded-lg bg-emerald-600 p-1.5 text-white")}><CreditCard className="mx-auto h-4 w-4" /></button>
                         <button title="Payment History" onClick={() => togglePayments(o.id)}
                           className={cx("flex-1 rounded-lg border border-slate-200 p-2 text-slate-600", "flex-1 rounded-lg border border-slate-200 p-1.5 text-slate-600")}>{expandedPayments === o.id ? <ChevronUp className="mx-auto h-4 w-4" /> : <ChevronDown className="mx-auto h-4 w-4" />}</button>
@@ -1280,7 +1295,7 @@ export default function OrdersPage() {
                           <td className="px-1.5 py-1.5 align-top">
                             <div className="flex flex-row gap-0.5 items-center">
                               {/* Pay */}
-                              <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, paymentAccountId: accounts[0]?.id ?? "" })); }}
+                              <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, method: "", paymentAccountId: "" })); }}
                                 className="px-1 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
                                 <CreditCard className="h-3.5 w-3.5" />
                               </button>
@@ -1858,22 +1873,33 @@ export default function OrdersPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Payment Method *</label>
-                <MobileSelect value={newPayment.method} onChange={v => setNewPayment(p => ({ ...p, method: v }))}
+                <MobileSelect value={newPayment.method}
+                  onChange={v => setNewPayment(p => ({
+                    ...p,
+                    method: v,
+                    paymentAccountId: accountsForMethod(accounts, v)[0]?.id ?? "",
+                    referenceNumber: v === "CASH" ? "" : p.referenceNumber,
+                  }))}
                   placeholder="Payment Method"
-                  options={Object.entries(METHOD_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                  options={[{ value: "", label: "Select method..." }, ...Object.entries(METHOD_LABELS).map(([v, l]) => ({ value: v, label: l }))]}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Received In Account *</label>
                 <MobileSelect value={newPayment.paymentAccountId} onChange={v => setNewPayment(p => ({ ...p, paymentAccountId: v }))}
                   placeholder="Received In Account"
-                  options={[{ value: "", label: "Select account..." }, ...accounts.map(a => ({ value: a.id, label: `${a.name} ${a.bankName ? `(${a.bankName})` : ""}` }))]}
+                  options={[
+                    { value: "", label: newPayment.method ? "Select account..." : "Select payment method first" },
+                    ...accountsForMethod(accounts, newPayment.method).map(a => ({ value: a.id, label: `${a.name} ${a.bankName ? `(${a.bankName})` : ""}` })),
+                  ]}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR</label>
-                <input type="text" placeholder="UTR / Cheque no." value={newPayment.referenceNumber} onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
+              {newPayment.method !== "CASH" && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Reference / UTR</label>
+                  <input type="text" placeholder="UTR / Cheque no." value={newPayment.referenceNumber} onChange={e => setNewPayment(p => ({ ...p, referenceNumber: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
                 <textarea rows={2} value={newPayment.notes} onChange={e => setNewPayment(p => ({ ...p, notes: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
