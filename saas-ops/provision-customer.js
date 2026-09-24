@@ -1,8 +1,11 @@
 // Provisions one new customer: a fresh Railway Environment inside the
 // dedicated customer-instances project, their own Postgres database, their
-// own backend deployment, and runs the initial migration once against
-// their new, empty database. Does NOT touch RarePrint's own production
-// project or database — this only ever creates NEW things.
+// own backend deployment, the initial migration against their new, empty
+// database, and their own frontend — a Vercel project wired to that backend
+// (NEXT_PUBLIC_API_URL, the backend's public domain, and the backend's CORS
+// allowlist; see lib/frontend-provision.js for why the frontend is on Vercel
+// while everything else is on Railway). Does NOT touch RarePrint's own
+// production project or database — this only ever creates NEW things.
 //
 // Usage:
 //   node provision-customer.js "Customer Name"
@@ -32,6 +35,7 @@ import {
 } from './lib/railway-api.js';
 import { buildCustomerEnv } from './customer-env-template.js';
 import { addCustomer } from './lib/registry.js';
+import { provisionFrontend } from './lib/frontend-provision.js';
 
 const customerName = process.argv[2];
 if (!customerName) {
@@ -49,31 +53,31 @@ const slug = customerName
 async function main() {
   console.log(`Provisioning new customer: "${customerName}" (slug: ${slug})`);
 
-  console.log('\n[1/6] Creating Railway environment...');
+  console.log('\n[1/7] Creating Railway environment...');
   const environment = await createEnvironment(slug);
   console.log(`  environment id: ${environment.id}`);
 
-  console.log('\n[2/6] Provisioning Postgres database (volume + credentials + public proxy)...');
+  console.log('\n[2/7] Provisioning Postgres database (volume + credentials + public proxy)...');
   const dbService = await createPostgresService(environment.id, `${slug}-db`);
   const databaseUrl = dbService.databaseUrl;
   console.log(`  database created, credentials set, volume attached, TCP proxy exposed`);
 
-  console.log('\n[3/6] Creating backend service...');
+  console.log('\n[3/7] Creating backend service...');
   const backendService = await createBackendService(environment.id, `${slug}-backend`);
   console.log(`  backend service id: ${backendService.id}`);
 
-  console.log('\n[4/6] Setting environment variables...');
+  console.log('\n[4/7] Setting environment variables...');
   const envVars = buildCustomerEnv(databaseUrl);
   await setServiceVariables(environment.id, backendService.id, envVars);
   console.log(
     `  set ${Object.keys(envVars).length} variables — remember: integration keys (Shiprocket/BigShip/Razorpay/Gmail) are intentionally blank, see customer-env-template.js`
   );
 
-  console.log('\n[5/6] Deploying backend code...');
+  console.log('\n[5/7] Deploying backend code...');
   await deployService(environment.id, backendService.id);
   console.log('  deploy triggered — this takes a few minutes, check the Railway dashboard for build status before continuing');
 
-  console.log('\n[6/6] Running initial migration against the new database...');
+  console.log('\n[6/7] Running initial migration against the new database...');
   console.log('  waiting 20s for the database\'s redeploy (triggered by the TCP proxy setup) to finish restarting...');
   await new Promise((r) => setTimeout(r, 20_000));
   const backendDir = path.join(import.meta.dirname, '..', 'backend');
@@ -97,6 +101,13 @@ async function main() {
     );
   }
 
+  console.log('\n[7/7] Creating frontend on Vercel (project, API wiring, CORS, build)...');
+  const frontend = await provisionFrontend({
+    slug,
+    environmentId: environment.id,
+    backendServiceId: backendService.id,
+  });
+
   addCustomer({
     name: customerName,
     slug,
@@ -104,10 +115,14 @@ async function main() {
     backendServiceId: backendService.id,
     dbServiceId: dbService.id,
     databaseUrl,
+    ...frontend,
+    frontendProvisionedAt: new Date().toISOString(),
   });
 
   console.log(`\nDone. "${customerName}" is provisioned and recorded in registry.json.`);
-  console.log('Next: log into the Railway dashboard and confirm the backend deploy actually succeeded and the app boots before treating this as a working customer instance.');
+  console.log(`  Frontend: ${frontend.frontendUrl}`);
+  console.log(`  Backend : ${frontend.backendUrl}`);
+  console.log('Next: log into the Railway dashboard and confirm BOTH deploys actually succeeded and the login page loads before treating this as a working customer instance.');
 }
 
 main().catch((err) => {

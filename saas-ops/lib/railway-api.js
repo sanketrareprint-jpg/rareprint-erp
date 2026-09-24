@@ -215,9 +215,39 @@ export async function createTcpProxy(environmentId, serviceId, applicationPort) 
  * to set the root directory via serviceInstanceUpdate.
  */
 export async function createBackendService(environmentId, name) {
+  return createRepoService(environmentId, name, requireEnv('BACKEND_ROOT_DIRECTORY'));
+}
+
+/**
+ * There is deliberately no createFrontendService here: a customer's frontend
+ * is a Vercel project, not a Railway service, because Railway does not expose
+ * service variables to the build step and Next.js needs NEXT_PUBLIC_* at
+ * build time. See lib/vercel-api.js's header for what was tried first.
+ */
+
+/**
+ * Creates one service in this environment from the shared GitHub repo, at the
+ * given root directory, with `variables` already set. Backend and frontend
+ * differ only in that directory.
+ *
+ * The source repo is attached LAST, deliberately. Attaching a repo is what
+ * makes Railway start building, and this used to pass `source` straight to
+ * serviceCreate — so the build began before the root directory and the
+ * variables existed. For the backend that was merely wasteful (it reads its
+ * config at runtime, so a later redeploy fixed it). For the frontend it was
+ * a real defect: NEXT_PUBLIC_* values are inlined by `next build`, so that
+ * first build baked in the wrong API URL, and no amount of redeploying
+ * afterwards replaced it — three rebuilds on 2026-09-23, including one with
+ * latestCommit:true that genuinely rebuilt from source, all kept serving the
+ * original wrong bundle.
+ *
+ * Configure first, attach the repo last, and the first build is the correct
+ * one — which also means the build cache is populated from a correct build
+ * rather than a wrong one.
+ */
+async function createRepoService(environmentId, name, rootDirectory, variables = {}) {
   const projectId = requireEnv('RAILWAY_CUSTOMERS_PROJECT_ID');
   const repo = requireEnv('GITHUB_REPO');
-  const rootDirectory = requireEnv('BACKEND_ROOT_DIRECTORY');
   const query = `
     mutation ServiceCreate($input: ServiceCreateInput!) {
       serviceCreate(input: $input) {
@@ -231,14 +261,180 @@ export async function createBackendService(environmentId, name) {
       projectId,
       environmentId,
       name,
-      source: { repo },
+      ...(Object.keys(variables).length > 0 ? { variables } : {}),
     },
   });
   const service = data.serviceCreate;
 
   await setServiceRootDirectory(environmentId, service.id, rootDirectory);
+  await setServiceSource(environmentId, service.id, repo);
 
   return service;
+}
+
+/**
+ * Points a service at a GitHub repo. Doing this after the service exists is
+ * what lets createRepoService configure everything before the first build —
+ * see its comment.
+ */
+export async function setServiceSource(environmentId, serviceId, repo) {
+  const query = `
+    mutation ServiceInstanceUpdate($serviceId: String!, $environmentId: String, $input: ServiceInstanceUpdateInput!) {
+      serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
+    }
+  `;
+  await graphqlRequest(query, { serviceId, environmentId, input: { source: { repo } } });
+}
+
+/**
+ * Permanently deletes a service from one environment. Used to clean up a
+ * service that was created wrong — never call it on a database service.
+ */
+export async function deleteService(environmentId, serviceId) {
+  const query = `
+    mutation ServiceDelete($id: String!, $environmentId: String) {
+      serviceDelete(id: $id, environmentId: $environmentId)
+    }
+  `;
+  await graphqlRequest(query, { id: serviceId, environmentId });
+}
+
+// Statuses a deployment can sit in permanently. Anything else means Railway
+// is still working on it. Introspected from DeploymentStatus 2026-09-23.
+const SETTLED_DEPLOY_STATUSES = new Set(['SUCCESS', 'FAILED', 'CRASHED', 'REMOVED', 'SKIPPED', 'SLEEPING']);
+
+/**
+ * Returns the most recent deployment for a service as { id, status }, or null
+ * if it has never deployed.
+ */
+export async function getLatestDeployment(environmentId, serviceId) {
+  const projectId = requireEnv('RAILWAY_CUSTOMERS_PROJECT_ID');
+  const query = `
+    query Deployments($input: DeploymentListInput!) {
+      deployments(first: 1, input: $input) {
+        edges { node { id status createdAt } }
+      }
+    }
+  `;
+  const data = await graphqlRequest(query, { input: { projectId, environmentId, serviceId } });
+  const node = data.deployments.edges[0]?.node;
+  return node ? { id: node.id, status: node.status, createdAt: node.createdAt } : null;
+}
+
+/**
+ * Deploys a service and confirms a genuinely NEW build was started.
+ *
+ * Why this exists rather than a plain deployService() call: creating a
+ * repo-sourced service makes Railway start building it immediately, and a
+ * deploy requested while that build is still in flight is silently
+ * deduplicated against it — no error, no new deployment. That bit us on
+ * 2026-09-23: the frontend's NEXT_PUBLIC_API_URL was set correctly and the
+ * deploy call returned cleanly, but the build serving traffic was the
+ * auto-deploy from a second earlier, built without the variable, so the
+ * customer's app shipped pointing at RarePrint's own production API. The
+ * variable was right, the deploy "succeeded", and the result was still wrong.
+ *
+ * So: wait for whatever is in flight to settle, then deploy, then confirm the
+ * latest deployment id actually changed.
+ */
+export async function redeployAndConfirm(environmentId, serviceId, { settleTimeoutMs = 900_000, pollMs = 15_000 } = {}) {
+  const deadline = Date.now() + settleTimeoutMs;
+  let before = await getLatestDeployment(environmentId, serviceId);
+  while (before && !SETTLED_DEPLOY_STATUSES.has(before.status)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${serviceId}'s in-flight deployment (${before.status}) to finish before redeploying.`);
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+    before = await getLatestDeployment(environmentId, serviceId);
+  }
+
+  await deployService(environmentId, serviceId);
+
+  // Confirm, rather than assume. A deduplicated deploy returns cleanly too.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    const after = await getLatestDeployment(environmentId, serviceId);
+    if (after && after.id !== before?.id) return after;
+  }
+  throw new Error(`Deploy of ${serviceId} did not produce a new deployment — Railway may have deduplicated it against deployment ${before?.id}. Check the service's Deployments tab.`);
+}
+
+/**
+ * Waits for a freshly created service's first build and returns it once it
+ * settles. Attaching the source repo normally starts that build by itself, so
+ * this does NOT force another one — a second build would be several wasted
+ * minutes, and with the service configured up front the first build is
+ * already correct. Only if no build has appeared after `appearTimeoutMs` does
+ * it trigger one.
+ *
+ * Throws if the build ends in anything other than SUCCESS, so a caller never
+ * reports a customer as provisioned off the back of a failed build.
+ */
+export async function waitForFirstDeployment(environmentId, serviceId, { appearTimeoutMs = 90_000, settleTimeoutMs = 1_800_000, pollMs = 15_000 } = {}) {
+  // This polls for up to half an hour, so a single dropped request must not
+  // abort a provisioning run that is otherwise going fine — one `fetch
+  // failed` killed a real run on 2026-09-23, leaving a built service that
+  // never made it into the registry. Transient errors are swallowed; a
+  // persistent one still ends the run via the deadline below.
+  const poll = async () => {
+    try {
+      return await getLatestDeployment(environmentId, serviceId);
+    } catch (e) {
+      console.log(`  (transient error polling deployment status: ${e.message} — retrying)`);
+      return undefined;
+    }
+  };
+
+  const appearDeadline = Date.now() + appearTimeoutMs;
+  let deployment = await poll();
+  while (!deployment) {
+    if (Date.now() > appearDeadline) {
+      await deployService(environmentId, serviceId);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 5_000));
+    deployment = await poll();
+  }
+
+  const settleDeadline = Date.now() + settleTimeoutMs;
+  while (!deployment || !SETTLED_DEPLOY_STATUSES.has(deployment.status)) {
+    if (Date.now() > settleDeadline) {
+      throw new Error(`Timed out waiting for ${serviceId}'s first build to finish (last status: ${deployment?.status ?? 'none'}).`);
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+    deployment = await poll();
+  }
+
+  if (deployment.status !== 'SUCCESS') {
+    throw new Error(`${serviceId}'s first build ended as ${deployment.status} (deployment ${deployment.id}). Check its build log in Railway.`);
+  }
+  return deployment;
+}
+
+/**
+ * Generates a public *.up.railway.app domain for a service and returns it.
+ * Railway does NOT create one automatically, which is why every customer
+ * provisioned before 2026-09-23 needed its backend domain clicked into
+ * existence by hand in the dashboard.
+ *
+ * Verified by introspection 2026-09-23: serviceDomainCreate(input:
+ * ServiceDomainCreateInput!) takes environmentId!/serviceId!/targetPort and
+ * returns a ServiceDomain with a `domain` field. targetPort is optional —
+ * left unset, Railway infers the port the service listens on, which is what
+ * both our services want (each reads Railway's injected PORT).
+ */
+export async function createServiceDomain(environmentId, serviceId, targetPort) {
+  const query = `
+    mutation ServiceDomainCreate($input: ServiceDomainCreateInput!) {
+      serviceDomainCreate(input: $input) {
+        domain
+      }
+    }
+  `;
+  const data = await graphqlRequest(query, {
+    input: { environmentId, serviceId, ...(targetPort ? { targetPort } : {}) },
+  });
+  return data.serviceDomainCreate.domain;
 }
 
 /**
