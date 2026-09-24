@@ -120,6 +120,7 @@ export default function CreateOrderPage() {
   const [citySearchOpen, setCitySearchOpen] = useState(false);
   const [citySearchLoading, setCitySearchLoading] = useState(false);
   const cityAutofilledByPincodeRef = useRef(false);
+  const [pincodeLookupError, setPincodeLookupError] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
   const [orderFields, setOrderFields] = useState<CustomField[]>([]);
   const [itemFields, setItemFields] = useState<CustomField[]>([]);
@@ -255,29 +256,62 @@ export default function CreateOrderPage() {
   }, [customer.name, customer.phone, customer.customerId, selectedCustomerLabel, router]);
 
   // Pincode → City/State autofill, via India Post's public pincode API.
-  // Fires once a full 6-digit pincode is entered. Best-effort: if the
-  // lookup fails (offline, rate-limited, unknown pincode) we just leave
-  // City/State as-is rather than blocking the user.
+  // Fires once a full 6-digit pincode is entered. Best-effort: the public
+  // API is often slow or down, so each attempt times out and a failed
+  // lookup is retried once. If it still fails (or the pincode is unknown)
+  // we show a short note and leave City/State for manual entry rather
+  // than blocking the user.
   useEffect(() => {
     const pin = customer.pincode;
+    setPincodeLookupError("");
     if (pin.length !== 6) return;
 
     let cancelled = false;
-    (async () => {
+    let controller: AbortController | null = null;
+    const LOOKUP_TIMEOUT_MS = 8000;
+    const RETRY_DELAY_MS = 1500;
+
+    // Returns the first post office, null if India Post says the pincode
+    // doesn't exist, or throws if the service itself failed.
+    const lookup = async (): Promise<PostOfficeResult | null> => {
+      controller = new AbortController();
+      const timer = window.setTimeout(() => controller?.abort(), LOOKUP_TIMEOUT_MS);
       try {
-        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
-        if (!res.ok || cancelled) return;
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const postOffice: PostOfficeResult | undefined = data?.[0]?.PostOffice?.[0];
-        if (!postOffice || cancelled) return;
-        cityAutofilledByPincodeRef.current = true;
-        setCustomer((c) => (c.pincode === pin ? { ...c, city: postOffice.District, state: postOffice.State } : c));
-      } catch {
-        // Ignore — pincode autofill is a convenience, not a requirement.
+        return data?.[0]?.PostOffice?.[0] ?? null;
+      } finally {
+        window.clearTimeout(timer);
       }
+    };
+
+    (async () => {
+      let postOffice: PostOfficeResult | null = null;
+      try {
+        postOffice = await lookup();
+      } catch {
+        if (cancelled) return;
+        await new Promise((resolve) => window.setTimeout(resolve, RETRY_DELAY_MS));
+        if (cancelled) return;
+        try {
+          postOffice = await lookup();
+        } catch {
+          if (!cancelled) setPincodeLookupError("Autofill didn't work — please input city and state manually.");
+          return;
+        }
+      }
+      if (cancelled) return;
+      const found = postOffice;
+      if (!found) {
+        setPincodeLookupError("Pincode not found, autofill didn't work — please input city and state manually.");
+        return;
+      }
+      cityAutofilledByPincodeRef.current = true;
+      setCustomer((c) => (c.pincode === pin ? { ...c, city: found.District, state: found.State } : c));
     })();
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller?.abort(); };
   }, [customer.pincode]);
 
   // City → State autofill + India-wide city/town search, via the same
@@ -597,6 +631,11 @@ export default function CreateOrderPage() {
                   onChange={e => setCustomer(c => ({ ...c, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
                   inputMode="numeric" maxLength={6}
                   placeholder="6-digit pincode" style={S.input} />
+                {pincodeLookupError && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#b45309", fontWeight: 600 }}>
+                    {pincodeLookupError}
+                  </p>
+                )}
               </div>
               <div>
                 <label style={S.label}>GST Number</label>
