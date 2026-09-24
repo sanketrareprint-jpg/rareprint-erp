@@ -25,7 +25,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrdersService } from '../orders/orders.service';
-import { Prisma, RemittanceMatchStatus } from '@prisma/client';
+import { LedgerEntryType, Prisma, RemittanceMatchStatus } from '@prisma/client';
+import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
 import * as XLSX from 'xlsx';
 import { createHash } from 'crypto';
 
@@ -900,9 +901,47 @@ export class RemittanceService {
     });
 
     // Money is already confirmed received per the courier's remittance report — auto-verify.
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { verificationStatus: 'VERIFIED', verifiedById: userId, verifiedAt: new Date() },
+    // Also brings the invoice's paid/balance and the accounting ledger in
+    // line, exactly as AccountsService.verifyPayment() does for a manually
+    // verified receipt — this used to only flip the status, leaving the
+    // invoice PDF / Parties ledger showing COD orders as still unpaid.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { verificationStatus: 'VERIFIED', verifiedById: userId, verifiedAt: new Date() },
+      });
+      const invoice = await syncInvoicePaidAmount(tx, matchedOrderId);
+      if (invoice && Number(payment.amount) > 0) {
+        const order = await tx.order.findUnique({ where: { id: matchedOrderId }, select: { customerId: true } });
+        await tx.accountingLedgerEntry.createMany({
+          data: [
+            {
+              entryType: LedgerEntryType.PAYMENT_IN,
+              accountName: account.name,
+              debitAmount: payment.amount,
+              creditAmount: 0,
+              narration: `Payment received for invoice ${invoice.invoiceNumber}`,
+              referenceType: 'PAYMENT',
+              referenceId: payment.id,
+              customerId: order?.customerId,
+              orderId: matchedOrderId,
+              invoiceId: invoice.id,
+            },
+            {
+              entryType: LedgerEntryType.PAYMENT_IN,
+              accountName: 'Customer Receivable',
+              debitAmount: 0,
+              creditAmount: payment.amount,
+              narration: `Receivable adjusted for invoice ${invoice.invoiceNumber}`,
+              referenceType: 'PAYMENT',
+              referenceId: payment.id,
+              customerId: order?.customerId,
+              orderId: matchedOrderId,
+              invoiceId: invoice.id,
+            },
+          ],
+        });
+      }
     });
 
     const updated = await this.prisma.remittanceRecord.update({

@@ -6,7 +6,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
-  Save, CheckCircle, Image as ImageIcon,
+  Save, CheckCircle, Image as ImageIcon, Wallet,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -17,6 +17,12 @@ type Invoice = {
   subtotal: number; taxableAmount: number; taxAmount: number; totalAmount: number; paidAmount: number;
   balanceAmount: number; status: string; whatsappStatus: string; whatsappSentAt: string | null;
   salesAgentName: string | null;
+};
+
+type ReceiptVoucher = {
+  orderId: string; invoiceId: string; receiptNumber: string; receiptDate: string; invoiceNumber: string;
+  customerName: string; customerPhone: string | null; paymentCount: number;
+  invoiceAmount: number; receivedAmount: number; balanceAmount: number;
 };
 
 type Party = {
@@ -73,7 +79,7 @@ function BillingPageInner() {
   const searchParams = useSearchParams();
   const focusInvoiceId = searchParams.get("invoiceId");
 
-  const [tab, setTab] = useState<"invoices" | "parties" | "company_profile" | "gst_summary">(
+  const [tab, setTab] = useState<"invoices" | "receipts" | "parties" | "company_profile" | "gst_summary">(
     focusInvoiceId ? "invoices" : "invoices",
   );
 
@@ -134,6 +140,36 @@ function BillingPageInner() {
   }
 
   const filteredInvoices = focusInvoiceId ? invoices.filter(i => i.id === focusInvoiceId) : invoices;
+
+  // ── Receipt Vouchers ──────────────────────────────────────────────────
+  // Same debounce + requestSeq stale-response guard as Invoices above.
+  const [receipts, setReceipts] = useState<ReceiptVoucher[]>([]);
+  const [receiptsLoading, setReceiptsLoading] = useState(true);
+  const [receiptSearch, setReceiptSearch] = useState("");
+  const [debouncedReceiptSearch, setDebouncedReceiptSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedReceiptSearch(receiptSearch), 400);
+    return () => clearTimeout(t);
+  }, [receiptSearch]);
+  const receiptRequestSeq = useRef(0);
+
+  const loadReceipts = useCallback(async () => {
+    const seq = ++receiptRequestSeq.current;
+    setReceiptsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (debouncedReceiptSearch) params.set("search", debouncedReceiptSearch);
+      const res = await fetch(`${API_BASE_URL}/billing/receipts?${params.toString()}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (seq === receiptRequestSeq.current) setReceipts(data);
+      }
+    } finally {
+      if (seq === receiptRequestSeq.current) setReceiptsLoading(false);
+    }
+  }, [debouncedReceiptSearch]);
+
+  useEffect(() => { void loadReceipts(); }, [loadReceipts]);
 
   // ── Parties ───────────────────────────────────────────────────────────
   const [parties, setParties] = useState<Party[]>([]);
@@ -273,6 +309,10 @@ function BillingPageInner() {
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${tab === "invoices" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Receipt className="h-3.5 w-3.5" /> Invoices
               </button>
+              <button onClick={() => setTab("receipts")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "receipts" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <Wallet className="h-3.5 w-3.5" /> Receipts
+              </button>
               <button onClick={() => setTab("parties")}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "parties" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Users className="h-3.5 w-3.5" /> Parties
@@ -364,6 +404,77 @@ function BillingPageInner() {
                                 title="Share via WhatsApp"
                               >
                                 <Send className="h-3 w-3" /> {sharingId === inv.id ? "…" : "Share"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── RECEIPT VOUCHERS ── */}
+          {tab === "receipts" && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2 items-center">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <input type="text" value={receiptSearch} onChange={e => setReceiptSearch(e.target.value)}
+                    placeholder="Search invoice #, customer, phone…"
+                    className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </div>
+                <button onClick={() => void loadReceipts()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                  <Loader2 className={`h-3 w-3 ${receiptsLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <span className="text-xs text-slate-400">{receipts.length} receipt{receipts.length !== 1 ? "s" : ""}</span>
+              </div>
+              <p className="text-[11px] text-slate-500">One receipt voucher per invoiced order, listing its verified payments. Orders appear here once Accounts has verified at least one payment.</p>
+
+              {receiptsLoading ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+              ) : receipts.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
+                  <Wallet className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                  <p>No receipt vouchers found.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Receipt</th>
+                        <th className="px-3 py-2 text-left">Date</th>
+                        <th className="px-3 py-2 text-left">Invoice</th>
+                        <th className="px-3 py-2 text-left">Customer</th>
+                        <th className="px-3 py-2 text-center">Payments</th>
+                        <th className="px-3 py-2 text-right">Invoice Amt</th>
+                        <th className="px-3 py-2 text-right">Received</th>
+                        <th className="px-3 py-2 text-right">Balance</th>
+                        <th className="px-3 py-2 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {receipts.map(r => (
+                        <tr key={r.orderId}>
+                          <td className="px-3 py-2 font-semibold text-blue-700">{r.receiptNumber}</td>
+                          <td className="px-3 py-2 text-slate-500">{fmtDate(r.receiptDate)}</td>
+                          <td className="px-3 py-2 text-slate-600">{r.invoiceNumber}</td>
+                          <td className="px-3 py-2">{r.customerName}<div className="text-[10px] text-slate-400">{r.customerPhone}</div></td>
+                          <td className="px-3 py-2 text-center">{r.paymentCount}</td>
+                          <td className="px-3 py-2 text-right">{fmt(r.invoiceAmount)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-emerald-600">{fmt(r.receivedAmount)}</td>
+                          <td className={`px-3 py-2 text-right ${r.balanceAmount > 0 ? "text-red-600" : "text-emerald-600"}`}>{fmt(r.balanceAmount)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-center">
+                              <button
+                                onClick={() => void downloadBlob(`${API_BASE_URL}/billing/receipts/${r.orderId}/pdf`, `Receipt_${r.receiptNumber}.pdf`)}
+                                className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 flex items-center gap-1"
+                                title="Download Receipt Voucher PDF"
+                              >
+                                <Download className="h-3 w-3" /> PDF
                               </button>
                             </div>
                           </td>

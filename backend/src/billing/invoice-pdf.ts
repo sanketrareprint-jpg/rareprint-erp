@@ -117,7 +117,7 @@ const BORDER = '#3f4155';
 // "12,34,567.89") — the reference invoice formats every amount this way
 // (e.g. "₹1,449.15", "₹9,500.00"), not plain toFixed(2). Matches the same
 // grouping convention amount-in-words.ts uses conceptually (lakh/crore).
-function money(n: number): string {
+export function money(n: number): string {
   const safe = Number.isFinite(n) ? n : 0;
   const fixed = Math.abs(safe).toFixed(2);
   const [intPart, decPart] = fixed.split('.');
@@ -140,7 +140,7 @@ function sanitize(value: string | null | undefined): string {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
 }
 
-function dataUrlToBuffer(dataUrl: string | null | undefined): Buffer | null {
+export function dataUrlToBuffer(dataUrl: string | null | undefined): Buffer | null {
   if (!dataUrl || !dataUrl.startsWith('data:')) return null;
   const commaIdx = dataUrl.indexOf(',');
   if (commaIdx === -1) return null;

@@ -5,6 +5,7 @@ import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { buildInvoicePdf, InvoicePdfCompanyProfile, InvoicePdfData } from './invoice-pdf';
+import { buildReceiptVoucherPdf } from './receipt-pdf';
 import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 import { extractSizeFromNote } from '../common/resolve-item-details';
@@ -47,6 +48,15 @@ const DEFAULTS: Record<string, string> = {
   [CFG.DEFAULT_TERMS]: '',
   [CFG.LOGO_URL]: '',
   [CFG.SIGNATURE_URL]: '',
+};
+
+// Printed "Payment Mode" labels for the PaymentMethod enum (receipt voucher).
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Cash',
+  BANK_TRANSFER: 'Bank Transfer',
+  UPI: 'UPI',
+  CHEQUE: 'Cheque',
+  CARD: 'Card',
 };
 
 export interface CompanyProfile {
@@ -289,6 +299,126 @@ export class BillingService {
 
     const buffer = await buildInvoicePdf(pdfData);
     return { buffer, filename: `Invoice_${invoice.invoiceNumber}.pdf` };
+  }
+
+  // ── Receipt Vouchers ────────────────────────────────────────────────────
+  // One receipt voucher per invoiced order, listing every VERIFIED payment
+  // against it. Read-only view over existing Payment rows — nothing is
+  // stored, so the voucher always reflects exactly what Accounts has
+  // verified. Received/balance are summed from those same verified Payment
+  // rows (same rule AccountsService.verifyPayment uses to set
+  // Invoice.paidAmount) so the voucher's lines and its totals can never
+  // disagree. Voucher number = "RV-" + invoice number (which is itself the
+  // order number, see Billing_Module_Spec.md §4.3) — no new sequence.
+  // Same paise rounding as AccountsService.money() — avoids float artifacts
+  // (e.g. a "-0.00" balance) when summing Decimal payment amounts as numbers.
+  private toPaise(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
+  private receiptNumberFor(invoiceNumber: string): string {
+    return `RV-${invoiceNumber}`;
+  }
+
+  async listReceiptVouchers(filters: { search?: string }) {
+    const where: any = {
+      order: { isTest: false, payments: { some: { verificationStatus: 'VERIFIED' } } },
+    };
+    const search = filters.search?.trim();
+    if (search) {
+      where.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { order: { customer: { businessName: { contains: search, mode: 'insensitive' } } } },
+        { order: { customer: { phone: { contains: search } } } },
+      ];
+    }
+
+    const invoices = await this.prisma.invoice.findMany({
+      where,
+      include: {
+        order: {
+          include: {
+            customer: true,
+            payments: { where: { verificationStatus: 'VERIFIED' }, orderBy: { paymentDate: 'asc' } },
+          },
+        },
+      },
+      orderBy: { issueDate: 'desc' },
+      take: 500,
+    });
+
+    return invoices.map((inv) => {
+      const payments = inv.order.payments;
+      const receivedAmount = this.toPaise(payments.reduce((sum, p) => sum + Number(p.amount), 0));
+      const invoiceAmount = Number(inv.totalAmount);
+      return {
+        orderId: inv.orderId,
+        invoiceId: inv.id,
+        receiptNumber: this.receiptNumberFor(inv.invoiceNumber),
+        receiptDate: payments[payments.length - 1].paymentDate,
+        invoiceNumber: inv.invoiceNumber,
+        customerName: inv.order.customer.businessName,
+        customerPhone: inv.order.customer.phone,
+        paymentCount: payments.length,
+        invoiceAmount,
+        receivedAmount,
+        balanceAmount: this.toPaise(invoiceAmount - receivedAmount),
+      };
+    });
+  }
+
+  async generateReceiptVoucherPdf(orderId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { orderId },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            payments: {
+              where: { verificationStatus: 'VERIFIED' },
+              orderBy: { paymentDate: 'asc' },
+              include: { paymentAccount: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException('No invoice found for this order — a receipt voucher needs an approved, invoiced order');
+    const payments = invoice.order.payments;
+    if (payments.length === 0) throw new BadRequestException('No verified payments on this order yet — nothing to issue a receipt for');
+
+    const company = await this.getCompanyProfile();
+    const customer = invoice.order.customer;
+    const customerAddress = [customer.billingAddress, customer.city, customer.state, customer.pincode]
+      .map((v) => (v ?? '').toString().trim())
+      .filter(Boolean)
+      .join(', ');
+    const receivedAmount = this.toPaise(payments.reduce((sum, p) => sum + Number(p.amount), 0));
+    const invoiceAmount = Number(invoice.totalAmount);
+    const receiptNumber = this.receiptNumberFor(invoice.invoiceNumber);
+
+    const buffer = await buildReceiptVoucherPdf({
+      receiptNumber,
+      receiptDate: this.formatDate(payments[payments.length - 1].paymentDate),
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceDate: this.formatDate(invoice.issueDate),
+      invoiceAmount,
+      receivedAmount,
+      balanceAmount: this.toPaise(invoiceAmount - receivedAmount),
+      customerName: customer.businessName,
+      customerAddress,
+      customerPhone: customer.phone ?? '',
+      customerGstin: customer.gstNumber ?? '',
+      payments: payments.map((p) => ({
+        paymentDate: this.formatDate(p.paymentDate),
+        method: PAYMENT_METHOD_LABELS[p.method] ?? p.method,
+        referenceNumber: p.referenceNumber,
+        accountName: p.paymentAccount?.name ?? null,
+        amount: Number(p.amount),
+      })),
+      company: company as InvoicePdfCompanyProfile,
+    });
+    return { buffer, filename: `Receipt_${receiptNumber}.pdf` };
   }
 
   // ── Parties (customer ledger) ───────────────────────────────────────────

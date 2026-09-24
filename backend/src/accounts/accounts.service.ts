@@ -24,6 +24,7 @@ import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BillingService } from '../billing/billing.service';
+import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -2063,6 +2064,9 @@ export class AccountsService {
 
     await this.prisma.payment.delete({ where: { id } });
     await this.refreshOrderPaymentStatus(payment.orderId);
+    // Deleting a VERIFIED payment must lower the invoice's paid amount too —
+    // used to leave Invoice.paidAmount including the deleted payment.
+    await syncInvoicePaidAmount(this.prisma, payment.orderId);
     return { success: true, orderId: payment.orderId };
   }
 

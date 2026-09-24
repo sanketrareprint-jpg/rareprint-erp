@@ -73,6 +73,22 @@ export class BillingController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Get('receipts')
+  listReceiptVouchers(@Query('search') search?: string) {
+    return this.billingService.listReceiptVouchers({ search });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('receipts/:orderId/pdf')
+  async downloadReceiptVoucherPdf(@Param('orderId') orderId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.billingService.generateReceiptVoucherPdf(orderId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', contentDispositionFilename(filename));
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Get('parties')
   listParties() {
     return this.billingService.listParties();
