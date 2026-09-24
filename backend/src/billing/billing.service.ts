@@ -1,5 +1,5 @@
 // backend/src/billing/billing.service.ts
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +9,8 @@ import { buildReceiptVoucherPdf } from './receipt-pdf';
 import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 import { extractSizeFromNote } from '../common/resolve-item-details';
+import { sanitizePhone } from '../orders/orders.service';
+import { GSTIN_FORMAT } from '../orders/dto/create-order.dto';
 
 // ── SystemConfig keys for Company Profile ───────────────────────────────────
 // Same "individual key per setting" convention as loyalty.service.ts's CFG
@@ -486,12 +488,90 @@ export class BillingService {
         phone: customer.phone,
         gstNumber: customer.gstNumber,
         state: customer.state,
+        billingAddress: customer.billingAddress,
+        city: customer.city,
+        pincode: customer.pincode,
       },
       entries,
       totalBilled: entries.reduce((sum, e) => sum + e.totalAmount, 0),
       totalReceived: entries.reduce((sum, e) => sum + e.paidAmount, 0),
       balanceDue: entries.reduce((sum, e) => sum + e.balanceAmount, 0),
     };
+  }
+
+  // Billing > Parties "Edit". Writes the single Customer row, which every
+  // order (past and present), invoice and receipt reads live — orders keep no
+  // copy of the name/phone/GSTIN — so one edit here updates all of them.
+  // Same normalisation as order create/edit (orders.service.ts): uppercase
+  // name/address/city/state, digits-only phone, GSTIN format check.
+  // Restricted to ADMIN/ACCOUNTS (the roles Billing is shown to by default).
+  async updateParty(
+    customerId: string,
+    dto: { businessName?: string; phone?: string; gstNumber?: string; billingAddress?: string; city?: string; state?: string; pincode?: string },
+    user: { role: string },
+  ) {
+    if (!['ADMIN', 'ACCOUNTS'].includes(user?.role)) {
+      throw new ForbiddenException('Only admin/accounts users can edit party details');
+    }
+    const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const text = (v: unknown) => (typeof v === 'string' ? v.trim() : undefined);
+    const data: Record<string, string | null> = {};
+
+    const name = text(dto.businessName);
+    if (name !== undefined) {
+      if (!name) throw new BadRequestException('Party name cannot be empty');
+      data.businessName = name.toUpperCase();
+      // Order create/edit always keep contactPerson equal to the name; keep
+      // that in step unless someone set a different contact person on purpose.
+      if (!customer.contactPerson || customer.contactPerson === customer.businessName) {
+        data.contactPerson = data.businessName;
+      }
+    }
+
+    const rawPhone = text(dto.phone);
+    if (rawPhone !== undefined) {
+      const phone = sanitizePhone(rawPhone);
+      if (!phone || phone.length !== 10) throw new BadRequestException('Phone must be a 10-digit mobile number');
+      // Create Order matches existing customers by phone, so two parties
+      // sharing one number would get their orders mixed up. Only checked
+      // when the number actually changes — the edit form resends the phone
+      // on every save, and a pre-existing duplicate must not block e.g. an
+      // address-only edit.
+      if (phone !== sanitizePhone(customer.phone ?? '')) {
+        const clash = await this.prisma.customer.findFirst({
+          where: { phone, id: { not: customerId } },
+          select: { businessName: true },
+        });
+        if (clash) throw new BadRequestException(`Phone ${phone} is already used by ${clash.businessName}`);
+      }
+      data.phone = phone;
+    }
+
+    const gst = text(dto.gstNumber);
+    if (gst !== undefined) {
+      const gstUpper = gst.toUpperCase();
+      if (gstUpper && !GSTIN_FORMAT.test(gstUpper)) {
+        throw new BadRequestException('GST Number must be a valid 15-character GSTIN (e.g. 27AAAAA0000A1Z5)');
+      }
+      data.gstNumber = gstUpper || null;
+    }
+
+    const pincode = text(dto.pincode);
+    if (pincode !== undefined) {
+      if (pincode && !/^\d{6}$/.test(pincode)) throw new BadRequestException('Pincode must be 6 digits');
+      data.pincode = pincode || null;
+    }
+
+    for (const field of ['billingAddress', 'city', 'state'] as const) {
+      const value = text(dto[field]);
+      if (value !== undefined) data[field] = value ? value.toUpperCase() : null;
+    }
+
+    if (Object.keys(data).length === 0) throw new BadRequestException('Nothing to update');
+    await this.prisma.customer.update({ where: { id: customerId }, data });
+    return this.getPartyLedger(customerId);
   }
 
   // Simple tabular PDF — deliberately plainer than the branded tax invoice

@@ -26,7 +26,7 @@ const PHONE_10_DIGIT = /^\d{10}$/;
 // needs a paid third-party verification API, not used here). Frontend
 // already uppercases before sending; @Transform is the server-side backstop
 // for direct API calls that skip the UI, same pattern as PHONE_10_DIGIT above.
-const GSTIN_FORMAT = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+export const GSTIN_FORMAT = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
 export class CreateOrderCustomerDto {
   @IsOptional()

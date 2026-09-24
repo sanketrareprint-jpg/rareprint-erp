@@ -6,7 +6,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
-  Save, CheckCircle, Image as ImageIcon, Wallet,
+  Save, CheckCircle, Image as ImageIcon, Wallet, Pencil,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -36,7 +36,10 @@ type LedgerEntry = {
 };
 
 type PartyLedger = {
-  customer: { id: string; businessName: string; phone: string | null; gstNumber: string | null; state: string | null };
+  customer: {
+    id: string; businessName: string; phone: string | null; gstNumber: string | null; state: string | null;
+    billingAddress: string | null; city: string | null; pincode: string | null;
+  };
   entries: LedgerEntry[];
   totalBilled: number; totalReceived: number; balanceDue: number;
 };
@@ -189,12 +192,51 @@ function BillingPageInner() {
 
   async function openParty(customerId: string) {
     setSelectedParty(customerId);
+    setPartyForm(null);
     setLedgerLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/billing/parties/${customerId}/statement`, { headers: getAuthHeaders() });
       if (res.ok) setLedger(await res.json());
     } finally {
       setLedgerLoading(false);
+    }
+  }
+
+  // Party edit — writes the Customer record itself, so a changed name/phone
+  // shows on every order (past and present), invoice and receipt.
+  const emptyPartyForm = { businessName: "", phone: "", gstNumber: "", billingAddress: "", city: "", state: "", pincode: "" };
+  const [partyForm, setPartyForm] = useState<typeof emptyPartyForm | null>(null);
+  const [partySaving, setPartySaving] = useState(false);
+
+  function startPartyEdit() {
+    if (!ledger) return;
+    const c = ledger.customer;
+    setPartyForm({
+      businessName: c.businessName ?? "", phone: c.phone ?? "", gstNumber: c.gstNumber ?? "",
+      billingAddress: c.billingAddress ?? "", city: c.city ?? "", state: c.state ?? "", pincode: c.pincode ?? "",
+    });
+  }
+
+  async function savePartyEdit() {
+    if (!partyForm || !ledger || partySaving) return;
+    if (!partyForm.businessName.trim()) { alert("Party name cannot be empty"); return; }
+    setPartySaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/billing/parties/${ledger.customer.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(partyForm),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(body.message || "Could not save party details"); return; }
+      const updated = body as PartyLedger;
+      setLedger(updated);
+      setParties(prev => prev.map(p => p.customerId === updated.customer.id
+        ? { ...p, customerName: updated.customer.businessName, phone: updated.customer.phone }
+        : p));
+      setPartyForm(null);
+    } finally {
+      setPartySaving(false);
     }
   }
 
@@ -528,18 +570,79 @@ function BillingPageInner() {
                   <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
                 ) : ledger ? (
                   <div className="space-y-3">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
                       <div>
                         <p className="font-bold text-slate-900">{ledger.customer.businessName}</p>
                         <p className="text-xs text-slate-500">{ledger.customer.phone} · {ledger.customer.gstNumber || "No GSTIN"}</p>
+                        {(ledger.customer.billingAddress || ledger.customer.city || ledger.customer.state || ledger.customer.pincode) && (
+                          <p className="text-xs text-slate-500">
+                            {[ledger.customer.billingAddress, ledger.customer.city, ledger.customer.state, ledger.customer.pincode].filter(Boolean).join(", ")}
+                          </p>
+                        )}
                       </div>
-                      <button
-                        onClick={() => void downloadBlob(`${API_BASE_URL}/billing/parties/${selectedParty}/statement/pdf`, `Statement_${ledger.customer.businessName}.pdf`)}
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1"
-                      >
-                        <Download className="h-3.5 w-3.5" /> Download Statement PDF
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={startPartyEdit}
+                          disabled={partyForm !== null}
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
+                        <button
+                          onClick={() => void downloadBlob(`${API_BASE_URL}/billing/parties/${selectedParty}/statement/pdf`, `Statement_${ledger.customer.businessName}.pdf`)}
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download Statement PDF
+                        </button>
+                      </div>
                     </div>
+                    {partyForm && (
+                      <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
+                        <p className="text-xs font-semibold text-slate-700">Edit party details</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Party Name *
+                            <input value={partyForm.businessName} onChange={e => setPartyForm({ ...partyForm, businessName: e.target.value.toUpperCase() })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                          </label>
+                          <label className="text-xs text-slate-600 space-y-1">Phone
+                            <input value={partyForm.phone} inputMode="numeric" maxLength={10}
+                              onChange={e => setPartyForm({ ...partyForm, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                          </label>
+                          <label className="text-xs text-slate-600 space-y-1">GSTIN
+                            <input value={partyForm.gstNumber} maxLength={15} placeholder="Leave blank if none"
+                              onChange={e => setPartyForm({ ...partyForm, gstNumber: e.target.value.toUpperCase().replace(/\s/g, "") })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400 font-mono" />
+                          </label>
+                          <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Billing Address
+                            <textarea rows={2} value={partyForm.billingAddress} onChange={e => setPartyForm({ ...partyForm, billingAddress: e.target.value.toUpperCase() })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                          </label>
+                          <label className="text-xs text-slate-600 space-y-1">City
+                            <input value={partyForm.city} onChange={e => setPartyForm({ ...partyForm, city: e.target.value.toUpperCase() })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                          </label>
+                          <label className="text-xs text-slate-600 space-y-1">State
+                            <input value={partyForm.state} onChange={e => setPartyForm({ ...partyForm, state: e.target.value.toUpperCase() })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                          </label>
+                          <label className="text-xs text-slate-600 space-y-1">Pincode
+                            <input value={partyForm.pincode} inputMode="numeric" maxLength={6}
+                              onChange={e => setPartyForm({ ...partyForm, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                          </label>
+                        </div>
+                        <p className="text-[11px] text-slate-500">Changes apply to this party&apos;s record everywhere — all past and current orders, invoices and receipts. City, state and pincode are also used for dispatch.</p>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setPartyForm(null)} disabled={partySaving}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                          <button onClick={() => void savePartyEdit()} disabled={partySaving}
+                            className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50 flex items-center gap-1">
+                            {partySaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Total Billed</p><p className="font-bold">{fmt(ledger.totalBilled)}</p></div>
                       <div className="rounded-lg bg-emerald-50 p-2"><p className="text-[10px] text-emerald-600">Total Received</p><p className="font-bold text-emerald-700">{fmt(ledger.totalReceived)}</p></div>

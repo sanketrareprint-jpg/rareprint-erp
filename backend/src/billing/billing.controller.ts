@@ -4,9 +4,11 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseGuards,
@@ -14,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { BillingService } from './billing.service';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 
@@ -92,6 +94,16 @@ export class BillingController {
   @Get('parties')
   listParties() {
     return this.billingService.listParties();
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Patch('parties/:customerId')
+  updateParty(
+    @Param('customerId') customerId: string,
+    @Body() body: { businessName?: string; phone?: string; gstNumber?: string; billingAddress?: string; city?: string; state?: string; pincode?: string },
+    @Req() req: Request & { user: { role: string } },
+  ) {
+    return this.billingService.updateParty(customerId, body, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'))

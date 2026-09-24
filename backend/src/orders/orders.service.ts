@@ -40,9 +40,9 @@ function upper(value?: string | null): string | null | undefined {
 // getting re-surfaced by Create Order's auto-match-by-phone. Sanitizing
 // here means it can't happen again regardless of which surface -- or which
 // future one -- sends the write.
-function sanitizePhone(value: string): string;
-function sanitizePhone(value?: string | null): string | null | undefined;
-function sanitizePhone(value?: string | null): string | null | undefined {
+export function sanitizePhone(value: string): string;
+export function sanitizePhone(value?: string | null): string | null | undefined;
+export function sanitizePhone(value?: string | null): string | null | undefined {
   if (typeof value !== 'string') return value;
   let digits = value.replace(/\D/g, '');
   if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
