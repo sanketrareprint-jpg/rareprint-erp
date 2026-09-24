@@ -303,6 +303,8 @@ export class BillingService {
 
   // ── Receipt Vouchers ────────────────────────────────────────────────────
   // One receipt voucher per invoiced order, listing every VERIFIED payment
+  // (₹0 rows skipped — e.g. a COD payment whose whole amount was courier
+  // freight after the 2026-09-24 freight correction)
   // against it. Read-only view over existing Payment rows — nothing is
   // stored, so the voucher always reflects exactly what Accounts has
   // verified. Received/balance are summed from those same verified Payment
@@ -322,7 +324,7 @@ export class BillingService {
 
   async listReceiptVouchers(filters: { search?: string }) {
     const where: any = {
-      order: { isTest: false, payments: { some: { verificationStatus: 'VERIFIED' } } },
+      order: { isTest: false, payments: { some: { verificationStatus: 'VERIFIED', amount: { gt: 0 } } } },
     };
     const search = filters.search?.trim();
     if (search) {
@@ -339,7 +341,7 @@ export class BillingService {
         order: {
           include: {
             customer: true,
-            payments: { where: { verificationStatus: 'VERIFIED' }, orderBy: { paymentDate: 'asc' } },
+            payments: { where: { verificationStatus: 'VERIFIED', amount: { gt: 0 } }, orderBy: { paymentDate: 'asc' } },
           },
         },
       },
@@ -375,7 +377,7 @@ export class BillingService {
           include: {
             customer: true,
             payments: {
-              where: { verificationStatus: 'VERIFIED' },
+              where: { verificationStatus: 'VERIFIED', amount: { gt: 0 } },
               orderBy: { paymentDate: 'asc' },
               include: { paymentAccount: { select: { name: true } } },
             },

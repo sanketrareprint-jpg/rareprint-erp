@@ -73,10 +73,23 @@ export async function buildReceiptVoucherPdf(data: ReceiptPdfData): Promise<Buff
       }
     }
 
+    // Truncates `text` with "…" so it fits `width` at the CURRENT font/size.
+    // PDFKit still word-wraps when a `width` option is passed even with
+    // lineBreak:false, which made long values spill onto the next line and
+    // overprint it (seen on a real receipt, 2026-09-24) — so single-line
+    // fields are measured and cut here, then drawn with no width at all.
+    function oneLine(text: string, width: number): string {
+      if (doc.widthOfString(text) <= width) return text;
+      let cut = text;
+      while (cut.length > 0 && doc.widthOfString(cut + '…') > width) cut = cut.slice(0, -1);
+      return cut.trimEnd() + '…';
+    }
+
     function labelValue(label: string, value: string, x: number, y0: number, width: number) {
       doc.font('Body').fontSize(8.5).fillColor(BORDER).text(label, x, y0, { lineBreak: false });
       const labelW = doc.widthOfString(label);
-      doc.font('Body-Bold').fontSize(8.5).text(value || '-', x + labelW, y0, { width: Math.max(10, width - labelW), lineBreak: false, ellipsis: true });
+      doc.font('Body-Bold').fontSize(8.5);
+      doc.text(oneLine(value || '-', Math.max(10, width - labelW)), x + labelW, y0, { lineBreak: false });
     }
 
     // ── 1. Title ──────────────────────────────────────────────────────────
@@ -97,10 +110,13 @@ export async function buildReceiptVoucherPdf(data: ReceiptPdfData): Promise<Buff
       }
     }
     const headerTextWidth = right - headerTextX - 10;
-    doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER)
-      .text(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextX, y + 6, { width: headerTextWidth, lineBreak: false, ellipsis: true });
+    doc.font('Body-Bold').fontSize(14.5).fillColor(BORDER);
+    doc.text(oneLine(sanitize(data.company.companyName) || 'Company Name Not Set', headerTextWidth), headerTextX, y + 5, { lineBreak: false });
+    // Up to 2 lines. height 24 (not 22): PDFKit's ellipsis cut-off drops the
+    // 2nd line below ~22.6pt at this size — same finding as invoice-pdf.ts's
+    // company address.
     doc.font('Body').fontSize(8.5)
-      .text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 27, { width: headerTextWidth, height: 22, ellipsis: true });
+      .text(sanitize(data.company.companyAddress) || 'Company address not set — fill in Billing > Company Profile', headerTextX, y + 25, { width: headerTextWidth, height: 24, ellipsis: true, lineGap: -1 });
     const halfHeader = headerTextWidth / 2;
     labelValue('Phone: ', sanitize(data.company.companyPhone), headerTextX, y + 51, halfHeader);
     labelValue('Email: ', sanitize(data.company.companyEmail), headerTextX + halfHeader, y + 51, halfHeader);
@@ -120,9 +136,10 @@ export async function buildReceiptVoucherPdf(data: ReceiptPdfData): Promise<Buff
     doc.text('Receipt Details:', left + colWidth + 6, y + 4, { lineBreak: false });
 
     const innerW = colWidth - 12;
-    doc.font('Body-Bold').fontSize(9.5).text(sanitize(data.customerName) || '-', left + 6, y + 22, { width: innerW, lineBreak: false, ellipsis: true });
-    doc.font('Body').fontSize(8.5).text(sanitize(data.customerAddress) || '-', left + 6, y + 35, { width: innerW, height: 20, ellipsis: true });
-    labelValue('Contact No.: ', sanitize(data.customerPhone), left + 6, y + 55, innerW);
+    doc.font('Body-Bold').fontSize(9.5);
+    doc.text(oneLine(sanitize(data.customerName) || '-', innerW), left + 6, y + 21, { lineBreak: false });
+    doc.font('Body').fontSize(8.5).text(sanitize(data.customerAddress) || '-', left + 6, y + 34, { width: innerW, height: 24, ellipsis: true, lineGap: -1 });
+    labelValue('Contact No.: ', sanitize(data.customerPhone), left + 6, y + 56, innerW);
     if (sanitize(data.customerGstin)) labelValue('GSTIN: ', sanitize(data.customerGstin), left + 6, y + 67, innerW);
 
     const rx = left + colWidth + 6;
@@ -136,14 +153,21 @@ export async function buildReceiptVoucherPdf(data: ReceiptPdfData): Promise<Buff
     const cols = [
       { title: '#', width: 24, align: 'center' as const },
       { title: 'Payment Date', width: 72, align: 'left' as const },
-      { title: 'Payment Mode', width: 82, align: 'left' as const },
-      { title: 'Reference No.', width: 130, align: 'left' as const },
-      { title: 'Received In', width: 121.1, align: 'left' as const },
+      { title: 'Payment Mode', width: 72, align: 'left' as const },
+      { title: 'Reference No.', width: 160.1, align: 'left' as const },
+      { title: 'Received In', width: 101, align: 'left' as const },
       { title: 'Amount', width: 100, align: 'right' as const },
     ];
-    const rowH = 18;
+    const minRowH = 18;
+    const cellPadY = 4.5;
 
+    // Rows grow to fit wrapped text (long bank/UPI references routinely
+    // include the payer's name) instead of clipping or overprinting the
+    // next row.
     function drawRow(values: string[], bold: boolean, fill?: string) {
+      doc.font(bold ? 'Body-Bold' : 'Body').fontSize(8.5);
+      const textH = Math.max(...cols.map((col, i) => doc.heightOfString(values[i] || ' ', { width: col.width - 8 })));
+      const rowH = Math.max(minRowH, Math.ceil(textH + cellPadY * 2));
       ensureSpace(rowH);
       if (fill) doc.rect(left, y, CONTENT_WIDTH, rowH).fillAndStroke(fill, BORDER);
       else doc.rect(left, y, CONTENT_WIDTH, rowH).stroke(BORDER);
@@ -151,7 +175,7 @@ export async function buildReceiptVoucherPdf(data: ReceiptPdfData): Promise<Buff
       let x = left;
       cols.forEach((col, i) => {
         if (i > 0) doc.moveTo(x, y).lineTo(x, y + rowH).stroke(BORDER);
-        doc.text(values[i] ?? '', x + 4, y + 4.5, { width: col.width - 8, align: col.align, lineBreak: false, ellipsis: true });
+        doc.text(values[i] ?? '', x + 4, y + cellPadY, { width: col.width - 8, align: col.align });
         x += col.width;
       });
       y += rowH;
@@ -186,7 +210,9 @@ export async function buildReceiptVoucherPdf(data: ReceiptPdfData): Promise<Buff
     const summaryRows: [string, number][] = [
       ['Invoice Amount', data.invoiceAmount],
       ['Received', data.receivedAmount],
-      ['Balance Due', data.balanceAmount],
+      // Negative balance = customer paid more than the invoice; printed as a
+      // positive "Excess Received" rather than a confusing "₹-200.00 due".
+      data.balanceAmount < 0 ? ['Excess Received', -data.balanceAmount] : ['Balance Due', data.balanceAmount],
     ];
     summaryRows.forEach(([label, value], i) => {
       const sy = y + 22 + i * 14;
