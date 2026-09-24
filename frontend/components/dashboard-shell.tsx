@@ -199,7 +199,14 @@ const MODULE_KEY_BY_HREF: Record<string, string> = {
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router   = useRouter();
-  const [user] = useState<StoredUser | null>(() => getStoredUser());
+  // Start as null on both server and client's first (hydration) render, then
+  // load from localStorage in an effect after mount. Reading localStorage
+  // directly in the useState initializer (the old code) made the client's
+  // very first render already show the real user while the server-rendered
+  // HTML always shows null — a guaranteed hydration mismatch on every
+  // authenticated page load. See CLAUDE.md history / team-history.md for
+  // the incident this was fixed under (2026-09-19).
+  const [user, setUser] = useState<StoredUser | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -223,9 +230,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [vceoLocked, setVceoLocked] = useState(false);
   const [vceoReviewRequired, setVceoReviewRequired] = useState(false);
 
+  // Loads the stored user post-mount (client-only, see the state comment
+  // above) and redirects if there isn't one — combined into one effect so
+  // the redirect always sees the freshly-loaded value instead of racing a
+  // separate effect against a still-null `user` on the first render.
   useEffect(() => {
-    if (!user) router.replace("/login");
-  }, [router, user]);
+    const stored = getStoredUser();
+    setUser(stored);
+    if (!stored) router.replace("/login");
+  }, [router]);
 
   // DESIGNER is a single-purpose role — block direct navigation to any
   // page outside its allowed set, since hiding the nav link alone doesn't
