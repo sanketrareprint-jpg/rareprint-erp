@@ -10,6 +10,13 @@ import PDFDocument from 'pdfkit';
 // Bigship Direct (new unified outbound API — v1.3, April 2026)
 const BIGSHIP_BASE = 'https://api.bigship.direct';
 
+// Risk type sent on every rate quote AND every booking, so quoted and booked
+// rates always match. Bigship's ids (API doc riskCharges): 1 = Third Party
+// Insurance, 2 = Owner Risk, 3 = Carrier Risk. Owner Risk (Sanket, 2026-09-25)
+// because it is cheaper -- loss/damage in transit is RarePrint's own risk,
+// with no insurance claim.
+const BIGSHIP_RISK_TYPE_ID = 2;
+
 // ─── India pincode prefix → state lookup ─────────────────────────────────────
 // First 2 digits of a 6-digit pincode identify the postal circle / state.
 const PINCODE_STATE: Record<string, string> = {
@@ -807,7 +814,7 @@ export class BigshipService {
           invoiceValue:   declaredValue,
           paymentModeId:  params.isCod ? 2 : 1, // 1: Prepaid, 2: COD, 3: ToPay
           ...(params.isCod ? { codAmount: Math.min(codAmount, declaredValue) } : {}),
-          riskTypeId:     1, // Third-Party Insurance — matches the risk type used at place-order time
+          riskTypeId:     BIGSHIP_RISK_TYPE_ID,
           boxes: [{
             no_of_box:        '1', // B2C: rate calculator docs require exactly one box entry
             box_length:       String(box.length),
@@ -1241,7 +1248,7 @@ export class BigshipService {
       {
         MasterCustomOrderId: input.masterCustomOrderId,
         courierId: input.courierId,
-        riskTypeId: 1,
+        riskTypeId: BIGSHIP_RISK_TYPE_ID,
         invoiceNumber: input.masterCustomOrderId,
         invoiceDate: bigshipDateNow(),
         MasterOrderInvoiceAmount: invoiceAmt,
@@ -1262,7 +1269,7 @@ export class BigshipService {
       const invoiceAmt = String(Math.max(1, Math.round(Number(input.invoiceAmount) || 1)));
       form.append('MasterCustomOrderId', input.masterCustomOrderId);
       form.append('courierId', String(input.courierId));
-      form.append('riskTypeId', '1');
+      form.append('riskTypeId', String(BIGSHIP_RISK_TYPE_ID));
       form.append('invoiceType', 'uploaded');
       form.append('invoiceNumber', input.masterCustomOrderId);
       form.append('invoiceDate', bigshipDateNow());
