@@ -3189,3 +3189,31 @@ model EstimateItem {
 
   @@index([estimateId])
 }
+
+// Courier Calculator (2026-09-25). One row per successful rate check on the
+// Courier Calculator page -- a quote log only, never linked to an order or a
+// shipment, so adding it changes no existing table. items/rates are JSON
+// snapshots of exactly what was entered and returned at the time (product
+// names, per-line weights, platform cost, markup multiplier, final charge),
+// so an old quote reads the same even if products or markup change later.
+// Table is created by migrations/20260925130000_add_courier_rate_quotes and
+// scripts/ensure-courier-rate-quote-table.js.
+model CourierRateQuote {
+  id              String   @id @default(cuid())
+  platform        String // bigship | fship
+  pickupId        String
+  pickupName      String
+  pickupPincode   String
+  deliveryPincode String
+  paymentMode     String // PREPAID | COD
+  codAmount       Decimal? @db.Decimal(14, 2)
+  totalWeightKg   Decimal  @db.Decimal(10, 3)
+  items           Json
+  rates           Json
+  createdById     String?
+  createdByName   String?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([createdById])
+}

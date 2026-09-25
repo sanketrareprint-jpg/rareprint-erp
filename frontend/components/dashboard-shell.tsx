@@ -9,7 +9,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -33,6 +33,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Production", href: "/production",       icon: Package },
     { label: "Dispatch",   href: "/dispatch",         icon: Truck },
     { label: "Tasks",      href: "/tasks",            icon: CheckSquare },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Paper Stock", href: "/paper-inventory", icon: Archive },
     { label: "Sticker",    href: "/sticker-sheet",    icon: Layers },
     { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
@@ -70,6 +71,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "Storefront", href: "/storefront", icon: Printer },
@@ -85,6 +87,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },
     { label: "Calls", href: "/call-analysis", icon: Phone },
     { label: "Storefront", href: "/storefront", icon: Printer },
@@ -104,6 +107,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
     { label: "Billing",   href: "/billing",   icon: Receipt },
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Cost Table", href: "/cost-table", icon: Table2 },
     { label: "Machine Readings", href: "/machine-readings", icon: Gauge },
     { label: "Storefront", href: "/storefront", icon: Printer },
@@ -121,6 +125,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard",  href: "/dashboard",        icon: LayoutDashboard },
     { label: "Production", href: "/production",        icon: Package },
     { label: "Tasks",      href: "/tasks",             icon: CheckSquare },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Paper Stock", href: "/paper-inventory",  icon: Archive },
     { label: "Sticker",    href: "/sticker-sheet",     icon: Layers },
     { label: "Sheet Layout", href: "/sheet-layout",   icon: Grid },
@@ -134,6 +139,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Dispatch",  href: "/dispatch",  icon: Truck },
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Storefront", href: "/storefront", icon: Printer },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
     { label: "Policies", href: "/policies", icon: FileText },
@@ -143,13 +149,14 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Sheet Layout", href: "/sheet-layout", icon: Grid },
     { label: "Sticker",    href: "/sticker-sheet",  icon: Layers },
     { label: "Production", href: "/production",     icon: Package },
+    { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
   ],
 };
 
 // Routes a DESIGNER account is allowed to open directly (by URL or nav).
 // Anything else redirects back to Sheet Layout — nav-hiding alone doesn't
 // stop direct navigation, so this is enforced here for this restricted role.
-const DESIGNER_ALLOWED_PATHS = ["/sheet-layout", "/sticker-sheet", "/production"];
+const DESIGNER_ALLOWED_PATHS = ["/sheet-layout", "/sticker-sheet", "/production", "/courier-calculator"];
 
 function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;

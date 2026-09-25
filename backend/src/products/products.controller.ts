@@ -21,6 +21,7 @@ export class ProductsController {
         sizeInches: true,
         printingType: true,
         sides: true,
+        weightPerUnitGrams: true,
       },
     });
   }

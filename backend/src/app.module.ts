@@ -48,6 +48,7 @@ import { CertificateGeneratorModule } from './certificate-generator/certificate-
 import { EventsModule } from './events/events.module';
 import { PoliciesModule } from './policies/policies.module';
 import { ReportsModule } from './reports/reports.module';
+import { CourierCalculatorModule } from './courier-calculator/courier-calculator.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { ReportsModule } from './reports/reports.module';
     EventsModule,
     PoliciesModule,
     ReportsModule,
+    CourierCalculatorModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
