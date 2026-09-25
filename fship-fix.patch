@@ -1,0 +1,65 @@
+diff --git a/backend/src/dispatch/dispatch.service.ts b/backend/src/dispatch/dispatch.service.ts
+index 891619b..d829191 100644
+--- a/backend/src/dispatch/dispatch.service.ts
++++ b/backend/src/dispatch/dispatch.service.ts
+@@ -1254,8 +1254,30 @@ export class DispatchService {
+           // no specific COD amount could be parsed from the order notes
+           // (safer to assume the whole order is COD than to tell Fship to
+           // collect nothing).
+-          orderAmount: orderIsCod ? (orderCodAmt ?? dispatchItemsValue) : dispatchItemsValue,
++          //
++          // orderAmount is the real value of the goods in THIS shipment --
++          // always dispatchItemsValue, for both COD and Prepaid. Before this
++          // fix it was set equal to the COD/balance-due amount for COD
++          // orders (same value as totalAmount below), which meant Fship had
++          // no correct standalone goods figure and its own auto-generated
++          // invoice/shipping label ended up printing a "Shipping Charge"
++          // line that was really just the outstanding COD balance (wrong
++          // whenever balance-due != goods value, e.g. after an advance
++          // payment -- order 1519 printed Rs 3625 there instead of the real
++          // Rs 625 courier rate). orderAmount no longer needs to equal
++          // totalAmount: Fship's collection step (comment above) only reads
++          // totalAmount/cod_Amount, so this change doesn't touch collection.
++          orderAmount: dispatchItemsValue,
++          // totalAmount stays exactly what it was -- the actual amount to
++          // collect on delivery -- so the order-1574 collection fix above is
++          // unaffected by this change.
+           totalAmount: orderIsCod ? (orderCodAmt ?? dispatchItemsValue) : dispatchItemsValue,
++          // The real courier freight charge for this shipment, i.e. the same
++          // number saved as this order's Order.shippingCharge a little
++          // further down (picked.amount). Previously never sent to Fship at
++          // all -- extra_Charges was hardcoded to 0 in fship.service.ts, so
++          // their invoice/label had no correct freight figure to print.
++          extraCharges: picked.amount,
+           weightKg,
+           lengthCm: normalizedBoxes?.[0]?.length ?? 10,
+           widthCm: normalizedBoxes?.[0]?.breadth ?? 10,
+diff --git a/backend/src/fship/fship.service.ts b/backend/src/fship/fship.service.ts
+index 2208dc8..1ada373 100644
+--- a/backend/src/fship/fship.service.ts
++++ b/backend/src/fship/fship.service.ts
+@@ -178,6 +178,15 @@ export class FshipService {
+     codAmount: number;
+     orderAmount: number;
+     totalAmount: number;
++    // Real courier freight charge for this shipment (the same rate quote the
++    // dispatcher picked and that gets saved as Order.shippingCharge). Sent as
++    // Fship's extra_Charges field so their invoice/shipping-label PDF has a
++    // correct standalone freight figure to print, instead of showing Rs 0 or
++    // mistaking the COD balance for the shipping charge -- see the caller in
++    // dispatch.service.ts for the full root-cause writeup. Optional/defaults
++    // to 0 so any other caller of createForwardOrder that doesn't pass it
++    // keeps today's behavior.
++    extraCharges?: number;
+     weightKg: number;
+     lengthCm: number;
+     widthCm: number;
+@@ -204,7 +213,7 @@ export class FshipService {
+         is_Ndd: 0,
+         order_Amount: input.orderAmount,
+         tax_Amount: 0,
+-        extra_Charges: 0,
++        extra_Charges: input.extraCharges ?? 0,
+         total_Amount: input.totalAmount,
+         cod_Amount: input.isCod ? input.codAmount : 0,
+         shipment_Weight: input.weightKg,
