@@ -11,6 +11,10 @@ import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 import { extractSizeFromNote } from '../common/resolve-item-details';
 import { sanitizePhone } from '../orders/orders.service';
 import { GSTIN_FORMAT } from '../orders/dto/create-order.dto';
+import { OrderStatus } from '@prisma/client';
+
+// Same SUPER_ADMIN_EMAIL convention as accounts.service.ts / dashboard.service.ts.
+const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 
 // ── SystemConfig keys for Company Profile ───────────────────────────────────
 // Same "individual key per setting" convention as loyalty.service.ts's CFG
@@ -454,9 +458,43 @@ export class BillingService {
     return Array.from(byCustomer.values()).sort((a, b) => b.balanceDue - a.balanceDue);
   }
 
-  async getPartyLedger(customerId: string) {
+  // Party-edit lock (Sanket, 2026-09-25): once ANY of a party's orders has
+  // been dispatched, its name/phone/GSTIN/address are already on a shipped
+  // invoice, label and receipt, so only the superadmin may change them.
+  // Before that, ADMIN/ACCOUNTS can. "Dispatched" = order status past
+  // dispatch, or any item individually shipped (partial dispatch). Test
+  // orders don't count. Returns up to 5 of those order numbers (newest first)
+  // so the UI can say which order locked it.
+  private async dispatchedOrdersForParty(customerId: string): Promise<string[]> {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        customerId,
+        isTest: false,
+        OR: [
+          { status: { in: [OrderStatus.PARTIALLY_DISPATCHED, OrderStatus.DISPATCHED, OrderStatus.DELIVERED] } },
+          { items: { some: { dispatchedAt: { not: null } } } },
+        ],
+      },
+      select: { orderNumber: true },
+      orderBy: { orderDate: 'desc' },
+      take: 5,
+    });
+    return orders.map((o) => o.orderNumber);
+  }
+
+  private canEditParty(user: { role?: string; email?: string } | undefined, dispatchedOrders: string[]): boolean {
+    if (!user) return false;
+    if (user.email?.toLowerCase() === SUPER_ADMIN_EMAIL) return true;
+    return ['ADMIN', 'ACCOUNTS'].includes(user.role ?? '') && dispatchedOrders.length === 0;
+  }
+
+  // `user` is passed only by the Parties screen (statement + edit) so it can
+  // show whether Edit is allowed; the invoice PDF path leaves it out and
+  // skips the extra query.
+  async getPartyLedger(customerId: string, user?: { role?: string; email?: string }) {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
+    const dispatchedOrders = user ? await this.dispatchedOrdersForParty(customerId) : [];
 
     // Invoice.paidAmount/balanceAmount are already the source of truth for
     // verified payments (kept in sync by AccountsService's payment
@@ -496,6 +534,7 @@ export class BillingService {
       totalBilled: entries.reduce((sum, e) => sum + e.totalAmount, 0),
       totalReceived: entries.reduce((sum, e) => sum + e.paidAmount, 0),
       balanceDue: entries.reduce((sum, e) => sum + e.balanceAmount, 0),
+      ...(user ? { editLock: { dispatchedOrders, canEdit: this.canEditParty(user, dispatchedOrders) } } : {}),
     };
   }
 
@@ -504,17 +543,26 @@ export class BillingService {
   // copy of the name/phone/GSTIN — so one edit here updates all of them.
   // Same normalisation as order create/edit (orders.service.ts): uppercase
   // name/address/city/state, digits-only phone, GSTIN format check.
-  // Restricted to ADMIN/ACCOUNTS (the roles Billing is shown to by default).
+  // ADMIN/ACCOUNTS (the roles Billing is shown to by default) until any of
+  // the party's orders is dispatched; after that superadmin only — see
+  // dispatchedOrdersForParty().
   async updateParty(
     customerId: string,
     dto: { businessName?: string; phone?: string; gstNumber?: string; billingAddress?: string; city?: string; state?: string; pincode?: string },
-    user: { role: string },
+    user: { role: string; email?: string },
   ) {
-    if (!['ADMIN', 'ACCOUNTS'].includes(user?.role)) {
+    const isSuperAdmin = user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+    if (!isSuperAdmin && !['ADMIN', 'ACCOUNTS'].includes(user?.role)) {
       throw new ForbiddenException('Only admin/accounts users can edit party details');
     }
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
+    if (!isSuperAdmin) {
+      const dispatchedOrders = await this.dispatchedOrdersForParty(customerId);
+      if (dispatchedOrders.length > 0) {
+        throw new ForbiddenException(`Order ${dispatchedOrders[0]} for this party is already dispatched — only the superadmin can edit party details now`);
+      }
+    }
 
     const text = (v: unknown) => (typeof v === 'string' ? v.trim() : undefined);
     const data: Record<string, string | null> = {};
@@ -571,7 +619,7 @@ export class BillingService {
 
     if (Object.keys(data).length === 0) throw new BadRequestException('Nothing to update');
     await this.prisma.customer.update({ where: { id: customerId }, data });
-    return this.getPartyLedger(customerId);
+    return this.getPartyLedger(customerId, user);
   }
 
   // Simple tabular PDF — deliberately plainer than the branded tax invoice

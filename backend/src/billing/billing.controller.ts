@@ -101,15 +101,15 @@ export class BillingController {
   updateParty(
     @Param('customerId') customerId: string,
     @Body() body: { businessName?: string; phone?: string; gstNumber?: string; billingAddress?: string; city?: string; state?: string; pincode?: string },
-    @Req() req: Request & { user: { role: string } },
+    @Req() req: Request & { user: { role: string; email: string } },
   ) {
     return this.billingService.updateParty(customerId, body, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'))
   @Get('parties/:customerId/statement')
-  getPartyStatement(@Param('customerId') customerId: string) {
-    return this.billingService.getPartyLedger(customerId);
+  getPartyStatement(@Param('customerId') customerId: string, @Req() req: Request & { user: { role: string; email: string } }) {
+    return this.billingService.getPartyLedger(customerId, req.user);
   }
 
   @UseGuards(AuthGuard('jwt'))

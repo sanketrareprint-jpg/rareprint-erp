@@ -6,7 +6,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
-  Save, CheckCircle, Image as ImageIcon, Wallet, Pencil,
+  Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -42,6 +42,8 @@ type PartyLedger = {
   };
   entries: LedgerEntry[];
   totalBilled: number; totalReceived: number; balanceDue: number;
+  // Server-decided: ADMIN/ACCOUNTS until any order is dispatched, then superadmin only.
+  editLock?: { dispatchedOrders: string[]; canEdit: boolean };
 };
 
 type CompanyProfile = {
@@ -583,10 +585,15 @@ function BillingPageInner() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={startPartyEdit}
-                          disabled={partyForm !== null}
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                          disabled={partyForm !== null || !ledger.editLock?.canEdit}
+                          title={ledger.editLock && !ledger.editLock.canEdit
+                            ? (ledger.editLock.dispatchedOrders.length > 0
+                              ? `Locked: order ${ledger.editLock.dispatchedOrders[0]} is already dispatched. Only the superadmin can edit.`
+                              : "Only admin/accounts users can edit party details.")
+                            : "Edit party details"}
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                         >
-                          <Pencil className="h-3.5 w-3.5" /> Edit
+                          {ledger.editLock && !ledger.editLock.canEdit ? <Lock className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} Edit
                         </button>
                         <button
                           onClick={() => void downloadBlob(`${API_BASE_URL}/billing/parties/${selectedParty}/statement/pdf`, `Statement_${ledger.customer.businessName}.pdf`)}
@@ -596,6 +603,11 @@ function BillingPageInner() {
                         </button>
                       </div>
                     </div>
+                    {ledger.editLock && !ledger.editLock.canEdit && ledger.editLock.dispatchedOrders.length > 0 && (
+                      <p className="flex items-center gap-1 text-[11px] text-slate-500">
+                        <Lock className="h-3 w-3" /> Details locked — order {ledger.editLock.dispatchedOrders[0]} is already dispatched. Only the superadmin can edit.
+                      </p>
+                    )}
                     {partyForm && (
                       <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
                         <p className="text-xs font-semibold text-slate-700">Edit party details</p>
