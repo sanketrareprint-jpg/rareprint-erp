@@ -18,6 +18,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 import { BillingService } from './billing.service';
+import { EstimatesService } from './estimates.service';
+import type { EstimateInput } from './estimates.service';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 
 function contentDispositionFilename(filename: string) {
@@ -27,7 +29,10 @@ function contentDispositionFilename(filename: string) {
 
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly estimatesService: EstimatesService,
+  ) {}
 
   @UseGuards(AuthGuard('jwt'))
   @Get('invoices')
@@ -84,6 +89,47 @@ export class BillingController {
   @Get('receipts/:orderId/pdf')
   async downloadReceiptVoucherPdf(@Param('orderId') orderId: string, @Res() res: Response) {
     const { buffer, filename } = await this.billingService.generateReceiptVoucherPdf(orderId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', contentDispositionFilename(filename));
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  }
+
+  // ── Estimates ─────────────────────────────────────────────────────────
+  @UseGuards(AuthGuard('jwt'))
+  @Get('estimates')
+  listEstimates(@Query('search') search?: string) {
+    return this.estimatesService.list({ search });
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('estimates/:id')
+  getEstimate(@Param('id') id: string) {
+    return this.estimatesService.get(id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('estimates')
+  createEstimate(@Body() body: EstimateInput, @Req() req: Request & { user: { id: string } }) {
+    return this.estimatesService.create(body, req.user.id);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Put('estimates/:id')
+  updateEstimate(@Param('id') id: string, @Body() body: EstimateInput) {
+    return this.estimatesService.update(id, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('estimates/:id/converted')
+  markEstimateConverted(@Param('id') id: string, @Body('orderId') orderId: string) {
+    return this.estimatesService.markConverted(id, orderId);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('estimates/:id/pdf')
+  async downloadEstimatePdf(@Param('id') id: string, @Res() res: Response) {
+    const { buffer, filename } = await this.estimatesService.generatePdf(id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', contentDispositionFilename(filename));
     res.setHeader('Content-Length', buffer.length);

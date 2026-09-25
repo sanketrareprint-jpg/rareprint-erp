@@ -1,12 +1,13 @@
 "use client";
 import React, { useEffect, useState, useCallback, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
+import { sameState, stateFromGstin } from "@/lib/gst-states";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
-  Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock,
+  Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock, FileText, Plus, Trash2, ArrowRight,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -23,6 +24,23 @@ type ReceiptVoucher = {
   orderId: string; invoiceId: string; receiptNumber: string; receiptDate: string; invoiceNumber: string;
   customerName: string; customerPhone: string | null; paymentCount: number;
   invoiceAmount: number; receivedAmount: number; balanceAmount: number;
+};
+
+type EstimateRow = {
+  id: string; estimateNumber: string; estimateDate: string; validUntil: string | null;
+  customerName: string; customerPhone: string | null; totalAmount: number; status: string;
+  convertedOrderId: string | null; convertedOrderNumber: string | null; itemCount: number;
+};
+type EstimateLine = { productId: string; productSearch: string; quantity: string; unitPrice: string; notes: string };
+type EstimateForm = {
+  id?: string; estimateNumber?: string; customerId: string;
+  name: string; phone: string; gstNumber: string; address: string; city: string; state: string; pincode: string;
+  estimateDate: string; validUntil: string; notes: string; items: EstimateLine[];
+};
+type CatalogProduct = { id: string; name: string; sku: string; sizeInches?: string; gsm?: number; paperType?: string | null };
+type PartyMatch = {
+  id: string; businessName: string; phone?: string | null; gstNumber?: string | null;
+  address?: string | null; city?: string | null; state?: string | null; pincode?: string | null;
 };
 
 type Party = {
@@ -82,9 +100,10 @@ async function downloadBlob(url: string, filename: string) {
 
 function BillingPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const focusInvoiceId = searchParams.get("invoiceId");
 
-  const [tab, setTab] = useState<"invoices" | "receipts" | "parties" | "company_profile" | "gst_summary">(
+  const [tab, setTab] = useState<"invoices" | "receipts" | "estimates" | "parties" | "company_profile" | "gst_summary">(
     focusInvoiceId ? "invoices" : "invoices",
   );
 
@@ -175,6 +194,143 @@ function BillingPageInner() {
   }, [debouncedReceiptSearch]);
 
   useEffect(() => { void loadReceipts(); }, [loadReceipts]);
+
+  // ── Estimates ─────────────────────────────────────────────────────────
+  // Totals are plain quantity x rate — the same rule orders use (order lines
+  // are saved at 0% GST), so an estimate's total equals the order it becomes.
+  const [estimates, setEstimates] = useState<EstimateRow[]>([]);
+  const [estimatesLoading, setEstimatesLoading] = useState(true);
+  const [estimateSearch, setEstimateSearch] = useState("");
+  const [debouncedEstimateSearch, setDebouncedEstimateSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedEstimateSearch(estimateSearch), 400);
+    return () => clearTimeout(t);
+  }, [estimateSearch]);
+  const estimateRequestSeq = useRef(0);
+
+  const loadEstimates = useCallback(async () => {
+    const seq = ++estimateRequestSeq.current;
+    setEstimatesLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (debouncedEstimateSearch) params.set("search", debouncedEstimateSearch);
+      const res = await fetch(`${API_BASE_URL}/billing/estimates?${params.toString()}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (seq === estimateRequestSeq.current) setEstimates(data);
+      }
+    } finally {
+      if (seq === estimateRequestSeq.current) setEstimatesLoading(false);
+    }
+  }, [debouncedEstimateSearch]);
+
+  useEffect(() => { void loadEstimates(); }, [loadEstimates]);
+
+  const [estimateForm, setEstimateForm] = useState<EstimateForm | null>(null);
+  const [estimateSaving, setEstimateSaving] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [partyMatches, setPartyMatches] = useState<PartyMatch[]>([]);
+
+  async function ensureCatalog() {
+    if (catalog.length > 0) return;
+    const res = await fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() });
+    if (res.ok) setCatalog(await res.json());
+  }
+
+  const emptyEstimateLine = (): EstimateLine => ({ productId: "", productSearch: "", quantity: "", unitPrice: "", notes: "" });
+
+  async function openNewEstimate() {
+    void ensureCatalog();
+    setPartyMatches([]);
+    setEstimateForm({
+      customerId: "", name: "", phone: "", gstNumber: "", address: "", city: "", state: "", pincode: "",
+      estimateDate: new Date().toISOString().slice(0, 10), validUntil: "", notes: "",
+      items: [emptyEstimateLine()],
+    });
+  }
+
+  async function openEditEstimate(id: string) {
+    void ensureCatalog();
+    setPartyMatches([]);
+    const res = await fetch(`${API_BASE_URL}/billing/estimates/${id}`, { headers: getAuthHeaders() });
+    if (!res.ok) { alert("Could not load estimate"); return; }
+    const e = await res.json();
+    setEstimateForm({
+      id: e.id, estimateNumber: e.estimateNumber,
+      customerId: e.customerId ?? "", name: e.customerName ?? "", phone: e.customerPhone ?? "", gstNumber: e.customerGstin ?? "",
+      address: e.customerAddress ?? "", city: e.customerCity ?? "", state: e.customerState ?? "", pincode: e.customerPincode ?? "",
+      estimateDate: String(e.estimateDate).slice(0, 10), validUntil: e.validUntil ? String(e.validUntil).slice(0, 10) : "", notes: e.notes ?? "",
+      items: (e.items ?? []).map((i: { productId: string; quantity: number; unitPrice: number; notes?: string | null }) => ({
+        productId: i.productId, productSearch: "", quantity: String(i.quantity), unitPrice: String(i.unitPrice), notes: i.notes ?? "",
+      })),
+    });
+  }
+
+  // Party search — same /customer-directory/search the Create Order page uses.
+  useEffect(() => {
+    const name = estimateForm?.name.trim() ?? "";
+    if (!estimateForm || estimateForm.customerId || name.length < 2) { setPartyMatches([]); return; }
+    const t = setTimeout(async () => {
+      const params = new URLSearchParams({ search: name, limit: "8" });
+      const res = await fetch(`${API_BASE_URL}/customer-directory/search?${params.toString()}`, { headers: getAuthHeaders() });
+      if (res.ok) setPartyMatches((await res.json()).customers ?? []);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [estimateForm?.name, estimateForm?.customerId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function pickParty(p: PartyMatch) {
+    if (!estimateForm) return;
+    setEstimateForm({
+      ...estimateForm,
+      customerId: p.id, name: p.businessName ?? "", phone: (p.phone ?? "").replace(/\D/g, "").slice(-10),
+      gstNumber: p.gstNumber ?? "", address: p.address ?? "", city: p.city ?? "", state: p.state ?? "", pincode: p.pincode ?? "",
+    });
+    setPartyMatches([]);
+  }
+
+  function updateEstimateLine(index: number, patch: Partial<EstimateLine>) {
+    if (!estimateForm) return;
+    setEstimateForm({ ...estimateForm, items: estimateForm.items.map((l, i) => (i === index ? { ...l, ...patch } : l)) });
+  }
+
+  const lineAmount = (l: EstimateLine) => Math.round((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0) * 100) / 100;
+  const estimateFormTotal = estimateForm ? Math.round(estimateForm.items.reduce((s, l) => s + lineAmount(l), 0) * 100) / 100 : 0;
+
+  async function saveEstimate() {
+    if (!estimateForm || estimateSaving) return;
+    if (!estimateForm.name.trim()) { alert("Party name is required"); return; }
+    const bad = estimateForm.items.findIndex(l => !l.productId || !(Number(l.quantity) >= 1) || !(Number(l.unitPrice) >= 0) || l.unitPrice === "");
+    if (bad !== -1) { alert(`Item ${bad + 1}: select a product and enter quantity and rate`); return; }
+    setEstimateSaving(true);
+    try {
+      const body = {
+        estimateDate: estimateForm.estimateDate || undefined,
+        validUntil: estimateForm.validUntil || null,
+        notes: estimateForm.notes,
+        customer: {
+          customerId: estimateForm.customerId || null, name: estimateForm.name, phone: estimateForm.phone, gstNumber: estimateForm.gstNumber,
+          address: estimateForm.address, city: estimateForm.city, state: estimateForm.state, pincode: estimateForm.pincode,
+        },
+        items: estimateForm.items.map(l => ({ productId: l.productId, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice), notes: l.notes })),
+      };
+      const res = await fetch(`${API_BASE_URL}/billing/estimates${estimateForm.id ? `/${estimateForm.id}` : ""}`, {
+        method: estimateForm.id ? "PUT" : "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.message || "Could not save estimate"); return; }
+      setEstimateForm(null);
+      void loadEstimates();
+    } finally {
+      setEstimateSaving(false);
+    }
+  }
+
+  function convertEstimate(e: EstimateRow) {
+    if (!confirm(`Create an order from ${e.estimateNumber}? The Create Order page will open pre-filled.`)) return;
+    router.push(`/orders/create?estimateId=${e.id}`);
+  }
 
   // ── Parties ───────────────────────────────────────────────────────────
   const [parties, setParties] = useState<Party[]>([]);
@@ -357,6 +513,10 @@ function BillingPageInner() {
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "receipts" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Wallet className="h-3.5 w-3.5" /> Receipts
               </button>
+              <button onClick={() => setTab("estimates")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "estimates" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <FileText className="h-3.5 w-3.5" /> Estimates
+              </button>
               <button onClick={() => setTab("parties")}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "parties" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Users className="h-3.5 w-3.5" /> Parties
@@ -531,6 +691,233 @@ function BillingPageInner() {
             </div>
           )}
 
+          {/* ── ESTIMATES ── */}
+          {tab === "estimates" && (
+            <div className="space-y-3">
+              {!estimateForm && (
+                <>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <div className="relative flex-1 min-w-[200px] max-w-sm">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <input type="text" value={estimateSearch} onChange={e => setEstimateSearch(e.target.value)}
+                        placeholder="Search estimate #, party, phone…"
+                        className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                    </div>
+                    <button onClick={() => void loadEstimates()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                      <Loader2 className={`h-3 w-3 ${estimatesLoading ? "animate-spin" : ""}`} /> Refresh
+                    </button>
+                    <span className="text-xs text-slate-400">{estimates.length} estimate{estimates.length !== 1 ? "s" : ""}</span>
+                    <button onClick={() => void openNewEstimate()}
+                      className="ml-auto rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 flex items-center gap-1">
+                      <Plus className="h-3.5 w-3.5" /> Create Estimate
+                    </button>
+                  </div>
+
+                  {estimatesLoading ? (
+                    <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+                  ) : estimates.length === 0 ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
+                      <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                      <p>No estimates yet.</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Estimate</th>
+                            <th className="px-3 py-2 text-left">Date</th>
+                            <th className="px-3 py-2 text-left">Party</th>
+                            <th className="px-3 py-2 text-center">Items</th>
+                            <th className="px-3 py-2 text-right">Total</th>
+                            <th className="px-3 py-2 text-center">Status</th>
+                            <th className="px-3 py-2 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {estimates.map(e => (
+                            <tr key={e.id}>
+                              <td className="px-3 py-2 font-semibold text-blue-700">{e.estimateNumber}</td>
+                              <td className="px-3 py-2 text-slate-500">{fmtDate(e.estimateDate)}</td>
+                              <td className="px-3 py-2">{e.customerName}<div className="text-[10px] text-slate-400">{e.customerPhone}</div></td>
+                              <td className="px-3 py-2 text-center">{e.itemCount}</td>
+                              <td className="px-3 py-2 text-right font-semibold">{fmt(e.totalAmount)}</td>
+                              <td className="px-3 py-2 text-center">
+                                {e.status === "CONVERTED"
+                                  ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Order {e.convertedOrderNumber}</span>
+                                  : <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">Open</span>}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                  <button
+                                    onClick={() => void downloadBlob(`${API_BASE_URL}/billing/estimates/${e.id}/pdf`, `Estimate_${e.estimateNumber}.pdf`)}
+                                    className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 flex items-center gap-1" title="Download PDF">
+                                    <Download className="h-3 w-3" /> PDF
+                                  </button>
+                                  {e.status === "OPEN" && (
+                                    <>
+                                      <button onClick={() => void openEditEstimate(e.id)}
+                                        className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 flex items-center gap-1" title="Edit estimate">
+                                        <Pencil className="h-3 w-3" /> Edit
+                                      </button>
+                                      <button onClick={() => convertEstimate(e)}
+                                        className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700 hover:bg-emerald-100 flex items-center gap-1" title="Create an order from this estimate">
+                                        <ArrowRight className="h-3 w-3" /> Convert to Order
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {estimateForm && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-800">{estimateForm.id ? `Edit ${estimateForm.estimateNumber}` : "Create Estimate"}</p>
+                    <button onClick={() => setEstimateForm(null)} className="text-xs text-slate-500 hover:underline">Back to list</button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="relative text-xs text-slate-600 space-y-1 sm:col-span-2">Party Name * <span className="text-slate-400">(type to search existing parties, or enter a new one)</span>
+                      <input value={estimateForm.name}
+                        onChange={e => setEstimateForm({ ...estimateForm, name: e.target.value.toUpperCase(), customerId: "" })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                      {partyMatches.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-56 overflow-auto">
+                          {partyMatches.map(p => (
+                            <button key={p.id} type="button" onClick={() => pickParty(p)}
+                              className="block w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50">
+                              <span className="font-semibold text-slate-800">{p.businessName}</span>
+                              <span className="text-slate-400"> · {p.phone ?? "no phone"}{p.city ? ` · ${p.city}` : ""}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">Phone
+                      <input value={estimateForm.phone} inputMode="numeric" maxLength={10}
+                        onChange={e => setEstimateForm({ ...estimateForm, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">GSTIN
+                      <input value={estimateForm.gstNumber} maxLength={15} placeholder="Optional"
+                        onChange={e => {
+                          const gstNumber = e.target.value.toUpperCase().replace(/\s/g, "");
+                          const gstState = stateFromGstin(gstNumber);
+                          setEstimateForm({ ...estimateForm, gstNumber, ...(gstState && !estimateForm.state.trim() ? { state: gstState.toUpperCase() } : {}) });
+                        }}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400 font-mono" />
+                      {stateFromGstin(estimateForm.gstNumber) && estimateForm.state.trim() && !sameState(stateFromGstin(estimateForm.gstNumber), estimateForm.state) && (
+                        <span className="block text-[10px] font-semibold text-amber-700">GSTIN is registered in {stateFromGstin(estimateForm.gstNumber)}, but State is {estimateForm.state}.</span>
+                      )}
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Address
+                      <input value={estimateForm.address} onChange={e => setEstimateForm({ ...estimateForm, address: e.target.value.toUpperCase() })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">City
+                      <input value={estimateForm.city} onChange={e => setEstimateForm({ ...estimateForm, city: e.target.value.toUpperCase() })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">State
+                      <input value={estimateForm.state} onChange={e => setEstimateForm({ ...estimateForm, state: e.target.value.toUpperCase() })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">Pincode
+                      <input value={estimateForm.pincode} inputMode="numeric" maxLength={6}
+                        onChange={e => setEstimateForm({ ...estimateForm, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">Estimate Date
+                      <input type="date" value={estimateForm.estimateDate} onChange={e => setEstimateForm({ ...estimateForm, estimateDate: e.target.value })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">Valid Until
+                      <input type="date" value={estimateForm.validUntil} onChange={e => setEstimateForm({ ...estimateForm, validUntil: e.target.value })}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                    </label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-700">Items</p>
+                    {estimateForm.items.map((line, idx) => {
+                      const search = line.productSearch.trim().toLowerCase();
+                      const options = catalog
+                        .filter(p => !search || `${p.sku} ${p.name}`.toLowerCase().includes(search) || p.id === line.productId)
+                        .slice(0, 100);
+                      return (
+                        <div key={idx} className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 sm:grid-cols-12 items-end">
+                          <label className="text-[11px] text-slate-500 space-y-1 sm:col-span-5">Product *
+                            <input value={line.productSearch} placeholder="Search product / SKU…"
+                              onChange={e => updateEstimateLine(idx, { productSearch: e.target.value })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                            <select value={line.productId} onChange={e => updateEstimateLine(idx, { productId: e.target.value })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-400">
+                              <option value="">{catalog.length === 0 ? "Loading products…" : "Select product…"}</option>
+                              {options.map(p => (
+                                <option key={p.id} value={p.id}>[{p.sku}] {p.name}{p.sizeInches ? ` | ${p.sizeInches}` : ""}{p.gsm ? ` | ${p.gsm} GSM` : ""}{p.paperType ? ` | ${p.paperType}` : ""}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-[11px] text-slate-500 space-y-1 sm:col-span-2">Quantity *
+                            <input type="number" min={1} step={1} value={line.quantity} onChange={e => updateEstimateLine(idx, { quantity: e.target.value })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-400" />
+                          </label>
+                          <label className="text-[11px] text-slate-500 space-y-1 sm:col-span-2">Rate (₹) *
+                            <input type="number" min={0} step="any" value={line.unitPrice} onChange={e => updateEstimateLine(idx, { unitPrice: e.target.value })}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-400" />
+                          </label>
+                          <div className="text-[11px] text-slate-500 sm:col-span-2">Amount
+                            <p className="py-1.5 text-sm font-semibold text-slate-800">{fmt(lineAmount(line))}</p>
+                          </div>
+                          <div className="sm:col-span-1 flex justify-end">
+                            <button type="button" disabled={estimateForm.items.length === 1}
+                              onClick={() => setEstimateForm({ ...estimateForm, items: estimateForm.items.filter((_, i) => i !== idx) })}
+                              className="rounded border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-40" title="Remove item">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <label className="text-[11px] text-slate-500 space-y-1 sm:col-span-12">Item note (optional)
+                            <input value={line.notes} onChange={e => updateEstimateLine(idx, { notes: e.target.value })} placeholder="e.g. Matte lamination"
+                              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                          </label>
+                        </div>
+                      );
+                    })}
+                    <button type="button" onClick={() => setEstimateForm({ ...estimateForm, items: [...estimateForm.items, emptyEstimateLine()] })}
+                      className="rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                      <Plus className="h-3.5 w-3.5" /> Add item
+                    </button>
+                  </div>
+
+                  <label className="block text-xs text-slate-600 space-y-1">Notes (printed on the estimate)
+                    <textarea rows={2} value={estimateForm.notes} onChange={e => setEstimateForm({ ...estimateForm, notes: e.target.value })}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                  </label>
+
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                    <p className="text-sm text-slate-600">Total: <span className="text-base font-bold text-slate-900">{fmt(estimateFormTotal)}</span></p>
+                    <div className="flex gap-2">
+                      <button onClick={() => setEstimateForm(null)} disabled={estimateSaving}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                      <button onClick={() => void saveEstimate()} disabled={estimateSaving}
+                        className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50 flex items-center gap-1">
+                        {estimateSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save Estimate
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── PARTIES ── */}
           {tab === "parties" && (
             <div className="grid gap-4 xl:grid-cols-2">
@@ -623,8 +1010,15 @@ function BillingPageInner() {
                           </label>
                           <label className="text-xs text-slate-600 space-y-1">GSTIN
                             <input value={partyForm.gstNumber} maxLength={15} placeholder="Leave blank if none"
-                              onChange={e => setPartyForm({ ...partyForm, gstNumber: e.target.value.toUpperCase().replace(/\s/g, "") })}
+                              onChange={e => {
+                                const gstNumber = e.target.value.toUpperCase().replace(/\s/g, "");
+                                const gstState = stateFromGstin(gstNumber);
+                                setPartyForm({ ...partyForm, gstNumber, ...(gstState && !partyForm.state.trim() ? { state: gstState.toUpperCase() } : {}) });
+                              }}
                               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400 font-mono" />
+                            {stateFromGstin(partyForm.gstNumber) && partyForm.state.trim() && !sameState(stateFromGstin(partyForm.gstNumber), partyForm.state) && (
+                              <span className="block text-[10px] font-semibold text-amber-700">GSTIN is registered in {stateFromGstin(partyForm.gstNumber)}, but State is {partyForm.state}.</span>
+                            )}
                           </label>
                           <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Billing Address
                             <textarea rows={2} value={partyForm.billingAddress} onChange={e => setPartyForm({ ...partyForm, billingAddress: e.target.value.toUpperCase() })}

@@ -4,6 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
+import { sameState, stateFromGstin } from "@/lib/gst-states";
 import { Loader2, Plus, Trash2, Gift } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -167,6 +168,52 @@ export default function CreateOrderPage() {
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // "Convert to Order" from Billing > Estimates opens this page with
+  // ?estimateId=… — pre-fill the party and items from that estimate. Read from
+  // window.location (not useSearchParams) so this page needs no Suspense
+  // wrapper. Everything stays editable and goes through the normal checks.
+  const [fromEstimate, setFromEstimate] = useState<{ id: string; estimateNumber: string } | null>(null);
+  useEffect(() => {
+    const estimateId = new URLSearchParams(window.location.search).get("estimateId");
+    if (!estimateId) return;
+    void (async () => {
+      const res = await fetch(`${API_BASE_URL}/billing/estimates/${encodeURIComponent(estimateId)}`, { headers: getAuthHeaders() });
+      if (!res.ok) { alert("Could not load the estimate to convert."); return; }
+      const est = await res.json();
+      if (est.status !== "OPEN") {
+        alert(`Estimate ${est.estimateNumber} was already converted to order ${est.convertedOrderNumber ?? ""}.`);
+        return;
+      }
+      setCustomer({
+        customerId: est.customerId ?? "",
+        name: est.customerName ?? "",
+        phone: sanitizePhone(est.customerPhone ?? ""),
+        phone2: "",
+        email: "",
+        address: est.customerAddress ?? "",
+        city: est.customerCity ?? "",
+        state: est.customerState ?? "",
+        pincode: est.customerPincode ?? "",
+        gstNumber: est.customerGstin ?? "",
+      });
+      if (est.customerId) setSelectedCustomerLabel(est.customerName ?? "");
+      setLineItems((est.items ?? []).map((i: { productId: string; sizeInches?: string | null; gsm?: number | null; paperType?: string | null; sides?: string | null; quantity: number; unitPrice: number; lineTotal: number; notes?: string | null }) => ({
+        ...emptyLine(),
+        productId: i.productId,
+        sizeInches: i.sizeInches ?? "",
+        gsm: i.gsm ?? 0,
+        paperType: i.paperType ?? "",
+        sides: i.sides ?? "SINGLE_SIDE",
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        lineTotal: i.lineTotal,
+        specialInstructions: i.notes ?? "",
+      })));
+      if (est.notes) setOrderNotes(est.notes);
+      setFromEstimate({ id: est.id, estimateNumber: est.estimateNumber });
+    })();
+  }, []);
 
   function normalizePhone(value: string) {
     const digits = value.replace(/\D/g, "");
@@ -500,6 +547,22 @@ export default function CreateOrderPage() {
         }),
       });
       if (!res.ok) { const b = await res.json(); alert(b.message || "Failed"); return; }
+      // Order created from a Billing estimate — link the two. POST /orders
+      // returns the new order id as a plain string. The order already exists
+      // at this point, so a failed link must not block the user; it's only
+      // reported.
+      if (fromEstimate) {
+        const orderId = (await res.text()).replace(/^"|"$/g, "").trim();
+        const link = await fetch(`${API_BASE_URL}/billing/estimates/${fromEstimate.id}/converted`, {
+          method: "POST",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId }),
+        }).catch(() => null);
+        if (!link || !link.ok) {
+          const b = link ? await link.json().catch(() => ({})) : {};
+          alert(`Order created, but estimate ${fromEstimate.estimateNumber} could not be marked as converted: ${b.message || "network error"}`);
+        }
+      }
       router.push("/orders");
     } finally { setSubmitting(false); }
   }
@@ -519,6 +582,12 @@ export default function CreateOrderPage() {
             ← Back
           </button>
         </div>
+
+        {fromEstimate && (
+          <div style={{ marginBottom: "10px", borderRadius: "8px", border: "1px solid #bfdbfe", background: "#eff6ff", padding: "8px 12px", fontSize: "12px", color: "#1e40af" }}>
+            Creating an order from estimate <strong>{fromEstimate.estimateNumber}</strong> — party and items are pre-filled. Check everything, fill in the remaining fields, then create the order.
+          </div>
+        )}
 
         {/* Top row: Customer + Lead Source + Notes */}
         <div className="create-order-top-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: "10px", marginBottom: "10px" }}>
@@ -640,11 +709,23 @@ export default function CreateOrderPage() {
               <div>
                 <label style={S.label}>GST Number</label>
                 <input value={customer.gstNumber}
-                  onChange={e => setCustomer(c => ({ ...c, gstNumber: e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15) }))}
+                  onChange={e => {
+                    const gstNumber = e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15);
+                    // A complete GSTIN tells us its registered state — fill State
+                    // when it's still empty (never overwrite a chosen one; the
+                    // mismatch note below flags it instead).
+                    const gstState = stateFromGstin(gstNumber);
+                    setCustomer(c => ({ ...c, gstNumber, ...(gstState && !c.state ? { state: gstState } : {}) }));
+                  }}
                   placeholder="15-digit GSTIN (optional)" style={S.input} />
                 {customer.gstNumber.length > 0 && !GSTIN_FORMAT.test(customer.gstNumber) && (
                   <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>
                     {customer.gstNumber.length < 15 ? "GSTIN must be 15 characters" : "Doesn't match a valid GSTIN format (e.g. 27AAAAA0000A1Z5)"}
+                  </p>
+                )}
+                {stateFromGstin(customer.gstNumber) && customer.state && !sameState(stateFromGstin(customer.gstNumber), customer.state) && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#b45309", fontWeight: 600 }}>
+                    This GSTIN is registered in {stateFromGstin(customer.gstNumber)}, but State is set to {customer.state}.
                   </p>
                 )}
               </div>

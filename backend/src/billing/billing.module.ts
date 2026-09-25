@@ -4,6 +4,7 @@ import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
+import { EstimatesService } from './estimates.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
@@ -17,7 +18,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
   // billing.service.ts reads file.buffer directly.
   imports: [PrismaModule, WhatsAppModule, MulterModule.register({ storage: memoryStorage() })],
   controllers: [BillingController],
-  providers: [BillingService],
+  providers: [BillingService, EstimatesService],
   // Exported so AccountsModule (Accounts > Dispatch Approval flow, which
   // injects BillingService to generate/send the invoice PDF on order
   // approval — see AccountsService's constructor) can actually resolve it.
