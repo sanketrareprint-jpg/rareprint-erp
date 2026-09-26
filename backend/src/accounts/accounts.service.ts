@@ -2355,7 +2355,7 @@ export class AccountsService {
     return txns.map((t) => this.mapPaymentVerificationEntry(t));
   }
 
-  /** GET /accounts/payment-verification-history — entries Sanket has rechecked, most recently rechecked first. */
+  /** GET /accounts/payment-verification-history — entries Sanket has rechecked, newest transaction date first. */
   async getPaymentVerificationHistory(filters?: { vendorId?: string; expenseCategoryId?: string }) {
     const where: any = {
       crDr: 'DR',
@@ -2367,7 +2367,7 @@ export class AccountsService {
 
     const txns = await this.prisma.bankTransaction.findMany({
       where,
-      orderBy: [{ recheckedAt: 'desc' }],
+      orderBy: [{ txnDate: 'desc' }, { recheckedAt: 'desc' }],
       include: this.paymentVerificationInclude,
     });
     return txns.map((t) => this.mapPaymentVerificationEntry(t));
