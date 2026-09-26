@@ -75,9 +75,9 @@ export interface InvoicePdfData {
   balanceAmount: number;
   previousBalance: number;
   currentBalance: number;
-  // Sales-agent name — kept for backward compatibility (still accepted by
-  // generateInvoicePdf's agentNameOverride param) but no longer rendered
-  // anywhere in the PDF as of 2026-09-07. It used to be printed as the note
+  // Sales-agent name — printed as "Sales Person:" in the Invoice Details box
+  // since 2026-09-26 (see section 3). History: it was not rendered anywhere
+  // from 2026-09-07 to 2026-09-26. Before that it used to be printed as the note
   // line under every item's product name (matching the reference layout,
   // see docs/Invoice_PDF_Replication_Spec.md §6/§7) — but that meant the
   // SAME agent name repeated under every line item regardless of which
@@ -766,6 +766,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // hscale 0.9376 (was 0.928) — same re-measurement as the Bill To State
     // field above (identical value/font context).
     boldText(sanitize(data.customerState) || '-', 364.453, y + 43.42, { lineBreak: false }, 0.9376);
+    // Sales person (the order's sales agent) — 4th line of Invoice Details,
+    // same 12pt pitch as the three rows above (+19.42/+31.42/+43.42) and still
+    // inside the 75.8pt box. Requested 2026-09-26 ("show the respective seller
+    // name"). Not part of the reference bill, so the label uses the regular
+    // font (no measured glyph data for it) rather than drawGlyphString.
+    // Skipped when the order has no sales agent.
+    if (sanitize(data.agentName)) {
+      labelBoldValue('Sales Person: ', sanitize(data.agentName), 302.684, y + 55.42, 8.4, 1, 0.9376);
+    }
 
     y += biRowHeight;
     // 6.0 (was 5.5) — re-measured 2026-08-21 against a real generated PDF vs
