@@ -534,6 +534,25 @@ export default function AccountsPage() {
   const [pvHistoryVendorId, setPvHistoryVendorId] = useState("");
   const [pvHistoryExpenseCategoryId, setPvHistoryExpenseCategoryId] = useState("");
   const PV_PAGE_SIZE = 50;
+  // Payment Verification search (2026-09-26). The whole queue is already
+  // loaded, so this filters in the browser: description (UPI/IMPS ref + name),
+  // amount (commas ignored), date, vendor/expense, note, and who checked it.
+  // Pagination, "select all on page" and the list below use pvVisible; the tab
+  // badge and bulk actions keep using the full pvQueue.
+  const [pvSearch, setPvSearch] = useState("");
+  const pvSearchTerm = pvSearch.trim().toLowerCase();
+  const pvVisible = pvSearchTerm
+    ? pvQueue.filter((e) => {
+        const amountTerm = pvSearchTerm.replace(/[,₹\s]/g, "");
+        const date = new Date(e.txnDate);
+        return [
+          e.description, e.vendorOrExpenseName, e.accountantNote, e.checkedByName, e.recheckedByName,
+          date.toLocaleDateString("en-IN"), date.toISOString().slice(0, 10),
+        ].some((v) => (v ?? "").toLowerCase().includes(pvSearchTerm))
+          // A typed amount matches exactly (1500 finds ₹1,500.00, not ₹15,000).
+          || (/^-?\d+(\.\d+)?$/.test(amountTerm) && Math.abs(Number(amountTerm)) === Math.abs(e.amount));
+      })
+    : pvQueue;
   const [pvSelectedIds, setPvSelectedIds] = useState<Set<string>>(new Set());
   const [pvBulkProcessing, setPvBulkProcessing] = useState(false);
   const [expenseCategories, setExpenseCategories] = useState<ExpenseCategoryMaster[]>([]);
@@ -4508,6 +4527,24 @@ export default function AccountsPage() {
               <datalist id="vendor-expense-options">
                 {vendorExpenseOptions.map(name => <option key={name} value={name} />)}
               </datalist>
+              {pvQueue.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[220px] max-w-md">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input type="text" value={pvSearch}
+                      onChange={e => { setPvSearch(e.target.value); setPvPage(1); }}
+                      placeholder="Search name, UPI/IMPS ref, amount, date, vendor, note…"
+                      className="w-full rounded-lg border border-slate-200 pl-8 pr-8 py-1.5 text-xs outline-none focus:border-blue-400" />
+                    {pvSearch && (
+                      <button onClick={() => { setPvSearch(""); setPvPage(1); }} title="Clear search"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {pvSearchTerm && <span className="text-xs text-slate-500">{pvVisible.length} of {pvQueue.length} entries</span>}
+                </div>
+              )}
               {pvSelectedIds.size > 0 && (
                 <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs">
                   <span className="font-semibold text-blue-800">{pvSelectedIds.size} selected</span>
@@ -4534,9 +4571,9 @@ export default function AccountsPage() {
                   </button>
                 </div>
               )}
-              {isNativeApp && pvQueue.length > 0 && (
+              {isNativeApp && pvVisible.length > 0 && (
                 <div className="flex items-center justify-end gap-1.5">
-                  <span className="text-[11px] text-slate-400">{pvQueue.length} entries</span>
+                  <span className="text-[11px] text-slate-400">{pvVisible.length} entries</span>
                   <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
                     <button onClick={() => setPaymentVerificationCompact(true)}
                       className={`px-2.5 py-1 text-[11px] font-semibold rounded-md ${paymentVerificationCompact ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
@@ -4551,11 +4588,13 @@ export default function AccountsPage() {
               )}
               {pvQueueLoading ? (
                 <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
-              ) : pvQueue.length === 0 ? (
-                <div className="rounded-xl border border-slate-300 p-10 text-center text-slate-400">Nothing waiting on verification right now.</div>
+              ) : pvVisible.length === 0 ? (
+                <div className="rounded-xl border border-slate-300 p-10 text-center text-slate-400">
+                  {pvSearchTerm ? `No entries match "${pvSearch.trim()}".` : "Nothing waiting on verification right now."}
+                </div>
               ) : isNativeApp && paymentVerificationCompact ? (
                 <div className="space-y-2">
-                  {pvQueue.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE).map(entry => (
+                  {pvVisible.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE).map(entry => (
                     <div key={entry.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-3">
                       <div className="flex items-start gap-2">
                         <input
@@ -4704,7 +4743,7 @@ export default function AccountsPage() {
                       <tr className="bg-slate-100">
                         <th className="border border-slate-300 px-2 py-2 text-left">
                           {(() => {
-                            const pageEntries = pvQueue.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE);
+                            const pageEntries = pvVisible.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE);
                             const selectable = pageEntries.filter(pvIsSelectable);
                             const allSelected = selectable.length > 0 && selectable.every(e => pvSelectedIds.has(e.id));
                             return (
@@ -4735,7 +4774,7 @@ export default function AccountsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {pvQueue.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE).map(entry => (
+                      {pvVisible.slice((pvPage - 1) * PV_PAGE_SIZE, pvPage * PV_PAGE_SIZE).map(entry => (
                         <tr key={entry.id} className="hover:bg-slate-50">
                           <td className="border border-slate-300 px-2 py-2 align-top">
                             <input
@@ -4864,10 +4903,10 @@ export default function AccountsPage() {
                   </table>
               </div>
                 )}
-              {pvQueue.length > PV_PAGE_SIZE && (
+              {pvVisible.length > PV_PAGE_SIZE && (
                 <div className="flex items-center justify-between text-xs text-slate-500 px-1">
                   <span>
-                    Showing {(pvPage - 1) * PV_PAGE_SIZE + 1}–{Math.min(pvPage * PV_PAGE_SIZE, pvQueue.length)} of {pvQueue.length}
+                    Showing {(pvPage - 1) * PV_PAGE_SIZE + 1}–{Math.min(pvPage * PV_PAGE_SIZE, pvVisible.length)} of {pvVisible.length}
                   </span>
                   <div className="flex gap-2">
                     <button
@@ -4877,8 +4916,8 @@ export default function AccountsPage() {
                       Prev
                     </button>
                     <button
-                      onClick={() => setPvPage(p => (p * PV_PAGE_SIZE < pvQueue.length ? p + 1 : p))}
-                      disabled={pvPage * PV_PAGE_SIZE >= pvQueue.length}
+                      onClick={() => setPvPage(p => (p * PV_PAGE_SIZE < pvVisible.length ? p + 1 : p))}
+                      disabled={pvPage * PV_PAGE_SIZE >= pvVisible.length}
                       className="px-2.5 py-1 rounded-md border border-slate-300 font-medium disabled:opacity-40 hover:bg-slate-50">
                       Next
                     </button>
