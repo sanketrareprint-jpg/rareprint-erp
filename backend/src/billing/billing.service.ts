@@ -58,6 +58,18 @@ const DEFAULTS: Record<string, string> = {
   [CFG.INVOICE_PREFIX]: '',
 };
 
+// Receipt voucher "Received In" column: the customer sees the bank account
+// (bank name + last 4 digits), never the internal account name (e.g. "GST
+// BANK", or a staff member's name on a cash account) — requested 2026-09-26.
+function receiptAccountLabel(account: { name: string; accountType: string | null; accountNumber: string | null; bankName: string | null } | null): string | null {
+  if (!account) return null;
+  const digits = (account.accountNumber ?? '').replace(/\D/g, '');
+  if (digits) return `${account.bankName ? `${account.bankName} ` : ''}A/c XX${digits.slice(-4)}`;
+  if (account.accountType === 'CASH') return 'Cash';
+  if (account.accountType === 'COURIER_COD') return 'Courier COD';
+  return account.name;
+}
+
 // Printed "Payment Mode" labels for the PaymentMethod enum (receipt voucher).
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   CASH: 'Cash',
@@ -420,7 +432,7 @@ export class BillingService {
             payments: {
               where: { verificationStatus: 'VERIFIED', amount: { gt: 0 } },
               orderBy: { paymentDate: 'asc' },
-              include: { paymentAccount: { select: { name: true } } },
+              include: { paymentAccount: { select: { name: true, accountType: true, accountNumber: true, bankName: true } } },
             },
           },
         },
@@ -456,7 +468,7 @@ export class BillingService {
         paymentDate: this.formatDate(p.paymentDate),
         method: PAYMENT_METHOD_LABELS[p.method] ?? p.method,
         referenceNumber: p.referenceNumber,
-        accountName: p.paymentAccount?.name ?? null,
+        accountName: receiptAccountLabel(p.paymentAccount),
         amount: Number(p.amount),
       })),
       company: company as InvoicePdfCompanyProfile,
