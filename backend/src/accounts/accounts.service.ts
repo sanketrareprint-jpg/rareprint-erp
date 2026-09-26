@@ -1262,6 +1262,9 @@ export class AccountsService {
         bankName: true,
         accountType: true,
         upiId: true,
+        // Needed by Payment Verification's bank match to tell which account a
+        // receipt went into (see openBankMatch in app/accounts/page.tsx).
+        accountNumber: true,
       },
     });
   }

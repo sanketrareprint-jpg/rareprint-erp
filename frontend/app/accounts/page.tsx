@@ -98,6 +98,7 @@ type PaymentAccount = {
   bankName?: string;
   accountType?: string;
   upiId?: string;
+  accountNumber?: string | null;
 };
 
 type EditPaymentForm = {
@@ -1460,7 +1461,13 @@ export default function AccountsPage() {
       });
       // GST-bank receipts only match GST-bank statement entries; receipts
       // into any other account must never be matched against GST-bank entries.
-      const isGstAccount = payment.paymentAccountName.toUpperCase().includes("GST");
+      // Decided by the account's NUMBER, not its name. Was
+      // name.includes("GST"), which also matched the "NON GST" account, so
+      // NON GST receipts were offered GST-bank entries to verify against
+      // (reported 2026-09-26). Unknown/unloaded account → treated as non-GST,
+      // the safe side (GST-bank entries are then never shown).
+      const receivedInto = paymentAccounts.find((a) => a.name === payment.paymentAccountName);
+      const isGstAccount = (receivedInto?.accountNumber ?? "").trim() === GST_BANK_ACCOUNT;
       if (isGstAccount) {
         params.set("accountNumber", GST_BANK_ACCOUNT);
       }
