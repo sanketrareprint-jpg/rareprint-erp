@@ -2,12 +2,14 @@
 import React, { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PdfPreview } from "@/components/pdf-preview";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { sameState, stateFromGstin } from "@/lib/gst-states";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
   Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock, FileText, Plus, Trash2, ArrowRight,
+  Eye, X,
 } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -119,6 +121,27 @@ function BillingPageInner() {
     return () => clearTimeout(t);
   }, [invoiceSearch]);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  // Preview shows the same PDF the "PDF" button downloads (drawn by pdf.js
+  // so it works on Android too). url backs the Download link, revoked on close.
+  const [preview, setPreview] = useState<{ url: string; blob: Blob; invoiceNumber: string } | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+
+  async function openPreview(inv: Invoice) {
+    setPreviewLoadingId(inv.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/billing/invoices/${inv.id}/pdf`, { headers: getAuthHeaders() });
+      if (!res.ok) { alert("Could not load invoice preview"); return; }
+      const blob = await res.blob();
+      setPreview({ url: URL.createObjectURL(blob), blob, invoiceNumber: inv.invoiceNumber });
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  }
+
+  function closePreview() {
+    if (preview) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+  }
 
   // requestSeq guards against out-of-order responses — root-caused
   // 2026-09-04: with no debounce/guard, every keystroke fired its own
@@ -594,6 +617,14 @@ function BillingPageInner() {
                           <td className="px-3 py-2 text-center">{inv.whatsappStatus}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => void openPreview(inv)}
+                                disabled={previewLoadingId === inv.id}
+                                className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                                title="Preview invoice"
+                              >
+                                <Eye className="h-3 w-3" /> {previewLoadingId === inv.id ? "…" : "Preview"}
+                              </button>
                               <button
                                 onClick={() => void downloadBlob(`${API_BASE_URL}/billing/invoices/${inv.id}/pdf`, `Invoice_${inv.invoiceNumber}.pdf`)}
                                 className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 flex items-center gap-1"
@@ -1229,6 +1260,30 @@ function BillingPageInner() {
           )}
         </div>
       </div>
+
+      {/* Invoice Preview Modal */}
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closePreview}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <h2 className="text-base font-bold text-slate-900">Invoice {preview.invoiceNumber}</h2>
+              <div className="flex items-center gap-2">
+                <a
+                  href={preview.url}
+                  download={`Invoice_${preview.invoiceNumber}.pdf`}
+                  className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1"
+                >
+                  <Download className="h-3 w-3" /> Download
+                </a>
+                <button onClick={closePreview} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400" title="Close">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 rounded-b-2xl overflow-hidden"><PdfPreview data={preview.blob} /></div>
+          </div>
+        </div>
+      )}
     </DashboardShell>
   );
 }
