@@ -271,6 +271,54 @@ function marginFilter(query: OrderListQuery) {
   };
 }
 
+// One line per item for the order created/updated WhatsApp messages:
+// "Name Size GSMgsm Sides xQty @₹Rate = ₹Total", items joined with " | ".
+// AiSensy/WhatsApp template params reject newlines, tabs, and runs of
+// 4+ spaces ("Param text cannot have new-line/tab characters or more
+// than 4 consecutive spaces"). The previous "• line\n• line" format
+// silently failed delivery for every order with 2+ items (i.e. most
+// orders) — only single-item orders (no join needed) ever got through.
+// Specs via resolveItemDetails (notes first, catalog fallback) — the old
+// inline GSM regex captured the trailing comma ("70,gsm") and left specs
+// blank for items without notes.
+function formatWhatsAppItemDetails(
+  items: { productionNotes: string | null; unitPrice: unknown; lineTotal: unknown; quantity: number; product: { name: string } & Parameters<typeof resolveItemDetails>[1] }[],
+): string {
+  return items.map((i) => {
+    const specs = resolveItemDetails(i.productionNotes, i.product);
+    const size = specs.size ?? '';
+    const gsm = specs.gsm ?? '';
+    const sides = specs.sides ?? '';
+    const sidesLabel = sides === 'SINGLE_SIDE' ? 'Single' : sides === 'DOUBLE_SIDE' ? 'Double' : sides;
+    // Exact rate/unit, not rounded to a whole rupee — this is the price the
+    // customer agreed to per unit (e.g. ₹10.5), and toFixed(0) was silently
+    // rounding it up to ₹11 in the WhatsApp message. Trim trailing zeros so
+    // whole rates still show as "10" rather than "10.00".
+    const rate = Number(i.unitPrice).toFixed(2).replace(/\.?0+$/, '');
+    const total = Number(i.lineTotal).toFixed(0);
+    return `${i.product.name} ${size} ${gsm}gsm ${sidesLabel} x${i.quantity} @₹${rate} = ₹${total}`;
+  }).join(' | ');
+}
+
+// Comparable signature of an order's items (product, qty, rate, effective
+// size/GSM/paper/sides), so an edit only messages the customer when something
+// they'd care about changed — not when only the address/phone/notes were
+// edited. Specs are compared resolved (notes first, product catalog fallback),
+// not as raw productionNotes text: older items often have no notes at all, and
+// re-saving them writes the same specs as text, which isn't a real change.
+// Sorted so a pure reordering of the same items doesn't count as a change.
+function itemsSignature(
+  items: { productId: string; quantity: number; unitPrice: unknown; productionNotes: string | null; product: Parameters<typeof resolveItemDetails>[1] }[],
+): string {
+  return items
+    .map((i) => {
+      const d = resolveItemDetails(i.productionNotes, i.product);
+      return [i.productId, i.quantity, Number(i.unitPrice), d.size ?? '', d.gsm ?? '', d.paper ?? '', d.sides ?? ''].join('|');
+    })
+    .sort()
+    .join('\n');
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -907,26 +955,7 @@ export class OrdersService {
       const advancePaid = fullOrder.payments.reduce((s, p) => s + Number(p.amount), 0);
       const balanceDue = totalAmount - advancePaid;
 
-      // Format product details: Name Size GSM Sides Qty @Rate = Total
-      const productDetails = fullOrder.items.map((i) => {
-        const notes = i.productionNotes ?? '';
-        const size = (notes.match(/Size[:\s]+([^\n,]+)/i) ?? [])[1]?.trim() ?? '';
-        const gsm = (notes.match(/GSM[:\s]+(\S+)/i) ?? [])[1]?.trim() ?? '';
-        const sides = (notes.match(/Sides[:\s]+(\S+)/i) ?? [])[1]?.trim() ?? '';
-        const sidesLabel = sides === 'SINGLE_SIDE' ? 'Single' : sides === 'DOUBLE_SIDE' ? 'Double' : sides;
-        // Exact rate/unit, not rounded to a whole rupee — this is the price the
-        // customer agreed to per unit (e.g. ₹10.5), and toFixed(0) was silently
-        // rounding it up to ₹11 in the WhatsApp message. Trim trailing zeros so
-        // whole rates still show as "10" rather than "10.00".
-        const rate = Number(i.unitPrice).toFixed(2).replace(/\.?0+$/, '');
-        const total = Number(i.lineTotal).toFixed(0);
-        return `${i.product.name} ${size} ${gsm}gsm ${sidesLabel} x${i.quantity} @₹${rate} = ₹${total}`;
-      }).join(' | ');
-      // AiSensy/WhatsApp template params reject newlines, tabs, and runs of
-      // 4+ spaces ("Param text cannot have new-line/tab characters or more
-      // than 4 consecutive spaces"). The previous "• line\n• line" format
-      // silently failed delivery for every order with 2+ items (i.e. most
-      // orders) — only single-item orders (no join needed) ever got through.
+      const productDetails = formatWhatsAppItemDetails(fullOrder.items);
 
       void this.whatsapp.sendOrderCreated({
         customerName: fullOrder.customer.businessName,
@@ -966,6 +995,11 @@ export class OrdersService {
     // '' when every part is missing/empty — silently wiping out the customer's
     // saved address on any edit that didn't resend address fields.
     const shippingAddress = shippingParts.length > 0 ? shippingParts.join(', ') : undefined;
+
+    const itemsBefore = await this.prisma.orderItem.findMany({
+      where: { orderId },
+      select: { productId: true, quantity: true, unitPrice: true, productionNotes: true, product: true },
+    });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.customer.update({
@@ -1012,7 +1046,48 @@ export class OrdersService {
       });
     });
 
+    const itemsAfter = await this.prisma.orderItem.findMany({
+      where: { orderId },
+      select: { productId: true, quantity: true, unitPrice: true, productionNotes: true, product: true },
+    });
+    if (itemsSignature(itemsBefore) !== itemsSignature(itemsAfter)) {
+      void this.notifyCustomerOrderUpdated(orderId);
+    }
+
     return { success: true };
+  }
+
+  // WhatsApps the customer the order's current items, total, paid and
+  // balance after an item/spec/qty/rate edit. Fire-and-forget: a WhatsApp
+  // problem must never fail the edit that was already saved. Paid = sum of
+  // all payments, same as the order-created message.
+  private async notifyCustomerOrderUpdated(orderId: string): Promise<void> {
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          customer: true,
+          salesAgent: { select: { fullName: true } },
+          items: { where: { cancelledAt: null }, include: { product: true } },
+          payments: true,
+        },
+      });
+      if (!order?.customer.phone) return;
+      const totalAmount = Number(order.grandTotal);
+      const advancePaid = order.payments.reduce((s, p) => s + Number(p.amount), 0);
+      await this.whatsapp.sendOrderUpdated({
+        customerName: order.customer.businessName,
+        customerPhone: order.customer.phone,
+        orderNo: order.orderNumber,
+        productDetails: formatWhatsAppItemDetails(order.items),
+        totalAmount: totalAmount.toFixed(0),
+        advancePaid: advancePaid.toFixed(0),
+        balanceDue: (totalAmount - advancePaid).toFixed(0),
+        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+      });
+    } catch (err) {
+      console.error(`Order-updated WhatsApp failed for order ${orderId}:`, err);
+    }
   }
 
   // Super-admin-only correction window: once an order is approved and in
@@ -1193,6 +1268,19 @@ export class OrdersService {
         },
       });
     });
+
+    // Compared field by field (not via productionNotes, which is rebuilt in
+    // the standard format above even when nothing changed).
+    const itemChanged = productChanged
+      || quantity !== item.quantity
+      || unitPrice !== Number(item.unitPrice)
+      || size !== (resolved.size ?? '')
+      || gsm !== (resolved.gsm ?? '')
+      || paper !== (resolved.paper ?? '')
+      || sides !== (resolved.sides ?? '');
+    if (itemChanged) {
+      void this.notifyCustomerOrderUpdated(order.id);
+    }
 
     return { success: true, productId: product.id, productName: product.name, quantity, unitPrice, lineTotal, productionNotes, grandTotal, paymentStatus, orderStatus: OrderStatus.PENDING_APPROVAL };
   }

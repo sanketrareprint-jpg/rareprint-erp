@@ -15,7 +15,7 @@ const S = {
   sectionTitle: { fontSize: "12px", fontWeight: 700, color: "#0f172a", marginBottom: "10px", paddingBottom: "6px", borderBottom: "1px solid #f1f5f9" },
 };
 function emptyLine(): LineItem {
-  return { productId: "", sizeInches: "", gsm: 0, sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "" };
+  return { productId: "", sizeInches: "", gsm: 0, paperType: "", sides: "SINGLE_SIDE", quantity: 1, unitPrice: 0, lineTotal: 0, specialInstructions: "" };
 }
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
@@ -105,7 +105,10 @@ function EditOrderPageInner() {
       const res = await fetch(`${API_BASE_URL}/orders/${orderId}/edit`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ customer: Object.fromEntries(Object.entries(customer).filter(([, v]) => v !== "")), notes: orderNotes, items: lineItems.map(i => ({ productId: i.productId, sizeInches: i.sizeInches, gsm: i.gsm, sides: i.sides, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal || i.quantity * i.unitPrice, artworkNotes: i.specialInstructions })) }),
+        // productionNotes carries the item's size/GSM/paper/sides — same format as
+        // Create Order. The backend only saves this field (not sizeInches/gsm/sides),
+        // so without it every edit wiped the specs and GSM/size changes were lost.
+        body: JSON.stringify({ customer: Object.fromEntries(Object.entries(customer).filter(([, v]) => v !== "")), notes: orderNotes, items: lineItems.map(i => ({ productId: i.productId, sizeInches: i.sizeInches, gsm: i.gsm, sides: i.sides, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal || i.quantity * i.unitPrice, artworkNotes: i.specialInstructions, productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}${i.paperType ? `, Paper: ${i.paperType}` : ""}, Sides: ${i.sides}` })) }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.message || "Update failed"); return; }
       alert("Order updated!");

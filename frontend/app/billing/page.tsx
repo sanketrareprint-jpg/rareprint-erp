@@ -121,18 +121,20 @@ function BillingPageInner() {
     return () => clearTimeout(t);
   }, [invoiceSearch]);
   const [sharingId, setSharingId] = useState<string | null>(null);
-  // Preview shows the same PDF the "PDF" button downloads (drawn by pdf.js
-  // so it works on Android too). url backs the Download link, revoked on close.
-  const [preview, setPreview] = useState<{ url: string; blob: Blob; invoiceNumber: string } | null>(null);
+  // Preview shows the same PDF the row's "PDF" button downloads (drawn by
+  // pdf.js so it works on Android too) — used by Invoices and Receipts.
+  // url backs the Download link, revoked on close. loadingKey identifies the
+  // row whose button shows "…" while the PDF loads.
+  const [preview, setPreview] = useState<{ url: string; blob: Blob; title: string; filename: string } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
 
-  async function openPreview(inv: Invoice) {
-    setPreviewLoadingId(inv.id);
+  async function openPreview(loadingKey: string, pdfUrl: string, title: string, filename: string) {
+    setPreviewLoadingId(loadingKey);
     try {
-      const res = await fetch(`${API_BASE_URL}/billing/invoices/${inv.id}/pdf`, { headers: getAuthHeaders() });
-      if (!res.ok) { alert("Could not load invoice preview"); return; }
+      const res = await fetch(pdfUrl, { headers: getAuthHeaders() });
+      if (!res.ok) { alert(`Could not load ${title} preview`); return; }
       const blob = await res.blob();
-      setPreview({ url: URL.createObjectURL(blob), blob, invoiceNumber: inv.invoiceNumber });
+      setPreview({ url: URL.createObjectURL(blob), blob, title, filename });
     } finally {
       setPreviewLoadingId(null);
     }
@@ -618,7 +620,7 @@ function BillingPageInner() {
                           <td className="px-3 py-2">
                             <div className="flex items-center justify-center gap-1.5 flex-wrap">
                               <button
-                                onClick={() => void openPreview(inv)}
+                                onClick={() => void openPreview(inv.id, `${API_BASE_URL}/billing/invoices/${inv.id}/pdf`, `Invoice ${inv.invoiceNumber}`, `Invoice_${inv.invoiceNumber}.pdf`)}
                                 disabled={previewLoadingId === inv.id}
                                 className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
                                 title="Preview invoice"
@@ -703,7 +705,15 @@ function BillingPageInner() {
                           <td className="px-3 py-2 text-right font-semibold text-emerald-600">{fmt(r.receivedAmount)}</td>
                           <td className={`px-3 py-2 text-right ${r.balanceAmount > 0 ? "text-red-600" : "text-emerald-600"}`}>{fmt(r.balanceAmount)}</td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center justify-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => void openPreview(`receipt-${r.orderId}`, `${API_BASE_URL}/billing/receipts/${r.orderId}/pdf`, `Receipt ${r.receiptNumber}`, `Receipt_${r.receiptNumber}.pdf`)}
+                                disabled={previewLoadingId === `receipt-${r.orderId}`}
+                                className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                                title="Preview receipt"
+                              >
+                                <Eye className="h-3 w-3" /> {previewLoadingId === `receipt-${r.orderId}` ? "…" : "Preview"}
+                              </button>
                               <button
                                 onClick={() => void downloadBlob(`${API_BASE_URL}/billing/receipts/${r.orderId}/pdf`, `Receipt_${r.receiptNumber}.pdf`)}
                                 className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 flex items-center gap-1"
@@ -1273,11 +1283,11 @@ function BillingPageInner() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closePreview}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h2 className="text-base font-bold text-slate-900">Invoice {preview.invoiceNumber}</h2>
+              <h2 className="text-base font-bold text-slate-900">{preview.title}</h2>
               <div className="flex items-center gap-2">
                 <a
                   href={preview.url}
-                  download={`Invoice_${preview.invoiceNumber}.pdf`}
+                  download={preview.filename}
                   className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1"
                 >
                   <Download className="h-3 w-3" /> Download

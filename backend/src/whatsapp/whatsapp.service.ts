@@ -543,6 +543,43 @@ export class WhatsAppService {
     }
   }
 
+  // ── Order Updated Notification (to customer) ─────────────────────────────
+  // Sent when an order's items/specs/quantity/rate are edited. Needs its own
+  // approved AiSensy template (requested 2026-09-26) — until it exists and is
+  // approved, AiSensy rejects the call and this just logs + returns false.
+  // The template is a copy of order_created_erp with "created" reworded to
+  // "updated", so it takes the same 8 variables in the same order (see
+  // sendOrderCreated above): {{1}} customer name, {{2}} order no,
+  // {{3}} customer name, {{4}} item details, {{5}} total, {{6}} paid,
+  // {{7}} balance, {{8}} sales agent name.
+  async sendOrderUpdated(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    productDetails: string;
+    totalAmount: string;
+    advancePaid: string;
+    balanceDue: string;
+    agentName: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_ORDER_UPDATED_CAMPAIGN ?? 'order_updated_erp',
+      customerName: params.customerName,
+      customerPhone: params.customerPhone,
+      orderNo: params.orderNo,
+      templateParams: [
+        params.customerName,
+        params.orderNo,
+        params.customerName,
+        params.productDetails,
+        params.totalAmount,
+        params.advancePaid,
+        params.balanceDue,
+        params.agentName,
+      ],
+    });
+  }
+
   // ── Vendor Job Work Notification ─────────────────────────────────────────
   async sendVendorJobWork(params: {
     vendorName: string;

@@ -22,6 +22,7 @@ import type { Request, Response } from 'express';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveItemDetails } from '../common/resolve-item-details';
 
 type JwtUser = { id: string; role: string; email: string };
 type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number; base64?: string; mimeType?: string };
@@ -297,12 +298,18 @@ export class OrdersController {
       customerCity: o.customer.city ?? "",
       customerState: o.customer.state ?? "",
       customerPincode: o.customer.pincode ?? "",
-      items: o.items.map(i => ({
-        id: i.id, productId: i.productId, productName: i.product.name,
-        sizeInches: i.product.sizeInches, gsm: i.product.gsm, sides: i.product.sides,
-        quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal),
-        artworkNotes: i.artworkNotes,
-      })),
+      // The item's own specs (productionNotes first, catalog fallback) — was
+      // the product catalog's defaults, so Edit Order showed and re-saved the
+      // catalog values instead of what was actually ordered.
+      items: o.items.map(i => {
+        const specs = resolveItemDetails(i.productionNotes, i.product);
+        return {
+          id: i.id, productId: i.productId, productName: i.product.name,
+          sizeInches: specs.size ?? "", gsm: Number(specs.gsm) || 0, paperType: specs.paper ?? "", sides: specs.sides ?? "",
+          quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal),
+          artworkNotes: i.artworkNotes,
+        };
+      }),
     };
   }
 
