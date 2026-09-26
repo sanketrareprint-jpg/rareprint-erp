@@ -70,7 +70,7 @@ type CompanyProfile = {
   companyName: string; companyAddress: string; companyPhone: string; companyEmail: string;
   companyGstin: string; companyState: string; bankName: string; bankAccountNumber: string;
   bankIfsc: string; bankAccountHolderName: string; defaultTermsAndConditions: string;
-  logoUrl: string | null; signatureUrl: string | null;
+  logoUrl: string | null; signatureUrl: string | null; invoicePrefix: string;
 };
 
 type GstSummary = {
@@ -1142,6 +1142,11 @@ function BillingPageInner() {
                       <input value={profile.companyState} onChange={e => setProfile({ ...profile, companyState: e.target.value })}
                         className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
                     </label>
+                    <label className="text-xs text-slate-600 space-y-1">Invoice Number Prefix
+                      <input value={profile.invoicePrefix} onChange={e => setProfile({ ...profile, invoicePrefix: e.target.value.toUpperCase() })}
+                        placeholder="e.g. RP → RP/2026-27/1723"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400 font-mono" />
+                    </label>
                   </div>
                 </div>
 
@@ -1169,8 +1174,10 @@ function BillingPageInner() {
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
                   <p className="text-sm font-bold text-slate-800">Terms & Conditions (default, editable per invoice)</p>
-                  <textarea value={profile.defaultTermsAndConditions} onChange={e => setProfile({ ...profile, defaultTermsAndConditions: e.target.value })} rows={2}
+                  <textarea value={profile.defaultTermsAndConditions} onChange={e => setProfile({ ...profile, defaultTermsAndConditions: e.target.value })} rows={6}
+                    placeholder={"One term per line, e.g.\n1. Goods once sold will not be taken back.\n2. Subject to Chandrapur jurisdiction."}
                     className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+                  <p className="text-[11px] text-slate-400">Printed on every invoice, one line per term. The reverse-charge declaration is printed automatically.</p>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">

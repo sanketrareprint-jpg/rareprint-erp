@@ -451,9 +451,15 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // consistently sitting ~0.15pt too high vs the reference, same
     // direction and magnitude across every letter (not noise — noise would
     // vary sign/magnitude randomly per letter, this didn't).
+    // "Tax Invoice" (was "Invoice", 2026-09-26 — GST requires the document
+    // to be titled Tax Invoice). Same glyphs/baseline/scale; the "Invoice"
+    // letters keep their measured spacing, "Tax " is spaced from each
+    // glyph's advance (T and space from GLYPH_ADVANCE_WIDTHS, a/x from ink
+    // extent + left bearing), and the whole title is shifted so its ink stays
+    // centred on the same x (≈298.56) the old title was centred on.
     drawGlyphString(
-      'Invoice',
-      [271.512, 276.079, 285.353, 293.364, 302.941, 307.025, 315.815],
+      'Tax Invoice',
+      [256.25, 266.274, 275.384, 283.694, 287.861, 292.428, 301.702, 309.713, 319.29, 323.374, 332.164],
       y + 22.46,
       16.8,
     );
@@ -745,7 +751,8 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     drawGlyphString('GSTIN Number:', [165.75, 171.465, 176.447, 181.454, 183.736, 189.721, 191.803, 197.788, 202.414, 209.772, 214.484, 218.933, 221.776], 212.25, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
     // hscale 0.9633 (was 0.9698) — re-measured 2026-08-31 against the reference.
-    boldText(sanitize(data.customerGstin) || '-', 165.75, y + 58.42, { width: colWidth / 2 - 6 }, 0.9633);
+    // No GSTIN on the customer → "Unregistered" (B2C), not "-".
+    boldText(sanitize(data.customerGstin) || 'Unregistered', 165.75, y + 58.42, { width: colWidth / 2 - 6 }, 0.9633);
 
     drawGlyphString('State:', [36.891, 41.873, 44.618, 49.182, 51.927, 56.376], 224.25, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
@@ -1646,8 +1653,21 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     // ── 6. Terms And Conditions row (full width — no separate Description
     // column any more; the sales-agent note moved into the item table, §4) ──
-    ensureSpace(33);
-    const termsRowH = 33;
+    // Row holds the GST reverse-charge declaration line, then the terms text
+    // (Company Profile, multi-line) — grows to fit instead of the old single
+    // truncated line. With no terms it stays the original 33pt.
+    // Line breaks kept (unlike sanitize()) so a numbered terms list prints
+    // one term per line; blank lines dropped.
+    const termsText = String(data.termsAndConditions ?? '')
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\t+/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n');
+    const termsTextWidth = CONTENT_WIDTH - 6;
+    doc.font('Body').fontSize(8);
+    const termsTextH = termsText ? doc.heightOfString(termsText, { width: termsTextWidth }) : 0;
+    const termsRowH = Math.max(33, 21 + 11 + termsTextH + 3);
+    ensureSpace(termsRowH);
     // Grey fill drawn BEFORE the border stroke — same fix already applied to
     // Bank Details below (see its comment): fill() paints an opaque
     // rectangle, so stroking the border first let the fill immediately
@@ -1688,7 +1708,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // root-caused 2026-08-31 from a real generated invoice showing
     // washed-out Bank Details text (same bug, same fix, see below).
     doc.font('Body').fontSize(8).fillColor(BORDER);
-    doc.text(sanitize(data.termsAndConditions) || '-', tableX + 3.2, y + 21, { width: CONTENT_WIDTH - 6, height: 11, ellipsis: true });
+    doc.text('Declaration: Tax is payable on reverse charge basis: No', tableX + 3.2, y + 21, { width: termsTextWidth, lineBreak: false });
+    if (termsText) {
+      doc.text(termsText, tableX + 3.2, y + 32, { width: termsTextWidth });
+    }
     y += termsRowH;
     // No gap here — in the reference, the Terms row's bottom border and the
     // Bank Details row's top border are the same line (adjacent boxes).

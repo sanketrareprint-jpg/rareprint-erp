@@ -48,4 +48,8 @@ export class UpdateCompanyProfileDto {
   @IsOptional()
   @IsString()
   defaultTermsAndConditions?: string;
+
+  @IsOptional()
+  @IsString()
+  invoicePrefix?: string;
 }

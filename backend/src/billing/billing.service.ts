@@ -34,6 +34,7 @@ const CFG = {
   DEFAULT_TERMS: 'billing.defaultTermsAndConditions',
   LOGO_URL: 'billing.logoUrl',
   SIGNATURE_URL: 'billing.signatureUrl',
+  INVOICE_PREFIX: 'billing.invoicePrefix',
 };
 
 // Deliberately blank, not guessed — the real registered company address is
@@ -54,6 +55,7 @@ const DEFAULTS: Record<string, string> = {
   [CFG.DEFAULT_TERMS]: '',
   [CFG.LOGO_URL]: '',
   [CFG.SIGNATURE_URL]: '',
+  [CFG.INVOICE_PREFIX]: '',
 };
 
 // Printed "Payment Mode" labels for the PaymentMethod enum (receipt voucher).
@@ -79,7 +81,14 @@ export interface CompanyProfile {
   defaultTermsAndConditions: string;
   logoUrl: string | null;
   signatureUrl: string | null;
+  invoicePrefix: string;
 }
+
+// Invoice PDFs number in Indian financial years (1 Apr – 31 Mar), judged in
+// IST so an invoice raised just after midnight on 1 April isn't put in the
+// previous year by the server's UTC clock.
+const IST_OFFSET_MS = 330 * 60 * 1000;
+const FINANCIAL_YEAR_START_MONTH = 3; // April, 0-based
 
 @Injectable()
 export class BillingService {
@@ -111,6 +120,7 @@ export class BillingService {
       defaultTermsAndConditions: get(CFG.DEFAULT_TERMS),
       logoUrl: get(CFG.LOGO_URL) || null,
       signatureUrl: get(CFG.SIGNATURE_URL) || null,
+      invoicePrefix: get(CFG.INVOICE_PREFIX),
     };
   }
 
@@ -127,6 +137,7 @@ export class BillingService {
       bankIfsc: CFG.BANK_IFSC,
       bankAccountHolderName: CFG.BANK_ACCOUNT_HOLDER_NAME,
       defaultTermsAndConditions: CFG.DEFAULT_TERMS,
+      invoicePrefix: CFG.INVOICE_PREFIX,
     };
 
     const pairs: [string, string][] = [];
@@ -245,6 +256,19 @@ export class BillingService {
     return invoice;
   }
 
+  // "RP/2026-27/1723" — Company Profile prefix / financial year of the issue
+  // date / stored number. Printed on the invoice PDF only: Invoice.invoiceNumber
+  // stays the plain order number, which search, receipts (RV-<number>) and
+  // bank matching key on. No prefix configured → the plain number, as before.
+  private displayInvoiceNumber(prefix: string, issueDate: Date, invoiceNumber: string): string {
+    const trimmedPrefix = prefix.trim();
+    if (!trimmedPrefix) return invoiceNumber;
+    const ist = new Date(new Date(issueDate).getTime() + IST_OFFSET_MS);
+    const startYear = ist.getUTCMonth() >= FINANCIAL_YEAR_START_MONTH ? ist.getUTCFullYear() : ist.getUTCFullYear() - 1;
+    const endYearShort = String((startYear + 1) % 100).padStart(2, '0');
+    return `${trimmedPrefix}/${startYear}-${endYearShort}/${invoiceNumber}`;
+  }
+
   private formatDate(d: Date): string {
     return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
@@ -280,7 +304,7 @@ export class BillingService {
     );
 
     const pdfData: InvoicePdfData = {
-      invoiceNumber: invoice.invoiceNumber,
+      invoiceNumber: this.displayInvoiceNumber(company.invoicePrefix, invoice.issueDate, invoice.invoiceNumber),
       issueDate: this.formatDate(invoice.issueDate),
       gstTreatment: invoice.gstTreatment as any,
       subtotal: Number(invoice.subtotal),
