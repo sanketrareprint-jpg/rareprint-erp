@@ -25,6 +25,7 @@ import { HrService } from '../hr/hr.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BillingService } from '../billing/billing.service';
 import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
+import { assertItemsCancellable, releaseItemAssignments } from '../common/cancel-item-assignments';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -689,9 +690,18 @@ export class AccountsService {
   }
 
   async rejectOrder(orderId: string, reason: string) {
-    const updated = await this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.CANCELLED },
+    // Rejecting cancels the order, so its items come off anything they were
+    // already assigned to (sheets, pending job work, production category) —
+    // see common/cancel-item-assignments.ts.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.CANCELLED },
+        include: { items: { select: { id: true } } },
+      });
+      await releaseItemAssignments(tx, order.items.map((i) => i.id));
+      const { items: _items, ...rest } = order;
+      return rest;
     });
     // No-op unless points were already earned on this order (e.g. rejected
     // after a prior approval was undone some other way) — safe either way.
@@ -884,12 +894,20 @@ export class AccountsService {
     const isWholeOrder = pendingIds.length === 0;
     const targetItems = isWholeOrder ? order.items : order.items.filter((i) => pendingIds.includes(i.id));
     const invoice = await this.prisma.invoice.findUnique({ where: { orderId } });
+    // Re-checked here, not just when the cancellation was requested — the
+    // item may have gone to print (or onto a printing sheet / started vendor
+    // job work) while the request waited for approval.
+    await assertItemsCancellable(this.prisma, targetItems.map((i) => i.id));
 
     return this.prisma.$transaction(async (tx) => {
       await tx.orderItem.updateMany({
         where: { id: { in: targetItems.map((i) => i.id) } },
         data: ({ cancelledAt: new Date() } as any),
       });
+      const released = await releaseItemAssignments(tx, targetItems.map((i) => i.id));
+      const releasedNote = released.sheetsFreed || released.jobWorksRemoved
+        ? ` Removed from ${released.sheetsFreed} sheet placement(s)${released.jobWorksRemoved ? ` and ${released.jobWorksRemoved} pending job work(s)` : ''}.`
+        : '';
 
       const clearedRequestFields = ({
         cancellationRequestedAt: null,
@@ -941,9 +959,9 @@ export class AccountsService {
           fromStatus: order.status,
           toStatus: isWholeOrder ? OrderStatus.CANCELLED : order.status,
           changedById: user.id,
-          reason: isWholeOrder
-            ? 'Accounts approved cancellation of the whole order'
-            : `Accounts approved cancellation of ${targetItems.length} item(s): ${targetItems.map((i) => i.product.name).join(', ')}`,
+          reason: (isWholeOrder
+            ? 'Accounts approved cancellation of the whole order.'
+            : `Accounts approved cancellation of ${targetItems.length} item(s): ${targetItems.map((i) => i.product.name).join(', ')}.`) + releasedNote,
         },
       });
 

@@ -807,9 +807,9 @@ export default function OrdersPage() {
                 <span className="text-slate-500" style={{ minWidth: "16px" }}>{item.quantity}</span>
                 <span className="font-semibold text-emerald-700 whitespace-nowrap" style={{ minWidth: "50px" }}>{fmt(item.lineTotal)}</span>
                 <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${
-                  item.cancelledAt ? "bg-red-100 text-red-700" : (item.dispatchStatus && dispatchStatusColors[item.dispatchStatus]) ?? itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"
+                  item.cancelledAt || o.status === "CANCELLED" ? "bg-red-100 text-red-700" : (item.dispatchStatus && dispatchStatusColors[item.dispatchStatus]) ?? itemStageColors[item.itemProductionStage] ?? "bg-gray-100 text-gray-600"
                 }`}>
-                  {item.cancelledAt ? "Cancelled" : (item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
+                  {item.cancelledAt || o.status === "CANCELLED" ? "Cancelled" : (item.dispatchStatus && dispatchStatusLabels[item.dispatchStatus]) ?? itemStageLabels[item.itemProductionStage] ?? item.itemProductionStage}
                 </span>
                 {isSuperAdminUser && item.id && item.dispatchStatus !== "DISPATCHED" && !item.cancelledAt && (
                   <button title="Super-admin edit (quantity/quality/amount)" onClick={() => openSuperEdit(o.id, item)}
@@ -1238,7 +1238,8 @@ export default function OrdersPage() {
                       </td></tr>
                     ) : filteredOrders.map((o) => (
                       <React.Fragment key={o.id}>
-                        <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""}`}>
+                        {/* Cancelled orders: whole row in red (every cell except the action buttons). */}
+                        <tr className={`hover:bg-slate-50 ${selectedOrderIds.has(o.id) ? "bg-indigo-50" : ""} ${o.status === "CANCELLED" ? "bg-red-50/60 [&>td:not(.row-actions)]:!text-red-600 [&>td:not(.row-actions)_*]:!text-red-600" : ""}`}>
                           {activeTab === "dispatch" && (
                             <td className="px-1.5 py-1.5 align-top">
                               <button
@@ -1292,7 +1293,7 @@ export default function OrdersPage() {
                               )}
                             </td>
                           )}
-                          <td className="px-1.5 py-1.5 align-top">
+                          <td className="row-actions px-1.5 py-1.5 align-top">
                             <div className="flex flex-row gap-0.5 items-center">
                               {/* Pay */}
                               <button title="Add Payment" onClick={() => { setPaymentModal(o); setNewPayment(p => ({ ...p, method: "", paymentAccountId: "" })); }}
