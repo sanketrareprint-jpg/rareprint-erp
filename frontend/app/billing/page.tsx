@@ -975,7 +975,7 @@ function BillingPageInner() {
                           disabled={partyForm !== null || !ledger.editLock?.canEdit}
                           title={ledger.editLock && !ledger.editLock.canEdit
                             ? (ledger.editLock.dispatchedOrders.length > 0
-                              ? `Locked: order ${ledger.editLock.dispatchedOrders[0]} is already dispatched. Only the superadmin can edit.`
+                              ? `Locked: order ${ledger.editLock.dispatchedOrders[0]} is already dispatched. Only an admin can edit.`
                               : "Only admin/accounts users can edit party details.")
                             : "Edit party details"}
                           className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
@@ -992,7 +992,7 @@ function BillingPageInner() {
                     </div>
                     {ledger.editLock && !ledger.editLock.canEdit && ledger.editLock.dispatchedOrders.length > 0 && (
                       <p className="flex items-center gap-1 text-[11px] text-slate-500">
-                        <Lock className="h-3 w-3" /> Details locked — order {ledger.editLock.dispatchedOrders[0]} is already dispatched. Only the superadmin can edit.
+                        <Lock className="h-3 w-3" /> Details locked — order {ledger.editLock.dispatchedOrders[0]} is already dispatched. Only an admin can edit.
                       </p>
                     )}
                     {partyForm && (

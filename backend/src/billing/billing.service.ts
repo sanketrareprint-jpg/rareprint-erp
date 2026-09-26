@@ -460,8 +460,8 @@ export class BillingService {
 
   // Party-edit lock (Sanket, 2026-09-25): once ANY of a party's orders has
   // been dispatched, its name/phone/GSTIN/address are already on a shipped
-  // invoice, label and receipt, so only the superadmin may change them.
-  // Before that, ADMIN/ACCOUNTS can. "Dispatched" = order status past
+  // invoice, label and receipt, so only the superadmin and ADMIN may change
+  // them. Before that, ACCOUNTS can too. "Dispatched" = order status past
   // dispatch, or any item individually shipped (partial dispatch). Test
   // orders don't count. Returns up to 5 of those order numbers (newest first)
   // so the UI can say which order locked it.
@@ -485,7 +485,8 @@ export class BillingService {
   private canEditParty(user: { role?: string; email?: string } | undefined, dispatchedOrders: string[]): boolean {
     if (!user) return false;
     if (user.email?.toLowerCase() === SUPER_ADMIN_EMAIL) return true;
-    return ['ADMIN', 'ACCOUNTS'].includes(user.role ?? '') && dispatchedOrders.length === 0;
+    if (user.role === 'ADMIN') return true;
+    return user.role === 'ACCOUNTS' && dispatchedOrders.length === 0;
   }
 
   // `user` is passed only by the Parties screen (statement + edit) so it can
@@ -544,8 +545,8 @@ export class BillingService {
   // Same normalisation as order create/edit (orders.service.ts): uppercase
   // name/address/city/state, digits-only phone, GSTIN format check.
   // ADMIN/ACCOUNTS (the roles Billing is shown to by default) until any of
-  // the party's orders is dispatched; after that superadmin only — see
-  // dispatchedOrdersForParty().
+  // the party's orders is dispatched; after that superadmin and ADMIN only —
+  // see dispatchedOrdersForParty().
   async updateParty(
     customerId: string,
     dto: { businessName?: string; phone?: string; gstNumber?: string; billingAddress?: string; city?: string; state?: string; pincode?: string },
@@ -557,10 +558,10 @@ export class BillingService {
     }
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin && user?.role !== 'ADMIN') {
       const dispatchedOrders = await this.dispatchedOrdersForParty(customerId);
       if (dispatchedOrders.length > 0) {
-        throw new ForbiddenException(`Order ${dispatchedOrders[0]} for this party is already dispatched — only the superadmin can edit party details now`);
+        throw new ForbiddenException(`Order ${dispatchedOrders[0]} for this party is already dispatched — only an admin can edit party details now`);
       }
     }
 
