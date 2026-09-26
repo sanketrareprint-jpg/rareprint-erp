@@ -134,6 +134,8 @@ model Product {
   printingType       PrintingType
   sides              ProductSides
   weightPerUnitGrams Decimal?          @db.Decimal(10, 3)
+  // HSN code, snapshotted onto InvoiceItem.hsnSac when an invoice is raised.
+  hsnCode            String?
   isActive           Boolean           @default(true)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt

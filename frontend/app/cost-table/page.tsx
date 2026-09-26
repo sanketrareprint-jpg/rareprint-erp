@@ -355,7 +355,7 @@ export default function CostTablePage() {
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [newProduct, setNewProduct] = useState({
     sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "",
-    printingType: "DIGITAL", sides: "SINGLE_SIDE",
+    printingType: "DIGITAL", sides: "SINGLE_SIDE", hsnCode: "",
   });
   const [newProductSaving, setNewProductSaving] = useState(false);
   const [newProductError, setNewProductError] = useState("");
@@ -766,7 +766,7 @@ export default function CostTablePage() {
         return;
       }
       setShowAddProductModal(false);
-      setNewProduct({ sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "", printingType: "DIGITAL", sides: "SINGLE_SIDE" });
+      setNewProduct({ sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "", printingType: "DIGITAL", sides: "SINGLE_SIDE", hsnCode: "" });
       load();
     } catch {
       setNewProductError("Failed to create product.");
@@ -2132,6 +2132,15 @@ export default function CostTablePage() {
                   <option value="SINGLE_SIDE">Single</option>
                   <option value="DOUBLE_SIDE">Double</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">HSN Code</label>
+                <input
+                  value={newProduct.hsnCode}
+                  onChange={e => setNewProduct(p => ({ ...p, hsnCode: e.target.value }))}
+                  placeholder="optional, e.g. 4817"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
             </div>
 

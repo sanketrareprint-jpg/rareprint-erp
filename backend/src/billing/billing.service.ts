@@ -268,6 +268,17 @@ export class BillingService {
       .filter(Boolean)
       .join(', ');
 
+    // Invoices raised before Product.hsnCode existed have hsnSac = null on
+    // every item; show the product's current HSN (matched by the snapshotted
+    // SKU) on the PDF without rewriting the stored invoice rows.
+    const skusWithoutHsn = invoice.items.filter((i) => !i.hsnSac && i.sku).map((i) => i.sku as string);
+    const productHsnBySku = new Map<string, string | null>(
+      skusWithoutHsn.length
+        ? (await this.prisma.product.findMany({ where: { sku: { in: skusWithoutHsn } }, select: { sku: true, hsnCode: true } }))
+            .map((p) => [p.sku, p.hsnCode])
+        : [],
+    );
+
     const pdfData: InvoicePdfData = {
       invoiceNumber: invoice.invoiceNumber,
       issueDate: this.formatDate(invoice.issueDate),
@@ -287,7 +298,7 @@ export class BillingService {
       customerGstin: customer.gstNumber ?? '',
       items: invoice.items.map((item) => ({
         productName: item.productName,
-        hsnSac: item.hsnSac,
+        hsnSac: item.hsnSac || (item.sku ? productHsnBySku.get(item.sku) ?? null : null),
         productDetails: item.productionNotes ?? null,
         size: extractSizeFromNote(item.productionNotes),
         quantity: item.quantity,

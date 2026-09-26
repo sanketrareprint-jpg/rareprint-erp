@@ -287,6 +287,7 @@ export class CostTableService {
   async createProduct(dto: {
     sku: string; name: string; categoryName: string; gsm: number;
     paperType?: string; sizeInches: string; printingType: string; sides: string;
+    hsnCode?: string;
   }) {
     const sku = dto.sku?.trim();
     const name = dto.name?.trim();
@@ -324,6 +325,7 @@ export class CostTableService {
         categoryId: category.id,
         gsm: dto.gsm,
         paperType: paperType || null,
+        hsnCode: dto.hsnCode?.trim() || null,
         sizeInches,
         printingType: dto.printingType as any,
         sides: dto.sides as any,

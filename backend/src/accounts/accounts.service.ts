@@ -194,7 +194,7 @@ export class AccountsService {
           invoiceId: invoice.id,
           productName: item.product.name,
           sku: item.product.sku,
-          hsnSac: null,
+          hsnSac: item.product.hsnCode ?? null,
           // Notes-first, falling back to the Product catalog's own Size/
           // GSM/Paper/Sides — see formatItemDetailsNote's own comment for
           // why a raw `item.productionNotes` copy left this blank on almost
@@ -810,7 +810,7 @@ export class AccountsService {
           invoiceId: invoice.id,
           productName: item.product?.name ?? 'Item',
           sku: item.product?.sku ?? null,
-          hsnSac: null,
+          hsnSac: item.product?.hsnCode ?? null,
           // See the createInvoiceAndLedger create() call above for why this
           // resolves against the Product catalog instead of copying the
           // (usually null) raw productionNotes field.
