@@ -29,7 +29,7 @@ const STRING_FIELDS = [
   'sku','description','sizeInches','sides','printingType','openSizeInches','paperType','passwordHash',
   'notes','slug','type','category','unit','uom','businessName','contactName',
   'gstNumber','panNumber','ifscCode','accountNumber','bankName','accountType',
-  'orderNumber','label','tag','code','title','prefix','color','remark','remarks',
+  'orderNumber','label','tag','code','title','prefix','color','remark','remarks','hsnCode',
 ];
 
 const RELATION_FIELDS = [
