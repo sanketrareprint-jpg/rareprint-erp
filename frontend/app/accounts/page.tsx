@@ -1459,15 +1459,22 @@ export default function AccountsPage() {
         toDate: paymentDate,
         limit: "50",
       });
-      // GST-bank receipts only match GST-bank statement entries; receipts
-      // into any other account must never be matched against GST-bank entries.
-      // Decided by the account's NUMBER, not its name. Was
-      // name.includes("GST"), which also matched the "NON GST" account, so
-      // NON GST receipts were offered GST-bank entries to verify against
-      // (reported 2026-09-26). Unknown/unloaded account → treated as non-GST,
-      // the safe side (GST-bank entries are then never shown).
+      // Only offer statement entries from the SAME bank account the receipt
+      // was recorded into (reported 2026-09-26: NON GST receipts were being
+      // offered GST-bank entries — the old check was name.includes("GST"),
+      // which also matched "NON GST"). Matched by account NUMBER: the saved
+      // PaymentAccount.accountNumber may be just the last digits (CC BANK
+      // "1793", NON GST "14401" — confirmed with Sanket to be the real last
+      // digits), while statements carry the full number, so a statement entry
+      // matches when its number ENDS WITH the saved digits. An account with no
+      // number (cash, courier COD) has no bank statement, so nothing is offered.
       const receivedInto = paymentAccounts.find((a) => a.name === payment.paymentAccountName);
-      const isGstAccount = (receivedInto?.accountNumber ?? "").trim() === GST_BANK_ACCOUNT;
+      const accountDigits = (receivedInto?.accountNumber ?? "").replace(/\D/g, "");
+      if (!accountDigits) {
+        setBankMatchResults([]);
+        return;
+      }
+      const isGstAccount = accountDigits === GST_BANK_ACCOUNT;
       if (isGstAccount) {
         params.set("accountNumber", GST_BANK_ACCOUNT);
       }
@@ -1475,9 +1482,7 @@ export default function AccountsPage() {
       if (res.ok) {
         const data = await res.json();
         const rows: BankTxn[] = data.data ?? [];
-        setBankMatchResults(
-          isGstAccount ? rows : rows.filter((txn) => txn.accountNumber !== GST_BANK_ACCOUNT),
-        );
+        setBankMatchResults(rows.filter((txn) => (txn.accountNumber ?? "").replace(/\D/g, "").endsWith(accountDigits)));
       }
     } finally { setBankMatchLoading(false); }
   }
