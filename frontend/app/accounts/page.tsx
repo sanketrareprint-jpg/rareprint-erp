@@ -1164,6 +1164,10 @@ export default function AccountsPage() {
 
   const [editingCommRow, setEditingCommRow] = useState<number | null>(null);
   const [editCommValue, setEditCommValue] = useState<string>("");
+  // The ✎ editor can take either a ₹ amount or a % of the row's Amount
+  // (the same base the Rate% column uses). Either way the saved override is
+  // a ₹ amount — "%" is only an input shortcut. Kept across edits.
+  const [editCommMode, setEditCommMode] = useState<"amount" | "percent">("amount");
   const [savingCommRow, setSavingCommRow] = useState<number | null>(null);
   // Set right before an edit is cancelled (Escape key or Cancel button) so the
   // input's onBlur — which fires as focus moves away — knows to discard the
@@ -1249,6 +1253,32 @@ export default function AccountsPage() {
       setSavingCommRow(null);
     }
   }, [selectedAgent, selectedMonth, loadCommissionSheet, handleLoadError]);
+
+  const startCommissionEdit = (row: CommissionRow, rowIndex: number) => {
+    setEditingCommRow(rowIndex);
+    setEditCommValue(String(editCommMode === "percent" ? row.commissionPct : row.commissionAmt));
+  };
+
+  // Switches the editor between ₹ and %, converting the value being typed.
+  const toggleCommissionEditMode = (row: CommissionRow) => {
+    const v = parseFloat(editCommValue);
+    const next = editCommMode === "amount" ? "percent" : "amount";
+    if (!isNaN(v)) {
+      const converted = next === "percent"
+        ? (row.amount > 0 ? Math.round((v / row.amount) * 10000) / 100 : 0)
+        : Math.round(row.amount * v) / 100;
+      setEditCommValue(String(converted));
+    }
+    setEditCommMode(next);
+  };
+
+  // % mode: commission = Amount × % ÷ 100, rounded to paise (₹9,500 at 10% → ₹950).
+  const commitCommissionEdit = (row: CommissionRow, rowIndex: number) => {
+    const v = parseFloat(editCommValue);
+    const valid = !isNaN(v) && v >= 0 && (editCommMode === "amount" || v <= 100);
+    if (valid) void saveCommissionOverride(row, rowIndex, editCommMode === "percent" ? Math.round(row.amount * v) / 100 : v);
+    setEditingCommRow(null);
+  };
 
   // Column definitions shared by the PDF and Excel commission-sheet exports,
   // so both formats always show exactly the same columns (respecting the
@@ -4177,7 +4207,17 @@ export default function AccountsPage() {
                                       <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
                                     ) : editingCommRow === i ? (
                                       <div className="flex items-center gap-1">
-                                        <span className="text-xs text-slate-400">₹</span>
+                                        <button
+                                          type="button"
+                                          data-comm-edit-btn="true"
+                                          onMouseDown={e => e.preventDefault()}
+                                          onClick={() => toggleCommissionEditMode(row)}
+                                          className="flex overflow-hidden rounded border border-slate-300 text-[11px] font-semibold leading-none"
+                                          title="Switch between ₹ amount and % of Amount"
+                                        >
+                                          <span className={`px-1 py-0.5 ${editCommMode === "amount" ? "bg-blue-600 text-white" : "text-slate-400"}`}>₹</span>
+                                          <span className={`px-1 py-0.5 ${editCommMode === "percent" ? "bg-blue-600 text-white" : "text-slate-400"}`}>%</span>
+                                        </button>
                                         <input
                                           type="number"
                                           min="0"
@@ -4188,9 +4228,7 @@ export default function AccountsPage() {
                                           autoFocus
                                           onKeyDown={e => {
                                             if (e.key === "Enter") {
-                                              const v = parseFloat(editCommValue);
-                                              if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
-                                              setEditingCommRow(null);
+                                              commitCommissionEdit(row, i);
                                             }
                                             if (e.key === "Escape") { cancelledCommEditRef.current = true; setEditingCommRow(null); }
                                           }}
@@ -4198,17 +4236,13 @@ export default function AccountsPage() {
                                             if (cancelledCommEditRef.current) { cancelledCommEditRef.current = false; return; }
                                             const relatedTarget = e.relatedTarget as HTMLElement | null;
                                             if (relatedTarget?.closest('[data-comm-edit-btn="true"]')) return;
-                                            const v = parseFloat(editCommValue);
-                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
-                                            setEditingCommRow(null);
+                                            commitCommissionEdit(row, i);
                                           }}
                                         />
                                         <button
                                           data-comm-edit-btn="true"
                                           onClick={() => {
-                                            const v = parseFloat(editCommValue);
-                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
-                                            setEditingCommRow(null);
+                                            commitCommissionEdit(row, i);
                                           }}
                                           className="p-0.5 text-green-600" title="Save"
                                         ><Check className="h-4 w-4" /></button>
@@ -4228,7 +4262,7 @@ export default function AccountsPage() {
                                         {isAdmin && (
                                           <>
                                             <button
-                                              onClick={() => { setEditingCommRow(i); setEditCommValue(String(row.commissionAmt)); }}
+                                              onClick={() => startCommissionEdit(row, i)}
                                               className="p-0.5 text-slate-300 hover:text-blue-500" title="Edit commission"
                                             ><Pencil className="h-3.5 w-3.5" /></button>
                                             {row.isOverridden && (
@@ -4391,22 +4425,22 @@ export default function AccountsPage() {
                                     savingCommRow === i ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 inline-block" />
                                     ) : editingCommRow === i ? (
-                                      <div className="flex items-center gap-1 justify-end">
-                                        <span className="text-slate-400 text-xs">₹</span>
+                                      // Stacked (input, then switch + ✓/✕ below) so the editor stays
+                                      // inside this narrow fixed-width column instead of spilling
+                                      // over Balance Due / Rate%.
+                                      <div className="flex flex-col items-end gap-1">
                                         <input
                                           type="number"
                                           min="0"
                                           step="0.01"
-                                          className="w-24 text-right border border-blue-400 rounded px-1 py-0.5 font-mono outline-none bg-white text-blue-800"
+                                          className="w-full min-w-0 text-right border border-blue-400 rounded px-1 py-0.5 font-mono outline-none bg-white text-blue-800"
                                           style={{ fontSize: "14px" }}
                                           value={editCommValue}
                                           onChange={e => setEditCommValue(e.target.value)}
                                           autoFocus
                                           onKeyDown={e => {
                                             if (e.key === "Enter") {
-                                              const v = parseFloat(editCommValue);
-                                              if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
-                                              setEditingCommRow(null);
+                                              commitCommissionEdit(row, i);
                                             }
                                             if (e.key === "Escape") { cancelledCommEditRef.current = true; setEditingCommRow(null); }
                                           }}
@@ -4417,42 +4451,51 @@ export default function AccountsPage() {
                                             if (cancelledCommEditRef.current) { cancelledCommEditRef.current = false; return; }
                                             const relatedTarget = e.relatedTarget as HTMLElement | null;
                                             if (relatedTarget?.closest('[data-comm-edit-btn="true"]')) return;
-                                            const v = parseFloat(editCommValue);
-                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
-                                            setEditingCommRow(null);
+                                            commitCommissionEdit(row, i);
                                           }}
                                         />
-                                        <button
-                                          data-comm-edit-btn="true"
-                                          onClick={() => {
-                                            const v = parseFloat(editCommValue);
-                                            if (!isNaN(v) && v >= 0) void saveCommissionOverride(row, i, v);
-                                            setEditingCommRow(null);
-                                          }}
-                                          className="text-green-600 hover:text-green-800 p-0.5"
-                                          title="Save"
-                                        ><Check className="h-3 w-3" /></button>
-                                        <button
-                                          data-comm-edit-btn="true"
-                                          onClick={() => { cancelledCommEditRef.current = true; setEditingCommRow(null); }}
-                                          className="text-red-400 hover:text-red-600 p-0.5"
-                                          title="Cancel"
-                                        ><X className="h-3 w-3" /></button>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            data-comm-edit-btn="true"
+                                            onMouseDown={e => e.preventDefault()}
+                                            onClick={() => toggleCommissionEditMode(row)}
+                                            className="flex overflow-hidden rounded border border-slate-300 text-[11px] font-semibold leading-none"
+                                            title="Switch between ₹ amount and % of Amount"
+                                          >
+                                            <span className={`px-1 py-0.5 ${editCommMode === "amount" ? "bg-blue-600 text-white" : "text-slate-400"}`}>₹</span>
+                                            <span className={`px-1 py-0.5 ${editCommMode === "percent" ? "bg-blue-600 text-white" : "text-slate-400"}`}>%</span>
+                                          </button>
+                                          <button
+                                            data-comm-edit-btn="true"
+                                            onClick={() => {
+                                              commitCommissionEdit(row, i);
+                                            }}
+                                            className="text-green-600 hover:text-green-800 p-0.5"
+                                            title="Save"
+                                          ><Check className="h-3 w-3" /></button>
+                                          <button
+                                            data-comm-edit-btn="true"
+                                            onClick={() => { cancelledCommEditRef.current = true; setEditingCommRow(null); }}
+                                            className="text-red-400 hover:text-red-600 p-0.5"
+                                            title="Cancel"
+                                          ><X className="h-3 w-3" /></button>
+                                        </div>
                                       </div>
                                     ) : (
-                                      <div className="flex items-center gap-1 justify-end group">
-                                        <span className={row.isOverridden ? "text-purple-700" : ""}
+                                      // flex-wrap: when a corrected amount + ✎ + the hover buttons don't
+                                      // fit this narrow column, the buttons drop to a second line instead
+                                      // of pushing the amount left into Balance Due.
+                                      <div className="flex flex-wrap items-center gap-x-1 justify-end group">
+                                        <span className={`whitespace-nowrap ${row.isOverridden ? "text-purple-700" : ""}`}
                                           title={row.isOverridden ? `Corrected by ${row.overriddenBy ?? "admin"}${row.overriddenAt ? " on " + new Date(row.overriddenAt).toLocaleDateString("en-IN") : ""} — was ₹${row.calculatedCommissionAmt.toLocaleString("en-IN")}` : undefined}>
                                           ₹{row.commissionAmt.toLocaleString("en-IN")}
                                           {row.isOverridden && <span className="text-purple-400 text-xs ml-0.5">✎</span>}
                                         </span>
                                         {isAdmin && (
-                                          <>
+                                          <span className="inline-flex items-center gap-1">
                                             <button
-                                              onClick={() => {
-                                                setEditingCommRow(i);
-                                                setEditCommValue(String(row.commissionAmt));
-                                              }}
+                                              onClick={() => startCommissionEdit(row, i)}
                                               className="opacity-0 group-hover:opacity-100 ml-0.5 text-slate-300 hover:text-blue-500 transition-opacity"
                                               title="Edit commission"
                                             ><Pencil className="h-3 w-3" /></button>
@@ -4463,7 +4506,7 @@ export default function AccountsPage() {
                                                 title={`Revert to calculated (₹${row.calculatedCommissionAmt.toLocaleString("en-IN")})`}
                                               ><X className="h-3 w-3" /></button>
                                             )}
-                                          </>
+                                          </span>
                                         )}
                                       </div>
                                     )
