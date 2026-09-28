@@ -6,14 +6,18 @@
 // Uses the exact same formula as the app (dist/src/common/inclusive-gst.js),
 // so build first:  npm run build
 //
-// Picks invoices that are ISSUED, balanceAmount > 0, not test orders, and
-// still at 0 GST (taxAmount = 0 and every line at 0%) — so it never touches
-// an invoice twice and never touches paid invoices.
+// Picks invoices that are ISSUED, balanceAmount > 0 and not test orders
+// (paid invoices are never touched). Within them it only fills in lines still
+// at 0% whose product now has a GST rate — a line already carrying GST is
+// never changed. So it is safe to re-run each time more product rates are
+// set: every run only adds GST for the newly rated products.
 // For each changed invoice it posts two ADJUSTMENT ledger lines (Sales debit,
-// Output GST credit) so the change stays auditable.
+// Output GST credit) for the GST added in that run, so it stays auditable.
 //
 // Dry run by default (prints what would change). To write:
 //   node scripts/recalc-unpaid-invoice-gst.js --apply
+// Limit to specific invoice numbers (same eligibility rules still apply):
+//   node scripts/recalc-unpaid-invoice-gst.js --only=1717,1705 [--apply]
 // backend/.env is PRODUCTION — set $env:DATABASE_URL to target another DB.
 // Run only AFTER setting GST % on products (Admin > Database > Products).
 require('dotenv/config');
@@ -22,6 +26,12 @@ const { Client } = require('pg');
 const { splitInclusiveGst } = require('../dist/src/common/inclusive-gst');
 
 const APPLY = process.argv.includes('--apply');
+const onlyArg = process.argv.find((a) => a.startsWith('--only='));
+const ONLY = onlyArg ? onlyArg.slice('--only='.length).split(',').map((s) => s.trim()).filter(Boolean) : null;
+if (onlyArg && ONLY.length === 0) {
+  console.error('[recalc-unpaid-invoice-gst] --only= given with no invoice numbers — nothing done.');
+  process.exit(1);
+}
 const round = (n) => Math.round(n * 100) / 100;
 
 async function main() {
@@ -38,28 +48,32 @@ async function main() {
   try {
     const { rows: invoices } = await client.query(`
       SELECT i.id, i."invoiceNumber", i."orderId", o."customerId", i."gstTreatment",
-             i."taxableAmount", i."totalAmount", i."balanceAmount"
+             i."taxableAmount", i."taxAmount", i."cgstAmount", i."sgstAmount", i."igstAmount",
+             i."totalAmount", i."balanceAmount"
       FROM "Invoice" i JOIN "Order" o ON o.id = i."orderId"
-      WHERE i.status = 'ISSUED' AND i."balanceAmount" > 0 AND i."taxAmount" = 0
+      WHERE i.status = 'ISSUED' AND i."balanceAmount" > 0
         AND o."isTest" = false
-        AND NOT EXISTS (SELECT 1 FROM "InvoiceItem" ii WHERE ii."invoiceId" = i.id AND ii."gstRatePct" > 0)
-      ORDER BY i."invoiceNumber"`);
+        AND ($1::text[] IS NULL OR i."invoiceNumber" = ANY($1::text[]))
+      ORDER BY i."invoiceNumber"`, [ONLY]);
+    if (ONLY) console.log(`  limited to invoice(s): ${ONLY.join(', ')} — ${invoices.length} eligible`);
 
     let changed = 0;
     for (const inv of invoices) {
       const { rows: items } = await client.query(`
         SELECT ii.id, ii."productName", ii."lineTotal", COALESCE(p."gstRatePct", 0) AS rate
         FROM "InvoiceItem" ii LEFT JOIN "Product" p ON p.sku = ii.sku
-        WHERE ii."invoiceId" = $1`, [inv.id]);
+        WHERE ii."invoiceId" = $1 AND ii."gstRatePct" = 0 AND COALESCE(p."gstRatePct", 0) > 0`, [inv.id]);
 
+      // Only lines still at 0% whose product now has a rate.
       const splits = items.map((it) => ({ it, split: splitInclusiveGst(Number(it.lineTotal), Number(it.rate), inv.gstTreatment) }));
       const sum = (k) => round(splits.reduce((s, x) => s + x.split[k], 0));
       const tax = sum('taxAmount');
       if (tax <= 0) continue;
       const newTaxable = round(Number(inv.taxableAmount) - tax);
+      const newTax = round(Number(inv.taxAmount) + tax);
 
       changed++;
-      console.log(`  ${inv.invoiceNumber}: total ₹${Number(inv.totalAmount)} (unchanged) → taxable ₹${newTaxable} + GST ₹${tax}`);
+      console.log(`  ${inv.invoiceNumber}: total ₹${Number(inv.totalAmount)} (unchanged) → taxable ₹${newTaxable} + GST ₹${newTax}${Number(inv.taxAmount) > 0 ? ` (was ₹${Number(inv.taxAmount)}, +₹${tax})` : ''}`);
       for (const { it, split } of splits) {
         if (split.taxAmount > 0) console.log(`      ${it.productName}: ₹${Number(it.lineTotal)} @ ${split.gstRatePct}% → taxable ₹${split.taxableAmount} + GST ₹${split.taxAmount}`);
       }
@@ -75,7 +89,7 @@ async function main() {
         }
         await client.query(
           `UPDATE "Invoice" SET "taxableAmount"=$2, "taxAmount"=$3, "cgstAmount"=$4, "sgstAmount"=$5, "igstAmount"=$6, "updatedAt"=now() WHERE id=$1`,
-          [inv.id, newTaxable, tax, sum('cgstAmount'), sum('sgstAmount'), sum('igstAmount')],
+          [inv.id, newTaxable, newTax, round(Number(inv.cgstAmount) + sum('cgstAmount')), round(Number(inv.sgstAmount) + sum('sgstAmount')), round(Number(inv.igstAmount) + sum('igstAmount'))],
         );
         const narration = `GST split out of rate (rate includes GST) for invoice ${inv.invoiceNumber}`;
         for (const [accountName, debit, credit] of [['Sales', tax, 0], ['Output GST', 0, tax]]) {
@@ -91,7 +105,7 @@ async function main() {
         throw e;
       }
     }
-    console.log(`[recalc-unpaid-invoice-gst] ${invoices.length} unpaid 0%-GST invoice(s) checked, ${changed} ${APPLY ? 'updated' : 'would change'}.`);
+    console.log(`[recalc-unpaid-invoice-gst] ${invoices.length} unpaid invoice(s) checked, ${changed} ${APPLY ? 'updated' : 'would change'}.`);
   } finally {
     await client.end();
   }
