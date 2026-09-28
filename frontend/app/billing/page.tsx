@@ -6,7 +6,6 @@ import { PdfPreview } from "@/components/pdf-preview";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { sameState, stateFromGstin } from "@/lib/gst-states";
-import * as XLSX from "xlsx";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
   Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock, FileText, Plus, Trash2, ArrowRight,
@@ -109,9 +108,16 @@ async function downloadBlob(url: string, filename: string) {
 
 // Party statement as an Excel sheet — same voucher rows/columns as the
 // on-screen table and the statement PDF, with real dates and numbers so it
-// can be sorted/summed in Excel.
-function downloadStatementExcel(ledger: PartyLedger) {
+// can be sorted/summed in Excel. Formatted as a bordered table (header row
+// shaded + bold, total row bold). Uses xlsx-js-style — plain "xlsx" (SheetJS
+// community) can't write cell styles — loaded only when the button is clicked.
+async function downloadStatementExcel(ledger: PartyLedger) {
+  // CommonJS package: the bundler may hand it back under `default`.
+  type XlsxStyle = typeof import("xlsx-js-style");
+  const mod = (await import("xlsx-js-style")) as XlsxStyle & { default?: XlsxStyle };
+  const XLSXStyled = mod.default ?? mod;
   const c = ledger.customer;
+  const HEADER_ROW = 5; // 0-based: title, party, phone, GSTIN, blank, header
   const rows: (string | number | Date)[][] = [
     ["Party Statement"],
     ["Party", c.businessName],
@@ -120,14 +126,35 @@ function downloadStatementExcel(ledger: PartyLedger) {
     [],
     ["Date", "Type", "Voucher No", "Particulars", "Debit (₹)", "Credit (₹)", "Balance (₹)"],
     ...ledger.vouchers.map(v => [new Date(v.date), v.type, v.voucherNo, v.particulars, v.debit || "", v.credit || "", v.balance]),
-    [],
     ["", "", "", "Total", ledger.totalBilled, ledger.totalReceived, ledger.balanceDue],
   ];
-  const ws = XLSX.utils.aoa_to_sheet(rows, { cellDates: true, dateNF: "dd-mm-yyyy" });
-  ws["!cols"] = [{ wch: 12 }, { wch: 9 }, { wch: 18 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Statement");
-  XLSX.writeFile(wb, `Statement_${c.businessName.replace(/[^a-zA-Z0-9]+/g, "_")}.xlsx`);
+  const totalRow = rows.length - 1;
+  const ws = XLSXStyled.utils.aoa_to_sheet(rows, { cellDates: true, dateNF: "dd-mm-yyyy" });
+
+  const thin = { style: "thin", color: { rgb: "94A3B8" } };
+  const border = { top: thin, bottom: thin, left: thin, right: thin };
+  for (let r = HEADER_ROW; r <= totalRow; r++) {
+    for (let col = 0; col < 7; col++) {
+      const addr = XLSXStyled.utils.encode_cell({ r, c: col });
+      const cell = ws[addr] ?? (ws[addr] = { t: "s", v: "" });
+      const isHeader = r === HEADER_ROW;
+      const isTotal = r === totalRow;
+      cell.s = {
+        border,
+        font: { bold: isHeader || isTotal },
+        ...(isHeader ? { fill: { fgColor: { rgb: "E2E8F0" } } } : {}),
+        ...(col >= 4 && !isHeader ? { numFmt: "#,##0.00", alignment: { horizontal: "right" } } : {}),
+        ...(col === 0 && !isHeader && !isTotal ? { numFmt: "dd-mm-yyyy" } : {}),
+      };
+    }
+  }
+  ws.A1.s = { font: { bold: true, sz: 14 } };
+  for (const label of ["A2", "A3", "A4"]) ws[label].s = { font: { bold: true } };
+
+  ws["!cols"] = [{ wch: 12 }, { wch: 9 }, { wch: 18 }, { wch: 32 }, { wch: 13 }, { wch: 13 }, { wch: 13 }];
+  const wb = XLSXStyled.utils.book_new();
+  XLSXStyled.utils.book_append_sheet(wb, ws, "Statement");
+  XLSXStyled.writeFile(wb, `Statement_${c.businessName.replace(/[^a-zA-Z0-9]+/g, "_")}.xlsx`);
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -1062,7 +1089,7 @@ function BillingPageInner() {
                           <Download className="h-3.5 w-3.5" /> Download Statement PDF
                         </button>
                         <button
-                          onClick={() => downloadStatementExcel(ledger)}
+                          onClick={() => void downloadStatementExcel(ledger)}
                           className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 flex items-center gap-1"
                         >
                           <Download className="h-3.5 w-3.5" /> Download Excel
