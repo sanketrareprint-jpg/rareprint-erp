@@ -84,11 +84,17 @@ function restorePlan(p) {
 }
 
 // Step 0: parcels that are copies of the order's one Book Shipment charge.
+// Step 0b: "Mark manually dispatched" (MAN- shipments) never copied the Book
+// Shipment charge onto the parcel (fixed 2026-09-28), so on a dispatched order
+// whose courier parcels are all empty, the first one gets it now.
+const DISPATCHED_STATUSES = ['PARTIALLY_DISPATCHED', 'DISPATCHED', 'DELIVERED'];
 function duplicatePlan(order) {
   const quoted = order.courierChargeQuoted != null ? toPaise(order.courierChargeQuoted) : null;
-  if (!quoted) return { dupIds: [], clearQuoted: false };
+  if (!quoted) return { dupIds: [], clearQuoted: false, fillFromQuotedId: null };
   const carrying = order.shipments.filter((s) => s.courierChargeCollected != null && toPaise(s.courierChargeCollected) === quoted);
-  return { dupIds: carrying.slice(1).map((s) => s.id), clearQuoted: carrying.length > 0 };
+  const fillFromQuotedId = carrying.length === 0 && DISPATCHED_STATUSES.includes(order.status) && order.shipments.length > 0
+    && order.shipments.every((s) => s.courierChargeCollected == null) ? order.shipments[0].id : null;
+  return { dupIds: carrying.slice(1).map((s) => s.id), clearQuoted: carrying.length > 0 || fillFromQuotedId != null, fillFromQuotedId, quoted };
 }
 
 async function main() {
@@ -112,7 +118,7 @@ async function main() {
       ...(hasCourierColumn ? { courierCharge: true } : {}),
       order: {
         select: {
-          id: true, orderNumber: true, customerId: true, isTest: true, courierChargeQuoted: true, customer: { select: { businessName: true } },
+          id: true, orderNumber: true, status: true, customerId: true, isTest: true, courierChargeQuoted: true, customer: { select: { businessName: true } },
           payments: { select: { id: true, amount: true, notes: true, verificationStatus: true, paymentAccount: { select: { name: true } } } },
           shipments: { where: { dispatchType: 'COURIER' }, orderBy: { createdAt: 'asc' }, select: { id: true, courierChargeCollected: true } },
         },
@@ -127,9 +133,10 @@ async function main() {
     const correctionCut = toPaise(restores.filter((r) => r.plan.kind === 'correction').reduce((s, r) => s + r.plan.cut, 0));
 
     const dup = duplicatePlan(inv.order);
-    const shipmentsAfterDedupe = inv.order.shipments.map((s) => (dup.dupIds.includes(s.id) ? { ...s, courierChargeCollected: 0 } : s));
+    const shipmentsAfterDedupe = inv.order.shipments.map((s) => (dup.dupIds.includes(s.id) ? { ...s, courierChargeCollected: 0 }
+      : s.id === dup.fillFromQuotedId ? { ...s, courierChargeCollected: dup.quoted } : s));
     const boxBefore = toPaise(shipmentsAfterDedupe.reduce((s, sh) => s + Number(sh.courierChargeCollected ?? 0), 0));
-    const duplicateRemoved = toPaise(inv.order.shipments.reduce((s, sh) => s + Number(sh.courierChargeCollected ?? 0), 0) - boxBefore);
+    const duplicateRemoved = toPaise(inv.order.shipments.reduce((s, sh) => s + Number(sh.courierChargeCollected ?? 0), 0) - boxBefore + (dup.fillFromQuotedId ? dup.quoted : 0));
     const fillBox = boxBefore === 0 && correctionCut > 0;
     const noShipmentToFill = fillBox && inv.order.shipments.length === 0;
     const courierAfter = fillBox && !noShipmentToFill ? correctionCut : boxBefore;
@@ -166,6 +173,7 @@ async function main() {
   console.log(`  empty courier boxes filled: ${rows.filter((r) => r.fillBox).length}${rows.some((r) => r.noShipmentToFill) ? `   (no courier shipment to fill: ${rows.filter((r) => r.noShipmentToFill).map((r) => r.inv.invoiceNumber).join(', ')})` : ''}`);
   console.log(`  courier charges added to invoices: ₹${toPaise(rows.reduce((s, r) => s + r.courierDiff, 0))} (of which GST ₹${toPaise(rows.reduce((s, r) => s + r.gstDelta('taxAmount'), 0))})`);
   console.log(`  duplicate parcel charges removed: ${dups.reduce((s, r) => s + r.dup.dupIds.length, 0)} parcel(s) on ${dups.length} order(s), ₹${toPaise(dups.reduce((s, r) => s + r.duplicateRemoved, 0))}`);
+  console.log(`  manually dispatched parcels filled from Book Shipment charge: ${rows.filter((r) => r.dup.fillFromQuotedId).length}`);
   console.log(`  leftover Book Shipment charge cleared on ${rows.filter((r) => r.dup.clearQuoted).length} order(s)`);
   console.log(`  balance after: ₹0 → ${zero.length}   still owing → ${owing.length}   excess → ${excess.length}\n`);
 
@@ -189,6 +197,9 @@ async function main() {
     await prisma.$transaction(async (tx) => {
       for (const id of r.dup.dupIds) {
         await tx.shipment.update({ where: { id }, data: { courierChargeCollected: 0, courierChargeUpdatedAt: new Date() } });
+      }
+      if (r.dup.fillFromQuotedId) {
+        await tx.shipment.update({ where: { id: r.dup.fillFromQuotedId }, data: { courierChargeCollected: r.dup.quoted, courierChargeUpdatedAt: new Date() } });
       }
       if (r.dup.clearQuoted) {
         await tx.order.update({ where: { id: r.inv.order.id }, data: { courierChargeQuoted: null } });
@@ -239,7 +250,9 @@ async function main() {
           ],
         });
       }
-    });
+    // Run from a laptop over Railway's public proxy, one invoice's writes can
+    // exceed Prisma's 5s default (seen 2026-09-28: 9s → rolled back).
+    }, { timeout: 60000, maxWait: 20000 });
   }
   console.log(`Applied to ${rows.length} invoice(s).`);
 }

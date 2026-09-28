@@ -2087,6 +2087,11 @@ export class DispatchService {
       : `Manually marked as dispatched via ${carrierName}${codPart}`;
 
     await this.prisma.$transaction(async (tx) => {
+      // Same as bookItems: the Book Shipment courier charge taken from the
+      // customer goes on this parcel (once) and then onto their invoice.
+      // This path used to skip it, so manually dispatched orders' courier
+      // charges never reached the invoice (68 orders found 2026-09-28).
+      const quotedCourierCharge = (await tx.order.findUnique({ where: { id: orderId }, select: { courierChargeQuoted: true } }))?.courierChargeQuoted ?? null;
       await tx.shipment.create({
         data: {
           orderId,
@@ -2099,6 +2104,9 @@ export class DispatchService {
           awbNumber: trackingRef,
           dispatchType: 'COURIER',
           notes: shipmentNotes,
+          ...(quotedCourierCharge != null
+            ? { courierChargeCollected: quotedCourierCharge, courierChargeUpdatedAt: new Date() }
+            : {}),
         },
       });
 
@@ -2120,8 +2128,10 @@ export class DispatchService {
 
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.DISPATCHED },
+        data: { status: OrderStatus.DISPATCHED, ...(quotedCourierCharge != null ? { courierChargeQuoted: null } : {}) },
       });
+
+      await syncInvoiceCourierCharge(tx, orderId);
 
       await tx.statusLog.create({
         data: {
