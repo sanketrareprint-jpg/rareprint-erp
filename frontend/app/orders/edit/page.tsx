@@ -111,7 +111,10 @@ function EditOrderPageInner() {
         body: JSON.stringify({ customer: Object.fromEntries(Object.entries(customer).filter(([, v]) => v !== "")), notes: orderNotes, items: lineItems.map(i => ({ productId: i.productId, sizeInches: i.sizeInches, gsm: i.gsm, sides: i.sides, quantity: i.quantity, unitPrice: i.unitPrice, lineTotal: i.lineTotal || i.quantity * i.unitPrice, artworkNotes: i.specialInstructions, productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}${i.paperType ? `, Paper: ${i.paperType}` : ""}, Sides: ${i.sides}` })) }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.message || "Update failed"); return; }
-      alert("Order updated!");
+      const result = await res.json().catch(() => ({}));
+      alert(result.customerNameKept
+        ? "Order updated. The customer's name was NOT changed — this customer has other orders, so the name can only be changed from Billing → Parties."
+        : "Order updated!");
       router.push("/orders");
     } finally { setSubmitting(false); }
   }

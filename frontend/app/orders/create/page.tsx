@@ -524,6 +524,29 @@ export default function CreateOrderPage() {
         ? (needsDate ? `${leadSource}_${MONTHS[Number(leadMonth) - 1]}_${leadYear}` : leadSource)
         : undefined;
 
+      // An existing customer keeps their saved name — the backend no longer
+      // renames a customer from an order (renames are done in Billing →
+      // Parties). If the name on this form differs (typically an estimate
+      // pre-filled with a name the party has since been renamed from), say so
+      // before saving rather than quietly using the saved name.
+      const phoneForMatch = normalizePhone(customer.phone);
+      if (phoneForMatch.length === 10 && customer.name.trim()) {
+        const lookup = await fetch(`${API_BASE_URL}/customer-directory/search?${new URLSearchParams({ search: phoneForMatch, limit: "8" })}`, { headers: getAuthHeaders() })
+          .then(r => (r.ok ? r.json() : null))
+          .catch(() => null);
+        const rows: CustomerSearchRow[] = lookup?.customers ?? [];
+        const saved = rows.find(r => (customer.customerId && r.id === customer.customerId) || normalizePhone(r.phone ?? "") === phoneForMatch);
+        const savedName = saved?.businessName?.trim() ?? "";
+        if (savedName && savedName.toUpperCase() !== customer.name.trim().toUpperCase()) {
+          const proceed = window.confirm(
+            `This phone number belongs to existing customer "${savedName}".\n\n` +
+            `The order will be saved under "${savedName}" — the name typed here ("${customer.name.trim()}") will not be used.\n\n` +
+            `To rename this customer, use Billing → Parties.\n\nSave the order under "${savedName}"?`,
+          );
+          if (!proceed) return;
+        }
+      }
+
       const customerPayload = Object.fromEntries(Object.entries(customer).filter(([, v]) => v !== ""));
       const res = await fetch(`${API_BASE_URL}/orders`, {
         method: "POST",

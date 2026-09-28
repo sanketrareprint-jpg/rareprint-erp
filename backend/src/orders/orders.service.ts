@@ -832,12 +832,15 @@ export class OrdersService {
           ? await tx.customer.findFirst({ where: { phone: dto.customer.phone } })
           : null;
 
+      // An existing customer's NAME is not overwritten from the order form
+      // (2026-09-28): every past order/invoice reads this one Customer row, so
+      // whatever was typed — or pre-filled from an old estimate — renamed the
+      // party everywhere and silently undid Billing > Parties edits. Renames
+      // go through Billing > Parties; contact/address details still update.
       const customer = existingCustomer
         ? await tx.customer.update({
             where: { id: existingCustomer.id },
             data: {
-              businessName: customerNameUpper,
-              contactPerson: customerNameUpper,
               phone: sanitizePhone(dto.customer.phone),
               phone2: sanitizePhone(dto.customer.phone2),
               email: dto.customer.email,
@@ -1001,12 +1004,20 @@ export class OrdersService {
       select: { productId: true, quantity: true, unitPrice: true, productionNotes: true, product: true },
     });
 
+    // The customer's name changes here only when this is their only order —
+    // i.e. fixing a typo on a customer just created by this order. Otherwise
+    // the name is shared by their other orders/invoices and is only renamed
+    // from Billing > Parties (see create() above for why).
+    const otherOrderCount = await this.prisma.order.count({ where: { customerId: order.customerId, id: { not: orderId } } });
+    const renameCustomer = otherOrderCount === 0;
+    const currentCustomer = await this.prisma.customer.findUnique({ where: { id: order.customerId }, select: { businessName: true } });
+    const customerNameKept = !renameCustomer && !!editCustomerNameUpper && editCustomerNameUpper !== currentCustomer?.businessName;
+
     await this.prisma.$transaction(async (tx) => {
       await tx.customer.update({
         where: { id: order.customerId },
         data: {
-          businessName: editCustomerNameUpper,
-          contactPerson: editCustomerNameUpper,
+          ...(renameCustomer ? { businessName: editCustomerNameUpper, contactPerson: editCustomerNameUpper } : {}),
           phone: sanitizePhone(body.customer?.phone),
           email: body.customer?.email,
           shippingAddress,
@@ -1054,7 +1065,7 @@ export class OrdersService {
       void this.notifyCustomerOrderUpdated(orderId);
     }
 
-    return { success: true };
+    return { success: true, customerNameKept };
   }
 
   // WhatsApps the customer the order's current items, total, paid and
