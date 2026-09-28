@@ -480,21 +480,59 @@ export class BillingService {
   // One party can exist as several Customer rows whose phone is the same
   // number in different formats (e.g. "9140580244" and "+91 91405 80244" —
   // older/other create paths didn't normalise it). The Parties list and
-  // statement treat every row whose phone normalises (sanitizePhone) to the
-  // same 10-digit number as one party. The rows themselves are not merged.
+  // statement treat rows as one party only when all of these match:
+  //   - phone, normalised (sanitizePhone) to the same 10-digit number
+  //   - name, ignoring case, spaces and punctuation
+  //   - GSTIN: rows with a GSTIN must share it; a blank GSTIN doesn't block
+  //     the match, unless the name+phone set holds two different GSTINs —
+  //     then only rows with the same GSTIN group and blank ones stay apart.
+  // So two different businesses sharing one number stay separate. The rows
+  // themselves are not merged.
   private partyPhone(phone: string | null): string | null {
     const normalised = sanitizePhone(phone ?? '');
     return normalised.length === 10 ? normalised : null;
   }
 
-  private async partyCustomerIds(customer: { id: string; phone: string | null }): Promise<string[]> {
+  // Customer id → party key. Rows with the same key are one party.
+  private partyKeys(rows: { id: string; businessName: string; phone: string | null; gstNumber: string | null }[]): Map<string, string> {
+    const buckets = new Map<string, { id: string; gst: string | null }[]>();
+    const keys = new Map<string, string>();
+    for (const r of rows) {
+      const phone = this.partyPhone(r.phone);
+      const name = r.businessName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!phone || !name) {
+        keys.set(r.id, `id:${r.id}`);
+        continue;
+      }
+      const bucketKey = `${phone}|${name}`;
+      const bucket = buckets.get(bucketKey) ?? [];
+      bucket.push({ id: r.id, gst: r.gstNumber?.trim().toUpperCase() || null });
+      buckets.set(bucketKey, bucket);
+    }
+    for (const [bucketKey, bucket] of buckets) {
+      const gstins = new Set(bucket.map((r) => r.gst).filter(Boolean));
+      for (const r of bucket) {
+        if (gstins.size <= 1) keys.set(r.id, bucketKey);
+        else keys.set(r.id, r.gst ? `${bucketKey}|${r.gst}` : `id:${r.id}`);
+      }
+    }
+    return keys;
+  }
+
+  // Candidates are limited to rows with a non-test invoice — the same rows
+  // listParties() groups — so the statement always covers exactly the rows
+  // merged into that party's list row.
+  private async partyCustomerIds(customer: { id: string; businessName: string; phone: string | null; gstNumber: string | null }): Promise<string[]> {
     const phone = this.partyPhone(customer.phone);
     if (!phone) return [customer.id];
-    const candidates = await this.prisma.$queryRaw<{ id: string; phone: string | null }[]>`
-      SELECT id, phone FROM "Customer"
-      WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + phone}`;
-    const ids = candidates.filter((c) => this.partyPhone(c.phone) === phone).map((c) => c.id);
-    return ids.includes(customer.id) ? ids : [customer.id, ...ids];
+    const candidates = await this.prisma.$queryRaw<{ id: string; businessName: string; phone: string | null; gstNumber: string | null }[]>`
+      SELECT c.id, c."businessName", c.phone, c."gstNumber" FROM "Customer" c
+      WHERE regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + phone}
+        AND EXISTS (SELECT 1 FROM "Invoice" i JOIN "Order" o ON o.id = i."orderId" WHERE o."customerId" = c.id AND o."isTest" = false)`;
+    const rows = candidates.some((c) => c.id === customer.id) ? candidates : [customer, ...candidates];
+    const keys = this.partyKeys(rows);
+    const ownKey = keys.get(customer.id);
+    return rows.filter((r) => keys.get(r.id) === ownKey).map((r) => r.id);
   }
 
   async listParties() {
@@ -503,11 +541,14 @@ export class BillingService {
       include: { order: { include: { customer: true } } },
     });
 
+    const customers = new Map(invoices.map((inv) => [inv.order.customer.id, inv.order.customer]));
+    const partyKeys = this.partyKeys(Array.from(customers.values()));
+
     const byParty = new Map<string, { customerId: string; customerName: string; phone: string | null; totalBilled: number; totalReceived: number; balanceDue: number; invoiceCount: number }>();
     for (const inv of invoices) {
       const c = inv.order.customer;
       const phone = this.partyPhone(c.phone);
-      const key = phone ? `phone:${phone}` : `id:${c.id}`;
+      const key = partyKeys.get(c.id)!;
       let row = byParty.get(key);
       if (!row) {
         row = { customerId: c.id, customerName: c.businessName, phone: c.phone, totalBilled: 0, totalReceived: 0, balanceDue: 0, invoiceCount: 0 };
