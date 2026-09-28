@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { NotificationBell } from "./NotificationBell";
+import { ServerErrorIndicator } from "./ServerErrorIndicator";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -309,6 +310,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="erp-shell" style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <ServerErrorIndicator />
 
       {/* ── Virtual CEO: Account Locked overlay ── */}
       {vceoLocked && (
