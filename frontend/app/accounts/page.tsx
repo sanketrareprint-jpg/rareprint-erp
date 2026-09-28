@@ -4483,20 +4483,21 @@ export default function AccountsPage() {
                                         </div>
                                       </div>
                                     ) : (
-                                      // flex-wrap: when a corrected amount + ✎ + the hover buttons don't
-                                      // fit this narrow column, the buttons drop to a second line instead
-                                      // of pushing the amount left into Balance Due.
-                                      <div className="flex flex-wrap items-center gap-x-1 justify-end group">
+                                      // The hover buttons are absolutely positioned just below the amount,
+                                      // so they take no space: the amount stays on one line, right-aligned
+                                      // and level with the rest of the row, instead of being pushed into
+                                      // Balance Due (or up, when the buttons wrapped).
+                                      <div className="relative flex items-center justify-end group">
                                         <span className={`whitespace-nowrap ${row.isOverridden ? "text-purple-700" : ""}`}
                                           title={row.isOverridden ? `Corrected by ${row.overriddenBy ?? "admin"}${row.overriddenAt ? " on " + new Date(row.overriddenAt).toLocaleDateString("en-IN") : ""} — was ₹${row.calculatedCommissionAmt.toLocaleString("en-IN")}` : undefined}>
                                           ₹{row.commissionAmt.toLocaleString("en-IN")}
                                           {row.isOverridden && <span className="text-purple-400 text-xs ml-0.5">✎</span>}
                                         </span>
                                         {isAdmin && (
-                                          <span className="inline-flex items-center gap-1">
+                                          <span className="absolute right-0 top-full z-10 inline-flex items-center gap-1">
                                             <button
                                               onClick={() => startCommissionEdit(row, i)}
-                                              className="opacity-0 group-hover:opacity-100 ml-0.5 text-slate-300 hover:text-blue-500 transition-opacity"
+                                              className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-blue-500 transition-opacity"
                                               title="Edit commission"
                                             ><Pencil className="h-3 w-3" /></button>
                                             {row.isOverridden && (
