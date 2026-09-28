@@ -567,6 +567,44 @@ export class BillingService {
       };
     });
 
+    // Voucher-wise statement (Billing > Parties, statement PDF/Excel): one
+    // Sale row per invoice (debit) and one Receipt row per VERIFIED payment on
+    // those invoiced orders (credit), in date order with a running balance.
+    // Same scope as `entries` above — verified payments on invoiced orders sum
+    // to Invoice.paidAmount (checked 2026-09-28: 533 invoices, 0 mismatches) —
+    // so totals agree. `entries` stays as-is: the invoice PDF's Previous/Current
+    // Balance reads it.
+    const company = await this.getCompanyProfile();
+    const payments = await this.prisma.payment.findMany({
+      where: { verificationStatus: 'VERIFIED', order: { customerId, isTest: false, invoice: { isNot: null } } },
+      include: { order: { select: { invoice: { select: { invoiceNumber: true } } } } },
+    });
+    const voucherRows = [
+      ...invoices.map((inv) => ({
+        date: inv.issueDate,
+        type: 'Sale' as const,
+        voucherNo: this.displayInvoiceNumber(company.invoicePrefix, inv.issueDate, inv.invoiceNumber),
+        particulars: `Invoice ${inv.invoiceNumber}`,
+        debit: Number(inv.totalAmount),
+        credit: 0,
+      })),
+      ...payments.map((p) => ({
+        date: p.paymentDate,
+        type: 'Receipt' as const,
+        voucherNo: this.receiptNumberFor(p.order.invoice!.invoiceNumber),
+        particulars: [PAYMENT_METHOD_LABELS[p.method] ?? p.method, p.referenceNumber].filter(Boolean).join(' · '),
+        debit: 0,
+        credit: Number(p.amount),
+      })),
+    ].sort((a, b) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+      || (a.type === b.type ? 0 : a.type === 'Sale' ? -1 : 1));
+    let voucherBalance = 0;
+    const vouchers = voucherRows.map((v) => {
+      voucherBalance = this.toPaise(voucherBalance + v.debit - v.credit);
+      return { ...v, balance: voucherBalance };
+    });
+
     return {
       customer: {
         id: customer.id,
@@ -579,6 +617,7 @@ export class BillingService {
         pincode: customer.pincode,
       },
       entries,
+      vouchers,
       totalBilled: entries.reduce((sum, e) => sum + e.totalAmount, 0),
       totalReceived: entries.reduce((sum, e) => sum + e.paidAmount, 0),
       balanceDue: entries.reduce((sum, e) => sum + e.balanceAmount, 0),
@@ -691,28 +730,52 @@ export class BillingService {
       if (ledger.customer.phone) doc.text(ledger.customer.phone, { align: 'center' });
       doc.moveDown();
 
-      doc.font('Body-Bold').fontSize(9);
+      // Voucher-wise, date first: Date | Type | Voucher No | Particulars |
+      // Debit | Credit | Balance (see getPartyLedger's `vouchers`).
       const startX = 40;
+      const cols = [
+        { label: 'Date', x: 0, w: 58 },
+        { label: 'Type', x: 58, w: 46 },
+        { label: 'Voucher No', x: 104, w: 90 },
+        { label: 'Particulars', x: 194, w: 100 },
+        { label: 'Debit (₹)', x: 294, w: 66, right: true },
+        { label: 'Credit (₹)', x: 360, w: 66, right: true },
+        { label: 'Balance (₹)', x: 426, w: 69, right: true },
+      ];
+      // One line per cell: long text (UPI references have no spaces) is cut by
+      // character with "…" — PDFKit's own ellipsis cuts at word boundaries and
+      // wraps, which dropped the whole reference and overlapped the next row.
+      const fitCell = (text: string, width: number) => {
+        if (doc.widthOfString(text) <= width) return text;
+        let keep = text.length;
+        while (keep > 0 && doc.widthOfString(`${text.slice(0, keep)}…`) > width) keep--;
+        return `${text.slice(0, keep)}…`;
+      };
+      const drawRow = (values: string[]) => {
+        cols.forEach((c, i) => doc.text(fitCell(values[i], c.w - 4), startX + c.x, y, { width: c.w - 4, align: c.right ? 'right' : 'left', lineBreak: false }));
+      };
       let y = doc.y;
-      doc.text('Invoice No', startX, y, { width: 90 });
-      doc.text('Date', startX + 90, y, { width: 70 });
-      doc.text('Total (₹)', startX + 160, y, { width: 80 });
-      doc.text('Paid (₹)', startX + 240, y, { width: 80 });
-      doc.text('Balance (₹)', startX + 320, y, { width: 80 });
-      doc.text('Running Bal. (₹)', startX + 400, y, { width: 95 });
-      y += 16;
-      doc.moveTo(startX, y).lineTo(555, y).stroke();
-      y += 6;
+      const drawHeader = () => {
+        doc.font('Body-Bold').fontSize(9);
+        drawRow(cols.map((c) => c.label));
+        y += 16;
+        doc.moveTo(startX, y).lineTo(555, y).stroke();
+        y += 6;
+        doc.font('Body').fontSize(9);
+      };
+      drawHeader();
 
-      doc.font('Body').fontSize(9);
-      for (const e of ledger.entries) {
-        if (y > 780) { doc.addPage(); y = 40; }
-        doc.text(e.invoiceNumber, startX, y, { width: 90 });
-        doc.text(this.formatDate(e.issueDate), startX + 90, y, { width: 70 });
-        doc.text(e.totalAmount.toFixed(2), startX + 160, y, { width: 80 });
-        doc.text(e.paidAmount.toFixed(2), startX + 240, y, { width: 80 });
-        doc.text(e.balanceAmount.toFixed(2), startX + 320, y, { width: 80 });
-        doc.text(e.runningBalance.toFixed(2), startX + 400, y, { width: 95 });
+      for (const v of ledger.vouchers) {
+        if (y > 780) { doc.addPage(); y = 40; drawHeader(); }
+        drawRow([
+          this.formatDate(v.date),
+          v.type,
+          v.voucherNo,
+          v.particulars,
+          v.debit ? v.debit.toFixed(2) : '',
+          v.credit ? v.credit.toFixed(2) : '',
+          v.balance.toFixed(2),
+        ]);
         y += 16;
       }
 

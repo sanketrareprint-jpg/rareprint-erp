@@ -6,6 +6,7 @@ import { PdfPreview } from "@/components/pdf-preview";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { sameState, stateFromGstin } from "@/lib/gst-states";
+import * as XLSX from "xlsx";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
   Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock, FileText, Plus, Trash2, ArrowRight,
@@ -55,12 +56,20 @@ type LedgerEntry = {
   paidAmount: number; balanceAmount: number; status: string; runningBalance: number;
 };
 
+// One row of the voucher-wise party statement (Sale = invoice, Receipt =
+// verified payment), in date order — see BillingService.getPartyLedger.
+type LedgerVoucher = {
+  date: string; type: "Sale" | "Receipt"; voucherNo: string; particulars: string;
+  debit: number; credit: number; balance: number;
+};
+
 type PartyLedger = {
   customer: {
     id: string; businessName: string; phone: string | null; gstNumber: string | null; state: string | null;
     billingAddress: string | null; city: string | null; pincode: string | null;
   };
   entries: LedgerEntry[];
+  vouchers: LedgerVoucher[];
   totalBilled: number; totalReceived: number; balanceDue: number;
   // Server-decided: ADMIN/ACCOUNTS until any order is dispatched, then superadmin only.
   editLock?: { dispatchedOrders: string[]; canEdit: boolean };
@@ -96,6 +105,29 @@ async function downloadBlob(url: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(objUrl);
+}
+
+// Party statement as an Excel sheet — same voucher rows/columns as the
+// on-screen table and the statement PDF, with real dates and numbers so it
+// can be sorted/summed in Excel.
+function downloadStatementExcel(ledger: PartyLedger) {
+  const c = ledger.customer;
+  const rows: (string | number | Date)[][] = [
+    ["Party Statement"],
+    ["Party", c.businessName],
+    ["Phone", c.phone ?? ""],
+    ["GSTIN", c.gstNumber || "Unregistered"],
+    [],
+    ["Date", "Type", "Voucher No", "Particulars", "Debit (₹)", "Credit (₹)", "Balance (₹)"],
+    ...ledger.vouchers.map(v => [new Date(v.date), v.type, v.voucherNo, v.particulars, v.debit || "", v.credit || "", v.balance]),
+    [],
+    ["", "", "", "Total", ledger.totalBilled, ledger.totalReceived, ledger.balanceDue],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows, { cellDates: true, dateNF: "dd-mm-yyyy" });
+  ws["!cols"] = [{ wch: 12 }, { wch: 9 }, { wch: 18 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Statement");
+  XLSX.writeFile(wb, `Statement_${c.businessName.replace(/[^a-zA-Z0-9]+/g, "_")}.xlsx`);
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -1029,6 +1061,12 @@ function BillingPageInner() {
                         >
                           <Download className="h-3.5 w-3.5" /> Download Statement PDF
                         </button>
+                        <button
+                          onClick={() => downloadStatementExcel(ledger)}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 flex items-center gap-1"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download Excel
+                        </button>
                       </div>
                     </div>
                     {ledger.editLock && !ledger.editLock.canEdit && ledger.editLock.dispatchedOrders.length > 0 && (
@@ -1098,16 +1136,23 @@ function BillingPageInner() {
                     <div className="max-h-96 overflow-auto rounded-lg border border-slate-100">
                       <table className="w-full text-xs">
                         <thead className="bg-slate-50 text-slate-500 sticky top-0">
-                          <tr><th className="px-2 py-1.5 text-left">Invoice</th><th className="px-2 py-1.5 text-left">Date</th><th className="px-2 py-1.5 text-right">Total</th><th className="px-2 py-1.5 text-right">Paid</th><th className="px-2 py-1.5 text-right">Running Bal.</th></tr>
+                          <tr><th className="px-2 py-1.5 text-left">Date</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Voucher No</th><th className="px-2 py-1.5 text-left">Particulars</th><th className="px-2 py-1.5 text-right">Debit</th><th className="px-2 py-1.5 text-right">Credit</th><th className="px-2 py-1.5 text-right">Balance</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {ledger.entries.map(e => (
-                            <tr key={e.invoiceId}>
-                              <td className="px-2 py-1.5 font-semibold text-blue-700">{e.invoiceNumber}</td>
-                              <td className="px-2 py-1.5 text-slate-500">{fmtDate(e.issueDate)}</td>
-                              <td className="px-2 py-1.5 text-right">{fmt(e.totalAmount)}</td>
-                              <td className="px-2 py-1.5 text-right text-emerald-600">{fmt(e.paidAmount)}</td>
-                              <td className="px-2 py-1.5 text-right font-semibold">{fmt(e.runningBalance)}</td>
+                          {ledger.vouchers.length === 0 && (
+                            <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-400">No invoices or receipts yet</td></tr>
+                          )}
+                          {ledger.vouchers.map((v, i) => (
+                            <tr key={`${v.voucherNo}-${i}`}>
+                              <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{fmtDate(v.date)}</td>
+                              <td className="px-2 py-1.5">
+                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${v.type === "Sale" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>{v.type}</span>
+                              </td>
+                              <td className="px-2 py-1.5 font-semibold text-slate-700 whitespace-nowrap">{v.voucherNo}</td>
+                              <td className="px-2 py-1.5 text-slate-500">{v.particulars}</td>
+                              <td className="px-2 py-1.5 text-right">{v.debit ? fmt(v.debit) : ""}</td>
+                              <td className="px-2 py-1.5 text-right text-emerald-600">{v.credit ? fmt(v.credit) : ""}</td>
+                              <td className="px-2 py-1.5 text-right font-semibold">{fmt(v.balance)}</td>
                             </tr>
                           ))}
                         </tbody>
