@@ -287,7 +287,7 @@ export class CostTableService {
   async createProduct(dto: {
     sku: string; name: string; categoryName: string; gsm: number;
     paperType?: string; sizeInches: string; printingType: string; sides: string;
-    hsnCode?: string;
+    hsnCode?: string; gstRatePct?: number;
   }) {
     const sku = dto.sku?.trim();
     const name = dto.name?.trim();
@@ -305,6 +305,10 @@ export class CostTableService {
     }
     if (!['SINGLE_SIDE', 'DOUBLE_SIDE'].includes(dto.sides)) {
       throw new BadRequestException('Sides must be SINGLE_SIDE or DOUBLE_SIDE');
+    }
+    const gstRatePct = Number(dto.gstRatePct ?? 0);
+    if (!Number.isFinite(gstRatePct) || gstRatePct < 0 || gstRatePct > 100) {
+      throw new BadRequestException('GST rate must be a percentage between 0 and 100');
     }
 
     const existing = await this.prisma.product.findUnique({ where: { sku } });
@@ -326,6 +330,7 @@ export class CostTableService {
         gsm: dto.gsm,
         paperType: paperType || null,
         hsnCode: dto.hsnCode?.trim() || null,
+        gstRatePct,
         sizeInches,
         printingType: dto.printingType as any,
         sides: dto.sides as any,

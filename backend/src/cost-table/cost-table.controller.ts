@@ -51,7 +51,7 @@ export class CostTableController {
     @Body() dto: {
       sku: string; name: string; categoryName: string; gsm: number;
       paperType?: string; sizeInches: string; printingType: string; sides: string;
-      hsnCode?: string;
+      hsnCode?: string; gstRatePct?: number;
     },
     @Req() req: any,
   ) {

@@ -25,6 +25,7 @@ import { HrService } from '../hr/hr.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BillingService } from '../billing/billing.service';
 import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
+import { splitInclusiveGst } from '../common/inclusive-gst';
 import { assertItemsCancellable, releaseItemAssignments } from '../common/cancel-item-assignments';
 
 type AccountsUser = { id: string; role: string; email: string };
@@ -159,12 +160,23 @@ export class AccountsService {
     const gstTreatment = this.gstTreatmentForState(order.customer?.state);
     const subtotal = this.money(order.subtotal);
     const discountAmount = this.money(order.discount);
-    const taxableAmount = this.money(subtotal - discountAmount + Number(order.shippingCharge ?? 0));
-    const taxAmount = this.money(order.taxAmount);
-    const fallbackGst = taxableAmount > 0 ? (taxAmount / taxableAmount) * 100 : 0;
-    const invoiceSplit = taxAmount > 0
-      ? this.splitGst(taxableAmount, fallbackGst, gstTreatment)
-      : { cgstAmount: 0, sgstAmount: 0, igstAmount: 0, taxAmount: 0 };
+    // Order rates include GST — split each line using its product's GST
+    // rate (see splitInclusiveGst). Order totals stay exactly as entered.
+    const itemRows = order.items.map((item: any) => ({
+      item,
+      split: splitInclusiveGst(Number(item.lineTotal), Number(item.product?.gstRatePct ?? 0), gstTreatment),
+    }));
+    const invoiceSplit = itemRows.reduce(
+      (s: any, { split }: any) => ({
+        cgstAmount: this.money(s.cgstAmount + split.cgstAmount),
+        sgstAmount: this.money(s.sgstAmount + split.sgstAmount),
+        igstAmount: this.money(s.igstAmount + split.igstAmount),
+        taxAmount: this.money(s.taxAmount + split.taxAmount),
+      }),
+      { cgstAmount: 0, sgstAmount: 0, igstAmount: 0, taxAmount: 0 },
+    );
+    const taxAmount = invoiceSplit.taxAmount;
+    const taxableAmount = this.money(subtotal - discountAmount + Number(order.shippingCharge ?? 0) - taxAmount);
     const totalAmount = this.money(order.grandTotal);
 
     const invoice = await tx.invoice.create({
@@ -187,9 +199,7 @@ export class AccountsService {
       },
     });
 
-    for (const item of order.items) {
-      const itemTaxable = this.money(Number(item.lineTotal) - Number(item.taxAmount ?? 0));
-      const itemGst = this.splitGst(itemTaxable, Number(item.taxRatePct ?? 0), gstTreatment);
+    for (const { item, split: itemGst } of itemRows) {
       await tx.invoiceItem.create({
         data: {
           invoiceId: invoice.id,
@@ -205,8 +215,8 @@ export class AccountsService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discountAmount: item.lineDiscount,
-          taxableAmount: itemTaxable,
-          gstRatePct: item.taxRatePct,
+          taxableAmount: itemGst.taxableAmount,
+          gstRatePct: itemGst.gstRatePct,
           cgstAmount: itemGst.cgstAmount,
           sgstAmount: itemGst.sgstAmount,
           igstAmount: itemGst.igstAmount,
@@ -785,17 +795,30 @@ export class AccountsService {
     const newSubtotal = this.money(remainingItems.reduce((s, i) => s + Number(i.lineTotal), 0));
     const discountAmount = this.money(invoice.discountAmount);
     const shippingCharge = Number(order.shippingCharge ?? 0);
-    const newTaxableAmount = Math.max(0, this.money(newSubtotal - discountAmount + shippingCharge));
+    // Line totals include GST (see splitInclusiveGst), so the invoice total
+    // is the gross amount and GST is carved out of it, not added on top.
+    const newTotalAmount = Math.max(0, this.money(newSubtotal - discountAmount + shippingCharge));
+
+    // A product already on this invoice keeps the GST % it was billed at, so
+    // editing/cancelling an old (e.g. paid, 0%) invoice never silently picks
+    // up a GST rate set on the product later. Only newly added products use
+    // the product's current rate.
+    const billedRateBySku = new Map<string, number>(
+      (await tx.invoiceItem.findMany({ where: { invoiceId: invoice.id }, select: { sku: true, gstRatePct: true } }))
+        .filter((line: any) => line.sku)
+        .map((line: any) => [line.sku, Number(line.gstRatePct)]),
+    );
 
     let cgst = 0, sgst = 0, igst = 0, tax = 0;
     const itemRows = remainingItems.map((item) => {
-      const itemTaxable = this.money(Number(item.lineTotal) - Number(item.taxAmount ?? 0));
-      const split = this.splitGst(itemTaxable, Number(item.taxRatePct ?? 0), gstTreatment);
+      const sku = item.product?.sku;
+      const ratePct = sku && billedRateBySku.has(sku) ? billedRateBySku.get(sku)! : Number(item.product?.gstRatePct ?? 0);
+      const split = splitInclusiveGst(Number(item.lineTotal), ratePct, gstTreatment);
       cgst += split.cgstAmount; sgst += split.sgstAmount; igst += split.igstAmount; tax += split.taxAmount;
-      return { item, itemTaxable, split };
+      return { item, split };
     });
 
-    const newTotalAmount = this.money(newTaxableAmount + tax);
+    const newTaxableAmount = Math.max(0, this.money(newTotalAmount - tax));
     const paidAmount = this.money(invoice.paidAmount);
     const newBalance = this.money(newTotalAmount - paidAmount);
 
@@ -814,7 +837,7 @@ export class AccountsService {
     });
 
     await tx.invoiceItem.deleteMany({ where: { invoiceId: invoice.id } });
-    for (const { item, itemTaxable, split } of itemRows) {
+    for (const { item, split } of itemRows) {
       await tx.invoiceItem.create({
         data: {
           invoiceId: invoice.id,
@@ -828,13 +851,37 @@ export class AccountsService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discountAmount: item.lineDiscount,
-          taxableAmount: itemTaxable,
-          gstRatePct: item.taxRatePct,
+          taxableAmount: split.taxableAmount,
+          gstRatePct: split.gstRatePct,
           cgstAmount: split.cgstAmount,
           sgstAmount: split.sgstAmount,
           igstAmount: split.igstAmount,
           lineTotal: item.lineTotal,
         },
+      });
+    }
+
+    // Keep the ledger's Sales / Output GST split in step with the invoice's
+    // GST (same ADJUSTMENT pair as scripts/recalc-unpaid-invoice-gst.js).
+    // The receivable side is handled by the credit/debit note below.
+    const gstChange = this.money(this.money(tax) - this.money(invoice.taxAmount));
+    if (gstChange !== 0) {
+      const amount = Math.abs(gstChange);
+      const gstNarration = `${narration} — GST on invoice ${invoice.invoiceNumber} ${gstChange > 0 ? 'increased' : 'reduced'} by ₹${amount}`;
+      await tx.accountingLedgerEntry.createMany({
+        data: [
+          { accountName: 'Sales', debitAmount: gstChange > 0 ? amount : 0, creditAmount: gstChange > 0 ? 0 : amount },
+          { accountName: 'Output GST', debitAmount: gstChange > 0 ? 0 : amount, creditAmount: gstChange > 0 ? amount : 0 },
+        ].map((line) => ({
+          ...line,
+          entryType: LedgerEntryType.ADJUSTMENT,
+          narration: gstNarration,
+          referenceType: 'INVOICE',
+          referenceId: invoice.id,
+          customerId: order.customerId,
+          orderId: order.id,
+          invoiceId: invoice.id,
+        })),
       });
     }
 

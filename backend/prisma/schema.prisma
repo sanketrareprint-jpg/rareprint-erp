@@ -136,6 +136,9 @@ model Product {
   weightPerUnitGrams Decimal?          @db.Decimal(10, 3)
   // HSN code, snapshotted onto InvoiceItem.hsnSac when an invoice is raised.
   hsnCode            String?
+  // GST % (0/5/12/18/28). Order rates INCLUDE GST; the invoice carves this
+  // rate out of each line total (see common/inclusive-gst.ts).
+  gstRatePct         Decimal           @default(0) @db.Decimal(5, 2)
   isActive           Boolean           @default(true)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt

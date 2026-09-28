@@ -355,7 +355,7 @@ export default function CostTablePage() {
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [newProduct, setNewProduct] = useState({
     sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "",
-    printingType: "DIGITAL", sides: "SINGLE_SIDE", hsnCode: "",
+    printingType: "DIGITAL", sides: "SINGLE_SIDE", hsnCode: "", gstRatePct: "0",
   });
   const [newProductSaving, setNewProductSaving] = useState(false);
   const [newProductError, setNewProductError] = useState("");
@@ -758,7 +758,7 @@ export default function CostTablePage() {
       const res = await fetch(`${API_BASE_URL}/cost-table/products`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newProduct, gsm: Number(newProduct.gsm) }),
+        body: JSON.stringify({ ...newProduct, gsm: Number(newProduct.gsm), gstRatePct: Number(newProduct.gstRatePct) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -766,7 +766,7 @@ export default function CostTablePage() {
         return;
       }
       setShowAddProductModal(false);
-      setNewProduct({ sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "", printingType: "DIGITAL", sides: "SINGLE_SIDE", hsnCode: "" });
+      setNewProduct({ sku: "", name: "", categoryName: "", gsm: "", paperType: "", sizeInches: "", printingType: "DIGITAL", sides: "SINGLE_SIDE", hsnCode: "", gstRatePct: "0" });
       load();
     } catch {
       setNewProductError("Failed to create product.");
@@ -2141,6 +2141,16 @@ export default function CostTablePage() {
                   placeholder="optional, e.g. 4817"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">GST % (included in rate)</label>
+                <select
+                  value={newProduct.gstRatePct}
+                  onChange={e => setNewProduct(p => ({ ...p, gstRatePct: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {["0", "5", "12", "18", "28"].map(r => <option key={r} value={r}>{r}%</option>)}
+                </select>
               </div>
             </div>
 
