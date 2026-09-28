@@ -622,6 +622,14 @@ model Invoice {
   totalAmount      Decimal                 @db.Decimal(14, 2)
   paidAmount       Decimal                 @default(0) @db.Decimal(14, 2)
   balanceAmount    Decimal                 @db.Decimal(14, 2)
+  // Courier charge taken from the customer (sum of the order's COURIER
+  // shipments' courierChargeCollected — Book Shipment / Dispatch > Courier
+  // Charges), billed on the invoice. INCLUDED in totalAmount, and includes
+  // 18% GST (carved out into taxable/tax like the order lines). Kept separate
+  // so it can be updated when the charge changes and so Order.grandTotal
+  // (commission, loyalty, sales totals) never includes it.
+  // See common/sync-invoice-courier-charge.ts.
+  courierCharge    Decimal                 @default(0) @db.Decimal(14, 2)
   gstTreatment     GstTreatment            @default(INTRA_STATE)
   status           InvoiceStatus           @default(ISSUED)
   whatsappStatus   WhatsAppDeliveryStatus  @default(PENDING)

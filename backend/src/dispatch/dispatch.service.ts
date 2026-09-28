@@ -19,6 +19,7 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 // numeric-looking AWBs pulled from Excel, etc.).
 import { sheetToObjects, normalizeAwb, deriveOrderNumberCandidates, normalizeMobile, parseFlexibleDate } from '../remittance/remittance.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
+import { syncInvoiceCourierCharge } from '../common/sync-invoice-courier-charge';
 
 type LocalRateQuote = {
   rateId: string;
@@ -1424,6 +1425,14 @@ export class DispatchService {
     let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus; awbNumber: string | null; courierBookingWarning: string | null };
     try {
       result = await this.prisma.$transaction(async (tx) => {
+        // The Book Shipment courier charge is ONE amount for the submission:
+        // it goes on the first parcel booked and is then cleared on the order
+        // (below), so booking the same submission as several parcels no
+        // longer copies it onto every parcel — that double/triple-billed the
+        // customer once courier charges went on the invoice (e.g. order 1067:
+        // ₹900 on 4 parcels). Re-read inside the transaction so two bookings
+        // at once can't both take it.
+        const quotedCourierCharge = (await tx.order.findUnique({ where: { id: orderId }, select: { courierChargeQuoted: true } }))?.courierChargeQuoted ?? null;
         await tx.shipment.create({
           data: {
             orderId,
@@ -1468,8 +1477,8 @@ export class DispatchService {
             // entered in Book Shipment (Ready for Dispatch), still editable
             // by hand afterwards in the Courier Charges tab.
             courierChargeActual: new Prisma.Decimal(picked.amount),
-            ...(order.courierChargeQuoted != null
-              ? { courierChargeCollected: order.courierChargeQuoted, courierChargeUpdatedAt: new Date() }
+            ...(quotedCourierCharge != null
+              ? { courierChargeCollected: quotedCourierCharge, courierChargeUpdatedAt: new Date() }
               : {}),
             notes: [
               `Items: ${itemsToDispatch.map((i) => i.id).join(', ')}`,
@@ -1485,8 +1494,12 @@ export class DispatchService {
 
         await tx.order.update({
           where: { id: orderId },
-          data: { status: newStatus, shippingCharge: new Prisma.Decimal(picked.amount) },
+          data: { status: newStatus, shippingCharge: new Prisma.Decimal(picked.amount), ...(quotedCourierCharge != null ? { courierChargeQuoted: null } : {}) },
         });
+
+        // Bill the courier charge taken from the customer (just copied onto
+        // this shipment above) on their invoice — see sync-invoice-courier-charge.ts.
+        await syncInvoiceCourierCharge(tx, orderId);
 
         // Mark exactly these items as physically dispatched. itemProductionStage
         // deliberately stays READY_FOR_DISPATCH (it tracks production, not
@@ -2638,9 +2651,15 @@ export class DispatchService {
     }
     const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
     if (!shipment) throw new NotFoundException('Shipment not found');
-    const updated = await (this.prisma.shipment as any).update({
-      where: { id: shipmentId },
-      data: { courierChargeCollected: new Prisma.Decimal(amount), courierChargeUpdatedAt: new Date() },
+    // Same transaction as the invoice update, so the shipment's charge and the
+    // courier line billed on the invoice can never disagree.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await (tx.shipment as any).update({
+        where: { id: shipmentId },
+        data: { courierChargeCollected: new Prisma.Decimal(amount), courierChargeUpdatedAt: new Date() },
+      });
+      await syncInvoiceCourierCharge(tx, shipment.orderId);
+      return row;
     });
     return { shipmentId: updated.id, courierChargeCollected: Number(updated.courierChargeCollected) };
   }

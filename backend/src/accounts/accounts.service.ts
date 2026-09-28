@@ -26,6 +26,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { BillingService } from '../billing/billing.service';
 import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
 import { splitInclusiveGst } from '../common/inclusive-gst';
+import { syncInvoiceCourierCharge, courierGstSplit } from '../common/sync-invoice-courier-charge';
 import { assertItemsCancellable, releaseItemAssignments } from '../common/cancel-item-assignments';
 
 type AccountsUser = { id: string; role: string; email: string };
@@ -176,8 +177,11 @@ export class AccountsService {
       { cgstAmount: 0, sgstAmount: 0, igstAmount: 0, taxAmount: 0 },
     );
     const taxAmount = invoiceSplit.taxAmount;
-    const taxableAmount = this.money(subtotal - discountAmount + Number(order.shippingCharge ?? 0) - taxAmount);
     const totalAmount = this.money(order.grandTotal);
+    // taxable + GST = total. Deliberately not Order.shippingCharge — that is
+    // what RarePrint PAYS the courier; what the customer is charged for
+    // courier is added by syncInvoiceCourierCharge below.
+    const taxableAmount = this.money(totalAmount - taxAmount);
 
     const invoice = await tx.invoice.create({
       data: {
@@ -266,7 +270,13 @@ export class AccountsService {
       ],
     });
 
-    return invoice;
+    // Courier charge already taken from the customer (e.g. an order booked
+    // before it was approved) goes on the invoice from the start — see
+    // sync-invoice-courier-charge.ts. Usually 0 here; Book Shipment adds it later.
+    const courierSynced = await syncInvoiceCourierCharge(tx, order.id);
+    return courierSynced && Number(courierSynced.courierCharge) !== 0
+      ? await tx.invoice.findUnique({ where: { id: invoice.id } })
+      : invoice;
   }
 
   private async refreshOrderPaymentStatus(orderId: string) {
@@ -794,10 +804,15 @@ export class AccountsService {
 
     const newSubtotal = this.money(remainingItems.reduce((s, i) => s + Number(i.lineTotal), 0));
     const discountAmount = this.money(invoice.discountAmount);
-    const shippingCharge = Number(order.shippingCharge ?? 0);
+    // The invoice's billed courier charge (taken from the customer, incl.
+    // GST — see sync-invoice-courier-charge.ts), kept as is. Was
+    // Order.shippingCharge, which Book Shipment/booking set to what RarePrint
+    // PAYS the courier, not what the customer was charged.
+    const courierCharge = this.money(invoice.courierCharge ?? 0);
+    const courierSplit = courierGstSplit(courierCharge, gstTreatment);
     // Line totals include GST (see splitInclusiveGst), so the invoice total
     // is the gross amount and GST is carved out of it, not added on top.
-    const newTotalAmount = Math.max(0, this.money(newSubtotal - discountAmount + shippingCharge));
+    const newTotalAmount = Math.max(0, this.money(newSubtotal - discountAmount + courierCharge));
 
     // A product already on this invoice keeps the GST % it was billed at, so
     // editing/cancelling an old (e.g. paid, 0%) invoice never silently picks
@@ -809,7 +824,7 @@ export class AccountsService {
         .map((line: any) => [line.sku, Number(line.gstRatePct)]),
     );
 
-    let cgst = 0, sgst = 0, igst = 0, tax = 0;
+    let cgst = courierSplit.cgstAmount, sgst = courierSplit.sgstAmount, igst = courierSplit.igstAmount, tax = courierSplit.taxAmount;
     const itemRows = remainingItems.map((item) => {
       const sku = item.product?.sku;
       const ratePct = sku && billedRateBySku.has(sku) ? billedRateBySku.get(sku)! : Number(item.product?.gstRatePct ?? 0);

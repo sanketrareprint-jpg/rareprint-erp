@@ -5,6 +5,7 @@ import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { buildInvoicePdf, InvoicePdfCompanyProfile, InvoicePdfData } from './invoice-pdf';
+import { courierGstSplit } from '../common/sync-invoice-courier-charge';
 import { buildReceiptVoucherPdf } from './receipt-pdf';
 import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
@@ -349,6 +350,31 @@ export class BillingService {
       })),
       company: company as InvoicePdfCompanyProfile,
     };
+
+    // Courier charge taken from the customer, billed on the invoice
+    // (Invoice.courierCharge — already included in totalAmount, incl. 18% GST).
+    // Shown as its own row so the customer sees what the extra amount is for;
+    // Sub Total includes it like the order lines.
+    const courierCharge = Number(invoice.courierCharge ?? 0);
+    if (courierCharge > 0) {
+      const courierGst = courierGstSplit(courierCharge, invoice.gstTreatment);
+      pdfData.items.push({
+        productName: 'Courier Charges',
+        hsnSac: null,
+        productDetails: null,
+        size: null,
+        quantity: 1,
+        unit: 'NOS',
+        unitPrice: courierCharge,
+        gstRatePct: courierGst.gstRatePct,
+        cgstAmount: courierGst.cgstAmount,
+        sgstAmount: courierGst.sgstAmount,
+        igstAmount: courierGst.igstAmount,
+        taxableAmount: courierGst.taxableAmount,
+        lineTotal: courierCharge,
+      });
+      pdfData.subtotal = Number(invoice.subtotal) + courierCharge;
+    }
 
     const buffer = await buildInvoicePdf(pdfData);
     return { buffer, filename: `Invoice_${invoice.invoiceNumber}.pdf` };
@@ -888,6 +914,15 @@ export class BillingService {
         g.sgst += Number(item.sgstAmount);
         g.igst += Number(item.igstAmount);
         byHsn.set(key, g);
+      }
+      // Courier charge billed on the invoice (not an InvoiceItem), incl. GST.
+      const courierCharge = Number(inv.courierCharge ?? 0);
+      if (courierCharge > 0) {
+        const c = courierGstSplit(courierCharge, inv.gstTreatment);
+        taxableAmount += c.taxableAmount; cgst += c.cgstAmount; sgst += c.sgstAmount; igst += c.igstAmount;
+        const g = byHsn.get('Courier charges') ?? { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+        g.taxable += c.taxableAmount; g.cgst += c.cgstAmount; g.sgst += c.sgstAmount; g.igst += c.igstAmount;
+        byHsn.set('Courier charges', g);
       }
     }
 

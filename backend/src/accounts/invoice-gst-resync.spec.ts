@@ -74,3 +74,14 @@ describe('invoice re-sync keeps GST correct', () => {
     ]);
   });
 });
+
+describe('invoice re-sync keeps the billed courier charge', () => {
+  it('editing an order keeps ₹500 courier (incl. 18% GST) on the invoice — not Order.shippingCharge', async () => {
+    const { tx, ledger, getInvoice } = makeTx([{ sku: 'ENV-4X7', gstRatePct: 18 }]);
+    const withCourier = { ...invoice(6864.41 + 76.27), totalAmount: 45500, courierCharge: 500 };
+    // shippingCharge = what RarePrint paid the courier; must be ignored.
+    await service.reconcileInvoiceToRemainingItems(tx, withCourier, { ...order, shippingCharge: 320 }, [envelope(18)], 'Order edited and re-approved');
+    expect(getInvoice()).toMatchObject({ totalAmount: 45500, taxAmount: 6940.68, igstAmount: 6940.68, taxableAmount: 38559.32, balanceAmount: 20500 });
+    expect(ledger).toHaveLength(0);
+  });
+});
