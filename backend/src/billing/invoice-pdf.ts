@@ -646,8 +646,23 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // the reference: the reference's Bill To/Invoice Details box actually
     // closes at y=230.3 (pikepdf rect extraction), 1.2pt earlier than 77
     // was landing.
-    const biRowHeight = 75.8;
     const colWidth = CONTENT_WIDTH / 2;
+    // Customer address prints in full at the normal size, wrapping onto as
+    // many lines as it needs (requested 2026-09-28 — it used to be one line
+    // cut off with "…", e.g. invoice 1698). Every line past the first adds
+    // `addressExtra` to this box's height and moves the Contact No / GSTIN /
+    // State rows down by the same amount; everything below the box is laid
+    // out from its bottom, so it follows. A one-line address → extra 0,
+    // i.e. exactly the measured layout.
+    const ADDRESS_HSCALE = 0.9987; // same re-measurement as companyAddress above
+    const customerAddress = sanitize(data.customerAddress) || '-';
+    const addressBoxWidth = (colWidth - 10) / ADDRESS_HSCALE; // boldText draws inside a scale(hscale, 1)
+    doc.font('Body').fontSize(8.4);
+    const addressExtra = Math.max(
+      0,
+      doc.heightOfString(customerAddress, { width: addressBoxWidth }) - doc.heightOfString('X', { width: addressBoxWidth }),
+    );
+    const biRowHeight = 75.8 + addressExtra;
     doc.rect(PAGE_MARGIN, y, CONTENT_WIDTH, biRowHeight).stroke(BORDER);
     // Grey label fills drawn BEFORE the vertical/horizontal dividers below —
     // fill() paints an opaque rectangle, so if the dividers were drawn
@@ -740,55 +755,27 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // word-by-word ("POSH"/"PHARMA") against the reference.
     boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 18.67, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9527);
     doc.font('Body').fontSize(8.4);
-    // hscale 0.9987 (was 1.01) — same re-measurement as companyAddress above.
-    // A short address keeps the measured single line. A longer one used to be
-    // cut off with "…" (reported 2026-09-28, invoice 1698); it now wraps onto
-    // two lines in the space above the Contact No row, at the largest font
-    // size (8.4 down to 6) that fits, and is only truncated if even 6pt can't.
-    const customerAddress = sanitize(data.customerAddress) || '-';
-    const addressWidth = colWidth - 10;
-    const ADDRESS_MAX_HEIGHT = 18; // y+31.42 down to just above the Contact No row
-    if (doc.widthOfString(customerAddress) * 0.9987 <= addressWidth) {
-      boldText(customerAddress, PAGE_MARGIN + 3.2, y + 31.42, { width: addressWidth, height: 16, ellipsis: true }, 0.9987);
-    } else {
-      // Fit is checked against the measured height of two real lines at the
-      // current size, and the text is drawn with no height limit — PDFKit's own
-      // height/ellipsis handling misplaces the "…" when lineGap is negative.
-      const addressOpts = { width: addressWidth, lineGap: -1 };
-      const twoLinesHeight = () => doc.heightOfString('X\nX', addressOpts) + 0.01;
-      const fitsTwoLines = (text: string) => doc.heightOfString(text, addressOpts) <= twoLinesHeight();
-      let addressSize = 8.4;
-      doc.fontSize(addressSize);
-      while (addressSize > 6 && (twoLinesHeight() > ADDRESS_MAX_HEIGHT || !fitsTwoLines(customerAddress))) {
-        addressSize -= 0.2;
-        doc.fontSize(addressSize);
-      }
-      // Only an extreme address still overflows at 6pt: shorten it to what fits.
-      let addressText = customerAddress;
-      if (!fitsTwoLines(addressText)) {
-        let keep = addressText.length;
-        while (keep > 0 && !fitsTwoLines(`${addressText.slice(0, keep).trimEnd()}…`)) keep--;
-        addressText = `${addressText.slice(0, keep).trimEnd()}…`;
-      }
-      doc.text(addressText, PAGE_MARGIN + 3.2, y + 30.4, addressOpts);
-      doc.fontSize(8.4);
-    }
+    // Full address, wrapped (no height limit) — see addressExtra above.
+    boldText(customerAddress, PAGE_MARGIN + 3.2, y + 31.42, { width: colWidth - 10 }, ADDRESS_HSCALE);
 
+    // Contact No / GSTIN / State sit below the address: shifted down by
+    // addressExtra (0 for a one-line address). Their label baselines are
+    // absolute page y values, so the shift is added to those too.
     const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
-    drawGlyphString('Contact No:', [36.891, 42.352, 47.137, 51.771, 54.516, 59.08, 63.472, 66.217, 68.298, 74.284, 79.069], 212.25, 8.4, INVOICE_GLYPHS_F8);
+    drawGlyphString('Contact No:', [36.891, 42.352, 47.137, 51.771, 54.516, 59.08, 63.472, 66.217, 68.298, 74.284, 79.069], 212.25 + addressExtra, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
     // hscale 0.9761 (was 0.9698) — re-measured 2026-08-31 against the reference.
-    boldText(sanitize(data.customerPhone) || '-', 83.191, y + 48.67, { lineBreak: false }, 0.9761);
-    drawGlyphString('GSTIN Number:', [165.75, 171.465, 176.447, 181.454, 183.736, 189.721, 191.803, 197.788, 202.414, 209.772, 214.484, 218.933, 221.776], 212.25, 8.4, INVOICE_GLYPHS_F8);
+    boldText(sanitize(data.customerPhone) || '-', 83.191, y + 48.67 + addressExtra, { lineBreak: false }, 0.9761);
+    drawGlyphString('GSTIN Number:', [165.75, 171.465, 176.447, 181.454, 183.736, 189.721, 191.803, 197.788, 202.414, 209.772, 214.484, 218.933, 221.776], 212.25 + addressExtra, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
     // hscale 0.9633 (was 0.9698) — re-measured 2026-08-31 against the reference.
     // No GSTIN on the customer → "Unregistered" (B2C), not "-".
-    boldText(sanitize(data.customerGstin) || 'Unregistered', 165.75, y + 58.42, { width: colWidth / 2 - 6 }, 0.9633);
+    boldText(sanitize(data.customerGstin) || 'Unregistered', 165.75, y + 58.42 + addressExtra, { width: colWidth / 2 - 6 }, 0.9633);
 
-    drawGlyphString('State:', [36.891, 41.873, 44.618, 49.182, 51.927, 56.376], 224.25, 8.4, INVOICE_GLYPHS_F8);
+    drawGlyphString('State:', [36.891, 41.873, 44.618, 49.182, 51.927, 56.376], 224.25 + addressExtra, 8.4, INVOICE_GLYPHS_F8);
     doc.font('Body-Bold').fontSize(8.4);
     // hscale 0.9376 (was 0.928) — re-measured 2026-08-31 against the reference.
-    boldText(sanitize(data.customerState) || '-', 60.492, y + 60.67, { lineBreak: false }, 0.9376);
+    boldText(sanitize(data.customerState) || '-', 60.492, y + 60.67 + addressExtra, { lineBreak: false }, 0.9376);
 
     // Invoice Details column.
     drawGlyphString('No:', [302.684, 308.669, 313.455], 183.0, 8.4, INVOICE_GLYPHS_F8);
