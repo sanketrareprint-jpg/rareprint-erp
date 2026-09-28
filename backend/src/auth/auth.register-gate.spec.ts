@@ -123,6 +123,54 @@ describe('AuthService.register — locked (users already exist)', () => {
     expect(created[0].role).toBe(UserRole.ACCOUNTS);
   });
 
+  it('matches the owner email case-insensitively', async () => {
+    const { service, created } = makeService({
+      userCount: 1,
+      requester: { email: SUPER_ADMIN_EMAIL.toUpperCase(), role: UserRole.DESIGNER, isActive: true },
+    });
+    await service.register(...newAccount, UserRole.ACCOUNTS, 'good-token');
+    expect(created).toHaveLength(1);
+  });
+});
+
+// A customer's deployment sets OWNER_EMAIL to an empty string, meaning "no
+// owner-by-email here". If an empty configured value ever matched, RarePrint's
+// owner address — or worse, an account with a blank email — would hold owner
+// rights over that customer's data.
+describe('isOwnerEmail', () => {
+  it('never matches when no owner email is configured', () => {
+    jest.resetModules();
+    const previous = process.env.OWNER_EMAIL;
+    process.env.OWNER_EMAIL = '';
+    try {
+      // Re-imported so the module picks up the empty value at load time.
+      const { isOwnerEmail: freshIsOwnerEmail } = require('../common/super-admin');
+      expect(freshIsOwnerEmail('')).toBe(false);
+      expect(freshIsOwnerEmail(null)).toBe(false);
+      expect(freshIsOwnerEmail('sanket.rareprint@gmail.com')).toBe(false);
+      expect(freshIsOwnerEmail('anyone@example.com')).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.OWNER_EMAIL;
+      else process.env.OWNER_EMAIL = previous;
+      jest.resetModules();
+    }
+  });
+
+  it('matches the configured owner when one is set', () => {
+    jest.resetModules();
+    const previous = process.env.OWNER_EMAIL;
+    process.env.OWNER_EMAIL = 'boss@printco.in';
+    try {
+      const { isOwnerEmail: freshIsOwnerEmail } = require('../common/super-admin');
+      expect(freshIsOwnerEmail('boss@printco.in')).toBe(true);
+      expect(freshIsOwnerEmail('sanket.rareprint@gmail.com')).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.OWNER_EMAIL;
+      else process.env.OWNER_EMAIL = previous;
+      jest.resetModules();
+    }
+  });
+
   it('does NOT return a token when an admin creates somebody else', async () => {
     // Returning one would replace the admin's own session with the new
     // user's the moment the frontend stored it.

@@ -41,11 +41,20 @@ const BLANK_UNTIL_CUSTOMER_PROVIDES_OWN = [
   'GMAIL_FROM',
 ];
 
-// Group 3: RarePrint's own internal alert recipients — definitely do not
-// copy these to a customer. A customer's Virtual-CEO alerts should not ring
+// Group 3: RarePrint's own internal identities — definitely do not copy
+// these to a customer. A customer's Virtual-CEO alerts should not ring
 // Sanket's or Prajakta's phone. Left blank; wire up per customer once that
 // feature is actually turned on for them.
-const BLANK_RAREPRINT_INTERNAL_ONLY = ['VCEO_PRAJAKTA_PHONE', 'VCEO_SANKET_PHONE'];
+//
+// OWNER_EMAIL is in here for a sharper reason than alert routing. It names
+// the account that holds owner-level rights regardless of role — including
+// the right to create user accounts. Backend code falls back to RarePrint's
+// own owner email when the variable is unset, so leaving it out of a
+// customer's environment would mean that address quietly held owner rights
+// over that customer's data. Setting it to an empty string tells
+// backend/src/common/super-admin.ts this deployment has no owner-by-email,
+// leaving the ADMIN role as the only thing that grants access there.
+const BLANK_RAREPRINT_INTERNAL_ONLY = ['VCEO_PRAJAKTA_PHONE', 'VCEO_SANKET_PHONE', 'OWNER_EMAIL'];
 
 import crypto from 'node:crypto';
 

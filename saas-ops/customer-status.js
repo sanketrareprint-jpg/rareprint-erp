@@ -141,7 +141,9 @@ console.log(`Repo has ${repoMigrations.length} migrations. Checking ${targets.le
 const rows = [];
 for (const customer of targets) {
   const [db, backend] = await Promise.all([inspectCustomer(customer), checkBackend(customer)]);
-  rows.push({ ...db, backend, access: accessLabel(customer, backend) });
+  // slug is carried through so the attention lines below can print a
+  // copy-pasteable command for the customer they are about.
+  rows.push({ ...db, slug: customer.slug, backend, access: accessLabel(customer, backend) });
 }
 
 const columns = ['customer', 'access', 'db', 'migrations', 'stuck', 'tables', 'users', 'orders', 'last order', 'backend'];
@@ -159,6 +161,14 @@ for (const r of rows) {
   else if (r.pending.length) { needsAttention = true; console.log(`\n! ${r.name}: ${r.pending.length} migration(s) pending: ${r.pending.join(', ')}`); }
   if (r.reachable && r.stuck) { needsAttention = true; console.log(`\n✘ ${r.name}: ${r.stuck} stuck/rolled-back migration row(s) — migrate deploy will refuse to apply anything until resolved`); }
   if (r.access.startsWith('MISMATCH')) { needsAttention = true; console.log(`\n! ${r.name}: access ${r.access} — a redeploy may still be in flight, or the variable was changed by hand in Railway`); }
+  // An instance with no users is UNCLAIMED: account creation is
+  // administrator-only, except that the first account on an empty instance is
+  // allowed through and becomes the administrator (see
+  // backend/src/auth/auth.service.ts). Until the customer creates it, whoever
+  // reaches their signup page first takes the instance. That window is the
+  // known cost of self-service bootstrapping, so surface it loudly rather
+  // than letting a provisioned-but-unclaimed instance sit around unnoticed.
+  if (r.reachable && r.users === 0) { needsAttention = true; console.log(`\n! ${r.name}: UNCLAIMED — no users exist yet, so the next person to reach its signup page becomes its administrator. Get the customer to create their account, or suspend the instance until they do (node suspend-customer.js ${r.slug ?? ''}).`); }
   if (r.backend.healthy === false) { needsAttention = true; console.log(`\n✘ ${r.name}: backend ${r.backend.label}${r.backend.domain ? ` at https://${r.backend.domain}/health` : ''}${r.backend.error ? ` — ${r.backend.error}` : ''}`); }
 }
 console.log(needsAttention ? '\nSome customers need attention.' : '\nAll customers healthy.');

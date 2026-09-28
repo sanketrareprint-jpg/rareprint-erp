@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GmailDraftService } from '../production/gmail-draft.service';
-import { SUPER_ADMIN_EMAIL } from '../common/super-admin';
+import { isOwnerEmail } from '../common/super-admin';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -217,8 +217,7 @@ export class AuthService {
       throw new UnauthorizedException('Your session is no longer valid. Please sign in again.');
     }
 
-    const isOwner = requester.email === SUPER_ADMIN_EMAIL;
-    if (requester.role !== UserRole.ADMIN && !isOwner) {
+    if (requester.role !== UserRole.ADMIN && !isOwnerEmail(requester.email)) {
       throw new ForbiddenException('Only an administrator can create user accounts.');
     }
   }
