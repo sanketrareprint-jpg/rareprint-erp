@@ -477,32 +477,55 @@ export class BillingService {
   }
 
   // ── Parties (customer ledger) ───────────────────────────────────────────
+  // One party can exist as several Customer rows whose phone is the same
+  // number in different formats (e.g. "9140580244" and "+91 91405 80244" —
+  // older/other create paths didn't normalise it). The Parties list and
+  // statement treat every row whose phone normalises (sanitizePhone) to the
+  // same 10-digit number as one party. The rows themselves are not merged.
+  private partyPhone(phone: string | null): string | null {
+    const normalised = sanitizePhone(phone ?? '');
+    return normalised.length === 10 ? normalised : null;
+  }
+
+  private async partyCustomerIds(customer: { id: string; phone: string | null }): Promise<string[]> {
+    const phone = this.partyPhone(customer.phone);
+    if (!phone) return [customer.id];
+    const candidates = await this.prisma.$queryRaw<{ id: string; phone: string | null }[]>`
+      SELECT id, phone FROM "Customer"
+      WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${'%' + phone}`;
+    const ids = candidates.filter((c) => this.partyPhone(c.phone) === phone).map((c) => c.id);
+    return ids.includes(customer.id) ? ids : [customer.id, ...ids];
+  }
+
   async listParties() {
     const invoices = await this.prisma.invoice.findMany({
       where: { order: { isTest: false } },
       include: { order: { include: { customer: true } } },
     });
 
-    const byCustomer = new Map<string, { customerId: string; customerName: string; phone: string | null; totalBilled: number; totalReceived: number; balanceDue: number; invoiceCount: number }>();
+    const byParty = new Map<string, { customerId: string; customerName: string; phone: string | null; totalBilled: number; totalReceived: number; balanceDue: number; invoiceCount: number }>();
     for (const inv of invoices) {
       const c = inv.order.customer;
-      const row = byCustomer.get(c.id) ?? {
-        customerId: c.id,
-        customerName: c.businessName,
-        phone: c.phone,
-        totalBilled: 0,
-        totalReceived: 0,
-        balanceDue: 0,
-        invoiceCount: 0,
-      };
+      const phone = this.partyPhone(c.phone);
+      const key = phone ? `phone:${phone}` : `id:${c.id}`;
+      let row = byParty.get(key);
+      if (!row) {
+        row = { customerId: c.id, customerName: c.businessName, phone: c.phone, totalBilled: 0, totalReceived: 0, balanceDue: 0, invoiceCount: 0 };
+        byParty.set(key, row);
+      } else if (row.customerId !== c.id && c.phone === phone && row.phone !== phone) {
+        // Represent the party by the row whose phone is stored already
+        // normalised — the one Create Order matches new orders to.
+        row.customerId = c.id;
+        row.customerName = c.businessName;
+        row.phone = c.phone;
+      }
       row.totalBilled += Number(inv.totalAmount);
       row.totalReceived += Number(inv.paidAmount);
       row.balanceDue += Number(inv.balanceAmount);
       row.invoiceCount += 1;
-      byCustomer.set(c.id, row);
     }
 
-    return Array.from(byCustomer.values()).sort((a, b) => b.balanceDue - a.balanceDue);
+    return Array.from(byParty.values()).sort((a, b) => b.balanceDue - a.balanceDue);
   }
 
   // Party-edit lock (Sanket, 2026-09-25): once ANY of a party's orders has
@@ -543,12 +566,14 @@ export class BillingService {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
     const dispatchedOrders = user ? await this.dispatchedOrdersForParty(customerId) : [];
+    // Every Customer row that is this same party (see partyCustomerIds).
+    const partyIds = await this.partyCustomerIds(customer);
 
     // Invoice.paidAmount/balanceAmount are already the source of truth for
     // verified payments (kept in sync by AccountsService's payment
     // verification flow) — no need to re-aggregate Payment rows here.
     const invoices = await this.prisma.invoice.findMany({
-      where: { order: { customerId, isTest: false } },
+      where: { order: { customerId: { in: partyIds }, isTest: false } },
       orderBy: { issueDate: 'asc' },
     });
 
@@ -576,7 +601,7 @@ export class BillingService {
     // Balance reads it.
     const company = await this.getCompanyProfile();
     const payments = await this.prisma.payment.findMany({
-      where: { verificationStatus: 'VERIFIED', order: { customerId, isTest: false, invoice: { isNot: null } } },
+      where: { verificationStatus: 'VERIFIED', order: { customerId: { in: partyIds }, isTest: false, invoice: { isNot: null } } },
       include: { order: { select: { invoice: { select: { invoiceNumber: true } } } } },
     });
     const voucherRows = [

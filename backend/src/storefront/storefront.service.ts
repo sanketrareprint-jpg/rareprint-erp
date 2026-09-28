@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OrderStatus, PaymentMethod, PaymentStatus, PaymentVerificationStatus, Prisma, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { sanitizePhone } from '../orders/orders.service';
 
 const fallbackCatalog = [
   'Medicine Paper Pouch',
@@ -410,7 +411,7 @@ export class StorefrontService {
           customerCode,
           businessName: name,
           contactPerson: name,
-          phone: customer.phone,
+          phone: sanitizePhone(customer.phone) || null,
           email: customer.email,
           city: customer.city,
           state: customer.state,
@@ -484,10 +485,14 @@ export class StorefrontService {
 
   async trackOrder(orderNo?: string, phone?: string) {
     if (!orderNo && !phone) throw new BadRequestException('orderNo or phone is required');
+    // Customer phones are stored as 10 digits (createOrder), so match on the
+    // same form; a phone with no digits must not match every order.
+    const phoneDigits = phone ? sanitizePhone(phone) : '';
+    if (phone && !phoneDigits) return { found: false, message: 'No matching RarePrint web order found.' };
     const order = await this.prisma.order.findFirst({
       where: {
         ...(orderNo ? { OR: [{ id: orderNo }, { orderNumber: orderNo }] } : {}),
-        ...(phone ? { customer: { phone: { contains: phone } } } : {}),
+        ...(phoneDigits ? { customer: { phone: { contains: phoneDigits } } } : {}),
         leadSource: 'WEB_TO_PRINT',
       },
       include: {

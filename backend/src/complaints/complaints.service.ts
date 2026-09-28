@@ -1,6 +1,7 @@
 // backend/src/complaints/complaints.service.ts
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { sanitizePhone } from '../orders/orders.service';
 import { ComplaintsNotifications } from './complaints.notifications';
 import {
   ComplaintPriority,
@@ -131,7 +132,9 @@ export class ComplaintsService {
       // lightweight new Customer record so the complaint still has a valid
       // customer to link to (Complaint.customerId is a required FK).
       const name = dto.customerName!.trim();
-      const phone = dto.customerPhone?.trim() || null;
+      // Same 10-digit form as Create Order, so "+91 98765 43210" and
+      // "9876543210" don't become two different parties.
+      const phone = sanitizePhone(dto.customerPhone) || null;
       const existing = await this.prisma.customer.findFirst({
         where: { businessName: { equals: name, mode: 'insensitive' } },
       });
