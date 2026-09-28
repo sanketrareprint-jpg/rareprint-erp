@@ -115,6 +115,8 @@ export default function CreateOrderPage() {
   const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "", gstNumber: "" });
   const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  // Which input (Name or Phone) the old-customer dropdown is anchored under.
+  const [customerSearchField, setCustomerSearchField] = useState<"name" | "phone">("name");
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState("");
   const [citySuggestions, setCitySuggestions] = useState<PostOfficeResult[]>([]);
@@ -288,7 +290,10 @@ export default function CreateOrderPage() {
         const data = await res.json();
         const rows: CustomerSearchRow[] = data.customers ?? [];
         setCustomerMatches(rows);
-        setCustomerSearchOpen(rows.length > 0);
+        // Only reopen if the user is still in the Name/Phone field — a search that
+        // lands after they tabbed away must not leave the list stuck open.
+        const stillSearching = document.activeElement?.hasAttribute("data-customer-search") ?? false;
+        setCustomerSearchOpen(rows.length > 0 && stillSearching);
 
         if (byPhone.length >= 10) {
           const exact = rows.find((row) => normalizePhone(row.phone ?? "") === byPhone);
@@ -590,6 +595,24 @@ export default function CreateOrderPage() {
     } finally { setSubmitting(false); }
   }
 
+  const customerDropdown = (
+    <div style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, marginTop: "4px", maxHeight: "220px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "8px", background: "white", boxShadow: "0 12px 24px rgba(15,23,42,0.14)" }}>
+      {customerMatches.map(row => (
+        <button key={row.id} type="button" onMouseDown={() => fillCustomer(row)}
+          style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a" }}>{row.businessName}</span>
+            <span style={{ fontSize: "10px", color: "#64748b", flexShrink: 0 }}>{row.orderCount ?? 0} orders</span>
+          </div>
+          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {[row.phone, row.address, row.city, row.pincode].filter(Boolean).join(" • ")}
+          </div>
+        </button>
+      ))}
+      {customerSearchLoading && <div style={{ padding: "8px 10px", fontSize: "11px", color: "#64748b" }}>Searching old customers...</div>}
+    </div>
+  );
+
   return (
     <DashboardShell>
       <div className="create-order-page" style={{ padding: "1rem 1.5rem", maxWidth: "1600px", margin: "0 auto" }}>
@@ -626,26 +649,10 @@ export default function CreateOrderPage() {
                     setSelectedCustomerLabel("");
                     setCustomer(c => ({ ...c, customerId: "", name: e.target.value }));
                   }}
-                    onFocus={() => customerMatches.length > 0 && setCustomerSearchOpen(true)}
+                    onFocus={() => { setCustomerSearchField("name"); if (customerMatches.length > 0) setCustomerSearchOpen(true); }}
                     onBlur={() => window.setTimeout(() => setCustomerSearchOpen(false), 180)}
-                    placeholder="Customer / Business Name" style={S.input} />
-                  {customerSearchOpen && (
-                    <div style={{ position: "absolute", zIndex: 1000, top: "100%", left: 0, right: 0, marginTop: "4px", maxHeight: "220px", overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: "8px", background: "white", boxShadow: "0 12px 24px rgba(15,23,42,0.14)" }}>
-                      {customerMatches.map(row => (
-                        <button key={row.id} type="button" onMouseDown={() => fillCustomer(row)}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderBottom: "1px solid #f1f5f9", background: "white", cursor: "pointer" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                            <span style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a" }}>{row.businessName}</span>
-                            <span style={{ fontSize: "10px", color: "#64748b", flexShrink: 0 }}>{row.orderCount ?? 0} orders</span>
-                          </div>
-                          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {[row.phone, row.address, row.city, row.pincode].filter(Boolean).join(" • ")}
-                          </div>
-                        </button>
-                      ))}
-                      {customerSearchLoading && <div style={{ padding: "8px 10px", fontSize: "11px", color: "#64748b" }}>Searching old customers...</div>}
-                    </div>
-                  )}
+                    data-customer-search placeholder="Customer / Business Name" style={S.input} />
+                  {customerSearchOpen && customerSearchField === "name" && customerDropdown}
                 </div>
                 {customer.customerId && (
                   <p style={{ margin: "4px 0 0", fontSize: "10px", color: "#059669", fontWeight: 600 }}>Old customer selected. Details will be reused.</p>
@@ -653,13 +660,17 @@ export default function CreateOrderPage() {
               </div>
               <div>
                 <label style={S.label}>Phone</label>
-                <input value={customer.phone} onChange={e => {
-                  setSelectedCustomerLabel("");
-                  setCustomer(c => ({ ...c, customerId: "", phone: sanitizePhone(e.target.value) }));
-                }}
-                  onFocus={() => customerMatches.length > 0 && setCustomerSearchOpen(true)}
-                  inputMode="numeric" maxLength={10}
-                  placeholder="10-digit mobile number" style={S.input} />
+                <div style={{ position: "relative" }}>
+                  <input value={customer.phone} onChange={e => {
+                    setSelectedCustomerLabel("");
+                    setCustomer(c => ({ ...c, customerId: "", phone: sanitizePhone(e.target.value) }));
+                  }}
+                    onFocus={() => { setCustomerSearchField("phone"); if (customerMatches.length > 0) setCustomerSearchOpen(true); }}
+                    onBlur={() => window.setTimeout(() => setCustomerSearchOpen(false), 180)}
+                    inputMode="numeric" maxLength={10}
+                    data-customer-search placeholder="10-digit mobile number" style={S.input} />
+                  {customerSearchOpen && customerSearchField === "phone" && customerDropdown}
+                </div>
                 {customer.phone.length > 0 && customer.phone.length !== 10 && (
                   <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>Please enter a 10-digit phone number</p>
                 )}
