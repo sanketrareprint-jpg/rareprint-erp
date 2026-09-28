@@ -741,7 +741,38 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     boldText(sanitize(data.customerName) || 'Customer', PAGE_MARGIN + 3.2, y + 18.67, { width: colWidth - 10, height: 13, ellipsis: true }, 0.9527);
     doc.font('Body').fontSize(8.4);
     // hscale 0.9987 (was 1.01) — same re-measurement as companyAddress above.
-    boldText(sanitize(data.customerAddress) || '-', PAGE_MARGIN + 3.2, y + 31.42, { width: colWidth - 10, height: 16, ellipsis: true }, 0.9987);
+    // A short address keeps the measured single line. A longer one used to be
+    // cut off with "…" (reported 2026-09-28, invoice 1698); it now wraps onto
+    // two lines in the space above the Contact No row, at the largest font
+    // size (8.4 down to 6) that fits, and is only truncated if even 6pt can't.
+    const customerAddress = sanitize(data.customerAddress) || '-';
+    const addressWidth = colWidth - 10;
+    const ADDRESS_MAX_HEIGHT = 18; // y+31.42 down to just above the Contact No row
+    if (doc.widthOfString(customerAddress) * 0.9987 <= addressWidth) {
+      boldText(customerAddress, PAGE_MARGIN + 3.2, y + 31.42, { width: addressWidth, height: 16, ellipsis: true }, 0.9987);
+    } else {
+      // Fit is checked against the measured height of two real lines at the
+      // current size, and the text is drawn with no height limit — PDFKit's own
+      // height/ellipsis handling misplaces the "…" when lineGap is negative.
+      const addressOpts = { width: addressWidth, lineGap: -1 };
+      const twoLinesHeight = () => doc.heightOfString('X\nX', addressOpts) + 0.01;
+      const fitsTwoLines = (text: string) => doc.heightOfString(text, addressOpts) <= twoLinesHeight();
+      let addressSize = 8.4;
+      doc.fontSize(addressSize);
+      while (addressSize > 6 && (twoLinesHeight() > ADDRESS_MAX_HEIGHT || !fitsTwoLines(customerAddress))) {
+        addressSize -= 0.2;
+        doc.fontSize(addressSize);
+      }
+      // Only an extreme address still overflows at 6pt: shorten it to what fits.
+      let addressText = customerAddress;
+      if (!fitsTwoLines(addressText)) {
+        let keep = addressText.length;
+        while (keep > 0 && !fitsTwoLines(`${addressText.slice(0, keep).trimEnd()}…`)) keep--;
+        addressText = `${addressText.slice(0, keep).trimEnd()}…`;
+      }
+      doc.text(addressText, PAGE_MARGIN + 3.2, y + 30.4, addressOpts);
+      doc.fontSize(8.4);
+    }
 
     const gstinColX = PAGE_MARGIN + colWidth / 2 + 1;
     drawGlyphString('Contact No:', [36.891, 42.352, 47.137, 51.771, 54.516, 59.08, 63.472, 66.217, 68.298, 74.284, 79.069], 212.25, 8.4, INVOICE_GLYPHS_F8);
