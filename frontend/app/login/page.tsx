@@ -28,6 +28,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // True only while this deployment has no users at all, i.e. nobody has
+  // created the first administrator yet. Account creation is otherwise
+  // administrator-only and the public gets no link to it.
+  const [registrationOpen, setRegistrationOpen] = useState(false);
 
   useEffect(() => {
     const token =
@@ -38,6 +42,21 @@ export default function LoginPage() {
       router.replace("/dashboard");
     }
   }, [router]);
+
+  useEffect(() => {
+    // Best-effort: if this fails (backend down, suspended instance) the link
+    // simply stays hidden rather than the login page showing an error.
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/auth/registration-status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.open === true) setRegistrationOpen(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -194,15 +213,17 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-sm text-slate-600">
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/signup"
-            className="font-medium text-brand-600 hover:text-brand-700 hover:underline"
-          >
-            Sign up
-          </Link>
-        </p>
+        {registrationOpen && (
+          <p className="mt-6 text-center text-sm text-slate-600">
+            No accounts exist yet.{" "}
+            <Link
+              href="/signup"
+              className="font-medium text-brand-600 hover:text-brand-700 hover:underline"
+            >
+              Create the first administrator
+            </Link>
+          </p>
+        )}
 
         <p className="mt-3 text-center text-xs text-slate-500">
           Printing operations management · Secure access

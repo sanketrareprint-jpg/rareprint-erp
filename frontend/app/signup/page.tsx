@@ -3,6 +3,7 @@
 import {
   AUTH_TOKEN_KEY,
   AUTH_USER_KEY,
+  getStoredUser,
 } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/api";
 import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
@@ -13,8 +14,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { MobileSelect } from "@/components/MobileSelect";
 
 type RegisterResponse = {
-  accessToken: string;
-  tokenType: string;
+  bootstrap: boolean;
+  accessToken?: string;
+  tokenType?: string;
   user: {
     id: string;
     fullName: string;
@@ -23,9 +25,10 @@ type RegisterResponse = {
   };
 };
 
-// ADMIN intentionally left out — self-signup shouldn't be able to grant
-// owner-level access. Admin accounts are still created via the Database
-// admin panel (Settings > Database) same as before.
+// Creating accounts is administrator-only, so ADMIN belongs in this list —
+// an administrator adding another administrator is a legitimate thing to do.
+// The gate is the backend's, not this dropdown's: AuthService.register
+// verifies the caller's token and re-reads their role from the database.
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "SALES_AGENT", label: "Sales Agent" },
   { value: "ACCOUNTS", label: "Accounts" },
@@ -33,7 +36,18 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "DISPATCH", label: "Dispatch" },
   { value: "DESIGNER", label: "Designer" },
   { value: "INHOUSE", label: "Inhouse" },
+  { value: "ADMIN", label: "Admin" },
 ];
+
+// Matches backend/src/common/super-admin.ts. Inlined the same way
+// accounts/page.tsx and dashboard/page.tsx already do it in this codebase.
+const OWNER_EMAIL = "sanket.rareprint@gmail.com";
+
+// bootstrap — no users exist yet, so this form creates the first
+//   administrator and signs them in, with no session required.
+// admin — an administrator is signed in and is adding somebody.
+// denied — everyone else.
+type Mode = "loading" | "bootstrap" | "admin" | "denied";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -42,26 +56,64 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("SALES_AGENT");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<Mode>("loading");
 
+  // Note there is no "already signed in -> go to dashboard" redirect any
+  // more. A signed-in administrator is exactly who this page is now for.
   useEffect(() => {
-    const token =
-      typeof window !== "undefined"
-        ? localStorage.getItem(AUTH_TOKEN_KEY)
-        : null;
-    if (token) {
-      router.replace("/dashboard");
+    let cancelled = false;
+
+    async function resolveMode() {
+      let open = false;
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/registration-status`);
+        if (res.ok) open = (await res.json())?.open === true;
+      } catch {
+        // Treat an unreachable backend as "not open": better to show the
+        // restricted screen than to offer a form that cannot work.
+      }
+      if (cancelled) return;
+
+      if (open) {
+        setMode("bootstrap");
+        setRole("ADMIN");
+        return;
+      }
+
+      const stored = getStoredUser();
+      const isAdmin =
+        stored?.role === "ADMIN" ||
+        stored?.email?.toLowerCase() === OWNER_EMAIL;
+      setMode(isAdmin ? "admin" : "denied");
     }
-  }, [router]);
+
+    resolveMode();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setLoading(true);
     try {
+      // Sent whenever we have one: on the bootstrap path there is no session
+      // and the backend expects none, but an administrator adding a user
+      // must identify themselves or the request is refused.
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem(AUTH_TOKEN_KEY)
+          : null;
       const res = await fetchWithRetry(`${API_BASE_URL}/auth/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ fullName, email, password, role }),
       });
 
@@ -77,19 +129,26 @@ export default function SignupPage() {
         return;
       }
 
-      if (
-        !data ||
-        !("accessToken" in data) ||
-        !data.accessToken ||
-        !data.user
-      ) {
+      if (!data || !("user" in data) || !data.user) {
         setError("Unexpected response from server.");
         return;
       }
 
-      localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
-      router.push("/dashboard");
+      // A token comes back only when this was the bootstrap account, in which
+      // case the person who just created it should be signed in. When an
+      // administrator creates somebody else's account there is deliberately
+      // no token — signing in as the new user would end the admin's session.
+      if (data.accessToken) {
+        localStorage.setItem(AUTH_TOKEN_KEY, data.accessToken);
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
+        router.push("/dashboard");
+        return;
+      }
+
+      setNotice(`Created ${data.user.fullName} (${data.user.email}) as ${data.user.role.replace(/_/g, " ").toLowerCase()}.`);
+      setFullName("");
+      setEmail("");
+      setPassword("");
     } catch (err) {
       setError(`Could not reach the server after retrying (${describeFetchError(err)}). Check your internet connection.`);
     } finally {
@@ -116,14 +175,58 @@ export default function SignupPage() {
                 RarePrint ERP
               </h1>
               <p className="mt-1 text-sm text-slate-600">
-                Create your account
+                {mode === "bootstrap"
+                  ? "Create the first administrator account"
+                  : mode === "admin"
+                    ? "Add a user account"
+                    : "Account creation"}
               </p>
             </div>
           </Link>
         </div>
 
         <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-8 shadow-xl shadow-slate-200/50 backdrop-blur-sm">
+          {mode === "loading" && (
+            <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking…
+            </div>
+          )}
+
+          {mode === "denied" && (
+            <div className="space-y-4 text-center">
+              <p className="text-sm text-slate-700">
+                Accounts can only be created by an administrator. Ask an
+                administrator at your company to add you.
+              </p>
+              <Link
+                href="/login"
+                className="inline-block font-medium text-brand-600 hover:text-brand-700 hover:underline"
+              >
+                Back to sign in
+              </Link>
+            </div>
+          )}
+
+          {(mode === "bootstrap" || mode === "admin") && (
           <form onSubmit={onSubmit} className="space-y-5">
+            {mode === "bootstrap" && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                This instance has no users yet, so this first account will be
+                created as an <strong>administrator</strong> and signed in.
+                After that, only administrators can add more accounts.
+              </div>
+            )}
+
+            {notice && (
+              <div
+                role="status"
+                className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+              >
+                {notice}
+              </div>
+            )}
+
             {error && (
               <div
                 role="alert"
@@ -203,20 +306,25 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div>
-              <label
-                htmlFor="role"
-                className="mb-1.5 block text-sm font-medium text-slate-700"
-              >
-                Role
-              </label>
-              <MobileSelect
-                value={role}
-                onChange={setRole}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                options={ROLE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
-              />
-            </div>
+            {/* No role picker while bootstrapping: the backend ignores any
+                role on that path and forces ADMIN, so offering a choice here
+                would be a lie. */}
+            {mode === "admin" && (
+              <div>
+                <label
+                  htmlFor="role"
+                  className="mb-1.5 block text-sm font-medium text-slate-700"
+                >
+                  Role
+                </label>
+                <MobileSelect
+                  value={role}
+                  onChange={setRole}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  options={ROLE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
+                />
+              </div>
+            )}
 
             <button
               type="submit"
@@ -228,11 +336,14 @@ export default function SignupPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Creating account…
                 </>
+              ) : mode === "bootstrap" ? (
+                "Create administrator account"
               ) : (
-                "Sign up"
+                "Create user"
               )}
             </button>
           </form>
+          )}
         </div>
 
         <p className="mt-6 text-center text-sm text-slate-600">

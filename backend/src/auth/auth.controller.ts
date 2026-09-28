@@ -1,4 +1,8 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req } from '@nestjs/common';
+// `import type` matters: Request appears in a decorated method signature, and
+// with isolatedModules + emitDecoratorMetadata a value import there is a
+// TS1272 error (the same one already littering this project's typecheck).
+import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { UserRole } from '@prisma/client';
@@ -57,11 +61,27 @@ export class AuthController {
     return this.authService.login(dto.email, dto.password);
   }
 
-  // Public — creates a new account and logs it straight in (same response
-  // shape as /login), so the login page can offer a working "Sign up" option.
+  // Whether this deployment has no users yet, i.e. whether the next account
+  // created becomes the bootstrap administrator. Public on purpose: the
+  // signup screen has to know which form to render before anyone has signed
+  // in. Returns one boolean and nothing else.
+  @Get('registration-status')
+  async registrationStatus() {
+    return this.authService.registrationStatus();
+  }
+
+  // Administrator-only, apart from the bootstrap case (an empty User table),
+  // which is enforced in AuthService.register. Not behind a route guard
+  // because the endpoint legitimately has to serve unauthenticated callers on
+  // a brand-new instance — so the bearer token is optional here and verified
+  // in the service.
   @Post('register')
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto.fullName, dto.email, dto.password, dto.role);
+  async register(@Body() dto: RegisterDto, @Req() req: Request) {
+    const authHeader = req.headers.authorization ?? '';
+    const requesterToken = authHeader.toLowerCase().startsWith('bearer ')
+      ? authHeader.slice(7).trim()
+      : undefined;
+    return this.authService.register(dto.fullName, dto.email, dto.password, dto.role, requesterToken);
   }
 
   // Public — no JwtAuthGuard on this controller. Always returns { sent: true }
