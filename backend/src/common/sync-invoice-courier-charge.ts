@@ -25,6 +25,10 @@ import { LedgerEntryType, Prisma } from '@prisma/client';
 import { splitInclusiveGst } from './inclusive-gst';
 
 export const COURIER_GST_RATE_PCT = 18;
+// SAC for courier services — gives the courier line its own row in the
+// invoice's tax summary and the GST Summary instead of being lumped with
+// products that have no HSN (which showed a blended rate, e.g. 3.1%).
+export const COURIER_SAC = '996812';
 
 type Db = Pick<Prisma.TransactionClient, 'invoice' | 'shipment' | 'accountingLedgerEntry'>;
 
