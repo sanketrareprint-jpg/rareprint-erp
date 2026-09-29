@@ -12,9 +12,11 @@ import {
   BankReconcileStatus,
   GstTreatment,
   LedgerEntryType,
+  OrderProductionStage,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  Prisma,
   PurchaseBillStatus,
 } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -28,6 +30,8 @@ import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
 import { splitInclusiveGst } from '../common/inclusive-gst';
 import { syncInvoiceCourierCharge, courierGstSplit } from '../common/sync-invoice-courier-charge';
 import { assertItemsCancellable, releaseItemAssignments } from '../common/cancel-item-assignments';
+import { upsellBlockReason } from '../common/order-upsell';
+import type { PendingUpsell } from '../common/order-upsell';
 
 type AccountsUser = { id: string; role: string; email: string };
 
@@ -549,95 +553,10 @@ export class AccountsService {
       throw new BadRequestException('Only pending accounts approval orders can be approved');
     }
 
-    // Items with an offer code are free items — skip all cost/margin checks for them
-    const offerItems = new Set(order.items.filter((i) => (i as any).offerCodeId).map((i) => i.id));
-    const billableItems = order.items.filter((i) => !offerItems.has(i.id));
+    await this.assertApprovalRules(order.payments, Number(order.grandTotal), order.items, user, overrideReason);
 
-    // Sanket (super-admin) can approve any order with no restrictions whatsoever
-    const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
-
-    // If an override reason is provided (e.g. free stickers, combo discount), skip cost/margin checks
+    // If an override reason is provided (e.g. free stickers, combo discount), cost/margin checks were skipped
     const isOverride = !!overrideReason?.trim();
-
-    // ── Rule: All payments must be verified before approval (hard block, all users) ──
-    const unverifiedPayments = order.payments.filter(
-      (p) => p.verificationStatus === 'PENDING_VERIFICATION',
-    );
-    if (unverifiedPayments.length > 0) {
-      throw new BadRequestException(
-        `Cannot approve: ${unverifiedPayments.length} payment(s) are still pending verification. Verify all receipts before approving the order.`,
-      );
-    }
-
-    // ── Rule: Minimum 40% advance required (super-admin bypasses) ───────────────
-    const totalVerifiedPaid = order.payments
-      .filter((p) => p.verificationStatus === 'VERIFIED')
-      .reduce((sum, p) => sum + Number(p.amount), 0);
-    const grandTotal = Number(order.grandTotal);
-    const advancePct = grandTotal > 0 ? (totalVerifiedPaid / grandTotal) * 100 : 100;
-    if (!isSuperAdmin && advancePct < 40) {
-      throw new BadRequestException(
-        `Cannot approve: only ${advancePct.toFixed(1)}% advance received (₹${totalVerifiedPaid.toLocaleString('en-IN')} of ₹${grandTotal.toLocaleString('en-IN')}). Minimum 40% required. Only super-admin can approve below this threshold.`,
-      );
-    }
-
-    // Block approval if any billable item has no cost slab
-    const productIds = billableItems.map((i) => i.productId);
-    const allCostSlabs = productIds.length
-      ? await this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } })
-      : [];
-
-    if (!isSuperAdmin && !isOverride) {
-      const productsWithCost = new Set(allCostSlabs.map((s) => s.productId));
-      const missingCostItems = billableItems.filter((i) => !productsWithCost.has(i.productId));
-      if (missingCostItems.length > 0) {
-        const skus = missingCostItems.map((i) => (i.product as any)?.sku ?? i.productId).join(', ');
-        throw new BadRequestException(
-          `Cannot approve: cost data is missing for ${missingCostItems.length} item(s) — ${skus}. Please add cost slabs in the Cost Table first.`,
-        );
-      }
-
-      // Block approval if any billable item's margin is below the minimum approval margin
-      const settings = this.costTable.getSettings();
-      const lowMarginItems: string[] = [];
-      for (const item of billableItems) {
-        const qty = item.quantity;
-        const matchingSlab = allCostSlabs
-          .filter(
-            (s) =>
-              s.productId === item.productId &&
-              s.minQuantity <= qty &&
-              (s.maxQuantity == null || s.maxQuantity >= qty),
-          )
-          .sort((a, b) => b.minQuantity - a.minQuantity)[0];
-        if (!matchingSlab) continue;
-
-        const rawCost = Number(matchingSlab.unitPrice);
-        // Derived from lineTotal/quantity rather than the stored
-        // item.unitPrice field -- unitPrice can drift from what was
-        // actually charged (e.g. the order's TOTAL amount typed into the
-        // unit-price box by mistake) while lineTotal is what was really
-        // invoiced, so it's the more robust basis both for this cost-slab
-        // heuristic and for the margin% gate below. A real incident: Order
-        // #1540 (Nikita Paul, Aug 2026) had unitPrice=5227 with
-        // lineTotal=5227 for qty=5000 (should have been ~1.05/unit) --
-        // trusting that corrupted unitPrice here would have shown a wildly
-        // wrong margin% on this exact approval gate.
-        const salePerUnit = item.quantity > 0 ? Number(item.lineTotal) / item.quantity : Number(item.unitPrice);
-        const costPerUnit = rawCost > salePerUnit ? rawCost / matchingSlab.minQuantity : rawCost;
-        const marginPct = salePerUnit > 0 ? ((salePerUnit - costPerUnit) / salePerUnit) * 100 : 0;
-
-        if (marginPct < settings.minApprovalMarginPct) {
-          const sku = (item.product as any)?.sku ?? item.productId;
-          lowMarginItems.push(`${sku} (margin: ${marginPct.toFixed(1)}%)`);
-        }
-      }
-      if (lowMarginItems.length > 0) {
-        throw new BadRequestException(
-          `Cannot approve: margin is below the minimum ${settings.minApprovalMarginPct}% for item(s) — ${lowMarginItems.join(', ')}. Adjust the sale price or cost slab.`,
-        );
-      }
-    }
 
     const result = await this.prisma.$transaction(async (tx) => {
       const approved = await tx.order.update({
@@ -707,6 +626,105 @@ export class AccountsService {
     }
 
     return result.approved;
+  }
+
+  // The approval gates for an order total and its items, moved unchanged out
+  // of approveOrder so approveUpsell (which passes the post-upsell total and
+  // the raised/new items) enforces exactly the same rules.
+  private async assertApprovalRules(
+    payments: { amount: Prisma.Decimal | number; verificationStatus: string }[],
+    grandTotal: number,
+    items: { productId: string; quantity: number; unitPrice: Prisma.Decimal | number; lineTotal: Prisma.Decimal | number; product?: any; offerCodeId?: string | null }[],
+    user: AccountsUser,
+    overrideReason?: string,
+  ) {
+    // Items with an offer code are free items — skip all cost/margin checks for them
+    const billableItems = items.filter((i) => !i.offerCodeId);
+
+    // Sanket (super-admin) can approve any order with no restrictions whatsoever
+    const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
+
+    // If an override reason is provided (e.g. free stickers, combo discount), skip cost/margin checks
+    const isOverride = !!overrideReason?.trim();
+
+    // ── Rule: All payments must be verified before approval (hard block, all users) ──
+    const unverifiedPayments = payments.filter(
+      (p) => p.verificationStatus === 'PENDING_VERIFICATION',
+    );
+    if (unverifiedPayments.length > 0) {
+      throw new BadRequestException(
+        `Cannot approve: ${unverifiedPayments.length} payment(s) are still pending verification. Verify all receipts before approving the order.`,
+      );
+    }
+
+    // ── Rule: Minimum 40% advance required (super-admin bypasses) ───────────────
+    const totalVerifiedPaid = payments
+      .filter((p) => p.verificationStatus === 'VERIFIED')
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const advancePct = grandTotal > 0 ? (totalVerifiedPaid / grandTotal) * 100 : 100;
+    if (!isSuperAdmin && advancePct < 40) {
+      throw new BadRequestException(
+        `Cannot approve: only ${advancePct.toFixed(1)}% advance received (₹${totalVerifiedPaid.toLocaleString('en-IN')} of ₹${grandTotal.toLocaleString('en-IN')}). Minimum 40% required. Only super-admin can approve below this threshold.`,
+      );
+    }
+
+    // Block approval if any billable item has no cost slab
+    const productIds = billableItems.map((i) => i.productId);
+    const allCostSlabs = productIds.length
+      ? await this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } })
+      : [];
+
+    if (!isSuperAdmin && !isOverride) {
+      const productsWithCost = new Set(allCostSlabs.map((s) => s.productId));
+      const missingCostItems = billableItems.filter((i) => !productsWithCost.has(i.productId));
+      if (missingCostItems.length > 0) {
+        const skus = missingCostItems.map((i) => (i.product as any)?.sku ?? i.productId).join(', ');
+        throw new BadRequestException(
+          `Cannot approve: cost data is missing for ${missingCostItems.length} item(s) — ${skus}. Please add cost slabs in the Cost Table first.`,
+        );
+      }
+
+      // Block approval if any billable item's margin is below the minimum approval margin
+      const settings = this.costTable.getSettings();
+      const lowMarginItems: string[] = [];
+      for (const item of billableItems) {
+        const qty = item.quantity;
+        const matchingSlab = allCostSlabs
+          .filter(
+            (s) =>
+              s.productId === item.productId &&
+              s.minQuantity <= qty &&
+              (s.maxQuantity == null || s.maxQuantity >= qty),
+          )
+          .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+        if (!matchingSlab) continue;
+
+        const rawCost = Number(matchingSlab.unitPrice);
+        // Derived from lineTotal/quantity rather than the stored
+        // item.unitPrice field -- unitPrice can drift from what was
+        // actually charged (e.g. the order's TOTAL amount typed into the
+        // unit-price box by mistake) while lineTotal is what was really
+        // invoiced, so it's the more robust basis both for this cost-slab
+        // heuristic and for the margin% gate below. A real incident: Order
+        // #1540 (Nikita Paul, Aug 2026) had unitPrice=5227 with
+        // lineTotal=5227 for qty=5000 (should have been ~1.05/unit) --
+        // trusting that corrupted unitPrice here would have shown a wildly
+        // wrong margin% on this exact approval gate.
+        const salePerUnit = item.quantity > 0 ? Number(item.lineTotal) / item.quantity : Number(item.unitPrice);
+        const costPerUnit = rawCost > salePerUnit ? rawCost / matchingSlab.minQuantity : rawCost;
+        const marginPct = salePerUnit > 0 ? ((salePerUnit - costPerUnit) / salePerUnit) * 100 : 0;
+
+        if (marginPct < settings.minApprovalMarginPct) {
+          const sku = (item.product as any)?.sku ?? item.productId;
+          lowMarginItems.push(`${sku} (margin: ${marginPct.toFixed(1)}%)`);
+        }
+      }
+      if (lowMarginItems.length > 0) {
+        throw new BadRequestException(
+          `Cannot approve: margin is below the minimum ${settings.minApprovalMarginPct}% for item(s) — ${lowMarginItems.join(', ')}. Adjust the sale price or cost slab.`,
+        );
+      }
+    }
   }
 
   async rejectOrder(orderId: string, reason: string) {
@@ -1057,6 +1075,289 @@ export class AccountsService {
       },
     });
     return updated;
+  }
+
+  // ── Upsell requests (seller requests via OrdersService.requestUpsell on an
+  //    already-approved order — Accounts approves or rejects here; the order
+  //    itself is untouched until approval) ──
+
+  async getPendingUpsells() {
+    const orders = await this.prisma.order.findMany({
+      where: ({ upsellRequestedAt: { not: null } } as any),
+      include: {
+        customer: true,
+        salesAgent: { select: { fullName: true } },
+        items: { include: { product: true } },
+        payments: true,
+      },
+      orderBy: ({ upsellRequestedAt: 'desc' } as any),
+    });
+    return orders.map((order) => {
+      const pending = (order as any).pendingUpsell as PendingUpsell | null;
+      const itemChanges = pending?.itemChanges ?? [];
+      const newItems = pending?.newItems ?? [];
+      const verifiedPaid = order.payments
+        .filter((p) => p.verificationStatus === 'VERIFIED')
+        .reduce((s, p) => s + Number(p.amount), 0);
+      const addedAmount = this.money(
+        itemChanges.reduce((s, c) => s + c.lineTotal - c.fromLineTotal, 0)
+        + newItems.reduce((s, n) => s + n.lineTotal, 0),
+      );
+      return {
+        id: order.id,
+        orderNo: order.orderNumber,
+        orderStatus: order.status,
+        customerName: order.customer.businessName,
+        salesAgentName: order.salesAgent?.fullName ?? null,
+        requestedByName: (order as any).upsellRequestedByName ?? null,
+        requestedAt: (order as any).upsellRequestedAt,
+        orderTotal: Number(order.grandTotal),
+        addedAmount,
+        newTotal: this.money(Number(order.grandTotal) + addedAmount),
+        verifiedPaid: this.money(verifiedPaid),
+        itemChanges: itemChanges.map((c) => {
+          const item = order.items.find((i) => i.id === c.itemId);
+          return { ...c, itemProductionStage: item?.itemProductionStage ?? null };
+        }),
+        newItems,
+      };
+    });
+  }
+
+  // Applies a pending upsell. Existing items that are still NOT_PRINTED are
+  // raised in place. For an item production has already started on
+  // (PRINTING/PROCESSING/READY_FOR_DISPATCH), a quantity increase is added as
+  // a NEW line for the extra units at NOT_PRINTED — the original line keeps
+  // its quantity and stage, so production/sheets stay accurate and the extra
+  // units actually get printed (a rate increase still applies to the
+  // original line). Same approval rules as a normal order (assertApprovalRules)
+  // against the post-upsell total.
+  async approveUpsell(orderId: string, user: AccountsUser, overrideReason?: string) {
+    assertAccountsUser(user);
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: true,
+        items: { include: { product: true } },
+        payments: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const pending = (order as any).pendingUpsell as PendingUpsell | null;
+    if (!(order as any).upsellRequestedAt || !pending) {
+      throw new BadRequestException('This order has no pending upsell request');
+    }
+    // Re-checked here, not just at request time — the order may have moved
+    // into dispatch, had an item shipped, or been edited while this waited.
+    const blocked = upsellBlockReason(order as any);
+    if (blocked) {
+      throw new BadRequestException(`Cannot approve this upsell: ${blocked}. Reject it and ask the seller to create a new order instead.`);
+    }
+    for (const change of pending.itemChanges) {
+      const item = order.items.find((i) => i.id === change.itemId);
+      if (!item || item.cancelledAt) {
+        throw new BadRequestException(`Cannot approve this upsell: ${change.productName} is no longer on the order. Reject it and ask the seller to resubmit.`);
+      }
+      if (item.quantity !== change.fromQuantity || !new Prisma.Decimal(item.unitPrice).eq(change.fromUnitPrice)) {
+        throw new BadRequestException(`Cannot approve this upsell: ${change.productName} was changed after the upsell was requested. Reject it and ask the seller to resubmit.`);
+      }
+    }
+
+    const newProducts = pending.newItems.length
+      ? await this.prisma.product.findMany({ where: { id: { in: pending.newItems.map((n) => n.productId) } } })
+      : [];
+    const productById = new Map(newProducts.map((p) => [p.id, p]));
+    const missingProduct = pending.newItems.find((n) => !productById.has(n.productId));
+    if (missingProduct) {
+      throw new BadRequestException(`Cannot approve this upsell: product ${missingProduct.productName} no longer exists. Reject it and ask the seller to resubmit.`);
+    }
+
+    // Recomputed from the order's CURRENT line totals, not the stored
+    // addedAmount, so the new total is exact even if anything else moved.
+    const addedAmount = this.money(
+      pending.itemChanges.reduce((s, c) => {
+        const item = order.items.find((i) => i.id === c.itemId)!;
+        return s + c.lineTotal - Number(item.lineTotal);
+      }, 0)
+      + pending.newItems.reduce((s, n) => s + n.lineTotal, 0),
+    );
+    const newSubtotal = this.money(Number(order.subtotal) + addedAmount);
+    const newGrandTotal = this.money(Number(order.grandTotal) + addedAmount);
+
+    // Rules are checked on the raised/new lines as they will be after the
+    // upsell (full quantity at the new rate), and on the new order total.
+    const itemsToCheck = [
+      ...pending.itemChanges.map((c) => {
+        const item = order.items.find((i) => i.id === c.itemId)!;
+        return { productId: item.productId, quantity: c.quantity, unitPrice: c.unitPrice, lineTotal: c.lineTotal, product: item.product, offerCodeId: item.offerCodeId };
+      }),
+      ...pending.newItems.map((n) => ({
+        productId: n.productId, quantity: n.quantity, unitPrice: n.unitPrice, lineTotal: n.lineTotal, product: productById.get(n.productId), offerCodeId: null,
+      })),
+    ];
+    await this.assertApprovalRules(order.payments, newGrandTotal, itemsToCheck, user, overrideReason);
+
+    const isOverride = !!overrideReason?.trim();
+    const totalPaid = order.payments.reduce((s, p) => s + Number(p.amount), 0);
+    let paymentStatus: PaymentStatus = PaymentStatus.PENDING;
+    if (totalPaid > 0) {
+      paymentStatus = totalPaid >= newGrandTotal ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID;
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const splitLines: { fromItemId: string; productName: string; extraQuantity: number }[] = [];
+      for (const change of pending.itemChanges) {
+        const item = order.items.find((i) => i.id === change.itemId)!;
+        const unitPrice = new Prisma.Decimal(change.unitPrice);
+        const extraQuantity = change.quantity - item.quantity;
+        const productionStarted = item.itemProductionStage !== OrderProductionStage.NOT_PRINTED;
+        if (!productionStarted || extraQuantity === 0) {
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: { quantity: change.quantity, unitPrice, lineTotal: new Prisma.Decimal(change.lineTotal) },
+          });
+          continue;
+        }
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: { unitPrice, lineTotal: unitPrice.times(item.quantity).toDecimalPlaces(2) },
+        });
+        await tx.orderItem.create({
+          data: {
+            orderId,
+            productId: item.productId,
+            quantity: extraQuantity,
+            unitPrice,
+            lineDiscount: new Prisma.Decimal(0),
+            taxRatePct: new Prisma.Decimal(0),
+            taxAmount: new Prisma.Decimal(0),
+            lineTotal: unitPrice.times(extraQuantity).toDecimalPlaces(2),
+            artworkNotes: item.artworkNotes,
+            productionNotes: item.productionNotes,
+            // Same artwork as the line it extends.
+            designFiles: (item.designFiles ?? []) as Prisma.InputJsonValue,
+          },
+        });
+        splitLines.push({ fromItemId: item.id, productName: change.productName, extraQuantity });
+      }
+      for (const n of pending.newItems) {
+        await tx.orderItem.create({
+          data: {
+            orderId,
+            productId: n.productId,
+            quantity: n.quantity,
+            unitPrice: new Prisma.Decimal(n.unitPrice),
+            lineDiscount: new Prisma.Decimal(0),
+            taxRatePct: new Prisma.Decimal(0),
+            taxAmount: new Prisma.Decimal(0),
+            lineTotal: new Prisma.Decimal(n.lineTotal),
+            artworkNotes: n.artworkNotes,
+            productionNotes: n.productionNotes,
+          },
+        });
+      }
+
+      // A READY_FOR_DISPATCH order that just gained NOT_PRINTED lines is no
+      // longer fully ready — move it back to IN_PRODUCTION (same rule as
+      // ProductionService.updateItemStage's rollup) so the new lines show in
+      // the clubbing queue, which only reads APPROVED/IN_PRODUCTION orders.
+      const addedLines = splitLines.length + pending.newItems.length;
+      const newStatus = order.status === OrderStatus.READY_FOR_DISPATCH && addedLines > 0
+        ? OrderStatus.IN_PRODUCTION
+        : order.status;
+
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: ({
+          subtotal: newSubtotal,
+          grandTotal: newGrandTotal,
+          paymentStatus,
+          status: newStatus,
+          upsellRequestedAt: null,
+          upsellRequestedByName: null,
+          pendingUpsell: Prisma.DbNull,
+        } as any),
+      });
+
+      const invoice = await tx.invoice.findUnique({ where: { orderId } });
+      let updatedInvoice: any = null;
+      if (invoice) {
+        const currentItems = await tx.orderItem.findMany({
+          where: { orderId, cancelledAt: null },
+          include: { product: true },
+        });
+        updatedInvoice = await this.reconcileInvoiceToRemainingItems(
+          tx, invoice, order, currentItems, `Upsell approved (+₹${addedAmount})`,
+        );
+      }
+
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: newStatus,
+          changedById: user.id,
+          reason: `Accounts approved upsell: +₹${addedAmount} (₹${Number(order.grandTotal)} → ₹${newGrandTotal})`
+            + (splitLines.length ? `. Extra quantity added as new line(s) for items already in production: ${splitLines.map((s) => `${s.productName} +${s.extraQuantity}`).join(', ')}` : '')
+            + (isOverride ? `. Override: ${overrideReason}` : ''),
+          metadata: ({
+            eventType: 'UPSELL_APPROVED',
+            addedAmount,
+            oldGrandTotal: Number(order.grandTotal),
+            newGrandTotal,
+            itemChanges: pending.itemChanges,
+            newItems: pending.newItems,
+            splitLines,
+            ...(isOverride ? { overrideReason } : {}),
+          } as any),
+        },
+      });
+      return { updated, invoice: updatedInvoice };
+    });
+
+    // Send the customer the updated bill, same as a re-approval does in
+    // approveOrder. Fire-and-forget — never fails the approval.
+    if (result.invoice) {
+      this.billing
+        .sendInvoicePdfDocument(result.invoice.id, order.customer.businessName, order.customer.phone ?? '')
+        .catch((err) => console.error(`Invoice PDF WhatsApp send failed for upsell on order ${orderId}:`, err));
+    }
+
+    return result.updated;
+  }
+
+  async rejectUpsell(orderId: string, reason: string, user: AccountsUser) {
+    assertAccountsUser(user);
+    if (!reason?.trim()) throw new BadRequestException('A reason is required to reject an upsell');
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!(order as any).upsellRequestedAt) {
+      throw new BadRequestException('This order has no pending upsell request');
+    }
+    // Nothing on the order was changed by the request, so clearing it is all
+    // a reject needs — the order carries on exactly as it was. The rejected
+    // request is kept in the StatusLog metadata for audit.
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: ({
+          upsellRequestedAt: null,
+          upsellRequestedByName: null,
+          pendingUpsell: Prisma.DbNull,
+        } as any),
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: order.status,
+          changedById: user.id,
+          reason: `Accounts rejected upsell request: ${reason.trim()}`,
+          metadata: ({ eventType: 'UPSELL_REJECTED', pendingUpsell: (order as any).pendingUpsell ?? null } as any),
+        },
+      });
+      return updated;
+    });
   }
 
   // ── Return order to accounts (back to PENDING_APPROVAL) ──────────────────

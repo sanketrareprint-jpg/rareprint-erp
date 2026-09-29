@@ -911,6 +911,10 @@ export default function OrdersPage() {
                     <Plus className="h-3.5 w-3.5" /> Test Order
                   </button>
                 )}
+                <button onClick={() => router.push("/orders/upsell")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">
+                  <Plus className="h-3.5 w-3.5" /> Upsell Order
+                </button>
                 <button onClick={() => router.push("/orders/create")}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700">
                   <Plus className="h-3.5 w-3.5" /> Create New Order

@@ -15,6 +15,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
+import { UPSELL_ELIGIBLE_STATUSES, upsellBlockReason } from '../common/order-upsell';
+import type { PendingUpsell, UpsellItemChange, UpsellNewItem } from '../common/order-upsell';
 
 // Same convention as AccountsService — Sanket is the super-admin, identified
 // by email rather than a Role enum value, since this app has never had a
@@ -1772,6 +1774,195 @@ export class OrdersService {
         },
       });
       return updated;
+    });
+  }
+
+  // Orders the user may pick on the Upsell Order page, with their current
+  // items. Sellers only see their own orders; ADMIN sees everyone's (same
+  // scoping rule as findAll). Orders with an upsell already waiting for
+  // Accounts are included but flagged, so the page can show why they're
+  // not selectable.
+  async getUpsellableOrders(user: { id: string; role: string }) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        ...(user.role === 'ADMIN' ? {} : { salesAgentId: user.id }),
+        status: { in: UPSELL_ELIGIBLE_STATUSES },
+        isSample: false,
+        isParcelBooking: false,
+        items: { none: { dispatchedAt: { not: null } } },
+      },
+      include: {
+        customer: { select: { businessName: true, phone: true } },
+        items: { where: { cancelledAt: null }, include: { product: true }, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { orderDate: 'desc' },
+      take: 300,
+    });
+    return orders.map((o) => ({
+      id: o.id,
+      orderNo: o.orderNumber,
+      orderDate: o.orderDate,
+      status: o.status,
+      customerName: o.customer.businessName,
+      customerPhone: o.customer.phone,
+      grandTotal: Number(o.grandTotal),
+      upsellPending: !!(o as any).upsellRequestedAt,
+      cancellationPending: !!(o as any).cancellationRequestedAt,
+      items: o.items.map((i) => {
+        const specs = resolveItemDetails(i.productionNotes, i.product);
+        return {
+          id: i.id,
+          productId: i.productId,
+          productName: i.product.name,
+          size: specs.size ?? '',
+          gsm: specs.gsm ?? '',
+          paper: specs.paper ?? '',
+          sides: specs.sides ?? '',
+          quantity: i.quantity,
+          unitPrice: Number(i.unitPrice),
+          lineTotal: Number(i.lineTotal),
+          itemProductionStage: i.itemProductionStage,
+        };
+      }),
+    }));
+  }
+
+  // Seller raises qty/rate on existing items and/or adds new items to an
+  // already-approved order. Increase-only (per Sanket, 2026-09-29): nothing
+  // can go down and no item can be removed. Doesn't touch the order itself —
+  // the request is parked in pendingUpsell for Accounts (see
+  // AccountsService.approveUpsell/rejectUpsell), so the original items keep
+  // moving through production while it waits.
+  async requestUpsell(
+    orderId: string,
+    body: {
+      items?: { itemId: string; quantity: number; unitPrice: number }[];
+      newItems?: { productId: string; quantity: number; unitPrice: number; sizeInches?: string; gsm?: string | number; paperType?: string; sides?: string; artworkNotes?: string }[];
+    },
+    user: { id: string; role: string },
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { product: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (user.role !== 'ADMIN' && order.salesAgentId !== user.id) {
+      throw new ForbiddenException('You can only upsell your own orders');
+    }
+    const blocked = upsellBlockReason(order as any);
+    if (blocked) throw new BadRequestException(blocked);
+    if ((order as any).upsellRequestedAt) {
+      throw new BadRequestException('An upsell for this order is already waiting for Accounts approval');
+    }
+
+    const isWholeNumber = (n: unknown) => typeof n === 'number' && Number.isInteger(n);
+    const isAmount = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+    const money = (n: number) => new Prisma.Decimal(n).toDecimalPlaces(2);
+
+    const requestedChanges = Array.isArray(body.items) ? body.items : [];
+    const requestedNewItems = Array.isArray(body.newItems) ? body.newItems : [];
+
+    const itemChanges: UpsellItemChange[] = [];
+    const seenItemIds = new Set<string>();
+    for (const change of requestedChanges) {
+      if (seenItemIds.has(change.itemId)) throw new BadRequestException('The same item was submitted twice');
+      seenItemIds.add(change.itemId);
+      const item = order.items.find((i) => i.id === change.itemId);
+      if (!item || item.cancelledAt) throw new BadRequestException('One or more items were not found on this order');
+      if (!isWholeNumber(change.quantity) || !isAmount(change.unitPrice)) {
+        throw new BadRequestException(`Invalid quantity or rate for ${item.product.name}`);
+      }
+      const unitPrice = money(change.unitPrice);
+      if (change.quantity < item.quantity || unitPrice.lt(item.unitPrice)) {
+        throw new BadRequestException(`${item.product.name}: an upsell can only increase quantity or rate, not lower them`);
+      }
+      const lineTotal = unitPrice.times(change.quantity).toDecimalPlaces(2);
+      // Unchanged row — the page sends every existing item back.
+      if (change.quantity === item.quantity && unitPrice.eq(item.unitPrice)) continue;
+      // lineTotal is what was actually billed and can differ from
+      // qty × rate on older orders (see approveOrder's margin comment), so
+      // guard the amount too, not just the two inputs.
+      if (lineTotal.lt(item.lineTotal)) {
+        throw new BadRequestException(`${item.product.name}: the new amount (₹${lineTotal}) would be lower than the current ₹${item.lineTotal}`);
+      }
+      itemChanges.push({
+        itemId: item.id,
+        productName: item.product.name,
+        fromQuantity: item.quantity,
+        fromUnitPrice: Number(item.unitPrice),
+        fromLineTotal: Number(item.lineTotal),
+        quantity: change.quantity,
+        unitPrice: unitPrice.toNumber(),
+        lineTotal: lineTotal.toNumber(),
+      });
+    }
+
+    const newItems: UpsellNewItem[] = [];
+    const newProductIds = [...new Set(requestedNewItems.map((i) => i.productId).filter((id) => typeof id === 'string'))];
+    const products = newProductIds.length
+      ? await this.prisma.product.findMany({ where: { id: { in: newProductIds } } })
+      : [];
+    for (const n of requestedNewItems) {
+      const product = products.find((p) => p.id === n.productId);
+      if (!product) throw new BadRequestException('Select a valid product for every new item');
+      if (!isWholeNumber(n.quantity) || n.quantity <= 0) throw new BadRequestException(`${product.name}: quantity must be greater than 0`);
+      if (!isAmount(n.unitPrice)) throw new BadRequestException(`${product.name}: invalid rate`);
+      const unitPrice = money(n.unitPrice);
+      // Same "Size: X, GSM: Y, Paper: Z, Sides: W" format as Create Order and
+      // superAdminEditItem — production, dispatch and invoices parse it.
+      const resolved = resolveItemDetails(null, product);
+      const size = n.sizeInches?.trim() || resolved.size || '';
+      const gsm = String(n.gsm ?? '').trim() || resolved.gsm || '';
+      const paper = n.paperType?.trim() || resolved.paper || '';
+      const sides = n.sides?.trim() || resolved.sides || '';
+      newItems.push({
+        productId: product.id,
+        productName: product.name,
+        quantity: n.quantity,
+        unitPrice: unitPrice.toNumber(),
+        lineTotal: unitPrice.times(n.quantity).toDecimalPlaces(2).toNumber(),
+        productionNotes: `Size: ${size}, GSM: ${gsm}${paper ? `, Paper: ${paper}` : ''}, Sides: ${sides}`,
+        artworkNotes: n.artworkNotes?.trim() || null,
+      });
+    }
+
+    if (itemChanges.length === 0 && newItems.length === 0) {
+      throw new BadRequestException('Nothing to upsell — raise a quantity/rate or add an item');
+    }
+
+    const addedAmount = new Prisma.Decimal(0)
+      .plus(itemChanges.reduce((s, c) => s.plus(c.lineTotal).minus(c.fromLineTotal), new Prisma.Decimal(0)))
+      .plus(newItems.reduce((s, n) => s.plus(n.lineTotal), new Prisma.Decimal(0)))
+      .toDecimalPlaces(2);
+    const pendingUpsell: PendingUpsell = {
+      requestedById: user.id,
+      oldGrandTotal: Number(order.grandTotal),
+      addedAmount: addedAmount.toNumber(),
+      itemChanges,
+      newItems,
+    };
+
+    const requester = await this.prisma.user.findUnique({ where: { id: user.id }, select: { fullName: true } });
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: ({
+          upsellRequestedAt: new Date(),
+          upsellRequestedByName: requester?.fullName ?? null,
+          pendingUpsell,
+        } as any),
+      });
+      await tx.statusLog.create({
+        data: {
+          orderId,
+          fromStatus: order.status,
+          toStatus: order.status,
+          changedById: user.id,
+          reason: `Upsell requested: +₹${addedAmount} (${itemChanges.length} item(s) raised, ${newItems.length} new item(s)) — waiting for Accounts approval`,
+          metadata: { eventType: 'UPSELL_REQUESTED', ...pendingUpsell } as any,
+        },
+      });
+      return { success: true, orderId: updated.id, addedAmount: addedAmount.toNumber() };
     });
   }
 

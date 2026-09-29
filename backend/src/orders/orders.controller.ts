@@ -124,6 +124,27 @@ export class OrdersController {
       });
   }
 
+  // Orders the caller may upsell (own orders for sellers, all for ADMIN —
+  // scoped server-side in the service from the JWT, not a client param).
+  @Get('upsell/eligible')
+  @UseGuards(AuthGuard('jwt'))
+  getUpsellableOrders(@Req() req: Request & { user: JwtUser }) {
+    return this.ordersService.getUpsellableOrders(req.user);
+  }
+
+  @Post(':id/upsell')
+  @UseGuards(AuthGuard('jwt'))
+  requestUpsell(
+    @Param('id') id: string,
+    @Req() req: Request & { user: JwtUser },
+    @Body() body: {
+      items?: { itemId: string; quantity: number; unitPrice: number }[];
+      newItems?: { productId: string; quantity: number; unitPrice: number; sizeInches?: string; gsm?: string | number; paperType?: string; sides?: string; artworkNotes?: string }[];
+    },
+  ) {
+    return this.ordersService.requestUpsell(id, body ?? {}, req.user);
+  }
+
   @Get('payment-accounts')
   @UseGuards(AuthGuard('jwt'))
   getPaymentAccounts() {

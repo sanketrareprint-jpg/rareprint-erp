@@ -539,6 +539,24 @@ async function main() {
       }
     });
 
+    // ── Order upsell request/approval columns ──────────────────────────────
+    await safely('Order upsell columns', async () => {
+      const COLUMNS = { upsellRequestedAt: 'TIMESTAMP(3)', upsellRequestedByName: 'TEXT', pendingUpsell: 'JSONB' };
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Order' AND column_name = ANY($1::text[])
+      `, [Object.keys(COLUMNS)]);
+      const existing = new Set(rows.map((r) => r.column_name));
+      for (const [column, type] of Object.entries(COLUMNS)) {
+        if (existing.has(column)) {
+          console.log(`[ensure-all-columns] Order.${column}: already exists.`);
+          continue;
+        }
+        console.log(`[ensure-all-columns] Order.${column}: missing, adding.`);
+        await client.query(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "${column}" ${type};`);
+      }
+    });
+
     // ── OrderItem.cancelledAt column ────────────────────────────────────────
     await safely('OrderItem.cancelledAt', async () => {
       const { rows } = await client.query(`

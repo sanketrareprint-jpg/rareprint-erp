@@ -468,6 +468,16 @@ model Order {
   cancellationRequestedByName String?
   cancellationReason          String?
   pendingCancelItemIds        String[]      @default([])
+  // Upsell request/approval — same pattern as cancellation above: a seller
+  // raises qty/rate on existing items and/or adds new items to an already-
+  // approved order (OrdersService.requestUpsell). Nothing on the order
+  // changes until Accounts approves (AccountsService.approveUpsell), so the
+  // original items keep moving through production meanwhile, and a reject
+  // just clears these fields. upsellRequestedAt != null is the pending marker;
+  // pendingUpsell holds { itemChanges, newItems } (see requestUpsell).
+  upsellRequestedAt           DateTime?
+  upsellRequestedByName       String?
+  pendingUpsell               Json?
   // Base64 data URLs captured in the Book Shipment modal when a dispatch
   // submission goes to Accounts — a packing photo (proof of what's actually
   // being shipped) and, optionally, a bill/invoice photo. Overwritten on

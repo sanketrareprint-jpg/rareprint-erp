@@ -51,6 +51,29 @@ export class AccountsController {
     return this.accountsService.rejectCancellation(id, reason, req.user);
   }
 
+  @Get('pending-upsells')
+  getPendingUpsells() {
+    return this.accountsService.getPendingUpsells();
+  }
+
+  @Patch(':id/approve-upsell')
+  approveUpsell(
+    @Param('id') id: string,
+    @Req() req: Request & { user: JwtUser },
+    @Body('overrideReason') overrideReason?: string,
+  ) {
+    return this.accountsService.approveUpsell(id, req.user, overrideReason);
+  }
+
+  @Patch(':id/reject-upsell')
+  rejectUpsell(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.rejectUpsell(id, reason, req.user);
+  }
+
   @Get('payment-accounts')
   getPaymentAccounts() {
     return this.accountsService.getPaymentAccounts();
