@@ -11,7 +11,8 @@
 //
 //   workingDays   = calendar days in the month that aren't the weekly off,
 //                   minus any CompanyHoliday dates for that month (company-
-//                   wide, managed on the Attendance > Holidays tab) — a
+//                   wide, managed on the Attendance > Holidays tab; a half-
+//                   day holiday subtracts 0.5) — a
 //                   holiday that already falls on the weekly off is a no-op
 //   leaveDays     = sum of EmployeeLeaveEntry.days recorded in that month
 //                   (paid and unpaid both reduce the requirement — that's
@@ -536,8 +537,10 @@ export class HrService {
 
     // A holiday that lands on the weekly off (Sunday) is already excluded
     // from workingDaysInMonth below, so it's a deliberate no-op here rather
-    // than double-subtracting.
-    const holidayDays = holidays.filter((h) => h.date.getDay() !== WEEKLY_OFF_DOW).length;
+    // than double-subtracting. Each holiday counts its `days` (1 full, 0.5 half).
+    const holidayDays = holidays
+      .filter((h) => h.date.getDay() !== WEEKLY_OFF_DOW)
+      .reduce((sum, h) => sum + Number(h.days), 0);
     const workingDays = Math.max(0, workingDaysInMonth(year, month) - holidayDays);
 
     // NOTE: every leave type (including UNPAID) reduces requiredHours here —

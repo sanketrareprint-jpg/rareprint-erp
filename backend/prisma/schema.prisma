@@ -1012,6 +1012,8 @@ model CompanyHoliday {
   date        DateTime           @unique
   label       String
   type        CompanyHolidayType @default(HOLIDAY)
+  // 1 = full day, 0.5 = half day. Subtracted from working days in salaryForMonth().
+  days        Decimal            @db.Decimal(4, 2) @default(1)
   createdById String?
   createdAt   DateTime           @default(now())
 

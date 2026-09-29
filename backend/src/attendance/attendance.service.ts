@@ -540,14 +540,17 @@ export class AttendanceService {
     });
   }
 
-  async addHoliday(dto: { date: string; label: string; type?: 'HOLIDAY' | 'EXTRA_LEAVE' }, createdById: string) {
+  async addHoliday(dto: { date: string; label: string; type?: 'HOLIDAY' | 'EXTRA_LEAVE'; days?: number }, createdById: string) {
     if (!dto.date) throw new BadRequestException('date is required');
     if (!dto.label?.trim()) throw new BadRequestException('label is required');
     const date = parseCellDate(dto.date) ?? new Date(dto.date);
     if (isNaN(date.getTime())) throw new BadRequestException('Invalid date');
+    // Only full (1) or half (0.5) days — anything else would silently skew payroll.
+    const days = dto.days === undefined || dto.days === null ? 1 : Number(dto.days);
+    if (days !== 1 && days !== 0.5) throw new BadRequestException('days must be 1 (full day) or 0.5 (half day)');
     try {
       return await this.prisma.companyHoliday.create({
-        data: { date, label: dto.label.trim(), type: dto.type ?? 'HOLIDAY', createdById },
+        data: { date, label: dto.label.trim(), type: dto.type ?? 'HOLIDAY', days, createdById },
       });
     } catch (err: any) {
       if (err?.code === 'P2002') throw new BadRequestException('A holiday/extra leave is already recorded for this date');

@@ -316,6 +316,20 @@ async function main() {
       console.log('[ensure-all-columns] CompanyHoliday: created.');
     });
 
+    await safely('CompanyHoliday.days', async () => {
+      const { rows } = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'CompanyHoliday' AND column_name = 'days'
+      `);
+      if (rows.length > 0) {
+        console.log('[ensure-all-columns] CompanyHoliday.days: already exists.');
+        return;
+      }
+      console.log('[ensure-all-columns] CompanyHoliday.days: missing, adding.');
+      await client.query(`ALTER TABLE "CompanyHoliday" ADD COLUMN IF NOT EXISTS "days" DECIMAL(4,2) NOT NULL DEFAULT 1;`);
+      console.log('[ensure-all-columns] CompanyHoliday.days: added.');
+    });
+
     // ── Order dispatch photo columns ──────────────────────────────────────
     await safely('Order dispatch photo columns', async () => {
       const COLUMNS = ['dispatchProductPhoto', 'dispatchBillPhoto'];

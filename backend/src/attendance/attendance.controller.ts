@@ -81,7 +81,7 @@ export class AttendanceController {
   }
 
   @Post('holidays')
-  addHoliday(@Body() dto: { date: string; label: string; type?: 'HOLIDAY' | 'EXTRA_LEAVE' }, @Req() req: any) {
+  addHoliday(@Body() dto: { date: string; label: string; type?: 'HOLIDAY' | 'EXTRA_LEAVE'; days?: number }, @Req() req: any) {
     this.assertHrAccess(req);
     return this.svc.addHoliday(dto, req.user.id);
   }

@@ -38,7 +38,7 @@ type SalaryCalc = {
 };
 
 type Holiday = {
-  id: string; date: string; label: string; type: "HOLIDAY" | "EXTRA_LEAVE";
+  id: string; date: string; label: string; type: "HOLIDAY" | "EXTRA_LEAVE"; days?: number | string;
   createdBy?: { fullName: string } | null;
 };
 
@@ -77,7 +77,7 @@ export default function AttendancePage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [holidaysYear, setHolidaysYear] = useState(now.getFullYear());
   const [loadingHolidays, setLoadingHolidays] = useState(false);
-  const [newHoliday, setNewHoliday] = useState({ date: "", label: "", type: "HOLIDAY" as "HOLIDAY" | "EXTRA_LEAVE" });
+  const [newHoliday, setNewHoliday] = useState({ date: "", label: "", type: "HOLIDAY" as "HOLIDAY" | "EXTRA_LEAVE", days: 1 });
   const [savingHoliday, setSavingHoliday] = useState(false);
   const [deletingHolidayId, setDeletingHolidayId] = useState<string | null>(null);
 
@@ -99,7 +99,7 @@ export default function AttendancePage() {
     const res = await apiMutate("/attendance/holidays", "POST", newHoliday, setError);
     setSavingHoliday(false);
     if (res) {
-      setNewHoliday({ date: "", label: "", type: "HOLIDAY" });
+      setNewHoliday({ date: "", label: "", type: "HOLIDAY", days: 1 });
       void loadHolidays();
     }
   };
@@ -289,6 +289,10 @@ export default function AttendancePage() {
                     { value: "EXTRA_LEAVE", label: "Extra leave" },
                   ]} />
               </div>
+              <label className="inline-flex items-center gap-1 text-xs text-slate-600 pb-1.5">
+                <input type="checkbox" checked={newHoliday.days === 0.5} onChange={(e) => setNewHoliday({ ...newHoliday, days: e.target.checked ? 0.5 : 1 })} />
+                Half day
+              </label>
               <button onClick={handleAddHoliday} disabled={savingHoliday || !newHoliday.date || !newHoliday.label.trim()} className="inline-flex items-center gap-1 text-xs font-semibold bg-slate-800 text-white rounded-lg px-3 py-1.5 disabled:opacity-50">
                 {savingHoliday ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add
               </button>
@@ -324,6 +328,9 @@ export default function AttendancePage() {
                           <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded ${h.type === "HOLIDAY" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}`}>
                             {h.type === "HOLIDAY" ? "Holiday" : "Extra leave"}
                           </span>
+                          {Number(h.days ?? 1) === 0.5 && (
+                            <span className="ml-1 inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Half day</span>
+                          )}
                         </td>
                         <td className="py-1.5 px-2 text-slate-400">{h.createdBy?.fullName ?? "—"}</td>
                         <td className="py-1.5 px-2">
