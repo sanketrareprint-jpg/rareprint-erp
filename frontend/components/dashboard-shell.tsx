@@ -10,7 +10,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -59,6 +59,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Manage Academy", href: "/admin/sales-learning", icon: BookOpen },
     { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Complaints", href: "/complaints",       icon: MessageSquareWarning },
+    { label: "Feedback",   href: "/feedback",         icon: ThumbsUp },
     { label: "Policies",   href: "/policies",         icon: FileText },
     { label: "Settings",   href: "/settings",         icon: Settings },
     { label: "Activity",   href: "/admin/activity",   icon: Activity },
@@ -99,6 +100,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
     { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
+    { label: "Feedback",   href: "/feedback",         icon: ThumbsUp },
     { label: "Policies", href: "/policies", icon: FileText },
     { label: "Salary & Commission", href: "/salary-commission", icon: Wallet },
   ],

@@ -446,6 +446,50 @@ export class WhatsAppService {
     });
   }
 
+  // ── Feedback module (2026-09-29) ─────────────────────────────────────────
+  // Both templates must be created and approved in AiSensy first; until then
+  // these sends fail cleanly (false, logged) like every other template here.
+  //
+  // Customer thank-you. Body variables: {{1}} customer name, {{2}} order
+  // number, {{3}} overall rating out of 5, {{4}} Google review link.
+  async sendFeedbackThankYou(params: {
+    customerName: string;
+    customerPhone: string;
+    orderNo: string;
+    overallRating: number;
+    reviewUrl: string;
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_FEEDBACK_THANKYOU_CAMPAIGN ?? 'feedback_thank_you_erp',
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      orderNo: params.orderNo,
+      templateParams: [
+        params.customerName || 'Customer',
+        params.orderNo,
+        String(params.overallRating),
+        params.reviewUrl,
+      ],
+    });
+  }
+
+  // Sales-lead alert to the order's sales agent — see
+  // feedback.calc.ts agentLeadTemplateParams for the 8 body variables.
+  async sendFeedbackLeadToAgent(params: {
+    agentName: string;
+    agentPhone: string;
+    orderNo: string;
+    templateParams: string[];
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: process.env.AISENSY_FEEDBACK_LEAD_CAMPAIGN ?? 'feedback_lead_agent_erp',
+      customerName: params.agentName || 'Agent',
+      customerPhone: params.agentPhone,
+      orderNo: params.orderNo,
+      templateParams: params.templateParams,
+    });
+  }
+
   static statusLabel(status: string): string {
     const map: Record<string, string> = {
       PENDING_APPROVAL:          'Pending Approval',

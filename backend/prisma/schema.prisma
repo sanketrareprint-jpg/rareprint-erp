@@ -521,6 +521,7 @@ model Order {
   remittanceMatches   RemittanceRecord[]  @relation("RemittanceMatchedOrder")
   remittanceSuggested RemittanceRecord[]  @relation("RemittanceSuggestedOrder")
   complaints          Complaint[]
+  feedback            CustomerFeedback?
 
   @@index([status, orderDate])
   @@index([status, updatedAt])
@@ -3229,4 +3230,35 @@ model CourierRateQuote {
 
   @@index([createdAt])
   @@index([createdById])
+}
+
+// Feedback module (2026-09-29). One row per delivered order, filled in by an
+// admin or the order's sales agent while on a call with the customer.
+// productRatings is a JSON snapshot [{ orderItemId, productName, quantity,
+// rating }] so the answers read the same even if a product is renamed later.
+// The two *WhatsappSent flags record whether the AiSensy sends succeeded, for
+// audit only. Table is created by migrations/20260929120000_add_customer_feedback
+// and scripts/ensure-customer-feedback-table.js.
+model CustomerFeedback {
+  id                   String   @id @default(cuid())
+  orderId              String   @unique
+  overallRating        Int
+  productRatings       Json
+  serviceRating        Int
+  deliveryRating       Int
+  improvement          String?
+  wouldRecommend       String // YES | MAYBE | NO
+  referralName         String?
+  referralPhone        String?
+  needsMore            Boolean
+  requirementNote      String?
+  willRateOnGoogle     Boolean
+  customerWhatsappSent Boolean  @default(false)
+  agentWhatsappSent    Boolean  @default(false)
+  submittedById        String?
+  submittedByName      String?
+  createdAt            DateTime @default(now())
+  order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
 }

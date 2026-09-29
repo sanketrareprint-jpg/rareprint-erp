@@ -49,6 +49,7 @@ import { EventsModule } from './events/events.module';
 import { PoliciesModule } from './policies/policies.module';
 import { ReportsModule } from './reports/reports.module';
 import { CourierCalculatorModule } from './courier-calculator/courier-calculator.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { CourierCalculatorModule } from './courier-calculator/courier-calculator
     PoliciesModule,
     ReportsModule,
     CourierCalculatorModule,
+    FeedbackModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
