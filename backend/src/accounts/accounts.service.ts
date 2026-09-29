@@ -1820,11 +1820,23 @@ export class AccountsService {
 
   async createPurchaseBill(user: AccountsUser, data: CreatePurchaseBillDto) {
     assertAccountsUser(user);
+    if (!data.vendorId) throw new BadRequestException('Vendor is required');
+    if (!data.billNumber?.trim()) throw new BadRequestException('Bill number is required');
     const subtotal = this.money(data.subtotal);
+    if (subtotal <= 0) throw new BadRequestException('Bill amount must be greater than zero');
     const taxableAmount = this.money(data.taxableAmount ?? subtotal);
     const gstTreatment = data.gstTreatment ?? GstTreatment.INTRA_STATE;
-    const gst = this.splitGst(taxableAmount, Number(data.gstRatePct ?? 0), gstTreatment);
+    // gstRatePct 0 = non-GST purchase: no tax, no Input GST ledger line.
+    const gstRatePct = Number(data.gstRatePct ?? 0);
+    if (!Number.isFinite(gstRatePct) || gstRatePct < 0) throw new BadRequestException('Invalid GST rate');
+    const gst = this.splitGst(taxableAmount, gstRatePct, gstTreatment);
     const totalAmount = this.money(taxableAmount + gst.taxAmount);
+
+    const duplicate = await this.prisma.purchaseBill.findUnique({
+      where: { vendorId_billNumber: { vendorId: data.vendorId, billNumber: data.billNumber.trim() } },
+      select: { id: true },
+    });
+    if (duplicate) throw new BadRequestException(`Bill ${data.billNumber.trim()} is already recorded for this vendor`);
 
     return this.prisma.$transaction(async (tx) => {
       const bill = await tx.purchaseBill.create({

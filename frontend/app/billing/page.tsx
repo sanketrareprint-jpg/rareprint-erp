@@ -9,8 +9,10 @@ import { sameState, stateFromGstin } from "@/lib/gst-states";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
   Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock, FileText, Plus, Trash2, ArrowRight,
-  Eye, X,
+  Eye, X, ShoppingBag,
 } from "lucide-react";
+import DateInput from "@/components/DateInput";
+import { MobileSelect } from "@/components/MobileSelect";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +82,24 @@ type CompanyProfile = {
   bankIfsc: string; bankAccountHolderName: string; defaultTermsAndConditions: string;
   logoUrl: string | null; signatureUrl: string | null; invoicePrefix: string;
 };
+
+// Purchase bills — same data/endpoints as Accounts > Billing & GST
+// (GET/POST /accounts/purchase-bills, POST /accounts/vendor-payments).
+type PurchaseBill = {
+  id: string; vendorId: string; vendorName: string; billNumber: string; billDate: string; dueDate: string | null;
+  taxableAmount: number; taxAmount: number; totalAmount: number; paidAmount: number; balanceAmount: number;
+  gstTreatment: string; status: string; notes: string | null;
+};
+type PurchaseVendor = { id: string; name: string };
+type PurchasePaymentAccount = { id: string; name: string };
+const emptyPurchaseForm = {
+  vendorId: "", billNumber: "", billDate: "", dueDate: "", subtotal: "",
+  isGst: true, gstRatePct: "18", gstTreatment: "INTRA_STATE", notes: "",
+};
+const emptyVendorPaymentForm = {
+  vendorId: "", purchaseBillId: "", paymentAccountId: "", amount: "", method: "BANK_TRANSFER", referenceNumber: "",
+};
+const PAYMENT_METHODS = ["CASH", "BANK_TRANSFER", "UPI", "CHEQUE", "CARD"];
 
 type GstSummary = {
   invoiceCount: number; taxableAmount: number; cgstAmount: number; sgstAmount: number;
@@ -164,7 +184,7 @@ function BillingPageInner() {
   const router = useRouter();
   const focusInvoiceId = searchParams.get("invoiceId");
 
-  const [tab, setTab] = useState<"invoices" | "receipts" | "estimates" | "parties" | "company_profile" | "gst_summary">(
+  const [tab, setTab] = useState<"invoices" | "receipts" | "estimates" | "purchases" | "parties" | "company_profile" | "gst_summary">(
     focusInvoiceId ? "invoices" : "invoices",
   );
 
@@ -579,6 +599,105 @@ function BillingPageInner() {
 
   useEffect(() => { void loadGstSummary(); }, [loadGstSummary]);
 
+  // ── Purchases ─────────────────────────────────────────────────────────
+  const [purchaseBills, setPurchaseBills] = useState<PurchaseBill[]>([]);
+  const [purchaseVendors, setPurchaseVendors] = useState<PurchaseVendor[]>([]);
+  const [purchaseAccounts, setPurchaseAccounts] = useState<PurchasePaymentAccount[]>([]);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
+  const [purchasesLoaded, setPurchasesLoaded] = useState(false);
+  const [purchaseSearch, setPurchaseSearch] = useState("");
+  const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm);
+  const [vendorPaymentForm, setVendorPaymentForm] = useState(emptyVendorPaymentForm);
+  const [purchaseSaving, setPurchaseSaving] = useState<"bill" | "payment" | null>(null);
+
+  const loadPurchases = useCallback(async () => {
+    setPurchasesLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const [billRes, vendorRes, accountRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/accounts/purchase-bills`, { headers }),
+        fetch(`${API_BASE_URL}/vendors`, { headers }),
+        fetch(`${API_BASE_URL}/accounts/payment-accounts`, { headers }),
+      ]);
+      if (billRes.ok) setPurchaseBills(await billRes.json());
+      if (vendorRes.ok) setPurchaseVendors(await vendorRes.json());
+      if (accountRes.ok) setPurchaseAccounts(await accountRes.json());
+    } finally {
+      setPurchasesLoading(false);
+      setPurchasesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "purchases" && !purchasesLoaded) void loadPurchases();
+  }, [tab, purchasesLoaded, loadPurchases]);
+
+  const filteredPurchaseBills = purchaseBills.filter(b => {
+    const q = purchaseSearch.trim().toLowerCase();
+    return !q || b.billNumber.toLowerCase().includes(q) || b.vendorName.toLowerCase().includes(q);
+  });
+
+  async function createPurchaseBill() {
+    if (!purchaseForm.vendorId || !purchaseForm.billNumber.trim() || !(Number(purchaseForm.subtotal) > 0)) {
+      alert("Select vendor, enter bill number and amount");
+      return;
+    }
+    setPurchaseSaving("bill");
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/purchase-bills`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId: purchaseForm.vendorId,
+          billNumber: purchaseForm.billNumber.trim(),
+          billDate: purchaseForm.billDate || undefined,
+          dueDate: purchaseForm.dueDate || undefined,
+          subtotal: Number(purchaseForm.subtotal),
+          // Non-GST purchase = 0% (backend then books no Input GST).
+          gstRatePct: purchaseForm.isGst ? Number(purchaseForm.gstRatePct || 0) : 0,
+          gstTreatment: purchaseForm.gstTreatment,
+          notes: purchaseForm.notes,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not add purchase bill");
+      setPurchaseForm(emptyPurchaseForm);
+      await loadPurchases();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not add purchase bill");
+    } finally {
+      setPurchaseSaving(null);
+    }
+  }
+
+  async function createVendorPayment() {
+    if (!vendorPaymentForm.vendorId || !vendorPaymentForm.paymentAccountId || !(Number(vendorPaymentForm.amount) > 0)) {
+      alert("Select vendor, payment account, and amount");
+      return;
+    }
+    setPurchaseSaving("payment");
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/vendor-payments`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId: vendorPaymentForm.vendorId,
+          purchaseBillId: vendorPaymentForm.purchaseBillId || undefined,
+          paymentAccountId: vendorPaymentForm.paymentAccountId,
+          amount: Number(vendorPaymentForm.amount),
+          method: vendorPaymentForm.method,
+          referenceNumber: vendorPaymentForm.referenceNumber,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not record payment");
+      setVendorPaymentForm(emptyVendorPaymentForm);
+      await loadPurchases();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not record payment");
+    } finally {
+      setPurchaseSaving(null);
+    }
+  }
+
   return (
     <DashboardShell>
       <div className="p-6 lg:p-8">
@@ -586,7 +705,7 @@ function BillingPageInner() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">Billing</h1>
-              <p className="mt-0.5 text-sm text-slate-600">Invoices, party ledgers, company profile, and GST reporting.</p>
+              <p className="mt-0.5 text-sm text-slate-600">Invoices, purchases, party ledgers, company profile, and GST reporting.</p>
             </div>
             <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
               <button onClick={() => setTab("invoices")}
@@ -600,6 +719,10 @@ function BillingPageInner() {
               <button onClick={() => setTab("estimates")}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "estimates" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <FileText className="h-3.5 w-3.5" /> Estimates
+              </button>
+              <button onClick={() => setTab("purchases")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "purchases" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                <ShoppingBag className="h-3.5 w-3.5" /> Purchases
               </button>
               <button onClick={() => setTab("parties")}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "parties" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
@@ -1019,6 +1142,148 @@ function BillingPageInner() {
           )}
 
           {/* ── PARTIES ── */}
+          {/* ── PURCHASES ── */}
+          {tab === "purchases" && (
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h2 className="text-sm font-bold text-slate-800">Add Purchase Bill</h2>
+                  <div className="mt-3 space-y-2">
+                    <MobileSelect value={purchaseForm.vendorId} onChange={v => setPurchaseForm(f => ({ ...f, vendorId: v }))}
+                      placeholder="Vendor"
+                      options={[{ value: "", label: "Vendor" }, ...purchaseVendors.map(v => ({ value: v.id, label: v.name }))]}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                    {purchasesLoaded && purchaseVendors.length === 0 && (
+                      <p className="text-[11px] text-amber-700">No vendors yet — add one in Accounts &gt; Vendors.</p>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={purchaseForm.billNumber} onChange={e => setPurchaseForm(f => ({ ...f, billNumber: e.target.value }))} placeholder="Bill no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                      <input type="number" min="0" value={purchaseForm.subtotal} onChange={e => setPurchaseForm(f => ({ ...f, subtotal: e.target.value }))}
+                        placeholder={purchaseForm.isGst ? "Taxable amount" : "Amount"} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                      <label className="text-[11px] text-slate-500">Bill date
+                        <DateInput value={purchaseForm.billDate} onChange={e => setPurchaseForm(f => ({ ...f, billDate: e.target.value }))} className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                      </label>
+                      <label className="text-[11px] text-slate-500">Due date
+                        <DateInput value={purchaseForm.dueDate} onChange={e => setPurchaseForm(f => ({ ...f, dueDate: e.target.value }))} className="mt-0.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                      </label>
+                    </div>
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden w-fit">
+                      <button type="button" onClick={() => setPurchaseForm(f => ({ ...f, isGst: true }))}
+                        className={`px-3 py-1.5 text-xs font-semibold ${purchaseForm.isGst ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>GST</button>
+                      <button type="button" onClick={() => setPurchaseForm(f => ({ ...f, isGst: false }))}
+                        className={`px-3 py-1.5 text-xs font-semibold border-l border-slate-200 ${!purchaseForm.isGst ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Non-GST</button>
+                    </div>
+                    {purchaseForm.isGst && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="number" min="0" value={purchaseForm.gstRatePct} onChange={e => setPurchaseForm(f => ({ ...f, gstRatePct: e.target.value }))} placeholder="GST %" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                        <MobileSelect value={purchaseForm.gstTreatment} onChange={v => setPurchaseForm(f => ({ ...f, gstTreatment: v }))}
+                          placeholder="GST Treatment"
+                          options={[{ value: "INTRA_STATE", label: "CGST + SGST" }, { value: "INTER_STATE", label: "IGST" }]}
+                          className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                      </div>
+                    )}
+                    <input value={purchaseForm.notes} onChange={e => setPurchaseForm(f => ({ ...f, notes: e.target.value }))} placeholder="Description / notes (optional)" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                    <button onClick={() => void createPurchaseBill()} disabled={purchaseSaving === "bill"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      {purchaseSaving === "bill" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add Bill
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h2 className="text-sm font-bold text-slate-800">Vendor Payment Out</h2>
+                  <div className="mt-3 space-y-2">
+                    <MobileSelect value={vendorPaymentForm.vendorId} onChange={v => setVendorPaymentForm(f => ({ ...f, vendorId: v, purchaseBillId: "" }))}
+                      placeholder="Vendor"
+                      options={[{ value: "", label: "Vendor" }, ...purchaseVendors.map(v => ({ value: v.id, label: v.name }))]}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                    <MobileSelect value={vendorPaymentForm.purchaseBillId} onChange={v => setVendorPaymentForm(f => ({ ...f, purchaseBillId: v }))}
+                      placeholder="Against bill"
+                      options={[{ value: "", label: "Against bill (optional)" }, ...purchaseBills
+                        .filter(b => b.vendorId === vendorPaymentForm.vendorId && b.balanceAmount > 0 && b.status !== "CANCELLED")
+                        .map(b => ({ value: b.id, label: `${b.billNumber} · ${fmt(b.balanceAmount)} due` }))]}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <MobileSelect value={vendorPaymentForm.paymentAccountId} onChange={v => setVendorPaymentForm(f => ({ ...f, paymentAccountId: v }))}
+                        placeholder="Account"
+                        options={[{ value: "", label: "Paid from account" }, ...purchaseAccounts.map(a => ({ value: a.id, label: a.name }))]}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                      <input type="number" min="0" value={vendorPaymentForm.amount} onChange={e => setVendorPaymentForm(f => ({ ...f, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                      <MobileSelect value={vendorPaymentForm.method} onChange={v => setVendorPaymentForm(f => ({ ...f, method: v }))}
+                        placeholder="Method"
+                        options={PAYMENT_METHODS.map(m => ({ value: m, label: m.replace("_", " ") }))}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white" />
+                      <input value={vendorPaymentForm.referenceNumber} onChange={e => setVendorPaymentForm(f => ({ ...f, referenceNumber: e.target.value }))} placeholder="Ref no" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                    </div>
+                    <button onClick={() => void createVendorPayment()} disabled={purchaseSaving === "payment"} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      {purchaseSaving === "payment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Record Payment
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 items-center">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <input type="text" value={purchaseSearch} onChange={e => setPurchaseSearch(e.target.value)}
+                    placeholder="Search bill #, vendor…"
+                    className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </div>
+                <button onClick={() => void loadPurchases()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                  <Loader2 className={`h-3 w-3 ${purchasesLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <span className="text-xs text-slate-400">{filteredPurchaseBills.length} bill{filteredPurchaseBills.length !== 1 ? "s" : ""}</span>
+              </div>
+
+              {purchasesLoading && !purchasesLoaded ? (
+                <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+              ) : filteredPurchaseBills.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-400 shadow-sm">
+                  <ShoppingBag className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                  <p>No purchase bills found.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Bill</th>
+                        <th className="px-3 py-2 text-left">Date</th>
+                        <th className="px-3 py-2 text-left">Vendor</th>
+                        <th className="px-3 py-2 text-center">Type</th>
+                        <th className="px-3 py-2 text-right">Taxable</th>
+                        <th className="px-3 py-2 text-right">GST</th>
+                        <th className="px-3 py-2 text-right">Total</th>
+                        <th className="px-3 py-2 text-right">Paid</th>
+                        <th className="px-3 py-2 text-right">Balance</th>
+                        <th className="px-3 py-2 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredPurchaseBills.map(b => (
+                        <tr key={b.id}>
+                          <td className="px-3 py-2 font-semibold text-blue-700">{b.billNumber}{b.notes && <div className="text-[10px] font-normal text-slate-400">{b.notes}</div>}</td>
+                          <td className="px-3 py-2 text-slate-500">{fmtDate(b.billDate)}{b.dueDate && <div className="text-[10px] text-slate-400">Due {fmtDate(b.dueDate)}</div>}</td>
+                          <td className="px-3 py-2">{b.vendorName}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${b.taxAmount > 0 ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                              {b.taxAmount > 0 ? "GST" : "Non-GST"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">{fmt(b.taxableAmount)}</td>
+                          <td className="px-3 py-2 text-right">{fmt(b.taxAmount)}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{fmt(b.totalAmount)}</td>
+                          <td className="px-3 py-2 text-right text-emerald-600">{fmt(b.paidAmount)}</td>
+                          <td className={`px-3 py-2 text-right ${b.balanceAmount > 0 ? "text-red-600" : "text-emerald-600"}`}>{fmt(b.balanceAmount)}</td>
+                          <td className="px-3 py-2 text-center">{b.status.replace("_", " ")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {tab === "parties" && (
             <div className="grid gap-4 xl:grid-cols-2">
               <div className="space-y-3">
