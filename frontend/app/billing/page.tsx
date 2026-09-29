@@ -52,6 +52,19 @@ type Party = {
   totalBilled: number; totalReceived: number; balanceDue: number; invoiceCount: number;
 };
 
+// Sundry Creditors — GET /billing/creditors (BillingService.listCreditors).
+type CreditorVendor = {
+  vendorId: string; name: string; phone: string | null; gstNumber: string | null;
+  isActive: boolean; isPress: boolean; billCount: number;
+  totalBilled: number; totalPaid: number; onAccountPaid: number; notesAdjusted: number; balanceDue: number;
+};
+// employeeId null = salary-tagged login with no HR Employee record;
+// salaryPaid null = employee has no linked login, so payouts can't be traced.
+type CreditorEmployee = {
+  employeeId: string | null; employeeCode: string | null; name: string; designation: string | null;
+  phone: string | null; status: string; salaryPaid: number | null;
+};
+
 type LedgerEntry = {
   invoiceId: string; invoiceNumber: string; issueDate: string; totalAmount: number;
   paidAmount: number; balanceAmount: number; status: string; runningBalance: number;
@@ -452,6 +465,27 @@ function BillingPageInner() {
       .finally(() => setPartiesLoading(false));
   }, []);
 
+  // Sundry Debtors = the customer parties above; Sundry Creditors = vendors,
+  // suppliers and employees, loaded the first time that view is opened.
+  const [partyKind, setPartyKind] = useState<"debtors" | "creditors">("debtors");
+  const [creditors, setCreditors] = useState<{ vendors: CreditorVendor[]; employees: CreditorEmployee[] } | null>(null);
+  const [creditorsLoading, setCreditorsLoading] = useState(false);
+  const [creditorsError, setCreditorsError] = useState("");
+
+  useEffect(() => {
+    if (partyKind !== "creditors" || creditors || creditorsLoading || creditorsError) return;
+    setCreditorsLoading(true);
+    setCreditorsError("");
+    fetch(`${API_BASE_URL}/billing/creditors`, { headers: getAuthHeaders() })
+      .then(async r => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) { setCreditorsError(body.message || "Could not load sundry creditors"); return; }
+        setCreditors(body);
+      })
+      .catch(() => setCreditorsError("Could not load sundry creditors"))
+      .finally(() => setCreditorsLoading(false));
+  }, [partyKind, creditors, creditorsLoading, creditorsError]);
+
   async function openParty(customerId: string) {
     setSelectedParty(customerId);
     setPartyForm(null);
@@ -501,6 +535,11 @@ function BillingPageInner() {
       setPartySaving(false);
     }
   }
+
+  const creditorMatches = (name: string, phone: string | null) =>
+    !partySearch || name.toLowerCase().includes(partySearch.toLowerCase()) || (phone ?? "").includes(partySearch);
+  const displayedVendors = (creditors?.vendors ?? []).filter(v => creditorMatches(v.name, v.phone));
+  const displayedEmployees = (creditors?.employees ?? []).filter(e => creditorMatches(e.name, e.phone));
 
   const displayedParties = parties.filter(p =>
     !partySearch || p.customerName.toLowerCase().includes(partySearch.toLowerCase()) || (p.phone ?? "").includes(partySearch),
@@ -1285,6 +1324,106 @@ function BillingPageInner() {
           )}
 
           {tab === "parties" && (
+            <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg border border-slate-200 bg-white overflow-hidden">
+                <button onClick={() => setPartyKind("debtors")}
+                  className={`px-4 py-2 text-xs font-semibold transition ${partyKind === "debtors" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                  Sundry Debtors
+                </button>
+                <button onClick={() => setPartyKind("creditors")}
+                  className={`px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${partyKind === "creditors" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                  Sundry Creditors
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {partyKind === "debtors"
+                  ? "Customers who owe us money · Receivable (Current Asset)"
+                  : "Vendors, suppliers & employees we owe money to · Payable (Current Liability)"}
+              </p>
+            </div>
+
+            {partyKind === "creditors" ? (
+              <div className="space-y-4">
+                <div className="relative max-w-sm">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <input type="text" value={partySearch} onChange={e => setPartySearch(e.target.value)}
+                    placeholder="Search creditor…"
+                    className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </div>
+                {creditorsLoading ? (
+                  <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
+                ) : creditorsError ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{creditorsError}</div>
+                ) : creditors ? (
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <p className="px-3 py-2 text-xs font-semibold text-slate-700 border-b border-slate-100">Vendors &amp; Suppliers <span className="text-slate-400 font-normal">· from purchase bills</span></p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-right">Billed</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Balance Payable</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {displayedVendors.length === 0 ? (
+                              <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-400">No vendors or suppliers found.</td></tr>
+                            ) : displayedVendors.map(v => (
+                              <tr key={v.vendorId}>
+                                <td className="px-3 py-2 font-semibold text-slate-800">
+                                  {v.name}
+                                  {v.isPress && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">PRESS</span>}
+                                  {!v.isActive && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">INACTIVE</span>}
+                                  <div className="text-[10px] font-normal text-slate-400">{[v.phone, v.gstNumber].filter(Boolean).join(" · ")}</div>
+                                </td>
+                                <td className="px-3 py-2 text-right">{fmt(v.totalBilled)}</td>
+                                <td className="px-3 py-2 text-right text-emerald-600">
+                                  {fmt(v.totalPaid)}
+                                  {v.onAccountPaid > 0 && <div className="text-[10px] text-slate-400">incl. {fmt(v.onAccountPaid)} on account</div>}
+                                </td>
+                                <td className={`px-3 py-2 text-right font-semibold ${v.balanceDue > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                                  {v.balanceDue < 0 ? <>{fmt(-v.balanceDue)} <span className="text-[10px] font-normal">advance</span></> : fmt(v.balanceDue)}
+                                  {v.notesAdjusted > 0 && <div className="text-[10px] font-normal text-slate-400">after {fmt(v.notesAdjusted)} notes</div>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <p className="px-3 py-2 text-xs font-semibold text-slate-700 border-b border-slate-100">Employees <span className="text-slate-400 font-normal">· salary paid from tagged bank transactions</span></p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-left">Designation</th><th className="px-3 py-2 text-right">Salary Paid</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {displayedEmployees.length === 0 ? (
+                              <tr><td colSpan={3} className="px-3 py-8 text-center text-slate-400">No employees found.</td></tr>
+                            ) : displayedEmployees.map((e, i) => (
+                              <tr key={e.employeeId ?? `user-${i}`}>
+                                <td className="px-3 py-2 font-semibold text-slate-800">
+                                  {e.name}
+                                  {e.status !== "ACTIVE" && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">{e.status.replace(/_/g, " ")}</span>}
+                                  <div className="text-[10px] font-normal text-slate-400">{[e.employeeCode, e.phone].filter(Boolean).join(" · ")}</div>
+                                </td>
+                                <td className="px-3 py-2 text-slate-600">{e.designation ?? "—"}</td>
+                                <td className="px-3 py-2 text-right text-emerald-600">
+                                  {e.salaryPaid === null
+                                    ? <span className="text-[10px] text-amber-700" title="Link this employee to a login in HR so salary payments tagged in Expense Tracker show here.">No login linked</span>
+                                    : fmt(e.salaryPaid)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
             <div className="grid gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div className="relative max-w-sm">
@@ -1453,6 +1592,8 @@ function BillingPageInner() {
                   </div>
                 ) : null}
               </div>
+            </div>
+            )}
             </div>
           )}
 

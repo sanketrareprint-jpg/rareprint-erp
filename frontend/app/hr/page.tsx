@@ -36,12 +36,14 @@ type EmployeeDetail = EmployeeListItem & {
   agreementSentAt: string | null; agreementAcceptedAt: string | null; agreementSignatureName: string | null;
   incentivePlanId: string | null; petrolAllowance: string | number | null; simAllowance: string | number | null;
   incentivePlan: SalesIncentivePlan | null;
+  userId: string | null;
   kras: Kra[]; leaveEntries: LeaveEntry[];
 };
 
 type Kra = { id: string; type: "KRA" | "RESPONSIBILITY"; title: string; description: string | null; targetMetric: string | null };
 type LeaveEntry = { id: string; date: string; days: string | number; type: string; reason: string | null; recordedBy?: { fullName: string } | null };
 type CompanyTerm = { id: string; version: number; title: string; content: string; isActive: boolean; createdAt: string };
+type LoginUser = { id: string; fullName: string; email: string; role: string };
 type SalesIncentivePlan = { id: string; label: string; monthlyTarget: string | number; incentivePct: string | number; isActive: boolean };
 
 const STATUS_OPTIONS = ["ACTIVE", "ON_LEAVE", "RESIGNED", "TERMINATED"];
@@ -60,6 +62,7 @@ const emptyForm = {
   idProofType: "", idProofNumber: "", bankAccountNumber: "", bankIfsc: "", notes: "",
   email: "", overtimeAllowed: false,
   incentivePlanId: "", petrolAllowance: "", simAllowance: "",
+  userId: "",
 };
 
 function fmtMoney(n: string | number | null | undefined) {
@@ -122,6 +125,15 @@ export default function HrPage() {
   }, []);
 
   useEffect(() => { if (canAccess) void loadIncentivePlans(); }, [canAccess, loadIncentivePlans]);
+
+  // Logins an employee can be linked to (Employee.userId). The link is what
+  // lets Expense Tracker tag salary payouts and Billing > Sundry Creditors,
+  // Salary & Commission and the sales incentive find this employee.
+  const [loginUsers, setLoginUsers] = useState<LoginUser[]>([]);
+  useEffect(() => {
+    if (!canAccess) return;
+    void apiFetch<LoginUser[]>("/tasks/users", {}, undefined).then((data) => { if (data) setLoginUsers(data); });
+  }, [canAccess]);
 
   const handleAddPlan = async () => {
     if (!planForm.label.trim() || !planForm.monthlyTarget || !planForm.incentivePct) return;
@@ -199,6 +211,7 @@ export default function HrPage() {
         incentivePlanId: data.incentivePlanId ?? "",
         petrolAllowance: data.petrolAllowance != null ? String(data.petrolAllowance) : "",
         simAllowance: data.simAllowance != null ? String(data.simAllowance) : "",
+        userId: data.userId ?? "",
       });
     }
     const bal = await apiFetch<{ quota: number; takenTotal: number; balance: number }>(
@@ -249,6 +262,7 @@ export default function HrPage() {
       incentivePlanId: form.incentivePlanId || null,
       petrolAllowance: form.petrolAllowance ? Number(form.petrolAllowance) : null,
       simAllowance: form.simAllowance ? Number(form.simAllowance) : null,
+      userId: form.userId || null,
     };
     if (mode === "create") {
       const created = await apiMutate<EmployeeDetail>("/hr/employees", "POST", payload, setError);
@@ -609,6 +623,10 @@ export default function HrPage() {
                 <Field label="Sales Incentive Plan">
                   <MobileSelect value={form.incentivePlanId} onChange={(v) => setForm({ ...form, incentivePlanId: v })} className={INPUT_CLS}
                     options={[{ value: "", label: "None" }, ...incentivePlans.map((p) => ({ value: p.id, label: `${p.label} — ${Number(p.incentivePct)}% of sales, target ${fmtMoney(p.monthlyTarget)}` }))]} />
+                </Field>
+                <Field label="Linked Login">
+                  <MobileSelect value={form.userId} onChange={(v) => setForm({ ...form, userId: v })} className={INPUT_CLS}
+                    options={[{ value: "", label: "None — salary payouts can't be tagged" }, ...loginUsers.map((u) => ({ value: u.id, label: `${u.fullName} (${u.role.replace(/_/g, " ")}) — ${u.email}` }))]} />
                 </Field>
                 <Field label="Petrol Allowance (monthly)"><input type="number" value={form.petrolAllowance} onChange={(e) => setForm({ ...form, petrolAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
                 <Field label="SIM Recharge Allowance (monthly)"><input type="number" value={form.simAllowance} onChange={(e) => setForm({ ...form, simAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>

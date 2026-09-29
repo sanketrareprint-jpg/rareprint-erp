@@ -19,6 +19,7 @@ import {
   Prisma,
   PurchaseBillStatus,
 } from '@prisma/client';
+import { LIVE_PURCHASE_BILL_WHERE, ON_ACCOUNT_VENDOR_PAYMENT_WHERE } from '../common/vendor-payable';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { resolveItemDetails, formatItemDetailsNote } from '../common/resolve-item-details';
 import { CostTableService } from '../cost-table/cost-table.service';
@@ -1679,7 +1680,7 @@ export class AccountsService {
   }
 
   async getAccountingSummary() {
-    const [invoices, purchaseBills, notes, ledger] = await Promise.all([
+    const [invoices, purchaseBills, notes, ledger, onAccountVendorPaid] = await Promise.all([
       this.prisma.invoice.findMany({
         // order.isTest excludes dummy QA orders (see Orders > Test Order)
         // from every accounting total — they must never touch real GST,
@@ -1688,12 +1689,12 @@ export class AccountsService {
         select: { totalAmount: true, paidAmount: true, balanceAmount: true, taxAmount: true },
       }),
       this.prisma.purchaseBill.findMany({
-        where: { status: { not: PurchaseBillStatus.CANCELLED } },
+        where: LIVE_PURCHASE_BILL_WHERE,
         select: { totalAmount: true, paidAmount: true, balanceAmount: true, taxAmount: true },
       }),
       this.prisma.accountingNote.findMany({
         where: { status: 'ISSUED' },
-        select: { noteType: true, totalAmount: true, taxAmount: true },
+        select: { noteType: true, totalAmount: true, taxAmount: true, vendorId: true },
       }),
       this.prisma.accountingLedgerEntry.findMany({
         // Test-order ledger postings (e.g. "Invoice ... raised to TEST
@@ -1705,10 +1706,17 @@ export class AccountsService {
         orderBy: { entryDate: 'desc' },
         take: 50,
       }),
+      this.prisma.vendorPayment.aggregate({ where: ON_ACCOUNT_VENDOR_PAYMENT_WHERE, _sum: { amount: true } }),
     ]);
 
     const sum = (rows: { [key: string]: unknown }[], key: string) =>
       rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+    // Payable/paid follow common/vendor-payable.ts, same as Billing >
+    // Sundry Creditors: on-account payments count as paid, and issued vendor
+    // notes reduce what we owe.
+    const toPaise = (n: number) => Math.round(n * 100) / 100;
+    const onAccountPaid = Number(onAccountVendorPaid._sum.amount ?? 0);
+    const vendorNotesTotal = sum(notes.filter(n => n.vendorId), 'totalAmount');
 
     return {
       sales: {
@@ -1721,8 +1729,8 @@ export class AccountsService {
       purchases: {
         billCount: purchaseBills.length,
         total: sum(purchaseBills, 'totalAmount'),
-        paid: sum(purchaseBills, 'paidAmount'),
-        payable: sum(purchaseBills, 'balanceAmount'),
+        paid: toPaise(sum(purchaseBills, 'paidAmount') + onAccountPaid),
+        payable: toPaise(sum(purchaseBills, 'balanceAmount') - onAccountPaid - vendorNotesTotal),
         inputGst: sum(purchaseBills, 'taxAmount'),
       },
       notes: {

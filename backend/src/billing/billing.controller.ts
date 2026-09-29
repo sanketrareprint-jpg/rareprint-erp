@@ -143,6 +143,12 @@ export class BillingController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Get('creditors')
+  listCreditors(@Req() req: Request & { user: { role: string; email: string } }) {
+    return this.billingService.listCreditors(req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Patch('parties/:customerId')
   updateParty(
     @Param('customerId') customerId: string,

@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { buildInvoicePdf, InvoicePdfCompanyProfile, InvoicePdfData } from './invoice-pdf';
 import { courierGstSplit, COURIER_SAC } from '../common/sync-invoice-courier-charge';
+import { LIVE_PURCHASE_BILL_WHERE, ON_ACCOUNT_VENDOR_PAYMENT_WHERE, PAYABLE_VENDOR_NOTE_WHERE } from '../common/vendor-payable';
 import { buildReceiptVoucherPdf } from './receipt-pdf';
 import { registerInvoiceFonts } from './pdf-fonts';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
@@ -593,6 +594,128 @@ export class BillingService {
     }
 
     return Array.from(byParty.values()).sort((a, b) => b.balanceDue - a.balanceDue);
+  }
+
+  // Sundry Creditors (Billing > Parties) — the parties we owe money to, as
+  // opposed to listParties() above, which is the customers (Sundry Debtors).
+  //   • Vendors/suppliers: every Vendor row (job-work vendors, presses and
+  //     paper suppliers all live in that one table).
+  //       Billed  = non-cancelled PurchaseBills' totals
+  //       Paid    = those bills' paidAmount + "on account" payments (no bill
+  //                 picked — the bill is optional on the payment form — or
+  //                 made against a bill later cancelled), which never reach
+  //                 any bill's paidAmount
+  //       Notes   = ISSUED vendor credit/debit notes; createAccountingNote
+  //                 debits Vendor Payable for both types, so both reduce it
+  //       Balance = Billed − Paid − Notes (negative = advance with vendor)
+  //     Same rule (common/vendor-payable.ts) as Accounts' Payable card, so the
+  //     totals match. Read-only: PurchaseBill balances are not changed.
+  //   • Employees: listed only, no balance — salary owed isn't stored
+  //     anywhere (HR computes it live from attendance). "Salary Paid" is the
+  //     sum of bank transactions tagged to the employee's login user
+  //     (salaryForUserId), the only place a salary payment is recorded. With
+  //     no linked login it is null (unknown, not ₹0). Tagged users with no
+  //     Employee record still get a row so their payouts aren't hidden —
+  //     except the superadmin, whose tagged withdrawals are the owner's own
+  //     pay (see AccountsService.getExpenseTracker), not a creditor.
+  // Admin/Accounts only: it exposes vendor payables and salary payouts.
+  async listCreditors(user: { role?: string; email?: string }) {
+    const isSuperAdmin = user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+    if (!isSuperAdmin && !['ADMIN', 'ACCOUNTS'].includes(user?.role ?? '')) {
+      throw new ForbiddenException('Sundry creditors are visible to admin/accounts users only');
+    }
+
+    const [vendors, employees, salaryPaid] = await Promise.all([
+      this.prisma.vendor.findMany({
+        select: {
+          id: true, name: true, phone: true, gstNumber: true, isActive: true, isPress: true,
+          purchaseBills: {
+            where: LIVE_PURCHASE_BILL_WHERE,
+            select: { totalAmount: true, paidAmount: true },
+          },
+          vendorPayments: {
+            where: ON_ACCOUNT_VENDOR_PAYMENT_WHERE,
+            select: { amount: true },
+          },
+          creditDebitNotes: {
+            where: PAYABLE_VENDOR_NOTE_WHERE,
+            select: { totalAmount: true },
+          },
+        },
+      }),
+      this.prisma.employee.findMany({
+        select: { id: true, employeeCode: true, fullName: true, designation: true, mobileNumber: true, status: true, userId: true },
+      }),
+      this.prisma.bankTransaction.groupBy({
+        by: ['salaryForUserId'],
+        where: { salaryForUserId: { not: null } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    // Amounts are 2-decimal Decimals; round the float sums back to paise.
+    const toPaise = (n: number) => Math.round(n * 100) / 100;
+    const sumOf = <T>(rows: T[], amount: (row: T) => unknown) => toPaise(rows.reduce((sum, r) => sum + Number(amount(r)), 0));
+
+    const vendorRows = vendors
+      .map((v) => {
+        const totalBilled = sumOf(v.purchaseBills, (b) => b.totalAmount);
+        const onAccountPaid = sumOf(v.vendorPayments, (p) => p.amount);
+        const totalPaid = toPaise(sumOf(v.purchaseBills, (b) => b.paidAmount) + onAccountPaid);
+        const notesAdjusted = sumOf(v.creditDebitNotes, (n) => n.totalAmount);
+        return {
+          vendorId: v.id,
+          name: v.name,
+          phone: v.phone,
+          gstNumber: v.gstNumber,
+          isActive: v.isActive,
+          isPress: v.isPress,
+          billCount: v.purchaseBills.length,
+          totalBilled,
+          totalPaid,
+          onAccountPaid,
+          notesAdjusted,
+          balanceDue: toPaise(totalBilled - totalPaid - notesAdjusted),
+        };
+      })
+      // Inactive vendors with nothing on record are just clutter here.
+      .filter((v) => v.isActive || v.billCount > 0 || v.onAccountPaid > 0 || v.notesAdjusted > 0)
+      .sort((a, b) => b.balanceDue - a.balanceDue || a.name.localeCompare(b.name));
+
+    const paidByUserId = new Map(salaryPaid.map((row) => [row.salaryForUserId as string, toPaise(Number(row._sum.amount ?? 0))]));
+    const employeeUserIds = new Set(employees.map((e) => e.userId).filter(Boolean));
+    const unlinkedPaidUserIds = [...paidByUserId.keys()].filter((id) => !employeeUserIds.has(id));
+    const unlinkedUsers = unlinkedPaidUserIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: unlinkedPaidUserIds } },
+          select: { id: true, fullName: true, email: true, phone: true },
+        })
+      : [];
+
+    const employeeRows = [
+      ...employees.map((e) => ({
+        employeeId: e.id as string | null,
+        employeeCode: e.employeeCode as string | null,
+        name: e.fullName,
+        designation: e.designation as string | null,
+        phone: e.mobileNumber,
+        status: e.status as string,
+        salaryPaid: e.userId ? paidByUserId.get(e.userId) ?? 0 : null,
+      })),
+      ...unlinkedUsers
+        .filter((u) => u.email?.toLowerCase() !== SUPER_ADMIN_EMAIL)
+        .map((u) => ({
+          employeeId: null,
+          employeeCode: null,
+          name: u.fullName || u.email,
+          designation: null,
+          phone: u.phone,
+          status: 'NO_HR_RECORD',
+          salaryPaid: paidByUserId.get(u.id) ?? 0,
+        })),
+    ].sort((a, b) => Number(a.status !== 'ACTIVE') - Number(b.status !== 'ACTIVE') || a.name.localeCompare(b.name));
+
+    return { vendors: vendorRows, employees: employeeRows };
   }
 
   // Party-edit lock (Sanket, 2026-09-25): once ANY of a party's orders has
