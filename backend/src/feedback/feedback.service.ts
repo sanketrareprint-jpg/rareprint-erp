@@ -246,7 +246,7 @@ export class FeedbackService {
         quantity: i.quantity,
       })),
     );
-    if (!result.ok) throw new BadRequestException(result.error);
+    if (result.ok === false) throw new BadRequestException(result.error);
     const feedback = result.value;
 
     let created: { id: string };
