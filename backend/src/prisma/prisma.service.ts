@@ -39,6 +39,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(
       `ALTER TABLE "PaperPurchaseItem" ADD COLUMN IF NOT EXISTS "ratePerUnit" DOUBLE PRECISION`,
     ).catch(() => { /* ignore if already exists */ });
+    // Columns Prisma reads on every query of their model, so a DB that hasn't
+    // had its migration applied yet would break those screens outright. Both
+    // are metadata-only (nullable / constant default), so they add no boot
+    // time. Index + FK for salaryForEmployeeId come from migration
+    // 20260929160000_add_salary_for_employee — not needed for queries to work.
+    await this.$executeRawUnsafe(
+      `ALTER TABLE "BankTransaction" ADD COLUMN IF NOT EXISTS "salaryForEmployeeId" TEXT`,
+    ).catch(() => { /* ignore if already exists */ });
+    await this.$executeRawUnsafe(
+      `ALTER TABLE "CompanyHoliday" ADD COLUMN IF NOT EXISTS "days" DECIMAL(4,2) NOT NULL DEFAULT 1`,
+    ).catch(() => { /* ignore if already exists */ });
   }
   async onModuleDestroy() {
     await this.$disconnect();
