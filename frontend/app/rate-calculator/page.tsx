@@ -963,7 +963,7 @@ function AccordionCategory({ title, icon, defaultOpen = false, children }: { tit
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function RateCalculatorPage() {
-  const [tab, setTab] = useState<Tab>("forward");
+  const [tab, setTab] = useState<Tab>("reverse");
   const [isAdmin, setIsAdmin] = useState(true); // default true until user loaded
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -1348,7 +1348,6 @@ export default function RateCalculatorPage() {
     : DEFAULT_PAPER_OPTIONS;
 
   const ALL_TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
-    { id: "forward",  label: "→ Forward" },
     { id: "reverse",  label: "↺ Reverse" },
     { id: "rates",    label: "⚙ Rates",    adminOnly: true },
     { id: "history",  label: "📋 History" },
