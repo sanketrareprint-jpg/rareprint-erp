@@ -397,6 +397,15 @@ export class AccountsController {
     return this.accountsService.markSalaryPaid(userId, Number(body.year), Number(body.month), body.transactionId, req.user.id);
   }
 
+  @Patch('expense-tracker/salary/employee/:employeeId/mark-paid')
+  markSalaryPaidForEmployee(
+    @Param('employeeId') employeeId: string,
+    @Body() body: { year: number; month: number; transactionId: string },
+    @Req() req: Request & { user: JwtUser },
+  ) {
+    return this.accountsService.markSalaryPaidForEmployee(employeeId, Number(body.year), Number(body.month), body.transactionId, req.user.id);
+  }
+
   @Delete('expense-tracker/salary/unmark-paid/:transactionId')
   unmarkSalaryPaid(@Param('transactionId') transactionId: string) {
     return this.accountsService.unmarkSalaryPaid(transactionId);

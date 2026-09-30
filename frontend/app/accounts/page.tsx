@@ -1115,7 +1115,7 @@ export default function AccountsPage() {
   const [expenseTrackerMonth, setExpenseTrackerMonth] = useState<string>(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [expenseTracker, setExpenseTracker] = useState<ExpenseTracker | null>(null);
   const [expenseTrackerLoading, setExpenseTrackerLoading] = useState(false);
-  const [bankMatchSalary, setBankMatchSalary] = useState<{ userId: string; userName: string; year: number; month: number; amount: number } | null>(null);
+  const [bankMatchSalary, setBankMatchSalary] = useState<{ userId: string; userName: string; year: number; month: number; amount: number; employeeId?: string } | null>(null);
   const [bankMatchSalaryResults, setBankMatchSalaryResults] = useState<BankTxn[]>([]);
   const [bankMatchSalaryLoading, setBankMatchSalaryLoading] = useState(false);
   const [markingSalaryPaid, setMarkingSalaryPaid] = useState(false);
@@ -1138,8 +1138,10 @@ export default function AccountsPage() {
   // when there's no fixed target amount (Sanket's own withdrawals, which have
   // no set monthly figure) it searches by date range for that month instead
   // of an exact amount.
-  async function openSalaryBankMatch(userId: string, userName: string, year: number, month: number, amount: number) {
-    setBankMatchSalary({ userId, userName, year, month, amount });
+  // employeeId set = an HR employee row: tagged via the employee endpoint,
+  // which works with or without a linked login. Otherwise (Sanket) by login.
+  async function openSalaryBankMatch(userId: string, userName: string, year: number, month: number, amount: number, employeeId?: string) {
+    setBankMatchSalary({ userId, userName, year, month, amount, employeeId });
     setBankMatchSalaryResults([]);
     setBankMatchSalaryLoading(true);
     try {
@@ -1165,7 +1167,10 @@ export default function AccountsPage() {
     if (!bankMatchSalary) return;
     setMarkingSalaryPaid(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/expense-tracker/salary/${bankMatchSalary.userId}/mark-paid`, {
+      const target = bankMatchSalary.employeeId
+        ? `employee/${bankMatchSalary.employeeId}`
+        : bankMatchSalary.userId;
+      const res = await fetch(`${API_BASE_URL}/accounts/expense-tracker/salary/${target}/mark-paid`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ year: bankMatchSalary.year, month: bankMatchSalary.month, transactionId: txn.id }),
@@ -5348,7 +5353,7 @@ export default function AccountsPage() {
                                 <span className="text-xs font-semibold text-green-700">Fully paid</span>
                               ) : (
                                 <button
-                                  onClick={() => row.userId && openSalaryBankMatch(row.userId, row.fullName, expenseTracker.year, expenseTracker.month, row.balance)}
+                                  onClick={() => openSalaryBankMatch(row.userId ?? "", row.fullName, expenseTracker.year, expenseTracker.month, row.balance, row.employeeId)}
                                   className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                                   Mark Paid
                                 </button>
@@ -5409,7 +5414,7 @@ export default function AccountsPage() {
                                   <span className="text-xs font-semibold text-green-700">Fully paid</span>
                                 ) : (
                                   <button
-                                    onClick={() => row.userId && openSalaryBankMatch(row.userId, row.fullName, expenseTracker.year, expenseTracker.month, row.balance)}
+                                    onClick={() => openSalaryBankMatch(row.userId ?? "", row.fullName, expenseTracker.year, expenseTracker.month, row.balance, row.employeeId)}
                                     className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                                     Mark Paid
                                   </button>

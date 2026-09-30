@@ -58,11 +58,10 @@ type CreditorVendor = {
   isActive: boolean; isPress: boolean; billCount: number;
   totalBilled: number; totalPaid: number; onAccountPaid: number; notesAdjusted: number; balanceDue: number;
 };
-// employeeId null = salary-tagged login with no HR Employee record;
-// salaryPaid null = employee has no linked login, so payouts can't be traced.
+// employeeId null = salary-tagged login with no HR Employee record.
 type CreditorEmployee = {
   employeeId: string | null; employeeCode: string | null; name: string; designation: string | null;
-  phone: string | null; status: string; salaryPaid: number | null;
+  phone: string | null; status: string; salaryPaid: number;
 };
 
 type LedgerEntry = {
@@ -1409,11 +1408,7 @@ function BillingPageInner() {
                                   <div className="text-[10px] font-normal text-slate-400">{[e.employeeCode, e.phone].filter(Boolean).join(" · ")}</div>
                                 </td>
                                 <td className="px-3 py-2 text-slate-600">{e.designation ?? "—"}</td>
-                                <td className="px-3 py-2 text-right text-emerald-600">
-                                  {e.salaryPaid === null
-                                    ? <span className="text-[10px] text-amber-700" title="Link this employee to a login in HR so salary payments tagged in Expense Tracker show here.">No login linked</span>
-                                    : fmt(e.salaryPaid)}
-                                </td>
+                                <td className="px-3 py-2 text-right text-emerald-600">{fmt(e.salaryPaid)}</td>
                               </tr>
                             ))}
                           </tbody>

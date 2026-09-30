@@ -2882,9 +2882,10 @@ export class AccountsService {
   //     History); "Balance" = still sitting in the queue.
   //   • Salary — HrService.salarySummary is the live accrued figure (there
   //     is no other persisted "salary paid" record anywhere in the app).
-  //     "Paid" comes from BankTransaction rows tagged salaryForUserId /
-  //     salaryYear / salaryMonth via markSalaryPaid below — the only place
-  //     a salary payment is ever actually recorded.
+  //     "Paid" comes from BankTransaction rows tagged salaryForUserId (or
+  //     salaryForEmployeeId, for an employee with no login) / salaryYear /
+  //     salaryMonth via markSalaryPaid / markSalaryPaidForEmployee below —
+  //     the only place a salary payment is ever actually recorded.
   //   • Commission — CostTableService.getAllAgentsCommissionSummary is the
   //     accrued figure (agent.bonus for the selected month); "paid" is
   //     whichever agents already have this month in their existing
@@ -2928,7 +2929,7 @@ export class AccountsService {
       this.hr.salarySummary(year, month).catch(() => ({ totalSalary: 0, employees: [] as any[] })),
       this.costTable.getAllAgentsCommissionSummary(year, month).catch(() => ({ agents: [] as any[] })),
       (this.prisma.bankTransaction as any).findMany({
-        where: { salaryYear: year, salaryMonth: month, salaryForUserId: { not: null } },
+        where: { salaryYear: year, salaryMonth: month, OR: [{ salaryForUserId: { not: null } }, { salaryForEmployeeId: { not: null } }] },
         include: { salaryForUser: { select: { id: true, fullName: true, email: true } } },
         orderBy: { txnDate: 'asc' },
       }),
@@ -2945,16 +2946,23 @@ export class AccountsService {
     const sanketTagged = (salaryTaggedTxns as any[]).filter((t) => t.salaryForUser?.email === SUPER_ADMIN_EMAIL);
     const staffTagged = (salaryTaggedTxns as any[]).filter((t) => t.salaryForUser?.email !== SUPER_ADMIN_EMAIL);
 
+    // A staff tag points at a login (salaryForUserId) or, for an employee
+    // with no login, at the employee (salaryForEmployeeId) — never both.
     const paidByUserId = new Map<string, number>();
+    const paidByEmployeeId = new Map<string, number>();
     for (const t of staffTagged) {
-      const uid = t.salaryForUserId as string;
-      paidByUserId.set(uid, (paidByUserId.get(uid) ?? 0) + Number(t.amount));
+      if (t.salaryForUserId) {
+        paidByUserId.set(t.salaryForUserId, (paidByUserId.get(t.salaryForUserId) ?? 0) + Number(t.amount));
+      } else if (t.salaryForEmployeeId) {
+        paidByEmployeeId.set(t.salaryForEmployeeId, (paidByEmployeeId.get(t.salaryForEmployeeId) ?? 0) + Number(t.amount));
+      }
     }
     const employeeIdToUserId = new Map(employees.map((e) => [e.id, e.userId]));
 
     const salaryByEmployee = (salarySummary as any).employees.map((row: any) => {
       const userId = employeeIdToUserId.get(row.employeeId) ?? null;
-      const paid = userId ? Math.min(row.salary, paidByUserId.get(userId) ?? 0) : 0;
+      const tagged = (userId ? paidByUserId.get(userId) ?? 0 : 0) + (paidByEmployeeId.get(row.employeeId) ?? 0);
+      const paid = Math.min(row.salary, tagged);
       return {
         employeeId: row.employeeId,
         fullName: row.fullName,
@@ -2963,7 +2971,8 @@ export class AccountsService {
         accrued: row.salary,
         paid,
         balance: Math.max(0, row.salary - paid),
-        taggable: !!userId,
+        // Every HR employee can be tagged now (by employee when no login).
+        taggable: true,
       };
     });
     const staffSalaryAccrued = salaryByEmployee.reduce((s: number, r: any) => s + r.accrued, 0);
@@ -3014,6 +3023,7 @@ export class AccountsService {
       data: {
         reconcileStatus: 'MATCHED_SALARY',
         salaryForUserId: userId,
+        salaryForEmployeeId: null,
         salaryYear: year,
         salaryMonth: month,
         matchedVendorId: null,
@@ -3027,15 +3037,49 @@ export class AccountsService {
     return { success: true };
   }
 
+  /**
+   * Tag a bank transaction as salary for an HR employee. A linked employee
+   * is tagged by login exactly as markSalaryPaid always has; one with no
+   * login is tagged by employee (salaryForEmployeeId) so their salary can
+   * still be tracked. getExpenseTracker / BillingService.listCreditors count
+   * both, so earlier employee tags still count after a login is linked.
+   */
+  async markSalaryPaidForEmployee(employeeId: string, year: number, month: number, transactionId: string, reconciledById: string) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId }, select: { fullName: true, userId: true } });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.userId) return this.markSalaryPaid(employee.userId, year, month, transactionId, reconciledById);
+
+    const txn = await this.prisma.bankTransaction.findUnique({ where: { id: transactionId } });
+    if (!txn) throw new NotFoundException('Bank transaction not found');
+    await this.prisma.bankTransaction.update({
+      where: { id: transactionId },
+      data: {
+        reconcileStatus: 'MATCHED_SALARY',
+        salaryForUserId: null,
+        salaryForEmployeeId: employeeId,
+        salaryYear: year,
+        salaryMonth: month,
+        matchedVendorId: null,
+        expenseCategoryId: null,
+        matchedCommissionVerificationId: null,
+        reviewNote: `Salary payout — ${employee.fullName}, ${month}/${year}`,
+        reconciledById,
+        reconciledAt: new Date(),
+      },
+    });
+    return { success: true };
+  }
+
   /** Untag a specific transaction previously marked as a salary payment. */
   async unmarkSalaryPaid(transactionId: string) {
     const txn = await (this.prisma.bankTransaction as any).findUnique({ where: { id: transactionId } });
-    if (!txn || !txn.salaryForUserId) return { success: true };
+    if (!txn || (!txn.salaryForUserId && !txn.salaryForEmployeeId)) return { success: true };
     await (this.prisma.bankTransaction as any).update({
       where: { id: transactionId },
       data: {
         reconcileStatus: 'UNMATCHED',
         salaryForUserId: null,
+        salaryForEmployeeId: null,
         salaryYear: null,
         salaryMonth: null,
         reviewNote: null,

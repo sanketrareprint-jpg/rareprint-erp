@@ -942,6 +942,7 @@ model Employee {
   kras                EmployeeKra[]
   leaveEntries        EmployeeLeaveEntry[]
   attendanceRecords   AttendanceRecord[]
+  salaryBankTxns      BankTransaction[]   @relation("BankTxnSalaryForEmployee")
 
   @@index([status])
 }
@@ -2433,6 +2434,10 @@ model BankTransaction {
   salaryForUserId   String?
   salaryYear        Int?
   salaryMonth       Int?      // 1-12, matches HR salary engine's convention
+  // Salary tag for an HR Employee with no login (Employee.userId null) —
+  // Expense Tracker tags those by employee instead of salaryForUserId.
+  // A transaction carries at most one of the two.
+  salaryForEmployeeId String?
 
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
@@ -2445,6 +2450,7 @@ model BankTransaction {
   checkedBy         User?               @relation("BankTxnCheckedBy", fields: [checkedById], references: [id])
   recheckedBy       User?               @relation("BankTxnRecheckedBy", fields: [recheckedById], references: [id])
   salaryForUser     User?               @relation("BankTxnSalaryFor", fields: [salaryForUserId], references: [id])
+  salaryForEmployee Employee?           @relation("BankTxnSalaryForEmployee", fields: [salaryForEmployeeId], references: [id], onDelete: SetNull)
 
   @@unique([accountNumber, importKey])
   @@index([recheckedAt])
@@ -2452,6 +2458,7 @@ model BankTransaction {
   @@index([reconcileStatus])
   @@index([txnDate])
   @@index([salaryForUserId, salaryYear, salaryMonth])
+  @@index([salaryForEmployeeId, salaryYear, salaryMonth])
 }
 
 // ─── Courier COD Remittance Import ─────────────────────────────────────────

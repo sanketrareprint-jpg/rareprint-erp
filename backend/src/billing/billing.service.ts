@@ -613,8 +613,9 @@ export class BillingService {
   //   • Employees: listed only, no balance — salary owed isn't stored
   //     anywhere (HR computes it live from attendance). "Salary Paid" is the
   //     sum of bank transactions tagged to the employee's login user
-  //     (salaryForUserId), the only place a salary payment is recorded. With
-  //     no linked login it is null (unknown, not ₹0). Tagged users with no
+  //     (salaryForUserId) plus those tagged to the employee directly
+  //     (salaryForEmployeeId, used when there is no login) — the only place a
+  //     salary payment is recorded. Tagged users with no
   //     Employee record still get a row so their payouts aren't hidden —
   //     except the superadmin, whose tagged withdrawals are the owner's own
   //     pay (see AccountsService.getExpenseTracker), not a creditor.
@@ -625,7 +626,7 @@ export class BillingService {
       throw new ForbiddenException('Sundry creditors are visible to admin/accounts users only');
     }
 
-    const [vendors, employees, salaryPaid] = await Promise.all([
+    const [vendors, employees, salaryPaid, salaryPaidByEmployee] = await Promise.all([
       this.prisma.vendor.findMany({
         select: {
           id: true, name: true, phone: true, gstNumber: true, isActive: true, isPress: true,
@@ -649,6 +650,11 @@ export class BillingService {
       this.prisma.bankTransaction.groupBy({
         by: ['salaryForUserId'],
         where: { salaryForUserId: { not: null } },
+        _sum: { amount: true },
+      }),
+      this.prisma.bankTransaction.groupBy({
+        by: ['salaryForEmployeeId'],
+        where: { salaryForEmployeeId: { not: null } },
         _sum: { amount: true },
       }),
     ]);
@@ -683,6 +689,7 @@ export class BillingService {
       .sort((a, b) => b.balanceDue - a.balanceDue || a.name.localeCompare(b.name));
 
     const paidByUserId = new Map(salaryPaid.map((row) => [row.salaryForUserId as string, toPaise(Number(row._sum.amount ?? 0))]));
+    const paidByEmployeeId = new Map(salaryPaidByEmployee.map((row) => [row.salaryForEmployeeId as string, Number(row._sum.amount ?? 0)]));
     const employeeUserIds = new Set(employees.map((e) => e.userId).filter(Boolean));
     const unlinkedPaidUserIds = [...paidByUserId.keys()].filter((id) => !employeeUserIds.has(id));
     const unlinkedUsers = unlinkedPaidUserIds.length
@@ -700,7 +707,7 @@ export class BillingService {
         designation: e.designation as string | null,
         phone: e.mobileNumber,
         status: e.status as string,
-        salaryPaid: e.userId ? paidByUserId.get(e.userId) ?? 0 : null,
+        salaryPaid: toPaise((e.userId ? paidByUserId.get(e.userId) ?? 0 : 0) + (paidByEmployeeId.get(e.id) ?? 0)),
       })),
       ...unlinkedUsers
         .filter((u) => u.email?.toLowerCase() !== SUPER_ADMIN_EMAIL)

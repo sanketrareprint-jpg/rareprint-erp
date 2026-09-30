@@ -6,9 +6,10 @@
  *     cancelled); Balance = Billed − Paid − issued vendor notes (negative =
  *     advance). Inactive vendors with nothing on record are hidden.
  *   - Employees: listed with no balance; Salary Paid = bank transactions
- *     tagged to the employee's login user (salaryForUserId). No linked login
- *     → null (unknown), never a misleading ₹0. Tagged logins with no Employee
- *     record still appear, except the superadmin (owner's own pay).
+ *     tagged to the employee's login (salaryForUserId) + those tagged to the
+ *     employee directly (salaryForEmployeeId, when there is no login).
+ *     Tagged logins with no Employee record still appear, except the
+ *     superadmin (owner's own pay).
  *   - Only ADMIN / ACCOUNTS / the superadmin may see it.
  *
  * If these tests fail after a code change, vendor payables or salary
@@ -18,11 +19,13 @@
 import { ForbiddenException } from '@nestjs/common';
 import { BillingService } from './billing.service';
 
-function serviceWith(vendors: any[], employees: any[], salaryRows: any[], users: any[] = []) {
+function serviceWith(vendors: any[], employees: any[], salaryRows: any[], users: any[] = [], employeeSalaryRows: any[] = []) {
   const prisma = {
     vendor: { findMany: jest.fn().mockResolvedValue(vendors) },
     employee: { findMany: jest.fn().mockResolvedValue(employees) },
-    bankTransaction: { groupBy: jest.fn().mockResolvedValue(salaryRows) },
+    bankTransaction: {
+      groupBy: jest.fn().mockImplementation(({ by }: any) => Promise.resolve(by[0] === 'salaryForEmployeeId' ? employeeSalaryRows : salaryRows)),
+    },
     user: { findMany: jest.fn().mockResolvedValue(users) },
   };
   return { service: new BillingService(prisma as any, {} as any), prisma };
@@ -93,12 +96,16 @@ describe('BillingService.listCreditors — employees', () => {
     { id: 'owner', fullName: 'Sanket', email: 'sanket.rareprint@gmail.com', phone: null },
   ];
 
-  it('gives null for no login, 0 for a login with no tags, and lists non-HR tagged logins except the owner', async () => {
-    const { service, prisma } = serviceWith([], employees, salaryRows, users);
+  it('adds login and employee tags, and lists non-HR tagged logins except the owner', async () => {
+    const employeeSalaryRows = [
+      { salaryForEmployeeId: 'e3', _sum: { amount: 9000.5 } }, // BOB, no login
+      { salaryForEmployeeId: 'e2', _sum: { amount: 1000 } },   // AMY, tagged before her login was linked
+    ];
+    const { service, prisma } = serviceWith([], employees, salaryRows, users, employeeSalaryRows);
     const { employees: rows } = await service.listCreditors({ role: 'ADMIN' });
     expect(rows.map((r) => [r.name, r.status, r.salaryPaid])).toEqual([
-      ['AMY', 'ACTIVE', 22000.75],
-      ['BOB', 'ACTIVE', null],
+      ['AMY', 'ACTIVE', 23000.75],
+      ['BOB', 'ACTIVE', 9000.5],
       ['CAT', 'ACTIVE', 0],
       ['DEV (NO HR)', 'NO_HR_RECORD', 8000],
       ['ZED', 'RESIGNED', 15000],

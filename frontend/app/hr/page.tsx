@@ -127,8 +127,8 @@ export default function HrPage() {
   useEffect(() => { if (canAccess) void loadIncentivePlans(); }, [canAccess, loadIncentivePlans]);
 
   // Logins an employee can be linked to (Employee.userId). The link is what
-  // lets Expense Tracker tag salary payouts and Billing > Sundry Creditors,
-  // Salary & Commission and the sales incentive find this employee.
+  // lets Salary & Commission and the sales incentive find this employee, and
+  // auto-matches salary payouts by the login's bank keywords.
   const [loginUsers, setLoginUsers] = useState<LoginUser[]>([]);
   useEffect(() => {
     if (!canAccess) return;
@@ -626,7 +626,7 @@ export default function HrPage() {
                 </Field>
                 <Field label="Linked Login">
                   <MobileSelect value={form.userId} onChange={(v) => setForm({ ...form, userId: v })} className={INPUT_CLS}
-                    options={[{ value: "", label: "None — salary payouts can't be tagged" }, ...loginUsers.map((u) => ({ value: u.id, label: `${u.fullName} (${u.role.replace(/_/g, " ")}) — ${u.email}` }))]} />
+                    options={[{ value: "", label: "None" }, ...loginUsers.map((u) => ({ value: u.id, label: `${u.fullName} (${u.role.replace(/_/g, " ")}) — ${u.email}` }))]} />
                 </Field>
                 <Field label="Petrol Allowance (monthly)"><input type="number" value={form.petrolAllowance} onChange={(e) => setForm({ ...form, petrolAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
                 <Field label="SIM Recharge Allowance (monthly)"><input type="number" value={form.simAllowance} onChange={(e) => setForm({ ...form, simAllowance: e.target.value })} placeholder="0" className={INPUT_CLS} /></Field>
