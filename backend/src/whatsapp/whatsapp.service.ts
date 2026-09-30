@@ -588,14 +588,12 @@ export class WhatsAppService {
   }
 
   // ── Order Updated Notification (to customer) ─────────────────────────────
-  // Sent when an order's items/specs/quantity/rate are edited. Needs its own
-  // approved AiSensy template (requested 2026-09-26) — until it exists and is
-  // approved, AiSensy rejects the call and this just logs + returns false.
-  // The template is a copy of order_created_erp with "created" reworded to
-  // "updated", so it takes the same 8 variables in the same order (see
-  // sendOrderCreated above): {{1}} customer name, {{2}} order no,
-  // {{3}} customer name, {{4}} item details, {{5}} total, {{6}} paid,
-  // {{7}} balance, {{8}} sales agent name.
+  // Sent when an order's items/specs/quantity/rate are edited, and when
+  // Accounts approves an upsell. AiSensy template order_updated_erp (approved
+  // 2026-09-30) takes 7 variables — NOT the same as order_created_erp's 8
+  // (no repeated customer name): {{1}} customer name, {{2}} order no,
+  // {{3}} item details, {{4}} total, {{5}} paid, {{6}} balance,
+  // {{7}} sales agent name. A count mismatch makes AiSensy reject the send.
   async sendOrderUpdated(params: {
     customerName: string;
     customerPhone: string;
@@ -614,7 +612,6 @@ export class WhatsAppService {
       templateParams: [
         params.customerName,
         params.orderNo,
-        params.customerName,
         params.productDetails,
         params.totalAmount,
         params.advancePaid,

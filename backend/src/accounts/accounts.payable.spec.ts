@@ -30,7 +30,7 @@ function accountsWith(onAccount: number) {
     accountingLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
     vendorPayment: { aggregate: jest.fn().mockResolvedValue({ _sum: { amount: onAccount } }) },
   };
-  const service = new AccountsService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+  const service = new AccountsService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
   return { service, prisma };
 }
 

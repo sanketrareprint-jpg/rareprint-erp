@@ -16,7 +16,7 @@ import { NotFoundException } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 
 function serviceWith(prisma: any, hr: any = {}, costTable: any = {}) {
-  return new AccountsService(prisma, {} as any, costTable, {} as any, hr, {} as any, {} as any);
+  return new AccountsService(prisma, {} as any, costTable, {} as any, hr, {} as any, {} as any, {} as any);
 }
 
 describe('AccountsService.markSalaryPaidForEmployee', () => {

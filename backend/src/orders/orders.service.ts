@@ -1073,8 +1073,9 @@ export class OrdersService {
   // WhatsApps the customer the order's current items, total, paid and
   // balance after an item/spec/qty/rate edit. Fire-and-forget: a WhatsApp
   // problem must never fail the edit that was already saved. Paid = sum of
-  // all payments, same as the order-created message.
-  private async notifyCustomerOrderUpdated(orderId: string): Promise<void> {
+  // all payments, same as the order-created message. Public so
+  // AccountsService.approveUpsell sends the same message.
+  async notifyCustomerOrderUpdated(orderId: string): Promise<void> {
     try {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },

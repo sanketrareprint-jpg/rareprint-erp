@@ -26,6 +26,7 @@ import { CostTableService } from '../cost-table/cost-table.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { OrdersService } from '../orders/orders.service';
 import { BillingService } from '../billing/billing.service';
 import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
 import { splitInclusiveGst } from '../common/inclusive-gst';
@@ -101,6 +102,7 @@ export class AccountsService {
     private hr: HrService,
     private notifications: NotificationsService,
     private billing: BillingService,
+    private orders: OrdersService,
   ) {}
 
   private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
@@ -1323,6 +1325,11 @@ export class AccountsService {
         .sendInvoicePdfDocument(result.invoice.id, order.customer.businessName, order.customer.phone ?? '')
         .catch((err) => console.error(`Invoice PDF WhatsApp send failed for upsell on order ${orderId}:`, err));
     }
+
+    // Upsells always change quantity/rate or add items, so the customer also
+    // gets the updated order details (order_updated_erp), same message as an
+    // item edit. Fire-and-forget; catches its own errors.
+    void this.orders.notifyCustomerOrderUpdated(orderId);
 
     return result.updated;
   }
