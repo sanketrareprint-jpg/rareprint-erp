@@ -100,7 +100,7 @@ model Customer {
   city             String?
   state            String?
   pincode          String?
-  dateOfBirth      DateTime?               @db.Date // required on the Create Order form (2026-10-02)
+  dateOfBirth      DateTime?               @db.Date // optional, asked on the Create Order form (2026-10-02)
   creditLimit      Decimal?                @db.Decimal(12, 2)
   isActive         Boolean                 @default(true)
   createdAt        DateTime                @default(now())

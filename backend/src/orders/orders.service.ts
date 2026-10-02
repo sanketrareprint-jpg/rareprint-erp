@@ -721,8 +721,8 @@ export class OrdersService {
     if (dto.customer.phone.trim().length !== 10) {
       throw new BadRequestException('Phone number must be exactly 10 digits');
     }
-    // DOB is required on the Create Order form; parcel bookings (same
-    // endpoint, separate screen) don't collect one.
+    // DOB is optional (Create Order form); when sent it must be a real,
+    // non-future date.
     let customerDob: Date | undefined;
     if (dto.customer.dateOfBirth) {
       customerDob = new Date(`${dto.customer.dateOfBirth}T00:00:00.000Z`);
@@ -732,8 +732,6 @@ export class OrdersService {
       if (customerDob.getTime() > Date.now()) {
         throw new BadRequestException('Date of birth cannot be in the future');
       }
-    } else if (!dto.isParcelBooking) {
-      throw new BadRequestException('Date of birth is required');
     }
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];

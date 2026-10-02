@@ -69,8 +69,8 @@ export class CreateOrderCustomerDto {
   @Matches(GSTIN_FORMAT, { message: 'GST Number must be a valid 15-character GSTIN (e.g. 27AAAAA0000A1Z5)' })
   gstNumber?: string;
 
-  // YYYY-MM-DD. Required for normal orders — enforced in OrdersService.create()
-  // because parcel bookings share this DTO and don't collect a DOB.
+  // YYYY-MM-DD, optional. Real-date / not-in-future checks are in
+  // OrdersService.create().
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Date of birth must be a valid date (YYYY-MM-DD)' })
   dateOfBirth?: string;
