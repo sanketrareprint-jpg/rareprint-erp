@@ -750,8 +750,22 @@ export default function AccountsPage() {
     } finally { setPvSavingNoteId(null); }
   }
 
-  async function saveVendorExpense(id: string) {
-    const label = pvVendorExpenseDrafts[id] ?? "";
+  // Vendor / Expense must be picked from the list (registered vendors + expense
+  // categories) — free-typed names are rejected and the field reverts.
+  function commitVendorExpense(entry: PaymentVerificationEntry) {
+    const typed = (pvVendorExpenseDrafts[entry.id] ?? "").trim();
+    if (typed === (entry.vendorOrExpenseName ?? "")) return;
+    const match = typed ? vendorExpenseOptions.find(name => name.toLowerCase() === typed.toLowerCase()) : "";
+    if (match === undefined) {
+      setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: entry.vendorOrExpenseName ?? "" }));
+      alert("Please select a vendor/expense from the list.");
+      return;
+    }
+    setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: match }));
+    if (match !== (entry.vendorOrExpenseName ?? "")) saveVendorExpense(entry.id, match);
+  }
+
+  async function saveVendorExpense(id: string, label: string) {
     setPvSavingVendorExpenseId(id);
     try {
       const res = await fetch(`${API_BASE_URL}/accounts/payment-verification/${id}/vendor-expense`, {
@@ -4817,12 +4831,10 @@ export default function AccountsPage() {
                               type="text"
                               list="vendor-expense-options"
                               className="h-9 flex-1 min-w-0 border border-slate-300 rounded px-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-                              placeholder="Pick or type vendor/expense..."
+                              placeholder="Search & select vendor/expense..."
                               value={pvVendorExpenseDrafts[entry.id] ?? ""}
                               onChange={e => setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
-                              onBlur={() => {
-                                if ((pvVendorExpenseDrafts[entry.id] ?? "") !== (entry.vendorOrExpenseName ?? "")) saveVendorExpense(entry.id);
-                              }}
+                              onBlur={() => commitVendorExpense(entry)}
                             />
                             {pvSavingVendorExpenseId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
                           </div>
@@ -4994,12 +5006,10 @@ export default function AccountsPage() {
                                   type="text"
                                   list="vendor-expense-options"
                                   className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                  placeholder="Pick or type vendor/expense..."
+                                  placeholder="Search & select vendor/expense..."
                                   value={pvVendorExpenseDrafts[entry.id] ?? ""}
                                   onChange={e => setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: e.target.value }))}
-                                  onBlur={() => {
-                                    if ((pvVendorExpenseDrafts[entry.id] ?? "") !== (entry.vendorOrExpenseName ?? "")) saveVendorExpense(entry.id);
-                                  }}
+                                  onBlur={() => commitVendorExpense(entry)}
                                 />
                                 {pvSavingVendorExpenseId === entry.id && <Loader2 className="h-3 w-3 animate-spin text-slate-400 flex-none" />}
                               </div>

@@ -2785,9 +2785,21 @@ export class AccountsService {
     if ((txn as any).checkedAt) {
       throw new BadRequestException('This entry has already been checked and can no longer be edited');
     }
+    // Only a registered vendor or an expense category may be chosen — no free text.
+    let canonicalLabel: string | null = null;
+    const typed = label.trim();
+    if (typed) {
+      const [vendors, categories] = await Promise.all([
+        this.prisma.vendor.findMany({ where: { isActive: true }, select: { name: true } }),
+        this.prisma.expenseCategory.findMany({ where: { isActive: true }, select: { name: true } }),
+      ]);
+      const match = [...vendors, ...categories].find(o => o.name?.toLowerCase() === typed.toLowerCase());
+      if (!match) throw new BadRequestException('Please select a vendor/expense from the list');
+      canonicalLabel = match.name;
+    }
     const updated = await this.prisma.bankTransaction.update({
       where: { id },
-      data: { vendorExpenseOverride: label || null } as any,
+      data: { vendorExpenseOverride: canonicalLabel } as any,
       include: this.paymentVerificationInclude,
     });
     return this.mapPaymentVerificationEntry(updated);
