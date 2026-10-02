@@ -106,33 +106,29 @@ const LAYOUT_META = {
 // Fit against the same 11.5x17.5in usable print area the rate-calculator
 // module already assumes for 12x18 in-house sheets (12x18 sheet minus a
 // 0.25in margin on every side), so a custom size prints inside the same
-// safe area the standard sizes do. Cut line = full cell pitch (no gap
-// between stickers, same as every preset above); the image is inset 2.5%
-// of the cell size on each side so print bleed can't cross the cut line —
-// a conservative middle ground within the ~2.4%-5.4% insets the hand-tuned
-// presets above use.
+// safe area the standard sizes do. Custom sizes draw no cut line, so the
+// image fills the full entered size with no inset — the gap inputs are then
+// the exact visible spacing between printed stickers (0 = touching).
 const CUSTOM_USABLE_W = 828; // 11.5in
 const CUSTOM_USABLE_H = 1260; // 17.5in
-const CUSTOM_INSET_RATIO = 0.025;
 
-function computeCustomLayout(widthIn: number, heightIn: number, gapIn: number) {
+function computeCustomLayout(widthIn: number, heightIn: number, gapXIn: number, gapYIn: number) {
   const cellW = widthIn * 72;
   const cellH = heightIn * 72;
   if (!Number.isFinite(cellW) || !Number.isFinite(cellH) || cellW <= 0 || cellH <= 0) {
     return { cols: 0, rows: 0, startX: 0, startY: 0, stepX: 0, stepY: 0, imgW: 0, imgH: 0, cutW: 0, cutH: 0, offsetX: 0, offsetY: 0 };
   }
   // Gap between stickers -- pure spacing added to the pitch between cells,
-  // same on both axes. cols/rows fit n cells + (n-1) gaps into the usable
+  // set separately per axis. cols/rows fit n cells + (n-1) gaps into the usable
   // area: n*cellW + (n-1)*gap <= USABLE_W  =>  n <= (USABLE_W + gap) / (cellW + gap).
-  const gap = Math.max(0, Number.isFinite(gapIn) ? gapIn : 0) * 72;
-  const stepX = cellW + gap;
-  const stepY = cellH + gap;
-  const cols = Math.max(0, Math.floor((CUSTOM_USABLE_W + gap) / stepX));
-  const rows = Math.max(0, Math.floor((CUSTOM_USABLE_H + gap) / stepY));
-  const offsetX = -(cellW * CUSTOM_INSET_RATIO);
-  const offsetY = -(cellH * CUSTOM_INSET_RATIO);
-  const totalW = cols > 0 ? cols * stepX - gap : 0;
-  const totalH = rows > 0 ? rows * stepY - gap : 0;
+  const gapX = Math.max(0, Number.isFinite(gapXIn) ? gapXIn : 0) * 72;
+  const gapY = Math.max(0, Number.isFinite(gapYIn) ? gapYIn : 0) * 72;
+  const stepX = cellW + gapX;
+  const stepY = cellH + gapY;
+  const cols = Math.max(0, Math.floor((CUSTOM_USABLE_W + gapX) / stepX));
+  const rows = Math.max(0, Math.floor((CUSTOM_USABLE_H + gapY) / stepY));
+  const totalW = cols > 0 ? cols * stepX - gapX : 0;
+  const totalH = rows > 0 ? rows * stepY - gapY : 0;
   return {
     cols,
     rows,
@@ -140,12 +136,12 @@ function computeCustomLayout(widthIn: number, heightIn: number, gapIn: number) {
     startY: (PAGE_HEIGHT - totalH) / 2,
     stepX,
     stepY,
-    imgW: cellW + 2 * offsetX,
-    imgH: cellH + 2 * offsetY,
+    imgW: cellW,
+    imgH: cellH,
     cutW: cellW,
     cutH: cellH,
-    offsetX,
-    offsetY,
+    offsetX: 0,
+    offsetY: 0,
   };
 }
 
@@ -157,11 +153,18 @@ function StickerSheetContent() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [customWidthIn, setCustomWidthIn] = useState('');
   const [customHeightIn, setCustomHeightIn] = useState('');
-  const [customGapIn, setCustomGapIn] = useState('0');
+  const [customGapXIn, setCustomGapXIn] = useState('0');
+  const [customGapYIn, setCustomGapYIn] = useState('0');
+  const [borderEnabled, setBorderEnabled] = useState(false);
+  const [borderWidthPt, setBorderWidthPt] = useState('1');
+  const [borderColor, setBorderColor] = useState('#000000');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const customCfg = computeCustomLayout(parseFloat(customWidthIn), parseFloat(customHeightIn), parseFloat(customGapIn) || 0);
+  const customCfg = computeCustomLayout(parseFloat(customWidthIn), parseFloat(customHeightIn), parseFloat(customGapXIn) || 0, parseFloat(customGapYIn) || 0);
+  // Border stroke (custom only), in pt. Drawn inside each sticker's edge so
+  // it never spills into the gap or a neighbouring sticker.
+  const borderPt = layout === 'CUSTOM' && borderEnabled ? Math.max(0, parseFloat(borderWidthPt) || 0) : 0;
   const cfg = layout === 'CUSTOM' ? customCfg : layouts[layout];
   const meta = layout === 'CUSTOM'
     ? {
@@ -225,8 +228,22 @@ function StickerSheetContent() {
             ctx.lineWidth = 0.5;
             ctx.strokeRect(x, y, cfg.imgW * SCALE, cfg.imgH * SCALE);
           }
+
+          if (borderPt > 0) {
+            ctx.strokeStyle = borderColor;
+            ctx.lineWidth = borderPt * SCALE;
+            ctx.strokeRect(
+              x + (borderPt / 2) * SCALE,
+              y + (borderPt / 2) * SCALE,
+              (cfg.imgW - borderPt) * SCALE,
+              (cfg.imgH - borderPt) * SCALE
+            );
+          }
         }
       }
+
+      // Custom sizes aren't Toyocut-cut, so no corner dots / dash for them.
+      if (layout === 'CUSTOM') return;
 
       // Corner dots - 2.5mm from each edge = 7.09px, radius = 7.09px
       ctx.fillStyle = 'rgb(33, 31, 28)';
@@ -257,7 +274,7 @@ function StickerSheetContent() {
     } else {
       drawStickers();
     }
-  }, [image, layout, cfg]);
+  }, [image, layout, cfg, borderPt, borderColor]);
 
   useEffect(() => {
     drawPreview();
@@ -316,25 +333,33 @@ function StickerSheetContent() {
           }
 
           pdf.addImage(img, 'PNG', x, y, cfg.imgW, cfg.imgH, undefined, 'FAST');
+
+          if (borderPt > 0) {
+            pdf.setDrawColor(borderColor);
+            pdf.setLineWidth(borderPt);
+            pdf.rect(x + borderPt / 2, y + borderPt / 2, cfg.imgW - borderPt, cfg.imgH - borderPt, 'S');
+          }
         }
       }
 
-      pdf.setFillColor(33, 31, 28);
-      const pdfDotR = layout === 'SPARSH' ? 7.26 : 7.09;
-      const pdfDots = layout === 'SPARSH'
-        ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
-        : layout === 'SIZE_175'
-        ? [[28.32, 27.81], [847.53, 27.81], [28.32, 1278.11], [847.53, 1278.11]]
-        : layout === 'SIZE_150_075'
-        ? [[22.68, 22.68], [841.32, 22.68], [22.68, 1273.32], [841.32, 1273.32]]
-        : [[11.99, 11.25], [831.2, 11.25], [11.99, 1262.75], [831.2, 1262.75]];
-      pdfDots.forEach(([x, y]) => {
-        pdf.circle(x, y, pdfDotR, 'F');
-      });
-      if (layout === 'SPARSH') pdf.rect(39.9, 24.34, 3.3, 1.92, 'F');
-      else if (layout === 'SIZE_175') pdf.rect(36.6, 20.53, 3.3, 1.92, 'F');
-      else if (layout === 'SIZE_150_075') pdf.rect(31.18, 15.59, 2.83, 1.42, 'F');
-      else pdf.rect(20.27, 3.97, 3.3, 1.92, 'F');
+      if (layout !== 'CUSTOM') {
+        pdf.setFillColor(33, 31, 28);
+        const pdfDotR = layout === 'SPARSH' ? 7.26 : 7.09;
+        const pdfDots = layout === 'SPARSH'
+          ? [[31.62, 31.62], [832.38, 31.62], [31.62, 1264.38], [832.38, 1264.38]]
+          : layout === 'SIZE_175'
+          ? [[28.32, 27.81], [847.53, 27.81], [28.32, 1278.11], [847.53, 1278.11]]
+          : layout === 'SIZE_150_075'
+          ? [[22.68, 22.68], [841.32, 22.68], [22.68, 1273.32], [841.32, 1273.32]]
+          : [[11.99, 11.25], [831.2, 11.25], [11.99, 1262.75], [831.2, 1262.75]];
+        pdfDots.forEach(([x, y]) => {
+          pdf.circle(x, y, pdfDotR, 'F');
+        });
+        if (layout === 'SPARSH') pdf.rect(39.9, 24.34, 3.3, 1.92, 'F');
+        else if (layout === 'SIZE_175') pdf.rect(36.6, 20.53, 3.3, 1.92, 'F');
+        else if (layout === 'SIZE_150_075') pdf.rect(31.18, 15.59, 2.83, 1.42, 'F');
+        else pdf.rect(20.27, 3.97, 3.3, 1.92, 'F');
+      }
 
       const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'sticker-sheet';
       pdf.save(`${baseName} 12X18 STICKER SHEET.pdf`);
@@ -434,18 +459,48 @@ function StickerSheetContent() {
                   </div>
                 )}
                 {layout === 'CUSTOM' && (
-                  <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <span className="text-xs text-gray-400 shrink-0">Gap</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.05"
-                      placeholder="0"
-                      value={customGapIn}
-                      onChange={(e) => setCustomGapIn(e.target.value)}
-                      className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
-                    />
-                    <span className="text-xs text-gray-400 shrink-0">in between stickers</span>
+                  <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                    {([
+                      ['Horizontal gap', customGapXIn, setCustomGapXIn],
+                      ['Vertical gap', customGapYIn, setCustomGapYIn],
+                    ] as const).map(([label, value, setValue]) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400 shrink-0 w-24">{label}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0"
+                          value={value}
+                          onChange={(e) => setValue(e.target.value)}
+                          className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
+                        />
+                        <span className="text-xs text-gray-400 shrink-0">in</span>
+                      </div>
+                    ))}
+                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+                      <input type="checkbox" checked={borderEnabled} onChange={(e) => setBorderEnabled(e.target.checked)} />
+                      Border stroke
+                    </label>
+                    {borderEnabled && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={borderWidthPt}
+                          onChange={(e) => setBorderWidthPt(e.target.value)}
+                          className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
+                        />
+                        <span className="text-xs text-gray-400 shrink-0">pt</span>
+                        <input
+                          type="color"
+                          value={borderColor}
+                          onChange={(e) => setBorderColor(e.target.value)}
+                          className="h-7 w-10 shrink-0 border border-gray-300 rounded cursor-pointer"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
                 {layout === 'CUSTOM' && customWidthIn && customHeightIn && (customCfg.cols === 0 || customCfg.rows === 0) && (
@@ -468,8 +523,11 @@ function StickerSheetContent() {
                 ['Sheet Size', '12.25 × 18.25 in'],
                 ['Resolution', '300 DPI'],
                 ['Cut Border', layout === 'CUSTOM' ? 'None' : 'Red (RGB 255,0,0)'],
-                ...(layout === 'CUSTOM' ? [['Gap Between Stickers', `${parseFloat(customGapIn) || 0} in`]] : []),
-                ['Corner Marks', '4× Toyocut dots'],
+                ...(layout === 'CUSTOM' ? [
+                  ['Gap (H × V)', `${parseFloat(customGapXIn) || 0} × ${parseFloat(customGapYIn) || 0} in`],
+                  ['Border Stroke', borderPt > 0 ? `${borderPt} pt ${borderColor}` : 'None'],
+                ] : []),
+                ['Corner Marks', layout === 'CUSTOM' ? 'None' : '4× Toyocut dots'],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between items-center px-4 py-2.5">
                   <span className="text-xs text-gray-400 uppercase tracking-wider">{label}</span>
@@ -557,10 +615,12 @@ function StickerSheetContent() {
                     Cut line
                   </span>
                 )}
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-3 rounded-full bg-gray-800"></span>
-                  Corner mark
-                </span>
+                {layout !== 'CUSTOM' && (
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-3 h-3 rounded-full bg-gray-800"></span>
+                    Corner mark
+                  </span>
+                )}
                 {image && (
                   <span className="flex items-center gap-1 text-green-600">
                     <span>●</span> Design loaded
