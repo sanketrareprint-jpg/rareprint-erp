@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
@@ -178,6 +179,8 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 function CrmPageContent() {
   const isNativeApp = useIsNativeApp();
+  const router = useRouter();
+  const dialerTestTaps = useRef(0);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
@@ -692,7 +695,13 @@ function CrmPageContent() {
       <div className="bg-white border-b border-slate-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900">CRM — Leads</h1>
+            {/* Hidden entry to the Phase 1 auto-dialer test: tap the title 5 times in the Android app. */}
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900"
+              onClick={() => {
+                if (!isNativeApp) return;
+                dialerTestTaps.current += 1;
+                if (dialerTestTaps.current >= 5) { dialerTestTaps.current = 0; router.push("/dialer-test"); }
+              }}>CRM — Leads</h1>
             <p className="text-xs sm:text-sm text-slate-500">Manage your sales pipeline</p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">

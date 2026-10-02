@@ -40,9 +40,34 @@ function moveBack() {
 process.on("SIGINT", () => { moveBack(); process.exit(1); });
 process.on("SIGTERM", () => { moveBack(); process.exit(1); });
 
+// The APK must always talk to the live backend. `.env.local` (local dev) sets
+// NEXT_PUBLIC_API_URL=http://localhost:3000, and `next build` bakes it into the
+// app — on a phone "localhost" is the phone itself, so login fails with
+// "Could not reach the server". A value already in process.env wins over
+// .env files in Next.js, so set it here. Override with ANDROID_API_URL if needed.
+const ANDROID_API_URL = process.env.ANDROID_API_URL || "https://rareprint-erp-production.up.railway.app";
+const outDir = path.join(__dirname, "..", "out");
+
+// Fails the build if any exported JS still points at localhost.
+function assertNoLocalhost(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) assertNoLocalhost(full);
+    else if (entry.name.endsWith(".js") && /localhost:\d+/.test(fs.readFileSync(full, "utf8"))) {
+      throw new Error(`[build-android] ${path.relative(outDir, full)} still contains a localhost URL — the APK would not reach the server.`);
+    }
+  }
+}
+
 try {
   moveOut();
-  execSync("npx cross-env CAPACITOR_BUILD=1 next build", { stdio: "inherit", cwd: path.join(__dirname, "..") });
+  console.log(`[build-android] API URL baked into the app: ${ANDROID_API_URL}`);
+  execSync("npx cross-env CAPACITOR_BUILD=1 next build", {
+    stdio: "inherit",
+    cwd: path.join(__dirname, ".."),
+    env: { ...process.env, NEXT_PUBLIC_API_URL: ANDROID_API_URL },
+  });
+  assertNoLocalhost(outDir);
   execSync("npx cap sync android", { stdio: "inherit", cwd: path.join(__dirname, "..") });
 } finally {
   moveBack();

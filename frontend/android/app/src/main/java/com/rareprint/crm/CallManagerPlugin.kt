@@ -1,16 +1,20 @@
 package com.rareprint.crm
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.CallLog
 import android.provider.Settings
+import android.telecom.TelecomManager
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.getcapacitor.*
 import com.getcapacitor.annotation.CapacitorPlugin
@@ -39,6 +43,10 @@ import com.getcapacitor.annotation.PermissionCallback
         Permission(
             strings = [Manifest.permission.CALL_PHONE],
             alias = "callPhone"
+        ),
+        Permission(
+            strings = [Manifest.permission.POST_NOTIFICATIONS],
+            alias = "notifications"
         )
     ]
 )
@@ -58,6 +66,159 @@ class CallManagerPlugin : Plugin() {
     override fun load() {
         telephonyManager =
             context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        // Auto-dialer events (callStarted / callEnded / dialerControl / dialerError).
+        // retainUntilConsumed = true so an event fired while the WebView had no
+        // listener attached yet is delivered once JS subscribes.
+        DialerService.eventSink = { event, data -> notifyListeners(event, data, true) }
+    }
+
+    // ── Auto dialer ───────────────────────────────────────────────────────────
+
+    private fun isGranted(permission: String) =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun dialerPermissionStatus(): JSObject {
+        val callPhone = isGranted(Manifest.permission.CALL_PHONE)
+        val phoneState = isGranted(Manifest.permission.READ_PHONE_STATE)
+        val callLog = isGranted(Manifest.permission.READ_CALL_LOG)
+        val notifications = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        val overlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val batteryUnrestricted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                power.isIgnoringBatteryOptimizations(context.packageName)
+        return JSObject()
+            .put("callPhone", callPhone)
+            .put("phoneState", phoneState)
+            .put("callLog", callLog)
+            .put("notifications", notifications)
+            .put("overlay", overlay)
+            .put("batteryUnrestricted", batteryUnrestricted)
+            .put("allGranted", callPhone && phoneState && callLog && notifications && overlay)
+            .put("brand", Build.MANUFACTURER ?: "")
+    }
+
+    /**
+     * Status of everything the auto dialer needs. Overrides Capacitor's generic
+     * checkPermissions so JS gets one flat status object (incl. overlay/battery,
+     * which aren't runtime-permission aliases).
+     */
+    @PluginMethod
+    override fun checkPermissions(call: PluginCall) {
+        call.resolve(dialerPermissionStatus())
+    }
+
+    /** Ask for call / phone-state / call-log (+ notifications on Android 13+) in one prompt. */
+    @PluginMethod
+    override fun requestPermissions(call: PluginCall) {
+        val aliases = mutableListOf("callPhone", "phoneState", "callLog")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) aliases.add("notifications")
+        requestPermissionForAliases(aliases.toTypedArray(), call, "dialerPermissionsCallback")
+    }
+
+    @PermissionCallback
+    private fun dialerPermissionsCallback(call: PluginCall) {
+        call.resolve(dialerPermissionStatus())
+    }
+
+    /** Opens this app's page in Android Settings (for permissions the user denied permanently). */
+    @PluginMethod
+    fun openAppSettings(call: PluginCall) {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}")
+        ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+        context.startActivity(intent)
+        call.resolve()
+    }
+
+    /** Shows the system "Allow app to run in background?" dialog. */
+    @SuppressLint("BatteryLife")
+    @PluginMethod
+    fun requestIgnoreBatteryOptimizations(call: PluginCall) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:${context.packageName}")
+            ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+            try {
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    .apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+            }
+        }
+        call.resolve()
+    }
+
+    /** SIMs that can place calls: { sims: [ { id, label, slotIndex } ] }. */
+    @PluginMethod
+    fun listSims(call: PluginCall) {
+        if (!isGranted(Manifest.permission.READ_PHONE_STATE)) {
+            call.reject("READ_PHONE_STATE permission not granted")
+            return
+        }
+        val telecom = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        val sims = JSArray()
+        try {
+            telecom.callCapablePhoneAccounts.forEach { handle ->
+                val account = telecom.getPhoneAccount(handle)
+                sims.put(JSObject()
+                    .put("id", handle.id)
+                    .put("label", account?.label?.toString() ?: handle.id)
+                    .put("slotIndex", DialerService.slotIndexFor(context, handle)))
+            }
+        } catch (e: SecurityException) {
+            call.reject("Could not read SIMs: ${e.message}")
+            return
+        }
+        call.resolve(JSObject().put("sims", sims))
+    }
+
+    /** Starts the foreground "Dialer running" session (call before the first startCall). */
+    @PluginMethod
+    fun startDialerSession(call: PluginCall) {
+        val intent = Intent(context, DialerService::class.java)
+            .setAction(DialerService.ACTION_START_SESSION)
+        ContextCompat.startForegroundService(context, intent)
+        call.resolve()
+    }
+
+    /** Ends the session and removes the notification. */
+    @PluginMethod
+    fun stopDialerSession(call: PluginCall) {
+        if (DialerService.isRunning) {
+            context.startService(
+                Intent(context, DialerService::class.java).setAction(DialerService.ACTION_STOP)
+            )
+        }
+        call.resolve()
+    }
+
+    /**
+     * Places a call on the chosen SIM with no tap: { number, simId? }.
+     * Result arrives later as callStarted / callEnded events.
+     */
+    @PluginMethod
+    fun startCall(call: PluginCall) {
+        val number = call.getString("number")
+        if (number.isNullOrBlank()) {
+            call.reject("number is required")
+            return
+        }
+        if (!isGranted(Manifest.permission.CALL_PHONE) || !isGranted(Manifest.permission.READ_PHONE_STATE)) {
+            call.reject("Call / phone-state permission missing")
+            return
+        }
+        val intent = Intent(context, DialerService::class.java)
+            .setAction(DialerService.ACTION_DIAL)
+            .putExtra(DialerService.EXTRA_NUMBER, number)
+            .putExtra(DialerService.EXTRA_SIM_ID, call.getString("simId"))
+        // While the session's foreground service is running, a plain startService is
+        // always allowed — startForegroundService can be refused (Android 12+) if the
+        // app happens to be in the background when the countdown fires.
+        if (DialerService.isRunning) context.startService(intent)
+        else ContextCompat.startForegroundService(context, intent)
+        call.resolve(JSObject().put("dialing", true).put("number", number))
     }
 
     // ── Public plugin methods ─────────────────────────────────────────────────

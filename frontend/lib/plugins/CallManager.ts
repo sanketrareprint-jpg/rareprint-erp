@@ -23,6 +23,19 @@ interface NativeCallManager {
     handler: (data: CallStateEvent) => void
   ): Promise<{ remove: () => void }>;
   removeAllListeners(): Promise<void>;
+  // Auto dialer
+  checkPermissions(): Promise<DialerPermissionStatus>;
+  requestPermissions(): Promise<DialerPermissionStatus>;
+  openAppSettings(): Promise<void>;
+  requestIgnoreBatteryOptimizations(): Promise<void>;
+  listSims(): Promise<{ sims: DialerSim[] }>;
+  startDialerSession(): Promise<void>;
+  stopDialerSession(): Promise<void>;
+  startCall(opts: { number: string; simId?: string }): Promise<{ dialing: boolean; number: string }>;
+  addListener(event: "callStarted", handler: (data: DialerCallStarted) => void): Promise<{ remove: () => void }>;
+  addListener(event: "callEnded", handler: (data: DialerCallEnded) => void): Promise<{ remove: () => void }>;
+  addListener(event: "dialerControl", handler: (data: { action: "pause" | "stop" }) => void): Promise<{ remove: () => void }>;
+  addListener(event: "dialerError", handler: (data: { message: string }) => void): Promise<{ remove: () => void }>;
 }
 
 // Register with Capacitor — returns native plugin on Android, no-op proxy on web
@@ -155,6 +168,57 @@ export async function getLastCallForNumber(
     logs.find((l) => l.number.replace(/\D/g, "").slice(-10) === last10) ?? null
   );
 }
+
+// ── Auto dialer ───────────────────────────────────────────────────────────────
+// Native side: CallManagerPlugin.kt + DialerService.kt. Unlike the helpers above,
+// these throw on failure so the dialer screen can show the error instead of
+// silently doing nothing.
+
+export interface DialerPermissionStatus {
+  callPhone: boolean;
+  phoneState: boolean;
+  callLog: boolean;
+  notifications: boolean;
+  overlay: boolean;              // needed to jump back to the app after each call
+  batteryUnrestricted: boolean;  // recommended, not required
+  allGranted: boolean;
+  brand: string;
+}
+
+export interface DialerSim {
+  id: string;
+  label: string;
+  slotIndex: number;  // -1 when the phone doesn't report it
+}
+
+export interface DialerCallStarted {
+  number: string;
+  startedAt: number;  // epoch ms when the call was placed
+}
+
+export interface DialerCallEnded {
+  number: string;
+  durationSec: number;  // from the phone's call log
+  answered: boolean;    // durationSec > 0
+  startedAt: number;
+  callType: "OUTGOING" | "INCOMING" | "MISSED" | "OTHER" | "NOT_IN_CALL_LOG" | "NOT_STARTED";
+}
+
+export const dialer = {
+  isAvailable: isCapacitor,
+  checkPermissions: () => _plugin.checkPermissions(),
+  requestPermissions: () => _plugin.requestPermissions(),
+  openAppSettings: () => _plugin.openAppSettings(),
+  requestIgnoreBatteryOptimizations: () => _plugin.requestIgnoreBatteryOptimizations(),
+  listSims: async () => (await _plugin.listSims()).sims ?? [],
+  startSession: () => _plugin.startDialerSession(),
+  stopSession: () => _plugin.stopDialerSession(),
+  startCall: (number: string, simId?: string) => _plugin.startCall({ number, simId }),
+  onCallStarted: (h: (e: DialerCallStarted) => void) => _plugin.addListener("callStarted", h),
+  onCallEnded: (h: (e: DialerCallEnded) => void) => _plugin.addListener("callEnded", h),
+  onControl: (h: (e: { action: "pause" | "stop" }) => void) => _plugin.addListener("dialerControl", h),
+  onError: (h: (e: { message: string }) => void) => _plugin.addListener("dialerError", h),
+};
 
 // ── One-time app init ─────────────────────────────────────────────────────────
 export async function initCallManager(

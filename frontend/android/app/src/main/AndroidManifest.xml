@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <!-- Auto dialer: Android 14+ only allows a phoneCall-type foreground service
+         if the app declares MANAGE_OWN_CALLS (or is the default dialer). -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Auto dialer fallback for returning to the app after a call -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -20,6 +27,11 @@
         <!-- RarePrint overlay service -->
         <service
             android:name="com.rareprint.crm.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall" />
+        <!-- RarePrint auto dialer session -->
+        <service
+            android:name="com.rareprint.crm.DialerService"
             android:exported="false"
             android:foregroundServiceType="phoneCall" />
 
