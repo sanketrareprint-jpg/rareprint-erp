@@ -151,6 +151,7 @@ function StickerSheetContent() {
   const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175' | 'SIZE_150_075' | 'CUSTOM'>('SPARSH');
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [customWidthIn, setCustomWidthIn] = useState('');
   const [customHeightIn, setCustomHeightIn] = useState('');
   const [customGapXIn, setCustomGapXIn] = useState('0');
@@ -306,11 +307,9 @@ function StickerSheetContent() {
     if (file && file.type.startsWith('image/')) handleUpload(file);
   };
 
-  const generatePDF = async () => {
-    if (!image) return;
-    setIsGenerating(true);
-
-    try {
+  // Builds the sheet PDF once; both Download and Print use this exact output,
+  // so a direct print is identical to printing the downloaded file.
+  const buildPDF = async (imageSrc: string) => {
       const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -319,7 +318,7 @@ function StickerSheetContent() {
       });
 
       const img = new Image();
-      img.src = image;
+      img.src = imageSrc;
       await new Promise((res) => (img.onload = res));
 
       for (let row = 0; row < cfg.rows; row++) {
@@ -361,6 +360,14 @@ function StickerSheetContent() {
         else pdf.rect(20.27, 3.97, 3.3, 1.92, 'F');
       }
 
+      return pdf;
+  };
+
+  const generatePDF = async () => {
+    if (!image) return;
+    setIsGenerating(true);
+    try {
+      const pdf = await buildPDF(image);
       const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'sticker-sheet';
       pdf.save(`${baseName} 12X18 STICKER SHEET.pdf`);
     } finally {
@@ -368,155 +375,254 @@ function StickerSheetContent() {
     }
   };
 
+  // Print directly: load the generated PDF into a hidden iframe and open the
+  // browser's print dialog on it. Select the 12x18 paper size / "Actual size"
+  // in the dialog so the sheet prints at 100% scale.
+  const printPDF = async () => {
+    if (!image) return;
+    setIsPrinting(true);
+    try {
+      const pdf = await buildPDF(image);
+      const url = URL.createObjectURL(pdf.output('blob'));
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.src = url;
+      // Chrome's PDF viewer can fire load more than once — print only once.
+      let printed = false;
+      iframe.onload = () => {
+        if (printed) return;
+        printed = true;
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          // Some browsers block printing a PDF inside an iframe — open it in a
+          // new tab instead so the user can print from the PDF viewer.
+          window.open(url, '_blank');
+        }
+        // Keep the iframe alive long enough for the print dialog to use it.
+        setTimeout(() => {
+          iframe.remove();
+          URL.revokeObjectURL(url);
+        }, 60000);
+      };
+      document.body.appendChild(iframe);
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const canExport = !!image && totalStickers > 0;
+  const inputCls = "w-full min-w-0 text-xs font-mono px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-indigo-400";
+
   return (
     <div style={{ fontFamily: "'DM Mono', 'Courier New', monospace" }} className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-widest uppercase text-gray-900">
+      <div className="bg-white border-b border-gray-200 px-4 py-2">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <h1 className="text-sm font-bold tracking-widest uppercase text-gray-900">
               Sticker Sheet Generator
             </h1>
-            <p className="text-xs text-gray-400 tracking-wider mt-0.5">300 DPI · PDF READY · PRINT ACCURATE</p>
+            <p className="text-xs text-gray-400 tracking-wider">300 DPI · PDF READY · PRINT ACCURATE</p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs px-2 py-1 bg-green-50 text-green-700 border border-green-200 rounded font-mono">
-              ● READY
-            </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={printPDF}
+              disabled={!canExport || isPrinting}
+              title={!image ? 'Upload a design image first' : totalStickers === 0 ? 'Enter a valid custom size' : 'Print the sheet directly'}
+              className={`px-3 py-1.5 rounded font-bold tracking-widest uppercase text-xs transition-all border ${
+                canExport && !isPrinting
+                  ? 'bg-white text-gray-900 border-gray-900 hover:bg-gray-100 active:scale-95'
+                  : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'
+              }`}
+            >
+              {isPrinting ? '⏳ Preparing...' : '🖨 Print'}
+            </button>
+            <button
+              onClick={generatePDF}
+              disabled={!canExport || isGenerating}
+              title={!image ? 'Upload a design image first' : totalStickers === 0 ? 'Enter a valid custom size' : 'Download the sheet PDF'}
+              className={`px-3 py-1.5 rounded font-bold tracking-widest uppercase text-xs transition-all border ${
+                canExport && !isGenerating
+                  ? 'bg-gray-900 text-white border-gray-900 hover:bg-gray-800 active:scale-95'
+                  : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'
+              }`}
+            >
+              {isGenerating ? '⏳ Generating...' : '⬇ Download PDF'}
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 flex gap-6" style={{ minHeight: 'calc(100vh - 73px)' }}>
+      <div className="max-w-7xl mx-auto px-4 py-3 flex gap-4">
 
         {/* LEFT PANEL — Controls */}
-        <div className="w-80 flex-shrink-0 space-y-4">
+        <div className="w-72 flex-shrink-0 space-y-3">
 
-          {/* Layout Info */}
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Layout</span>
-            </div>
-            <div className="p-3">
+          {/* Upload */}
+          <div
+            className={`border-2 border-dashed rounded-lg px-3 py-2 cursor-pointer transition-all flex items-center gap-3 ${
+              isDragging
+                ? 'border-indigo-400 bg-indigo-50'
+                : image
+                ? 'border-green-300 bg-green-50'
+                : 'border-gray-300 bg-white hover:border-gray-400'
+            }`}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {image ? (
+              <>
+                <div className="w-10 h-10 shrink-0 rounded border border-green-200 overflow-hidden bg-white">
+                  <img src={image} alt="preview" className="w-full h-full object-contain" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-green-700 font-medium truncate">{fileName}</p>
+                  <p className="text-xs text-gray-400">Click to replace</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl shrink-0">🖼️</div>
+                <div>
+                  <p className="text-xs text-gray-600 font-medium">Drop design image / click</p>
+                  <p className="text-xs text-gray-400">PNG · JPG · WEBP</p>
+                </div>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileInput}
+              className="hidden"
+            />
+          </div>
+
+          {/* Layout */}
+          <div className="bg-white border border-gray-200 rounded-lg p-2">
+            <div className="text-xs font-bold tracking-widest uppercase text-gray-500 px-1 pb-1.5">Layout</div>
+            <div className="grid grid-cols-2 gap-1.5">
               {(['SPARSH', 'SIZE_150', 'SIZE_175', 'SIZE_150_075'] as const).map((key) => {
                 const m = LAYOUT_META[key];
                 const l = layouts[key];
                 const isActive = layout === key;
                 return (
-                  <div key={key} onClick={() => setLayout(key)}
-                    className={"px-3 py-3 rounded border cursor-pointer transition-all mb-2 " + (isActive ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className={"text-sm font-bold tracking-wider " + (isActive ? "text-indigo-700" : "text-gray-700")}>{m.label}</div>
-                        <div className="text-xs text-gray-400 mt-0.5">{m.stickerSize}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={"text-xs font-mono " + (isActive ? "text-indigo-600" : "text-gray-500")}>{l.cols}x{l.rows}</div>
-                        <div className={"text-xs " + (isActive ? "text-indigo-500" : "text-gray-400")}>{l.cols * l.rows} stickers</div>
-                      </div>
-                    </div>
+                  <div key={key} onClick={() => setLayout(key)} title={m.stickerSize}
+                    className={"px-2 py-1.5 rounded border cursor-pointer transition-all " + (isActive ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
+                    <div className={"text-xs font-bold tracking-wider " + (isActive ? "text-indigo-700" : "text-gray-700")}>{m.label}</div>
+                    <div className={"text-xs font-mono " + (isActive ? "text-indigo-500" : "text-gray-400")}>{l.cols}x{l.rows} · {l.cols * l.rows}</div>
                   </div>
                 );
               })}
 
               {/* Custom size */}
               <div onClick={() => setLayout('CUSTOM')}
-                className={"px-3 py-3 rounded border cursor-pointer transition-all " + (layout === 'CUSTOM' ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
+                className={"col-span-2 px-2 py-1.5 rounded border cursor-pointer transition-all " + (layout === 'CUSTOM' ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className={"text-sm font-bold tracking-wider " + (layout === 'CUSTOM' ? "text-indigo-700" : "text-gray-700")}>CUSTOM SIZE</div>
-                    <div className="text-xs text-gray-400 mt-0.5">For rarely-made sizes</div>
-                  </div>
+                  <div className={"text-xs font-bold tracking-wider " + (layout === 'CUSTOM' ? "text-indigo-700" : "text-gray-700")}>CUSTOM SIZE</div>
                   {layout === 'CUSTOM' && (
-                    <div className="text-right">
-                      <div className="text-xs font-mono text-indigo-600">{customCfg.cols}x{customCfg.rows}</div>
-                      <div className="text-xs text-indigo-500">{customCfg.cols * customCfg.rows} stickers</div>
-                    </div>
+                    <div className="text-xs font-mono text-indigo-500">{customCfg.cols}x{customCfg.rows} · {customCfg.cols * customCfg.rows}</div>
                   )}
                 </div>
                 {layout === 'CUSTOM' && (
-                  <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.05"
-                      placeholder="Width"
-                      value={customWidthIn}
-                      onChange={(e) => setCustomWidthIn(e.target.value)}
-                      className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
-                    />
-                    <span className="text-xs text-gray-400">×</span>
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.05"
-                      placeholder="Height"
-                      value={customHeightIn}
-                      onChange={(e) => setCustomHeightIn(e.target.value)}
-                      className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
-                    />
-                    <span className="text-xs text-gray-400 shrink-0">in</span>
-                  </div>
-                )}
-                {layout === 'CUSTOM' && (
-                  <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
-                    {([
-                      ['Horizontal gap', customGapXIn, setCustomGapXIn],
-                      ['Vertical gap', customGapYIn, setCustomGapYIn],
-                    ] as const).map(([label, value, setValue]) => (
-                      <div key={label} className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400 shrink-0 w-24">{label}</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0"
-                          value={value}
-                          onChange={(e) => setValue(e.target.value)}
-                          className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
-                        />
-                        <span className="text-xs text-gray-400 shrink-0">in</span>
-                      </div>
-                    ))}
-                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
-                      <input type="checkbox" checked={borderEnabled} onChange={(e) => setBorderEnabled(e.target.checked)} />
-                      Border stroke
-                    </label>
-                    {borderEnabled && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.25"
-                          value={borderWidthPt}
-                          onChange={(e) => setBorderWidthPt(e.target.value)}
-                          className="w-full text-xs font-mono px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:border-indigo-400"
-                        />
-                        <span className="text-xs text-gray-400 shrink-0">pt</span>
-                        <input
-                          type="color"
-                          value={borderColor}
-                          onChange={(e) => setBorderColor(e.target.value)}
-                          className="h-7 w-10 shrink-0 border border-gray-300 rounded cursor-pointer"
-                        />
-                      </div>
-                    )}
+                  <div className="mt-1.5 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 shrink-0 w-10">Size</span>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.05"
+                        placeholder="W"
+                        value={customWidthIn}
+                        onChange={(e) => setCustomWidthIn(e.target.value)}
+                        className={inputCls}
+                      />
+                      <span className="text-xs text-gray-400">×</span>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.05"
+                        placeholder="H"
+                        value={customHeightIn}
+                        onChange={(e) => setCustomHeightIn(e.target.value)}
+                        className={inputCls}
+                      />
+                      <span className="text-xs text-gray-400 shrink-0">in</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 shrink-0 w-10">Gap</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="H"
+                        title="Horizontal gap"
+                        value={customGapXIn}
+                        onChange={(e) => setCustomGapXIn(e.target.value)}
+                        className={inputCls}
+                      />
+                      <span className="text-xs text-gray-400">×</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="V"
+                        title="Vertical gap"
+                        value={customGapYIn}
+                        onChange={(e) => setCustomGapYIn(e.target.value)}
+                        className={inputCls}
+                      />
+                      <span className="text-xs text-gray-400 shrink-0">in</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer shrink-0">
+                        <input type="checkbox" checked={borderEnabled} onChange={(e) => setBorderEnabled(e.target.checked)} />
+                        Border
+                      </label>
+                      {borderEnabled && (
+                        <>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.25"
+                            value={borderWidthPt}
+                            onChange={(e) => setBorderWidthPt(e.target.value)}
+                            className={inputCls}
+                          />
+                          <span className="text-xs text-gray-400 shrink-0">pt</span>
+                          <input
+                            type="color"
+                            value={borderColor}
+                            onChange={(e) => setBorderColor(e.target.value)}
+                            className="h-6 w-8 shrink-0 border border-gray-300 rounded cursor-pointer"
+                          />
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
                 {layout === 'CUSTOM' && customWidthIn && customHeightIn && (customCfg.cols === 0 || customCfg.rows === 0) && (
-                  <p className="text-xs text-red-500 mt-2">Too large to fit on a 12x18 sheet — try a smaller size.</p>
+                  <p className="text-xs text-red-500 mt-1.5">Too large to fit on a 12x18 sheet — try a smaller size.</p>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Layout Stats */}
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Sheet Details</span>
-            </div>
-            <div className="divide-y divide-gray-100">
+          {/* Sheet Details */}
+          <div className="bg-white border border-gray-200 rounded-lg p-2">
+            <div className="text-xs font-bold tracking-widest uppercase text-gray-500 px-1 pb-1">Sheet Details</div>
+            <div className="px-1">
               {[
+                ['Layout', meta.label],
                 ['Grid', `${cfg.cols} cols × ${cfg.rows} rows`],
                 ['Total Stickers', `${totalStickers}`],
                 ['Sticker Size', meta.stickerSize],
@@ -529,84 +635,26 @@ function StickerSheetContent() {
                 ] : []),
                 ['Corner Marks', layout === 'CUSTOM' ? 'None' : '4× Toyocut dots'],
               ].map(([label, value]) => (
-                <div key={label} className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">{label}</span>
-                  <span className="text-xs font-mono font-medium text-gray-800">{value}</span>
+                <div key={label} className="flex justify-between items-center py-0.5 gap-2">
+                  <span className="text-xs text-gray-400 uppercase tracking-wider shrink-0">{label}</span>
+                  <span className="text-xs font-mono font-medium text-gray-800 truncate">{value}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Upload */}
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Design Image</span>
-            </div>
-            <div className="p-3">
-              <div
-                className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${
-                  isDragging
-                    ? 'border-indigo-400 bg-indigo-50'
-                    : image
-                    ? 'border-green-300 bg-green-50'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {image ? (
-                  <div className="space-y-2">
-                    <div className="w-16 h-16 mx-auto rounded border border-green-200 overflow-hidden">
-                      <img src={image} alt="preview" className="w-full h-full object-contain" />
-                    </div>
-                    <p className="text-xs text-green-700 font-medium truncate">{fileName}</p>
-                    <p className="text-xs text-gray-400">Click to replace</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="text-3xl">🖼️</div>
-                    <p className="text-xs text-gray-500 font-medium">Drop image here</p>
-                    <p className="text-xs text-gray-400">PNG · JPG · WEBP</p>
-                  </div>
-                )}
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileInput}
-                className="hidden"
-              />
-            </div>
-          </div>
-
-          {/* Download Button */}
-          <button
-            onClick={generatePDF}
-            disabled={!image || isGenerating || totalStickers === 0}
-            className={`w-full py-3.5 rounded-lg font-bold tracking-widest uppercase text-sm transition-all ${
-              image && !isGenerating && totalStickers > 0
-                ? 'bg-gray-900 text-white hover:bg-gray-800 active:scale-95'
-                : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-            }`}
-          >
-            {isGenerating ? '⏳ Generating PDF...' : '⬇ Download PDF'}
-          </button>
-
           {!image && (
-            <p className="text-center text-xs text-gray-400">Upload a design image to enable PDF export</p>
+            <p className="text-center text-xs text-gray-400">Upload a design image to enable Print / PDF export</p>
           )}
           {image && totalStickers === 0 && (
-            <p className="text-center text-xs text-red-500">Enter a valid custom size to enable PDF export</p>
+            <p className="text-center text-xs text-red-500">Enter a valid custom size to enable Print / PDF export</p>
           )}
         </div>
 
         {/* RIGHT PANEL — Preview */}
-        <div className="flex-1 flex flex-col">
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col flex-1">
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col">
+            <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
               <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Live Preview</span>
               <div className="flex items-center gap-3 text-xs text-gray-400 font-mono">
                 {layout !== 'CUSTOM' && (
@@ -629,35 +677,14 @@ function StickerSheetContent() {
               </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-center p-6 bg-gray-100">
-              <div className="shadow-xl rounded overflow-hidden" style={{ maxHeight: '75vh' }}>
-                <canvas
-                  ref={canvasRef}
-                  width={400}
-                  height={600}
-                  style={{ display: 'block', width: '100%', height: 'auto', maxHeight: '75vh' }}
-                />
-              </div>
-            </div>
-
-            {/* Bottom stats bar */}
-            <div className="border-t border-gray-100 px-4 py-2 bg-gray-50 flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wider">Layout</span>
-                <span className="text-xs font-mono font-bold text-gray-700">{meta.label}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wider">Grid</span>
-                <span className="text-xs font-mono font-bold text-gray-700">{cfg.cols}×{cfg.rows}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wider">Stickers</span>
-                <span className="text-xs font-mono font-bold text-indigo-600">{totalStickers}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wider">Sheet</span>
-                <span className="text-xs font-mono font-bold text-gray-700">12.25 × 18.25 in</span>
-              </div>
+            <div className="flex items-center justify-center p-3 bg-gray-100">
+              <canvas
+                ref={canvasRef}
+                width={400}
+                height={600}
+                className="shadow-xl rounded"
+                style={{ display: 'block', height: 'calc(100vh - 130px)', minHeight: 360, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+              />
             </div>
           </div>
         </div>
