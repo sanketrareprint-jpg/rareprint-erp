@@ -191,6 +191,7 @@ export class CustomerDirectoryService {
         city: customer.city,
         state: customer.state,
         pincode: customer.pincode,
+        dateOfBirth: customer.dateOfBirth,
         orderCount: customer._count.orders,
         totalRevenue,
         lastOrderDate: lastOrder?.orderDate ?? null,

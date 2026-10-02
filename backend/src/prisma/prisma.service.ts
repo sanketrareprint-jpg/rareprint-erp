@@ -50,6 +50,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(
       `ALTER TABLE "CompanyHoliday" ADD COLUMN IF NOT EXISTS "days" DECIMAL(4,2) NOT NULL DEFAULT 1`,
     ).catch(() => { /* ignore if already exists */ });
+    // Migration 20261002120000_add_customer_dob — nullable, metadata-only.
+    await this.$executeRawUnsafe(
+      `ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "dateOfBirth" DATE`,
+    ).catch(() => { /* ignore if already exists */ });
   }
   async onModuleDestroy() {
     await this.$disconnect();

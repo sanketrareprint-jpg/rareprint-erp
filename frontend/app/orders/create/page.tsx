@@ -24,6 +24,7 @@ type CustomerSearchRow = {
   state?: string | null;
   pincode?: string | null;
   gstNumber?: string | null;
+  dateOfBirth?: string | null;
   orderCount?: number;
 };
 
@@ -112,7 +113,7 @@ export default function CreateOrderPage() {
   // "Phone number is required" inline error so it doesn't show on a blank,
   // untouched form, only after a real submit attempt without a phone.
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "", gstNumber: "" });
+  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "", gstNumber: "", dateOfBirth: "" });
   const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   // Which input (Name or Phone) the old-customer dropdown is anchored under.
@@ -198,6 +199,7 @@ export default function CreateOrderPage() {
         state: est.customerState ?? "",
         pincode: est.customerPincode ?? "",
         gstNumber: est.customerGstin ?? "",
+        dateOfBirth: "",
       });
       if (est.customerId) setSelectedCustomerLabel(est.customerName ?? "");
       setLineItems((est.items ?? []).map((i: { productId: string; sizeInches?: string | null; gsm?: number | null; paperType?: string | null; sides?: string | null; quantity: number; unitPrice: number; lineTotal: number; notes?: string | null }) => ({
@@ -242,6 +244,7 @@ export default function CreateOrderPage() {
       state: row.state ?? "",
       pincode: row.pincode ?? "",
       gstNumber: row.gstNumber ?? "",
+      dateOfBirth: row.dateOfBirth ? row.dateOfBirth.slice(0, 10) : "",
     });
     setSelectedCustomerLabel(row.businessName);
     setCustomerMatches([]);
@@ -510,6 +513,7 @@ export default function CreateOrderPage() {
     // required now, matching the inline error text below the field.
     if (!customer.phone.trim()) { alert("Phone number is required"); return; }
     if (customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
+    if (!customer.dateOfBirth) { alert("Date of birth is required"); return; }
     if (customer.phone2 && customer.phone2.length !== 10) { alert("Phone 2 number must be exactly 10 digits"); return; }
     if (customer.gstNumber && !GSTIN_FORMAT.test(customer.gstNumber)) { alert("GST Number doesn't match a valid GSTIN format (e.g. 27AAAAA0000A1Z5)"); return; }
     if (!leadSource) { alert("Lead source is required"); return; }
@@ -691,6 +695,15 @@ export default function CreateOrderPage() {
                 <label style={S.label}>Email</label>
                 <input value={customer.email} onChange={e => setCustomer(c => ({ ...c, email: e.target.value }))}
                   placeholder="email@example.com" style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Date of Birth *</label>
+                <input type="date" value={customer.dateOfBirth}
+                  onChange={e => setCustomer(c => ({ ...c, dateOfBirth: e.target.value }))}
+                  max={new Date().toISOString().slice(0, 10)} style={S.input} />
+                {submitAttempted && !customer.dateOfBirth && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>*Date of birth is required</p>
+                )}
               </div>
               <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
                 <label style={S.label}>Address</label>

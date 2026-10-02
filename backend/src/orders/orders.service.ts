@@ -691,7 +691,7 @@ export class OrdersService {
 
   async create(
     dto: {
-      customer: { customerId?: string; name: string; phone?: string; phone2?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string; gstNumber?: string };
+      customer: { customerId?: string; name: string; phone?: string; phone2?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string; gstNumber?: string; dateOfBirth?: string };
       items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; offerCodeId?: string }>;
       notes?: string;
       leadSource?: string;
@@ -720,6 +720,20 @@ export class OrdersService {
     }
     if (dto.customer.phone.trim().length !== 10) {
       throw new BadRequestException('Phone number must be exactly 10 digits');
+    }
+    // DOB is required on the Create Order form; parcel bookings (same
+    // endpoint, separate screen) don't collect one.
+    let customerDob: Date | undefined;
+    if (dto.customer.dateOfBirth) {
+      customerDob = new Date(`${dto.customer.dateOfBirth}T00:00:00.000Z`);
+      if (Number.isNaN(customerDob.getTime()) || customerDob.toISOString().slice(0, 10) !== dto.customer.dateOfBirth) {
+        throw new BadRequestException('Date of birth is not a valid date');
+      }
+      if (customerDob.getTime() > Date.now()) {
+        throw new BadRequestException('Date of birth cannot be in the future');
+      }
+    } else if (!dto.isParcelBooking) {
+      throw new BadRequestException('Date of birth is required');
     }
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
@@ -851,6 +865,7 @@ export class OrdersService {
               state: customerStateUpper,
               pincode: dto.customer.pincode,
               ...(dto.customer.gstNumber ? { gstNumber: dto.customer.gstNumber } : {}),
+              ...(customerDob ? { dateOfBirth: customerDob } : {}),
             },
           })
         : await tx.customer.create({
@@ -866,6 +881,7 @@ export class OrdersService {
               state: customerStateUpper,
               pincode: dto.customer.pincode,
               gstNumber: dto.customer.gstNumber,
+              dateOfBirth: customerDob,
             },
           });
 
