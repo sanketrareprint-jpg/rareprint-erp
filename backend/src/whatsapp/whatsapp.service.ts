@@ -1,9 +1,14 @@
 // backend/src/whatsapp/whatsapp.service.ts
 import { Injectable, Logger } from '@nestjs/common';
+import { complaintFormUrl } from '../common/complaint-link';
 
 const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
 const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
-const TEMPLATE_NAME = 'order_updatess';
+// Order status updates (sendOrderUpdate). order_status_support_erp is the old
+// order_updatess template plus {{6}}, a link to the customer's complaint/query
+// form for that order (see common/complaint-link.ts). order_updatess stays
+// live in AiSensy; rolling back means restoring its name AND dropping {{6}}.
+const TEMPLATE_NAME = 'order_status_support_erp';
 const AISENSY_AGENT_TAGS: Record<string, string> = {
   gulfam: 'gulfam',
   akansha: 'Akansha',
@@ -108,6 +113,7 @@ export class WhatsAppService {
         params.product,        // {{3}} — product
         params.status,         // {{4}} — status
         params.agentName,      // {{5}} — agent name
+        complaintFormUrl(params.orderNo), // {{6}} — complaint/query form link
       ],
       source: 'rareprint-erp',
       media: {},

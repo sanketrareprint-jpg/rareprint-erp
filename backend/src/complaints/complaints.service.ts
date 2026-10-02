@@ -13,7 +13,8 @@ import {
   generateUniqueTicketNumber,
   isValidStatusTransition,
 } from './complaints.calc';
-import { CreateComplaintDto } from './dto/create-complaint.dto';
+import { ComplaintCategory, CreateComplaintDto } from './dto/create-complaint.dto';
+import { verifyComplaintFormToken } from '../common/complaint-link';
 import { AssignComplaintDto, ComplaintFilters, UpdateStatusDto } from './dto/update-complaint.dto';
 import { AddAttachmentDto, AddCommentDto } from './dto/add-comment.dto';
 import { CsatDto, ReopenComplaintDto, ResolveComplaintDto } from './dto/resolve-complaint.dto';
@@ -24,6 +25,19 @@ const REOPEN_WINDOW_KEY = 'complaint.reopenWindowDays';
 const AUTO_CLOSE_KEY = 'complaint.autoCloseDays';
 const DEFAULT_REOPEN_WINDOW_DAYS = 7;
 const DEFAULT_AUTO_CLOSE_DAYS = 3;
+
+// What a customer can pick on the public complaint/query form.
+const PUBLIC_FORM_CATEGORIES: { value: ComplaintCategory; label: string }[] = [
+  { value: 'PRODUCT_QUALITY', label: 'Print / product quality' },
+  { value: 'DELIVERY_DELAY', label: 'Delivery delay' },
+  { value: 'WRONG_ITEM', label: 'Wrong item received' },
+  { value: 'DAMAGED_IN_TRANSIT', label: 'Parcel damaged' },
+  { value: 'DESIGN_ERROR', label: 'Design / artwork' },
+  { value: 'BILLING_DISPUTE', label: 'Bill / invoice' },
+  { value: 'PAYMENT_ISSUE', label: 'Payment' },
+  { value: 'OTHER', label: 'Something else' },
+];
+const MAX_OPEN_FORM_TICKETS_PER_ORDER = 3;
 
 function humanizeResolutionType(type?: string | null): string {
   if (!type) return 'Resolved';
@@ -206,6 +220,78 @@ export class ComplaintsService {
     );
 
     return this.getById(createdId!);
+  }
+
+  // ── Customer self-service form (public /support page) ─────────────────────
+  // Opened from the link in the order status WhatsApp. The token alone
+  // identifies the order (see common/complaint-link.ts); there is no login.
+
+  private async orderForComplaintForm(token: string) {
+    const orderNumber = verifyComplaintFormToken(token);
+    if (!orderNumber) throw new NotFoundException('This link is invalid. Please use the link from your WhatsApp message.');
+    const order = await this.prisma.order.findUnique({
+      where: { orderNumber },
+      select: {
+        id: true,
+        orderNumber: true,
+        customerId: true,
+        isTest: true,
+        customer: { select: { businessName: true } },
+        items: { where: { cancelledAt: null }, select: { product: { select: { name: true } } } },
+      },
+    });
+    if (!order) throw new NotFoundException('This order could not be found.');
+    return order;
+  }
+
+  // Tickets this order raised through the form (no staff raisedBy).
+  private formTickets(orderId: string) {
+    return (this.prisma as any).complaint.findMany({
+      where: { orderId, channel: 'WEB_PORTAL', raisedById: null },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { ticketNumber: true, subject: true, status: true, createdAt: true },
+    });
+  }
+
+  async getComplaintForm(token: string) {
+    const order = await this.orderForComplaintForm(token);
+    return {
+      orderNumber: order.orderNumber,
+      customerName: order.customer.businessName,
+      products: [...new Set(order.items.map((i) => i.product.name))],
+      categories: PUBLIC_FORM_CATEGORIES,
+      tickets: await this.formTickets(order.id),
+    };
+  }
+
+  async submitComplaintForm(token: string, body: { type?: unknown; category?: unknown; description?: unknown }) {
+    const order = await this.orderForComplaintForm(token);
+    const type = body?.type === 'QUERY' ? 'Query' : body?.type === 'COMPLAINT' ? 'Complaint' : null;
+    if (!type) throw new BadRequestException('Please choose Complaint or Query');
+    const category = PUBLIC_FORM_CATEGORIES.find((c) => c.value === body?.category);
+    if (!category) throw new BadRequestException('Please choose what this is about');
+    const description = typeof body?.description === 'string' ? body.description.trim() : '';
+    if (description.length < 5) throw new BadRequestException('Please describe the issue');
+    if (description.length > 2000) throw new BadRequestException('Please keep the description under 2000 characters');
+
+    // A forwarded link must not be able to flood the Complaints module.
+    const openFromForm = await (this.prisma as any).complaint.count({
+      where: { orderId: order.id, channel: 'WEB_PORTAL', raisedById: null, status: { notIn: ['RESOLVED', 'CLOSED'] } },
+    });
+    if (openFromForm >= MAX_OPEN_FORM_TICKETS_PER_ORDER) {
+      throw new BadRequestException('You already have open requests for this order. Our team will contact you soon.');
+    }
+
+    const complaint = await this.create({
+      customerId: order.customerId,
+      orderId: order.id,
+      channel: 'WEB_PORTAL',
+      category: category.value,
+      subject: `${order.isTest ? '[TEST] ' : ''}${type} from customer (web form): ${category.label}`,
+      description,
+    });
+    return { ticketNumber: complaint.ticketNumber };
   }
 
   // ── Read ──────────────────────────────────────────────────────────────────
