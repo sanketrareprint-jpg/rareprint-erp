@@ -1,7 +1,10 @@
-// A small stylized "product preview" built from divs, not a real screenshot.
-// Competitors in this space show an actual product screenshot; we don't
-// have a clean, de-identified one to publish yet (real screenshots would
-// show real RarePrint business data). This stands in until one exists.
+// SUPERSEDED 2026-09-07: this div-built fake product screenshot was
+// replaced by real (placeholder) photography in ./hero-photo.tsx — a
+// hand-rolled fake dashboard UI is exactly the kind of "looks designed but
+// isn't real" pattern the design-taste-frontend skill flags as the #1
+// tell. Nothing imports this file anymore. Could not delete it directly
+// (sandbox file-lock on this mounted folder, same as other stale-file
+// cases) — safe to delete manually: components/dashboard-mockup.tsx.
 
 const rows = [
   { label: "Order #4821 — Visiting cards", stage: "Printing", pct: 70 },
@@ -23,13 +26,13 @@ export function DashboardMockup() {
           <div key={row.label}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-slate-700">{row.label}</span>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+              <span className="rounded-full bg-brand-50 px-2 py-0.5 font-semibold text-brand-700">
                 {row.stage}
               </span>
             </div>
             <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
               <div
-                className="h-full rounded-full bg-blue-600"
+                className="h-full rounded-full bg-brand-600"
                 style={{ width: `${row.pct}%` }}
               />
             </div>

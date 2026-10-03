@@ -13,7 +13,7 @@ export const faqs: FaqItem[] = [
   {
     question: "What is RarePrint Suite?",
     answer:
-      "A cloud ERP built specifically for printing businesses — production tracking, accounts and GST billing, CRM, WhatsApp automation, dispatch, and more, all in one place.",
+      "A cloud ERP built specifically for printing businesses: production tracking, accounts and GST billing, CRM, WhatsApp automation, dispatch, and more, all in one place.",
   },
   {
     question: "Who is it for?",
@@ -23,7 +23,7 @@ export const faqs: FaqItem[] = [
   {
     question: "Is this a generic ERP with printing features bolted on?",
     answer:
-      "No — it was built from the ground up running a real printing business's day-to-day operations, then opened up for other printers to use.",
+      "No, it was built from the ground up running a real printing business's day-to-day operations, then opened up for other printers to use.",
   },
   {
     question: "Can I create GST invoices?",
@@ -33,7 +33,7 @@ export const faqs: FaqItem[] = [
   {
     question: "Does it handle production tracking?",
     answer:
-      "Yes — every job can be tracked stage by stage from order to dispatch, with clubbing sheets and status visible across your team instead of buried in someone's phone.",
+      "Yes, every job can be tracked stage by stage from order to dispatch, with clubbing sheets and status visible across your team instead of buried in someone's phone.",
   },
   {
     question: "Can multiple staff use it with different access levels?",
@@ -43,7 +43,7 @@ export const faqs: FaqItem[] = [
   {
     question: "Does it integrate with WhatsApp?",
     answer:
-      "Yes — automated follow-ups, order updates, and reminders can go out over WhatsApp instead of relying on someone remembering to send them manually.",
+      "Yes, automated follow-ups, order updates, and reminders can go out over WhatsApp instead of relying on someone remembering to send them manually.",
   },
   {
     question: "Can I track dispatch and courier status in one place?",

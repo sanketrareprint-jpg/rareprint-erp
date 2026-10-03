@@ -2,11 +2,23 @@
 
 @theme {
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+
+  /* RarePrint brand red — same values as frontend/app/globals.css */
+  --color-brand-50: #fef1f1;
+  --color-brand-100: #fddbdc;
+  --color-brand-200: #fab7b8;
+  --color-brand-300: #f58589;
+  --color-brand-400: #ef4d53;
+  --color-brand-500: #f23a3f;
+  --color-brand-600: #ee1c25;
+  --color-brand-700: #c4141c;
+  --color-brand-800: #9e1017;
+  --color-brand-900: #7a0c11;
 }
 
 :root {
-  --brand: #1d4ed8;
-  --brand-dark: #1e3a8a;
+  --brand: #ee1c25;
+  --brand-dark: #9e1017;
   --ink: #0f172a;
   --muted: #64748b;
 }

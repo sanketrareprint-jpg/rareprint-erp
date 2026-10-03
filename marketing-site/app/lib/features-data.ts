@@ -39,7 +39,7 @@ export const leadFeatures: Feature[] = [
     title: "Production tracking",
     blurb: "Every job, every stage, one screen.",
     detail:
-      "Track jobs from order to dispatch across every production stage, with clubbing sheets and status visible to your whole floor — no more chasing a job on WhatsApp to find out where it is.",
+      "Track jobs from order to dispatch across every production stage, with clubbing sheets and status visible to your whole floor. No more chasing a job on WhatsApp to find out where it is.",
     icon: Factory,
   },
   {
@@ -47,7 +47,7 @@ export const leadFeatures: Feature[] = [
     title: "Accounts & cashflow",
     blurb: "Know your real profit, not just your sales.",
     detail:
-      "Invoicing, payments, vendor bills, and a dashboard that shows real profit and cash-in/cash-out — including cash payments — instead of a sales number that hides your margins.",
+      "Invoicing, payments, vendor bills, and a dashboard that shows real profit and cash-in/cash-out (including cash payments), instead of a sales number that hides your margins.",
     icon: Wallet,
   },
   {
@@ -107,7 +107,7 @@ export const moreFeatures: Feature[] = [
   {
     slug: "hr",
     title: "HR & attendance",
-    blurb: "Agreements, ID verification, attendance — handled.",
+    blurb: "Agreements, ID verification, attendance, handled.",
     detail: "Staff onboarding with ID-proof upload, attendance, and HR workflows built in.",
     icon: Users,
   },

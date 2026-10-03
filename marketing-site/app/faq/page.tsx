@@ -14,15 +14,12 @@ export default function FaqPage() {
     <div className="bg-slate-50 py-20">
       <div className="mx-auto max-w-3xl px-6">
         <FadeIn>
-          <div className="text-center">
-            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-              FAQ
-            </span>
-            <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">
               Frequently asked questions
             </h1>
-            <p className="mt-4 text-slate-600">
-              Everything you need to know about {BRAND_NAME} — printing billing, production
+            <p className="mt-4 text-slate-600 leading-relaxed">
+              Everything you need to know about {BRAND_NAME}: printing billing, production
               tracking, and cloud ERP for print businesses.
             </p>
           </div>
@@ -38,22 +35,22 @@ export default function FaqPage() {
                     +
                   </span>
                 </summary>
-                <p className="mt-3 text-sm text-slate-600">{faq.answer}</p>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">{faq.answer}</p>
               </details>
             ))}
           </div>
         </FadeIn>
 
         <FadeIn delay={150}>
-          <div className="mt-12 rounded-2xl border border-slate-200 bg-white p-8 text-center">
+          <div className="mt-12 rounded-2xl border-l-4 border-brand-700 bg-white p-8 text-center">
             <h2 className="text-lg font-semibold text-slate-900">Still have questions?</h2>
-            <p className="mt-2 text-sm text-slate-600">We respond directly — no ticket queue.</p>
+            <p className="mt-2 text-sm text-slate-600">We respond directly, no ticket queue.</p>
             <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
               <a
                 href={whatsappLink(`Hi! I have a question about ${BRAND_NAME}.`)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
+                className="rounded-full bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
               >
                 Ask on WhatsApp
               </a>

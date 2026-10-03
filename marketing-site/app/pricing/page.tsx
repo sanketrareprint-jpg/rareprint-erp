@@ -17,16 +17,15 @@ export default async function PricingPage() {
       <div className="mx-auto max-w-6xl px-6">
         <FadeIn>
           <div className="mx-auto max-w-xl text-center">
-            <span className="inline-block rounded-full bg-blue-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-              Pricing
-            </span>
-            <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-4xl">Choose your plan</h1>
-            <p className="mt-3 text-slate-600">Placeholder pricing — final numbers not locked yet.</p>
+            <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Choose your plan</h1>
+            <p className="mt-3 text-slate-600">
+              Simple, transparent pricing. Final numbers not locked yet.
+            </p>
             <Link
               href="/start-free"
               className="mt-6 inline-block rounded-full bg-emerald-50 px-4 py-1.5 text-sm font-semibold text-emerald-700"
             >
-              Start with a {TRIAL_LENGTH_DAYS}-day free trial — no card required
+              Start with a {TRIAL_LENGTH_DAYS}-day free trial, no card required
             </Link>
           </div>
         </FadeIn>
@@ -34,8 +33,8 @@ export default async function PricingPage() {
         <PricingToggle plans={plans} />
 
         <p className="mt-12 text-center text-xs text-slate-400">
-          Prices shown are placeholders pending a final pricing decision — see open question #3 in
-          docs/Marketing_Site_Roadmap.md.
+          Prices shown above are indicative while we finalize plans. Talk to us on WhatsApp for
+          current numbers for your shop.
         </p>
       </div>
     </div>
