@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.CallLog
 import android.provider.Settings
+import android.util.Log
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telephony.PhoneStateListener
@@ -42,7 +43,8 @@ class DialerService : Service() {
         const val ACTION_START_SESSION = "DIALER_START_SESSION"
         const val ACTION_DIAL = "DIALER_DIAL"
         const val ACTION_PAUSE = "DIALER_PAUSE"
-        const val ACTION_STOP = "DIALER_STOP"
+        const val ACTION_STOP = "DIALER_STOP"                 // notification "Stop" button
+        const val ACTION_STOP_FROM_APP = "DIALER_STOP_FROM_APP" // app's own Stop / session end
         const val EXTRA_NUMBER = "number"
         const val EXTRA_SIM_ID = "simId"
 
@@ -56,6 +58,13 @@ class DialerService : Service() {
         private const val CALL_LOG_DELAY_MS = 1500L
         /** If the call never goes OFFHOOK within this time, report it as ended (not started). */
         private const val NO_START_TIMEOUT_MS = 20000L
+        /**
+         * Backup check while a dialer call is live. On the Android 17 emulator the
+         * TelephonyCallback was registered but never delivered call-state changes in
+         * one run, so the dialer also asks Telecom "is a call in progress?" every second.
+         */
+        private const val POLL_INTERVAL_MS = 1000L
+        private const val TAG = "RareDialer"
 
         /** Set by CallManagerPlugin; forwards (eventName, data) to JS listeners. */
         @Volatile var eventSink: ((String, JSObject) -> Unit)? = null
@@ -85,6 +94,30 @@ class DialerService : Service() {
                 sm.getActiveSubscriptionInfo(subId)?.simSlotIndex ?: -1
             } catch (_: Exception) { -1 }
         }
+
+        /**
+         * Human name for a SIM ("Jio 4G", "Airtel"). Read from SubscriptionManager
+         * (READ_PHONE_STATE is enough) — TelecomManager.getPhoneAccount() would need
+         * READ_PHONE_NUMBERS on Android 12+ and throws without it.
+         */
+        fun simLabel(ctx: Context, handle: PhoneAccountHandle, slotIndex: Int): String {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                    val sm = ctx.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE)
+                            as android.telephony.SubscriptionManager
+                    val info = sm.getActiveSubscriptionInfo(tm.getSubscriptionId(handle))
+                    val name = info?.displayName?.toString()?.takeIf { it.isNotBlank() }
+                        ?: info?.carrierName?.toString()?.takeIf { it.isNotBlank() }
+                    if (name != null) return name
+                } catch (_: Exception) { /* fall through */ }
+            }
+            try {
+                val telecom = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+                telecom.getPhoneAccount(handle)?.label?.toString()?.takeIf { it.isNotBlank() }?.let { return it }
+            } catch (_: Exception) { /* needs READ_PHONE_NUMBERS on newer Android */ }
+            return if (slotIndex >= 0) "SIM ${slotIndex + 1}" else "SIM"
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -98,6 +131,7 @@ class DialerService : Service() {
     private var offhookAt = 0L
     private var lastState = TelephonyManager.CALL_STATE_IDLE
     private var noStartTimeout: Runnable? = null
+    private var pollRunnable: Runnable? = null
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -110,14 +144,14 @@ class DialerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_SESSION -> {
-                goForeground()
+                if (!goForeground()) return START_NOT_STICKY
                 attachCallStateListener()
                 isRunning = true
             }
             ACTION_DIAL -> {
                 // Already foreground for calls 2+; re-calling startForeground from the
                 // background can be refused on Android 12+, so only do it once.
-                if (!isRunning) goForeground()
+                if (!isRunning && !goForeground()) return START_NOT_STICKY
                 attachCallStateListener()
                 isRunning = true
                 val number = intent.getStringExtra(EXTRA_NUMBER)
@@ -133,6 +167,8 @@ class DialerService : Service() {
                 emit("dialerControl", JSObject().put("action", "stop"))
                 stopSession()
             }
+            // JS already knows it stopped — don't echo a "stop" event back.
+            ACTION_STOP_FROM_APP -> stopSession()
         }
         return START_NOT_STICKY
     }
@@ -142,13 +178,16 @@ class DialerService : Service() {
     override fun onDestroy() {
         detachCallStateListener()
         noStartTimeout?.let { handler.removeCallbacks(it) }
+        stopPolling()
         isRunning = false
         super.onDestroy()
     }
 
     private fun stopSession() {
+        Log.i(TAG, "session stopped")
         detachCallStateListener()
         noStartTimeout?.let { handler.removeCallbacks(it) }
+        stopPolling()
         activeNumber = null
         isRunning = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -162,6 +201,12 @@ class DialerService : Service() {
             != PackageManager.PERMISSION_GRANTED
         ) {
             emit("dialerError", JSObject().put("message", "CALL_PHONE permission missing"))
+            return
+        }
+        // Safety rule: never place a second call while one is still in progress.
+        if (isInCall()) {
+            Log.w(TAG, "refused to dial $number: a call is still in progress")
+            emit("dialerError", JSObject().put("message", "A call is still in progress — not dialing $number"))
             return
         }
 
@@ -187,6 +232,7 @@ class DialerService : Service() {
         dialedAt = System.currentTimeMillis()
         offhookAt = 0L
         updateNotification("Calling $number")
+        Log.i(TAG, "dialing $number (sim=${simId ?: "default"}, handle=${handle != null})")
 
         try {
             startActivity(intent)
@@ -195,11 +241,20 @@ class DialerService : Service() {
             emit("dialerError", JSObject().put("message", "Could not start call: ${e.message}"))
             return
         }
+        startPolling()
 
         noStartTimeout?.let { handler.removeCallbacks(it) }
         noStartTimeout = Runnable {
             if (activeNumber == number && offhookAt == 0L) {
+                // The call is actually live (state change was missed) — don't
+                // declare it "not started" and move on while it's still going.
+                if (isInCall()) {
+                    onCallState(TelephonyManager.CALL_STATE_OFFHOOK, "timeout-check")
+                    return@Runnable
+                }
+                Log.i(TAG, "no call started for $number within ${NO_START_TIMEOUT_MS}ms")
                 activeNumber = null
+                stopPolling()
                 emit("callEnded", JSObject()
                     .put("number", number)
                     .put("durationSec", 0)
@@ -214,10 +269,16 @@ class DialerService : Service() {
 
     // ── Call-state tracking ───────────────────────────────────────────────────
 
-    private fun onCallState(state: Int) {
+    /**
+     * One state machine for both sources: the TelephonyCallback/PhoneStateListener
+     * ("listener") and the once-a-second Telecom check ("poll"). Whichever reports a
+     * change first wins; the duplicate from the other source is ignored.
+     */
+    private fun onCallState(state: Int, source: String) {
         if (state == lastState) return
         val prev = lastState
         lastState = state
+        Log.i(TAG, "call state $prev -> $state via $source (dialer number=$activeNumber)")
         val number = activeNumber ?: return   // not a dialer call — ignore
 
         when (state) {
@@ -232,6 +293,7 @@ class DialerService : Service() {
             TelephonyManager.CALL_STATE_IDLE -> {
                 if (prev != TelephonyManager.CALL_STATE_OFFHOOK) return
                 activeNumber = null
+                stopPolling()
                 val startedAt = dialedAt
                 updateNotification("Dialer running")
                 handler.postDelayed({ finishCall(number, startedAt, retry = true) }, CALL_LOG_DELAY_MS)
@@ -301,17 +363,18 @@ class DialerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val cb = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
                 override fun onCallStateChanged(state: Int) {
-                    handler.post { onCallState(state) }
+                    handler.post { onCallState(state, "listener") }
                 }
             }
             telephonyManager?.registerTelephonyCallback(mainExecutor, cb)
             telephonyCallback = cb
+            Log.i(TAG, "call-state listener registered (TelephonyCallback)")
         } else {
             @Suppress("DEPRECATION")
             val l = object : PhoneStateListener() {
                 @Deprecated("Deprecated in Java")
                 override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-                    onCallState(state)
+                    onCallState(state, "listener")
                 }
             }
             @Suppress("DEPRECATION")
@@ -390,16 +453,56 @@ class DialerService : Service() {
         getSystemService(NotificationManager::class.java).notify(RETURN_NOTIF_ID, notification)
     }
 
+    // ── "Is a call in progress?" backup check ─────────────────────────────────
+
+    private fun isInCall(): Boolean = try {
+        (getSystemService(Context.TELECOM_SERVICE) as TelecomManager).isInCall
+    } catch (_: SecurityException) {
+        (telephonyManager?.currentCallState() ?: TelephonyManager.CALL_STATE_IDLE) !=
+                TelephonyManager.CALL_STATE_IDLE
+    }
+
+    private fun startPolling() {
+        stopPolling()
+        val r = object : Runnable {
+            override fun run() {
+                if (activeNumber == null) return
+                onCallState(
+                    if (isInCall()) TelephonyManager.CALL_STATE_OFFHOOK else TelephonyManager.CALL_STATE_IDLE,
+                    "poll"
+                )
+                if (activeNumber != null) handler.postDelayed(this, POLL_INTERVAL_MS)
+            }
+        }
+        pollRunnable = r
+        handler.postDelayed(r, POLL_INTERVAL_MS)
+    }
+
+    private fun stopPolling() {
+        pollRunnable?.let { handler.removeCallbacks(it) }
+        pollRunnable = null
+    }
+
     // ── Notification ──────────────────────────────────────────────────────────
 
-    private fun goForeground() {
+    /** Returns false (and reports why) if Android refuses to start the foreground service. */
+    private fun goForeground(): Boolean {
         val notification = buildNotification("Dialer running")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(
-                this, NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-            )
-        } else {
-            startForeground(NOTIF_ID, notification)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this, NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                )
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "startForeground refused: ${e.message}")
+            emit("dialerError", JSObject().put("message",
+                "Android didn't allow the dialer to start (${e.javaClass.simpleName}). Keep RarePrint open on screen and tap Start again."))
+            stopSelf()
+            false
         }
     }
 

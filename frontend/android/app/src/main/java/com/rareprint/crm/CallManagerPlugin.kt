@@ -161,11 +161,11 @@ class CallManagerPlugin : Plugin() {
         val sims = JSArray()
         try {
             telecom.callCapablePhoneAccounts.forEach { handle ->
-                val account = telecom.getPhoneAccount(handle)
+                val slot = DialerService.slotIndexFor(context, handle)
                 sims.put(JSObject()
                     .put("id", handle.id)
-                    .put("label", account?.label?.toString() ?: handle.id)
-                    .put("slotIndex", DialerService.slotIndexFor(context, handle)))
+                    .put("label", DialerService.simLabel(context, handle, slot))
+                    .put("slotIndex", slot))
             }
         } catch (e: SecurityException) {
             call.reject("Could not read SIMs: ${e.message}")
@@ -179,7 +179,14 @@ class CallManagerPlugin : Plugin() {
     fun startDialerSession(call: PluginCall) {
         val intent = Intent(context, DialerService::class.java)
             .setAction(DialerService.ACTION_START_SESSION)
-        ContextCompat.startForegroundService(context, intent)
+        try {
+            ContextCompat.startForegroundService(context, intent)
+        } catch (e: Exception) {
+            // e.g. ForegroundServiceStartNotAllowedException when the screen is off —
+            // report it instead of crashing the app.
+            call.reject("Android didn't allow the dialer to start (${e.javaClass.simpleName}). Keep RarePrint open on screen and tap Start again.")
+            return
+        }
         call.resolve()
     }
 
@@ -188,7 +195,7 @@ class CallManagerPlugin : Plugin() {
     fun stopDialerSession(call: PluginCall) {
         if (DialerService.isRunning) {
             context.startService(
-                Intent(context, DialerService::class.java).setAction(DialerService.ACTION_STOP)
+                Intent(context, DialerService::class.java).setAction(DialerService.ACTION_STOP_FROM_APP)
             )
         }
         call.resolve()
@@ -216,8 +223,13 @@ class CallManagerPlugin : Plugin() {
         // While the session's foreground service is running, a plain startService is
         // always allowed — startForegroundService can be refused (Android 12+) if the
         // app happens to be in the background when the countdown fires.
-        if (DialerService.isRunning) context.startService(intent)
-        else ContextCompat.startForegroundService(context, intent)
+        try {
+            if (DialerService.isRunning) context.startService(intent)
+            else ContextCompat.startForegroundService(context, intent)
+        } catch (e: Exception) {
+            call.reject("Android didn't allow the call to start (${e.javaClass.simpleName}). Keep RarePrint open on screen and try again.")
+            return
+        }
         call.resolve(JSObject().put("dialing", true).put("number", number))
     }
 

@@ -15,8 +15,8 @@ import {
   type DialerSim,
 } from "@/lib/plugins/CallManager";
 
-// Phase 1 test numbers — fill these in before building the APK.
-const TEST_NUMBERS: string[] = ["", "", ""];
+// Phase 1 test numbers — dummy numbers for the Android emulator (calls go nowhere there).
+const TEST_NUMBERS: string[] = ["1111111111", "2222222222", "3333333333"];
 
 const SIM_KEY = "dialer_sim_id";
 const COUNTDOWN_SECONDS = 5;
@@ -143,7 +143,14 @@ export default function DialerTestPage() {
         if (e.action === "stop") finishSession("Stopped from notification.");
         else { clearTimer(); setPhaseBoth("paused"); }
       }),
-      dialer.onError((e) => addLog(`Native error: ${e.message}`)),
+      dialer.onError((e) => {
+        addLog(`Native error: ${e.message}`);
+        // e.g. "A call is still in progress" — stop auto-advancing until the agent resumes.
+        if (phaseRef.current === "dialing" || phaseRef.current === "countdown") {
+          clearTimer();
+          setPhaseBoth("paused");
+        }
+      }),
     ];
     // Re-check permissions when the agent comes back from Android Settings.
     const onVisible = () => { if (document.visibilityState === "visible") refreshPerms(); };
