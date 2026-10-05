@@ -31,6 +31,14 @@ import * as XLSX from 'xlsx';
 import { createHash } from 'crypto';
 
 const BIGSHIP_ACCOUNT_NAME = 'Bigship COD Remittance';
+const FSHIP_ACCOUNT_NAME = 'Fship COD Remittance';
+
+export type RemittanceSource = 'BIGSHIP' | 'FSHIP';
+
+// Fship rows carry this prefix on RemittanceRecord.importKey (Bigship keys are a
+// bare hash). That is how a row's source is known later, at posting time, to pick
+// the right COD account and receipt note -- without adding a column.
+const FSHIP_IMPORT_KEY_PREFIX = 'FSHIP:';
 
 // ─── Parsing helpers ────────────────────────────────────────────────────────
 
@@ -109,6 +117,17 @@ export function parseFlexibleDate(raw: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/** Fship exports dates as MM-DD-YYYY (e.g. "09-25-2026"). Parsed explicitly rather than
+ *  through new Date(), which would read a day-first value like "10-05-2026" the same way
+ *  only by accident of the JS engine. */
+export function parseFshipDate(raw: unknown): Date | null {
+  const m = String(raw ?? '').trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if (!m) return parseFlexibleDate(raw);
+  const month = Number(m[1]), day = Number(m[2]), year = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
 export function normalizeAwb(raw: unknown): string {
   return String(raw ?? '').trim().replace(/\.0+$/, '');
 }
@@ -163,6 +182,8 @@ interface ParsedRemittanceRow {
   otherDeduction: number | null;
   netPayableAmount: number;
   remittanceStatus: string | null;
+  /** Fship only: the remittance sheet's OrderId (the ERP order number when booked through the ERP). */
+  fshipOrderId?: string | null;
 }
 
 interface ParsedDeliveredRow {
@@ -234,6 +255,63 @@ export class RemittanceService {
     return map;
   }
 
+  /** Fship "codInvoice" remittance export: Service_Provider_Name, Order_Date, Order_Time,
+   *  AWB_No, Amount, OrderId, Delivery_Date, Delivery_Time. Amount is the COD amount
+   *  collected; the file has no remittance id, remittance date, or net-payable column. */
+  private parseFshipRemittanceXlsx(buffer: Buffer): ParsedRemittanceRow[] {
+    const rows = sheetToObjects(buffer, ['AWB_No', 'Amount', 'OrderId', 'Delivery_Date']);
+    const out: ParsedRemittanceRow[] = [];
+    for (const r of rows) {
+      const awb = normalizeAwb(r['AWB_No']);
+      if (!awb) continue;
+      const amount = parseAmount(r['Amount']);
+      if (amount <= 0) continue;
+      out.push({
+        remittanceRef: null,
+        bigshipOrderId: null,
+        awbNumber: awb,
+        courierName: r['Service_Provider_Name'] ? String(r['Service_Provider_Name']).trim() : null,
+        lrNumber: null,
+        deliveryDate: parseFshipDate(r['Delivery_Date']),
+        remittanceDate: null,
+        collectableAmount: amount,
+        earlyCodAmount: null,
+        otherDeduction: null,
+        netPayableAmount: amount,
+        remittanceStatus: null,
+        fshipOrderId: cleanChannelId(r['OrderId']),
+      });
+    }
+    return out;
+  }
+
+  /** Fship "DeliveredOrders" export: Order_Id, Customer_Name, Customer_Mobile, AWB_No,
+   *  Pickup_Date, Product_Name, ... Mapped onto the same shape as Bigship's report. */
+  private parseFshipDeliveredOrdersXlsx(buffer: Buffer): Map<string, ParsedDeliveredRow> {
+    const rows = sheetToObjects(buffer, ['AWB_No', 'Order_Id', 'Customer_Mobile', 'Customer_Name']);
+    const map = new Map<string, ParsedDeliveredRow>();
+    for (const r of rows) {
+      const awb = normalizeAwb(r['AWB_No']);
+      if (!awb) continue;
+      map.set(awb, {
+        awbNumber: awb,
+        channelOrderId: cleanChannelId(r['Order_Id']),
+        receiverName: r['Customer_Name'] ? String(r['Customer_Name']).trim() : null,
+        receiverMobile: r['Customer_Mobile'] ? String(r['Customer_Mobile']).trim() : null,
+        productDetails: r['Product_Name'] ? String(r['Product_Name']).trim() : null,
+        awbDate: parseFshipDate(r['Pickup_Date']),
+      });
+    }
+    return map;
+  }
+
+  /** For the "Fix Unmatched Rows" / "Attach" uploads, which take a Delivered Orders Report
+   *  without asking which courier it is from: Bigship's layout first, then Fship's. */
+  private parseAnyDeliveredOrdersXlsx(buffer: Buffer): Map<string, ParsedDeliveredRow> {
+    const bigship = this.parseDeliveredOrdersXlsx(buffer);
+    return bigship.size > 0 ? bigship : this.parseFshipDeliveredOrdersXlsx(buffer);
+  }
+
   // ── 2. Import ───────────────────────────────────────────────────────────────
 
   async importReports(
@@ -242,8 +320,12 @@ export class RemittanceService {
     deliveredBuffer: Buffer | null,
     deliveredFileName: string | null,
     importedById: string,
+    source: RemittanceSource = 'BIGSHIP',
   ) {
-    const remittanceRows = this.parseRemittanceXlsx(remittanceBuffer);
+    const isFship = source === 'FSHIP';
+    const remittanceRows = isFship
+      ? this.parseFshipRemittanceXlsx(remittanceBuffer)
+      : this.parseRemittanceXlsx(remittanceBuffer);
     if (remittanceRows.length === 0) {
       // Name the columns that were actually in the file. The parser only
       // knows Bigship's export layout; anything else (an Fship remittance
@@ -256,12 +338,35 @@ export class RemittanceService {
           ? ` Sheets found: ${found.sheetNames.join(', ')}, but no header row was readable.`
           : '';
       throw new BadRequestException(
-        'No valid rows found in the remittance report. This importer reads the Bigship' +
-          ' remittance export (AWBNumber + CollectableAmount/NetPayableAmount columns).' +
-          detail,
+        isFship
+          ? 'No valid rows found in the Fship remittance report. Expected the Fship COD remittance' +
+              ' export (AWB_No + Amount + OrderId columns) — check that Fship was the right choice.' +
+              detail
+          : 'No valid rows found in the remittance report. This importer reads the Bigship' +
+              ' remittance export (AWBNumber + CollectableAmount/NetPayableAmount columns).' +
+              detail,
       );
     }
-    const deliveredMap = deliveredBuffer ? this.parseDeliveredOrdersXlsx(deliveredBuffer) : new Map<string, ParsedDeliveredRow>();
+    const deliveredMap = !deliveredBuffer
+      ? new Map<string, ParsedDeliveredRow>()
+      : isFship
+        ? this.parseFshipDeliveredOrdersXlsx(deliveredBuffer)
+        : this.parseDeliveredOrdersXlsx(deliveredBuffer);
+
+    // Fship only: the two Fship sheets also share the order id, so a remittance row
+    // whose AWB is missing from the delivered sheet can still be joined through it --
+    // but only when that order id appears exactly once there (an order shipped in two
+    // parcels has two delivered rows, and either could be the wrong one).
+    const fshipDeliveredByOrderId = new Map<string, ParsedDeliveredRow | null>();
+    if (isFship) {
+      for (const d of deliveredMap.values()) {
+        if (!d.channelOrderId) continue;
+        fshipDeliveredByOrderId.set(
+          d.channelOrderId,
+          fshipDeliveredByOrderId.has(d.channelOrderId) ? null : d,
+        );
+      }
+    }
 
     // Captured from every PARSED row, before dedup — not from the records
     // that end up actually created. A file where every row turns out to be
@@ -285,11 +390,15 @@ export class RemittanceService {
     const seenInFile = new Set<string>();
 
     for (const row of remittanceRows) {
-      const importKey = row.remittanceRef
-        ? createHash('sha256').update(`RID:${row.remittanceRef}`).digest('hex')
-        : createHash('sha256')
-            .update(`${row.awbNumber}|${row.remittanceDate?.toISOString() ?? ''}|${row.netPayableAmount.toFixed(2)}`)
-            .digest('hex');
+      // Fship's file has no remittance id or date, so its key is AWB + amount: one
+      // parcel's COD is remitted once, so the same pair again is a re-upload.
+      const importKey = isFship
+        ? FSHIP_IMPORT_KEY_PREFIX + createHash('sha256').update(`${row.awbNumber}|${row.collectableAmount.toFixed(2)}`).digest('hex')
+        : row.remittanceRef
+          ? createHash('sha256').update(`RID:${row.remittanceRef}`).digest('hex')
+          : createHash('sha256')
+              .update(`${row.awbNumber}|${row.remittanceDate?.toISOString() ?? ''}|${row.netPayableAmount.toFixed(2)}`)
+              .digest('hex');
 
       // Two distinct ways a row can be a duplicate: it repeats within THIS
       // file (seenInFile), or it was already imported in a past session
@@ -311,8 +420,39 @@ export class RemittanceService {
         continue;
       }
 
-      const delivered = deliveredMap.get(row.awbNumber) ?? null;
-      const match = await this.resolveMatch(row, delivered);
+      let delivered = deliveredMap.get(row.awbNumber) ?? null;
+      let fshipOrderIdOnly = false;
+      if (isFship && !delivered && row.fshipOrderId) {
+        delivered = fshipDeliveredByOrderId.get(row.fshipOrderId) ?? null;
+        if (!delivered) {
+          // No name/mobile for this parcel in the delivered sheet -- still try the
+          // remittance sheet's own OrderId as the order number.
+          fshipOrderIdOnly = true;
+          delivered = {
+            awbNumber: row.awbNumber, channelOrderId: row.fshipOrderId,
+            receiverName: null, receiverMobile: null, productDetails: null, awbDate: null,
+          };
+        }
+      }
+      let match = await this.resolveMatch(row, delivered);
+
+      // An Fship order id alone, with no customer mobile to confirm it, is not enough to
+      // auto-accept a payment: it is only the ERP order number when the parcel was booked
+      // through the ERP. Unless the ERP's own shipment carries this AWB too, suggest it
+      // and leave it for a person to confirm.
+      if (
+        fshipOrderIdOnly &&
+        match.matchStatus === RemittanceMatchStatus.MATCHED &&
+        !match.matchMethod?.includes('SHIPMENT_AWB')
+      ) {
+        match = {
+          ...match,
+          matchStatus: RemittanceMatchStatus.NEEDS_REVIEW,
+          matchedOrderId: null,
+          suggestedOrderId: match.matchedOrderId,
+          reviewNote: `Matched only by Fship OrderId ${row.fshipOrderId} — this AWB is not in the Delivered Orders report, so the customer's name/mobile could not be checked. Please confirm the order.`,
+        };
+      }
 
       if (match.matchStatus === RemittanceMatchStatus.MATCHED) matched++;
       else needReview++;
@@ -442,10 +582,10 @@ export class RemittanceService {
     const session = await this.prisma.remittanceImportSession.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Import session not found');
 
-    const deliveredMap = this.parseDeliveredOrdersXlsx(deliveredBuffer);
+    const deliveredMap = this.parseAnyDeliveredOrdersXlsx(deliveredBuffer);
     if (deliveredMap.size === 0) {
       throw new BadRequestException(
-        "Could not read any rows from that file — check it's the Delivered Orders Report export (needs an AWB No. column) and try again.",
+        "Could not read any rows from that file — check it's the Delivered Orders Report export from Bigship (AWB No. column) or Fship (AWB_No column) and try again.",
       );
     }
 
@@ -467,10 +607,10 @@ export class RemittanceService {
    *  EVERY import, not just one — the normal, no-need-to-hunt-for-a-session way to catch up
    *  a backlog. (Also runs automatically as part of every regular importReports() call.) */
   async attachDeliveredOrdersGlobal(deliveredBuffer: Buffer, _deliveredFileName: string, _userId: string) {
-    const deliveredMap = this.parseDeliveredOrdersXlsx(deliveredBuffer);
+    const deliveredMap = this.parseAnyDeliveredOrdersXlsx(deliveredBuffer);
     if (deliveredMap.size === 0) {
       throw new BadRequestException(
-        "Could not read any rows from that file — check it's the Delivered Orders Report export (needs an AWB No. column) and try again.",
+        "Could not read any rows from that file — check it's the Delivered Orders Report export from Bigship (AWB No. column) or Fship (AWB_No column) and try again.",
       );
     }
     const result = await this.sweepPendingWithDeliveredMap(deliveredMap, {});
@@ -827,14 +967,14 @@ export class RemittanceService {
 
   // ── 6. Posting (creates the actual receipt / Payment) ──────────────────────
 
-  private async getOrCreateBigshipAccount() {
+  private async getOrCreateCodAccount(accountName: string) {
     let account = await this.prisma.paymentAccount.findFirst({
-      where: { name: BIGSHIP_ACCOUNT_NAME },
+      where: { name: accountName },
     });
     if (!account) {
       account = await this.prisma.paymentAccount.create({
         data: {
-          name: BIGSHIP_ACCOUNT_NAME,
+          name: accountName,
           accountType: 'COURIER_COD',
           currentBalance: new Prisma.Decimal(0),
         },
@@ -862,7 +1002,8 @@ export class RemittanceService {
       throw new BadRequestException('This remittance row is not matched to an order yet — match it first');
     }
 
-    const account = await this.getOrCreateBigshipAccount();
+    const isFship = record.importKey.startsWith(FSHIP_IMPORT_KEY_PREFIX);
+    const account = await this.getOrCreateCodAccount(isFship ? FSHIP_ACCOUNT_NAME : BIGSHIP_ACCOUNT_NAME);
 
     // The full amount the customer paid at the doorstep is posted — including
     // any courier charge they paid with it. Since 2026-09-26 that courier
@@ -878,7 +1019,9 @@ export class RemittanceService {
       method: 'BANK_TRANSFER',
       paymentAccountId: account.id,
       referenceNumber: record.awbNumber,
-      notes: `Bigship COD remittance — AWB ${record.awbNumber}${record.remittanceRef ? `, Remittance #${record.remittanceRef}` : ''}. Collected ₹${record.collectableAmount}, net payable to bank after courier charges ₹${record.netPayableAmount}.`,
+      notes: isFship
+        ? `Fship COD remittance — AWB ${record.awbNumber}${record.channelOrderId ? `, Fship order ${record.channelOrderId}` : ''}. Collected ₹${record.collectableAmount}.`
+        : `Bigship COD remittance — AWB ${record.awbNumber}${record.remittanceRef ? `, Remittance #${record.remittanceRef}` : ''}. Collected ₹${record.collectableAmount}, net payable to bank after courier charges ₹${record.netPayableAmount}.`,
       paymentDate: record.remittanceDate ? record.remittanceDate.toISOString() : undefined,
     });
 

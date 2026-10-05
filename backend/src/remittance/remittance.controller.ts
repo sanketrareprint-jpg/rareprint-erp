@@ -1,6 +1,6 @@
 // backend/src/remittance/remittance.controller.ts
 import {
-  Body, Controller, Get, Param, Patch, Post,
+  BadRequestException, Body, Controller, Get, Param, Patch, Post,
   Query, Request, UploadedFiles, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
@@ -17,7 +17,8 @@ export class RemittanceController {
 
   // ── Import ─────────────────────────────────────────────────────────────────
 
-  /** POST /remittance/import  (multipart fields: "remittanceFile" required, "deliveredOrdersFile" optional) */
+  /** POST /remittance/import  (multipart fields: "remittanceFile" required, "deliveredOrdersFile" optional,
+   *  "source" optional: "BIGSHIP" (default) or "FSHIP" -- which courier's export layout the files use) */
   @Post('import')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -31,16 +32,22 @@ export class RemittanceController {
   async import(
     @UploadedFiles() files: { remittanceFile?: Express.Multer.File[]; deliveredOrdersFile?: Express.Multer.File[] },
     @Request() req: { user: JwtUser },
+    @Body('source') source?: string,
   ) {
     const remittanceFile = files?.remittanceFile?.[0];
     const deliveredFile = files?.deliveredOrdersFile?.[0];
     if (!remittanceFile) throw new Error('Remittance report file is required (field: remittanceFile)');
+    const courier = (source ?? 'BIGSHIP').trim().toUpperCase() || 'BIGSHIP';
+    if (courier !== 'BIGSHIP' && courier !== 'FSHIP') {
+      throw new BadRequestException('source must be BIGSHIP or FSHIP');
+    }
     return this.svc.importReports(
       remittanceFile.buffer,
       remittanceFile.originalname,
       deliveredFile?.buffer ?? null,
       deliveredFile?.originalname ?? null,
       req.user.id,
+      courier,
     );
   }
 

@@ -119,6 +119,7 @@ export default function RemittanceImportPage() {
   const attachFileRef = useRef<HTMLInputElement>(null);
 
   const [showImportPanel, setShowImportPanel] = useState(false);
+  const [importSource, setImportSource] = useState<"BIGSHIP" | "FSHIP">("BIGSHIP");
   const [remittanceFile, setRemittanceFile] = useState<File | null>(null);
   const [deliveredFile, setDeliveredFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -221,6 +222,7 @@ export default function RemittanceImportPage() {
     setImportResult(null);
     try {
       const formData = new FormData();
+      formData.append("source", importSource);
       formData.append("remittanceFile", remittanceFile);
       if (deliveredFile) formData.append("deliveredOrdersFile", deliveredFile);
       const { "Content-Type": _ct, ...uploadHeaders } = getAuthHeaders();
@@ -437,10 +439,32 @@ export default function RemittanceImportPage() {
         {/* ── Import panel ── */}
         {showImportPanel && (
           <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-            <p className="text-sm text-gray-600">Upload both courier exports. The Remittance Report is required; the Delivered Orders Report supplies the order number / receiver mobile used for matching, so include it whenever you have it.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">Courier:</span>
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                {(["BIGSHIP", "FSHIP"] as const).map((src) => (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setImportSource(src)}
+                    disabled={importing}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      importSource === src ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    {src === "BIGSHIP" ? "Bigship" : "Fship"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">
+              {importSource === "BIGSHIP"
+                ? "Upload both Bigship exports. The Remittance Report is required; the Delivered Orders Report supplies the order number / receiver mobile used for matching, so include it whenever you have it."
+                : "Upload both Fship exports. The COD remittance file (codInvoice) is required; the DeliveredOrders report supplies the customer name / mobile used for matching (joined by AWB, or by Order ID), so include it whenever you have it."}
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-gray-500">Remittance Report (required)</span>
+                <span className="text-xs font-medium text-gray-500">{importSource === "BIGSHIP" ? "Remittance Report" : "Fship COD Remittance (codInvoice)"} (required)</span>
                 <input
                   ref={remittanceFileRef}
                   type="file"
@@ -450,7 +474,7 @@ export default function RemittanceImportPage() {
                 />
               </label>
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-gray-500">Delivered Orders Report (recommended)</span>
+                <span className="text-xs font-medium text-gray-500">{importSource === "BIGSHIP" ? "Delivered Orders Report" : "Fship DeliveredOrders Report"} (recommended)</span>
                 <input
                   ref={deliveredFileRef}
                   type="file"
