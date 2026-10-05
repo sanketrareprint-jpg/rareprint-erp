@@ -41,7 +41,6 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { CallComplianceModule } from './call-compliance/call-compliance.module';
-import { DialerModule } from './dialer/dialer.module';
 import { MarketingRoiModule } from './marketing-roi/marketing-roi.module';
 import { MachineReadingsModule } from './machine-readings/machine-readings.module';
 import { BillingModule } from './billing/billing.module';
@@ -91,7 +90,6 @@ import { FeedbackModule } from './feedback/feedback.module';
     LoyaltyModule,
     ComplaintsModule,
     CallComplianceModule,
-    DialerModule,
     MarketingRoiModule,
     MachineReadingsModule,
     BillingModule,
