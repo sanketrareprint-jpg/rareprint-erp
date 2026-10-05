@@ -331,7 +331,9 @@ export class DialerService {
   async saveResult(user: DialerUser, body: any) {
     this.assertDialerRole(user);
     const parsed = parseDialerResult(body);
-    if (!parsed.ok) throw new BadRequestException(parsed.error);
+    // `'error' in` (not `!parsed.ok`): the production build (nest build) runs
+    // without strictNullChecks, where boolean-literal narrowing doesn't apply.
+    if ('error' in parsed) throw new BadRequestException(parsed.error);
     const v = parsed.value;
     const isAdmin = user.role === 'ADMIN';
     const now = new Date();
