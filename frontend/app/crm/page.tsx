@@ -187,6 +187,13 @@ function CrmPageContent() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"kanban" | "list" | "dialer" | "followups" | "notcontacted">("list");
   const [search, setSearch] = useState("");
+  // Debounced (300ms, same pattern as app/orders/page.tsx) — load() used to
+  // refetch leads + stats + follow-ups on every single keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [myLeadsOnly, setMyLeadsOnly] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -409,22 +416,33 @@ function CrmPageContent() {
     }
   };
 
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq) so an
+  // older, slower search can't overwrite the latest results.
+  const loadSeq = useRef(0);
+
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter !== "ALL") params.set("status", statusFilter);
     if (myLeadsOnly) params.set("myOnly", "true");
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     const [leadsRes, statsRes, fuRes] = await Promise.all([
       fetch(`${API}/crm/leads?${params}`, { headers: getAuth() }),
       fetch(`${API}/crm/leads/stats`, { headers: getAuth() }),
       fetch(`${API}/crm/leads/today-followups`, { headers: getAuth() }),
     ]);
-    if (leadsRes.ok) setLeads(await leadsRes.json());
-    if (statsRes.ok) setStats(await statsRes.json());
-    if (fuRes.ok) setTodayFollowUps(await fuRes.json());
+    const [leadsData, statsData, fuData] = await Promise.all([
+      leadsRes.ok ? leadsRes.json() : null,
+      statsRes.ok ? statsRes.json() : null,
+      fuRes.ok ? fuRes.json() : null,
+    ]);
+    if (seq !== loadSeq.current) return;
+    if (leadsData) setLeads(leadsData);
+    if (statsData) setStats(statsData);
+    if (fuData) setTodayFollowUps(fuData);
     setLoading(false);
-  }, [search, statusFilter, myLeadsOnly]);
+  }, [debouncedSearch, statusFilter, myLeadsOnly]);
 
   useEffect(() => { load(); }, [load]);
 

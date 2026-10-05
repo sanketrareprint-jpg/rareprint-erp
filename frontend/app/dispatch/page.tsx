@@ -1,5 +1,5 @@
 ﻿"use client";
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { PoliciesWidget } from "@/components/PoliciesWidget";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -546,14 +546,21 @@ export default function DispatchPage() {
   // "recent") across order#, customer name/phone, carrier, and
   // tracking/AWB/shipment number -- so a shipment that's aged out of the
   // "last 100" view (like an old one from months back) is still findable.
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq) so an
+  // older, slower search can't overwrite the latest results.
+  const historySeq = useRef(0);
   const loadHistory = useCallback(async (search?: string) => {
+    const seq = ++historySeq.current;
     setHistoryLoading(true);
     try {
       const q = search?.trim();
       const url = `${API_BASE_URL}/dispatch/history?limit=100${q ? `&search=${encodeURIComponent(q)}` : ""}`;
       const res = await fetch(url, { headers: getAuthHeaders() });
-      if (res.ok) setHistory(await res.json());
-    } finally { setHistoryLoading(false); }
+      if (res.ok) {
+        const data = await res.json();
+        if (seq === historySeq.current) setHistory(data);
+      }
+    } finally { if (seq === historySeq.current) setHistoryLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);

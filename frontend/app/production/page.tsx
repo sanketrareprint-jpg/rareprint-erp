@@ -283,15 +283,22 @@ export default function ProductionPage() {
     if (res.ok) setSheetsData(await res.json());
   }, []);
 
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq) so an
+  // older, slower search can't overwrite the latest results.
+  const sheetHistorySeq = useRef(0);
   const loadSheetHistory = useCallback(async (search = "", page = 1) => {
+    const seq = ++sheetHistorySeq.current;
     setSheetHistoryLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50", toStatus: "PRINTING" });
       if (search) params.set("search", search);
       const res = await fetch(`${API_BASE_URL}/production/sheets/history?${params}`, { headers: getAuthHeaders() });
-      if (res.ok) setSheetHistory(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        if (seq === sheetHistorySeq.current) setSheetHistory(data);
+      }
     } finally {
-      setSheetHistoryLoading(false);
+      if (seq === sheetHistorySeq.current) setSheetHistoryLoading(false);
     }
   }, []);
 
@@ -319,9 +326,13 @@ export default function ProductionPage() {
 
   useEffect(() => { void loadAll(); }, [loadAll]);
 
+  // Debounced so typing doesn't fire a request per keystroke; tab switches
+  // (search usually empty then) load immediately — same as dispatch history.
   useEffect(() => {
-    if (sheetSubTab === "history") void loadSheetHistory(sheetHistorySearch);
-  }, [sheetSubTab, loadSheetHistory]);
+    if (sheetSubTab !== "history") return;
+    const t = setTimeout(() => { void loadSheetHistory(sheetHistorySearch); }, sheetHistorySearch ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [sheetSubTab, sheetHistorySearch, loadSheetHistory]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1596,7 +1607,6 @@ export default function ProductionPage() {
                         onChange={e => {
                           if (sheetSubTab === "history") {
                             setSheetHistorySearch(e.target.value);
-                            void loadSheetHistory(e.target.value);
                           } else {
                             setSheetSearch(e.target.value);
                           }

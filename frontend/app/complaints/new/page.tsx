@@ -44,19 +44,22 @@ export default function NewComplaintPage() {
 
   useEffect(() => {
     const term = customerSearch.trim();
-    if (term.length < 2) { setCustomerResults([]); return; }
+    if (term.length < 2) { setCustomerResults([]); setCustomerSearching(false); return; }
     setCustomerSearching(true);
+    // Set on cleanup so a slower, older search's response can't overwrite
+    // the results for what's typed now.
+    let stale = false;
     const handle = setTimeout(async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/customer-directory/search?search=${encodeURIComponent(term)}&limit=20`, { headers: getAuthHeaders() });
         if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
         const data = res.ok ? await res.json() : { customers: [] };
-        setCustomerResults(data.customers ?? []);
+        if (!stale) setCustomerResults(data.customers ?? []);
       } finally {
-        setCustomerSearching(false);
+        if (!stale) setCustomerSearching(false);
       }
     }, 300);
-    return () => clearTimeout(handle);
+    return () => { stale = true; clearTimeout(handle); };
   }, [customerSearch, router]);
 
   const loadOrders = useCallback(async (customerId: string) => {

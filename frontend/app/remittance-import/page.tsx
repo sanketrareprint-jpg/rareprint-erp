@@ -183,17 +183,22 @@ export default function RemittanceImportPage() {
     if (data) setSummary(data);
   }, [apiFetch, selectedSessionId]);
 
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq) so an
+  // older, slower search can't overwrite the latest results.
+  const recordsSeq = useRef(0);
   const loadRecords = useCallback(async (page = 1) => {
     const status = STATUS_FOR_TAB[activeTab];
     if (!status) return;
+    const seq = ++recordsSeq.current;
     setLoadingRecords(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50", matchStatus: status });
       if (selectedSessionId) params.set("sessionId", selectedSessionId);
       if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       const data = await apiFetch(`/remittance/records?${params}`);
+      if (seq !== recordsSeq.current) return;
       if (data) { setRecords(data.data); setRecordsTotal(data.total); setRecordsPage(page); }
-    } finally { setLoadingRecords(false); }
+    } finally { if (seq === recordsSeq.current) setLoadingRecords(false); }
   }, [apiFetch, activeTab, selectedSessionId, debouncedSearch]);
 
   // Debounce the search box so we're not firing a request on every keystroke —
@@ -354,15 +359,17 @@ export default function RemittanceImportPage() {
   };
 
   useEffect(() => {
-    if (!expandedRecord || matchQuery.trim().length < 2) { setMatchResults([]); return; }
+    if (!expandedRecord || matchQuery.trim().length < 2) { setMatchResults([]); setMatchSearching(false); return; }
+    // Set on cleanup so an older, slower search can't overwrite newer results.
+    let stale = false;
     const t = setTimeout(async () => {
       setMatchSearching(true);
       try {
         const data = await apiFetch(`/remittance/order-search?q=${encodeURIComponent(matchQuery.trim())}`);
-        if (data) setMatchResults(data);
-      } finally { setMatchSearching(false); }
+        if (data && !stale) setMatchResults(data);
+      } finally { if (!stale) setMatchSearching(false); }
     }, 300);
-    return () => clearTimeout(t);
+    return () => { stale = true; clearTimeout(t); };
   }, [matchQuery, expandedRecord, apiFetch]);
 
   const confirmMatch = async (recordId: string, orderId: string) => {

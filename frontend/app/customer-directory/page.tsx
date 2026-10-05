@@ -114,7 +114,12 @@ function CustomerDirectoryContent() {
     }
   }, []);
 
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq):
+  // drops a slower, older search's response so it can't overwrite newer results.
+  const loadSeq = useRef(0);
+
   const load = useCallback(async (nextPage = 1, append = false) => {
+    const seq = append ? loadSeq.current : ++loadSeq.current;
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("search", search);
@@ -127,13 +132,14 @@ function CustomerDirectoryContent() {
       const res = await fetch(`${API_BASE_URL}/customer-directory/search?${params}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
+        if (seq !== loadSeq.current) return;
         setCustomers((prev) => append ? [...prev, ...(data.customers ?? [])] : (data.customers ?? []));
         setSummary(data.summary ?? { customers: 0, orders: 0, revenue: 0 });
         setHasMore(!!data.hasMore);
         setPage(data.page ?? nextPage);
       }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [search, city, state, product]);
 

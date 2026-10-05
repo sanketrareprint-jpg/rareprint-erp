@@ -1,5 +1,5 @@
 ﻿"use client";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
@@ -105,7 +105,11 @@ export default function AdminDbPage() {
       .catch(() => setLoading(false));
   }, [router]);
 
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq) so an
+  // older, slower search/table load can't overwrite the latest results.
+  const tableSeq = useRef(0);
   const loadTable = useCallback(async (name: string, p = 1, query = "") => {
+    const seq = ++tableSeq.current;
     setTableLoading(true);
     setActiveTable(name);
     setPage(p);
@@ -114,12 +118,13 @@ export default function AdminDbPage() {
       if (query.trim()) params.set("search", query.trim());
       const res = await fetch(`${API_BASE_URL}/admin/db/table/${name}?${params.toString()}`, { headers: getAuthHeaders() });
       const d = await res.json();
+      if (seq !== tableSeq.current) return;
       setRows(d.rows || []);
       const fetchedCols = d.columns || (d.rows?.[0] ? Object.keys(d.rows[0]) : []);
       setColumns(fetchedCols.length > 0 ? fetchedCols : (TABLE_COLUMNS[name] || []));
       setTotal(d.total || 0);
       setTotalPages(Math.ceil((d.total || 0) / LIMIT) || 1);
-    } finally { setTableLoading(false); }
+    } finally { if (seq === tableSeq.current) setTableLoading(false); }
   }, []);
 
   useEffect(() => {

@@ -187,6 +187,13 @@ function MarketingPageContent() {
   const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // Debounced (300ms, same pattern as app/orders/page.tsx) — load() used to
+  // fire all 7 requests below on every single keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [csvText, setCsvText] = useState("");
   const [importingContacts, setImportingContacts] = useState(false);
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -212,10 +219,15 @@ function MarketingPageContent() {
     createdThisWeek: true,
   });
 
+  // Stale-response guard (same pattern as billing/page.tsx's requestSeq) for
+  // the one search-dependent list, so an older search can't overwrite newer.
+  const loadSeq = useRef(0);
+
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     const params = new URLSearchParams();
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     const [overviewRes, campaignsRes, templatesRes, contactsRes, analyticsRes, diagnosticsRes, settingsRes] = await Promise.all([
       fetch(`${API_BASE_URL}/marketing/overview`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/marketing/campaigns`, { headers: getAuthHeaders() }),
@@ -228,7 +240,10 @@ function MarketingPageContent() {
     if (overviewRes.ok) setOverview(await overviewRes.json());
     if (campaignsRes.ok) setCampaigns(await campaignsRes.json());
     if (templatesRes.ok) setTemplates(await templatesRes.json());
-    if (contactsRes.ok) setContacts((await contactsRes.json()).items ?? []);
+    if (contactsRes.ok) {
+      const contactsData = await contactsRes.json();
+      if (seq === loadSeq.current) setContacts(contactsData.items ?? []);
+    }
     if (analyticsRes.ok) setAnalytics(await analyticsRes.json());
     if (diagnosticsRes.ok) setDiagnostics(await diagnosticsRes.json());
     if (settingsRes.ok) {
@@ -237,7 +252,7 @@ function MarketingPageContent() {
       setSettingsForm(s);
     }
     setLoading(false);
-  }, [search]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     load();

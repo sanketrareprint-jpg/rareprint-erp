@@ -291,7 +291,7 @@ export default function OrdersPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -391,7 +391,21 @@ export default function OrdersPage() {
     referenceNumber: "", notes: "", paymentDate: new Date().toISOString().slice(0, 10),
   });
 
+  // Stale-response guard, same pattern as billing/page.tsx's requestSeq: each
+  // debounced keystroke fires its own request, and an earlier (broader)
+  // search's response landing AFTER a later one used to overwrite the correct
+  // results — the "shows wrong results, have to press Enter again" bug. A
+  // fresh load bumps the seq; Load More reuses it, so it's dropped if a new
+  // search started meanwhile but never cancels the search itself.
+  const loadSeq = useRef(0);
+
   const load = useCallback(async (nextPage = 1, append = false) => {
+    const seq = append ? loadSeq.current : ++loadSeq.current;
+    const isStale = () => {
+      if (seq === loadSeq.current) return false;
+      if (append) setLoadingMore(false); // the newer load owns `loading` itself
+      return true;
+    };
     append ? setLoadingMore(true) : setLoading(true);
     setLoadError(null);
     const headers = getAuthHeaders();
@@ -410,6 +424,7 @@ export default function OrdersPage() {
     }
     const oRes = await fetch(`${API_BASE_URL}/orders?${params}`, { headers });
     if (oRes.status === 401) { clearAuth(); router.replace("/login"); return; }
+    if (isStale()) return;
     if (!oRes.ok) {
       const body = await oRes.json().catch(() => null);
       setLoadError(body?.message || `Could not load orders (server returned ${oRes.status}).`);
@@ -418,6 +433,7 @@ export default function OrdersPage() {
       return;
     }
     const ordersPayload: PagedOrders = await oRes.json();
+    if (isStale()) return;
     setOrders(prev => append ? [...prev, ...(ordersPayload.data ?? [])] : (ordersPayload.data ?? []));
     setOrdersPage(ordersPayload.page ?? nextPage);
     setOrdersTotal(ordersPayload.total ?? 0);
@@ -430,6 +446,7 @@ export default function OrdersPage() {
       fetch(`${API_BASE_URL}/orders/payment-accounts`, { headers }),
     ]);
     const readyPayload: PagedOrders = rRes.ok ? await rRes.json() : { data: [], page: nextPage, limit: ORDER_PAGE_SIZE, total: 0, hasMore: false };
+    if (isStale()) return;
     // Scoping for SALES_AGENT accounts now happens server-side (see
     // OrdersController.getReadyForDispatch) — the backend only returns that
     // agent's own orders in the first place, so no client-side re-filter
@@ -783,6 +800,10 @@ export default function OrdersPage() {
     { key: "dispatch",   label: "Ready for Dispatch",  count: readyTotal || readyOrders.length },
   ] as const;
 
+  // Typed-but-not-yet-sent, or sent-and-waiting: either way the rows on screen
+  // are the previous result, not this search's.
+  const searchPending = loading || search !== debouncedSearch;
+
   const canLoadMore = activeTab === "dispatch" ? readyHasMore : ordersHasMore;
   const loadedCount = activeTab === "dispatch" ? readyOrders.length : orders.length;
   const totalCount = activeTab === "dispatch" ? readyTotal : ordersTotal;
@@ -936,6 +957,7 @@ export default function OrdersPage() {
               <div className="relative flex-1 min-w-[200px] max-w-xs">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") setDebouncedSearch(search); }}
                   placeholder="Search order, customer, phone, agent…"
                   className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
               </div>
@@ -1012,7 +1034,7 @@ export default function OrdersPage() {
                 </button>
               )}
               <span className="text-xs text-slate-400 self-center">
-                Showing {filteredOrders.length} of {totalCount || filteredOrders.length}
+                {searchPending ? "Searching…" : <>Showing {filteredOrders.length} of {totalCount || filteredOrders.length}</>}
               </span>
             </div>
 
@@ -1057,10 +1079,14 @@ export default function OrdersPage() {
               </div>
             )}
 
-            {loading ? (
+            {/* Full spinner only when there's nothing to show yet. A search/filter
+                reload keeps the current rows on screen, dimmed and non-clickable
+                (so nobody acts on a row from the previous result), instead of
+                swapping the whole table for a spinner and back on every search. */}
+            {loading && filteredOrders.length === 0 && search === debouncedSearch ? (
               <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
             ) : (
-              <>
+              <div className={`transition-opacity ${searchPending ? "pointer-events-none opacity-50" : ""}`}>
               <div className={cx("space-y-3 md:hidden", "space-y-2 md:hidden")}>
                 {filteredOrders.length === 0 ? (
                   <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
@@ -1645,7 +1671,7 @@ export default function OrdersPage() {
                   </div>
                 )}
               </div>
-              </>
+              </div>
             )}
           </div>
         </div>
