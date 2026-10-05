@@ -15,10 +15,15 @@ export class DialerController {
    * Next lead/contact to call for the logged-in agent ({ item: null } when the
    * queue is empty). `skip` = comma-separated phone numbers the agent skipped
    * this session, so Skip moves on instead of returning the same lead.
+   * `asAgentId` (admins only) = dial that seller's queue instead of your own.
    */
   @Get('next')
-  getNext(@Req() req: Request & { user: JwtUser }, @Query('skip') skip?: string) {
-    return this.dialerService.getNext(req.user, skip ? skip.split(',') : []);
+  getNext(
+    @Req() req: Request & { user: JwtUser },
+    @Query('skip') skip?: string,
+    @Query('asAgentId') asAgentId?: string,
+  ) {
+    return this.dialerService.getNext(req.user, skip ? skip.split(',') : [], asAgentId);
   }
 
   /** Saves a call's outcome and updates the lead/contact. */

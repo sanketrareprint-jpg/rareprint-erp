@@ -72,8 +72,12 @@ export class DialerService {
   // GET /dialer/next
   // ───────────────────────────────────────────────────────────────────────
 
-  async getNext(user: DialerUser, skipPhones: string[] = []) {
+  async getNext(user: DialerUser, skipPhones: string[] = [], asAgentId?: string) {
     this.assertDialerRole(user);
+    // Whose leads to dial: your own, or (admins only) a chosen seller's.
+    const queueAgentId = await this.resolveQueueAgent(user, asAgentId);
+    // Locks always belong to the person actually dialing, so an admin working a
+    // seller's queue and that seller never get the same number at once.
     const agentId = user.id;
     const now = new Date();
     const todayStart = istDayStart(now);
@@ -83,10 +87,10 @@ export class DialerService {
     await this.prisma.dialerLock.deleteMany({ where: { agentId } });
 
     const tiers: Array<(skip: number) => Promise<{ items: Candidate[]; more: boolean }>> = [
-      (skip) => this.followUpCandidates('FOLLOW_UP_DUE', agentId, { gte: todayStart, lte: now }, 'asc', skip),
-      (skip) => this.freshLeadCandidates(agentId, skip),
-      (skip) => this.notContactedCandidates(agentId, skip),
-      (skip) => this.followUpCandidates('OLD_CALLBACK', agentId, { lt: todayStart }, 'desc', skip),
+      (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip),
+      (skip) => this.freshLeadCandidates(queueAgentId, skip),
+      (skip) => this.notContactedCandidates(queueAgentId, skip),
+      (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip),
     ];
 
     // Numbers the agent skipped this session are treated as already seen.
@@ -109,6 +113,16 @@ export class DialerService {
       }
     }
     return { item: null };
+  }
+
+  /** The seller whose leads are queued. Only admins may pick someone other than themselves. */
+  private async resolveQueueAgent(user: DialerUser, asAgentId?: string): Promise<string> {
+    const target = asAgentId?.trim();
+    if (!target || target === user.id) return user.id;
+    if (user.role !== 'ADMIN') throw new ForbiddenException("Only admins can dial another seller's leads");
+    const agent = await this.prisma.user.findUnique({ where: { id: target }, select: { id: true, isActive: true } });
+    if (!agent || !agent.isActive) throw new NotFoundException('Seller not found');
+    return agent.id;
   }
 
   /** Lead + Not Contacted follow-ups in a time window (tiers 1 and 4). */

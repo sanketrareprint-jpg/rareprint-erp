@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
+import { getStoredUser } from "@/lib/auth";
 import {
   dialer,
   requestOverlayPermission,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/plugins/CallManager";
 
 const SIM_KEY = "dialer_sim_id"; // same key as the Phase 1 test screen
+const QUEUE_AGENT_KEY = "dialer_queue_agent_id"; // admins: whose leads to dial ("" = my own)
 const COUNTDOWN_SECONDS = 5;
 
 type Outcome = "INTERESTED" | "CALLBACK" | "NOT_ANSWERED" | "BUSY" | "WRONG_NUMBER" | "NOT_INTERESTED";
@@ -52,6 +54,7 @@ interface QueueItem {
   lastNote: string | null;
 }
 interface SessionStats { callsMade: number; connected: number; talkTimeSec: number; }
+interface Seller { id: string; fullName: string; role: string; }
 
 type Phase = "idle" | "loading" | "dialing" | "onCall" | "outcome" | "saving" | "countdown" | "paused" | "empty" | "stopped";
 
@@ -77,6 +80,11 @@ export default function DialerPage() {
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [error, setError] = useState("");
   const [afterCall, setAfterCall] = useState<"continue" | "pause" | "stop">("continue");
+  // Admins only: dial a chosen seller's queue instead of their own.
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [sellers, setSellers] = useState<Seller[]>([]);
+  const [queueAgentId, setQueueAgentId] = useState("");
+  const queueAgentRef = useRef("");
 
   // Refs mirror state for native listeners and timers.
   const phaseRef = useRef<Phase>("idle");
@@ -161,9 +169,12 @@ export default function DialerPage() {
     clearCountdown();
     setError("");
     setPhaseBoth("loading");
-    const skip = skippedRef.current.join(",");
+    const params = new URLSearchParams();
+    if (skippedRef.current.length) params.set("skip", skippedRef.current.join(","));
+    if (queueAgentRef.current) params.set("asAgentId", queueAgentRef.current);
+    const qs = params.toString();
     const res = await apiFetch<{ item: QueueItem | null }>(
-      `/dialer/next${skip ? `?skip=${encodeURIComponent(skip)}` : ""}`,
+      `/dialer/next${qs ? `?${qs}` : ""}`,
       {},
       (msg) => setError(msg),
     );
@@ -185,6 +196,17 @@ export default function DialerPage() {
   // Load saved SIM once.
   useEffect(() => {
     try { const saved = localStorage.getItem(SIM_KEY) ?? ""; simIdRef.current = saved; setSimId(saved); } catch { /* ignore */ }
+  }, []);
+
+  // Admins: load the seller list (same admin-only endpoint Call Compliance uses)
+  // and the last queue they picked.
+  useEffect(() => {
+    if (getStoredUser()?.role !== "ADMIN") return;
+    setIsAdmin(true);
+    try { const saved = localStorage.getItem(QUEUE_AGENT_KEY) ?? ""; queueAgentRef.current = saved; setQueueAgentId(saved); } catch { /* ignore */ }
+    apiFetch<Seller[]>("/call-compliance/agents", {}, (msg) => setError(`Could not load sellers: ${msg}`)).then((list) => {
+      if (list) setSellers(list);
+    });
   }, []);
 
   // Native listeners + live call timer.
@@ -358,6 +380,30 @@ export default function DialerPage() {
               {!perms.overlay && <button className="px-3 py-2 rounded-lg border" onClick={() => requestOverlayPermission()}>Allow display over apps</button>}
               <button className="px-3 py-2 rounded-lg border" onClick={() => dialer.openAppSettings().catch(() => {})}>Open app settings</button>
             </div>
+          </section>
+        )}
+
+        {/* Admins: whose leads to dial */}
+        {isAdmin && (
+          <section className="rounded-lg border p-3 space-y-2">
+            <label className="block text-sm">
+              <span className="font-semibold">Whose leads to call</span>
+              <select value={queueAgentId} disabled={running}
+                onChange={(e) => {
+                  queueAgentRef.current = e.target.value;
+                  setQueueAgentId(e.target.value);
+                  try { localStorage.setItem(QUEUE_AGENT_KEY, e.target.value); } catch { /* ignore */ }
+                }}
+                className="mt-1 w-full rounded-lg border px-3 py-2 bg-white">
+                <option value="">My own leads</option>
+                {sellers.map((s) => <option key={s.id} value={s.id}>{s.fullName}</option>)}
+              </select>
+            </label>
+            {queueAgentId && (
+              <p className="text-xs text-slate-500">
+                Calls are saved under your name; the lead&apos;s status and follow-ups update on the seller&apos;s lead.
+              </p>
+            )}
           </section>
         )}
 
