@@ -2793,7 +2793,9 @@ export class AccountsService {
         this.prisma.vendor.findMany({ where: { isActive: true }, select: { name: true } }),
         this.prisma.expenseCategory.findMany({ where: { isActive: true }, select: { name: true } }),
       ]);
-      const match = [...vendors, ...categories].find(o => o.name?.toLowerCase() === typed.toLowerCase());
+      // Whitespace-normalized compare: stored names may carry stray/trailing spaces.
+      const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+      const match = [...vendors, ...categories].find(o => o.name && normalize(o.name) === normalize(typed));
       if (!match) throw new BadRequestException('Please select a vendor/expense from the list');
       canonicalLabel = match.name;
     }

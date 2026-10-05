@@ -755,7 +755,10 @@ export default function AccountsPage() {
   function commitVendorExpense(entry: PaymentVerificationEntry) {
     const typed = (pvVendorExpenseDrafts[entry.id] ?? "").trim();
     if (typed === (entry.vendorOrExpenseName ?? "")) return;
-    const match = typed ? vendorExpenseOptions.find(name => name.toLowerCase() === typed.toLowerCase()) : "";
+    // Compare whitespace-normalized names: some stored vendor/category names carry
+    // stray/trailing spaces, which made a name picked from the list fail the check.
+    const normalize = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+    const match = typed ? vendorExpenseOptions.find(name => normalize(name) === normalize(typed)) : "";
     if (match === undefined) {
       setPvVendorExpenseDrafts(prev => ({ ...prev, [entry.id]: entry.vendorOrExpenseName ?? "" }));
       alert("Please select a vendor/expense from the list.");

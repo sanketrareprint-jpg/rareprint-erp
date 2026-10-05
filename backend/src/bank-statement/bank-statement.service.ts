@@ -658,7 +658,9 @@ export class BankStatementService {
   }
 
   async createExpenseCategory(name: string, description?: string) {
-    return this.prisma.expenseCategory.create({ data: { name, description } });
+    // Normalize whitespace so names match exactly when picked from lists later.
+    const normalizedName = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : name;
+    return this.prisma.expenseCategory.create({ data: { name: normalizedName, description } });
   }
 
   async upsertExpenseKeyword(keyword: string, categoryId: string) {

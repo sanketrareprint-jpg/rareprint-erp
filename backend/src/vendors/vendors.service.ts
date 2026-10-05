@@ -14,6 +14,8 @@ export class VendorsService {
   }
 
   async createVendor(data: { name: string; phone?: string; email?: string; address?: string; gstNumber?: string }) {
-    return this.prisma.vendor.create({ data });
+    // Normalize whitespace so names match exactly when picked from lists later.
+    const name = typeof data.name === 'string' ? data.name.trim().replace(/\s+/g, ' ') : data.name;
+    return this.prisma.vendor.create({ data: { ...data, name } });
   }
 }
