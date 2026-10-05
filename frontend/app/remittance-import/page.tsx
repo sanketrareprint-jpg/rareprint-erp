@@ -668,7 +668,7 @@ export default function RemittanceImportPage() {
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Customer</th>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Matched via</th>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Pickup / Delivered</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Customer balance due</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Balance due (incl. courier)</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Receipt amount</th>
                       <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500">Net to bank</th>
                       <th className="px-4 py-2.5 w-28"></th>

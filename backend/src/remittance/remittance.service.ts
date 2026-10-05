@@ -169,6 +169,23 @@ export function normalizeMobile(raw: unknown): string | null {
   return ten.length === 10 && /^[6-9]/.test(ten) ? ten : null;
 }
 
+/**
+ * What the customer still owes on an order, as shown on the remittance screen and used to
+ * pick the closest order: grand total + courier charge billed to them, minus payments.
+ * The courier charge is the sum of the order's COURIER shipments' courierChargeCollected
+ * -- the same figure billed on the invoice (see common/sync-invoice-courier-charge.ts) --
+ * because the COD amount collected at the door includes it.
+ */
+function orderBalanceDue(order: {
+  grandTotal: unknown;
+  payments?: Array<{ amount: unknown }>;
+  shipments?: Array<{ courierChargeCollected: unknown }>;
+}): number {
+  const paid = (order.payments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+  const courier = (order.shipments ?? []).reduce((sum, s) => sum + Number(s.courierChargeCollected ?? 0), 0);
+  return Math.round((Number(order.grandTotal) + courier - paid) * 100) / 100;
+}
+
 interface ParsedRemittanceRow {
   remittanceRef: string | null;
   bigshipOrderId: string | null;
@@ -695,7 +712,7 @@ export class RemittanceService {
             status: { not: 'CANCELLED' },
             paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
           },
-          include: { payments: true },
+          include: { payments: true, shipments: { where: { dispatchType: 'COURIER' }, select: { courierChargeCollected: true } } },
           orderBy: { orderDate: 'desc' },
         });
 
@@ -719,9 +736,7 @@ export class RemittanceService {
         if (candidateOrders.length > 1) {
           const scored = candidateOrders
             .map((o) => {
-              const paid = o.payments.reduce((s, p) => s + Number(p.amount), 0);
-              const balanceDue = Number(o.grandTotal) - paid;
-              return { order: o, diff: Math.abs(balanceDue - row.collectableAmount) };
+              return { order: o, diff: Math.abs(orderBalanceDue(o) - row.collectableAmount) };
             })
             .sort((a, b) => a.diff - b.diff);
           return {
@@ -856,8 +871,8 @@ export class RemittanceService {
         skip,
         take: limit,
         include: {
-          matchedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } }, payments: { select: { amount: true } } } },
-          suggestedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } }, payments: { select: { amount: true } } } },
+          matchedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } }, payments: { select: { amount: true } }, shipments: { where: { dispatchType: 'COURIER' }, select: { courierChargeCollected: true } } } },
+          suggestedOrder: { select: { id: true, orderNumber: true, grandTotal: true, paymentStatus: true, customer: { select: { businessName: true, phone: true } }, payments: { select: { amount: true } }, shipments: { where: { dispatchType: 'COURIER' }, select: { courierChargeCollected: true } } } },
           postedPayment: { select: { id: true, amount: true, paymentDate: true } },
           postedBy: { select: { id: true, fullName: true } },
         },
@@ -869,9 +884,8 @@ export class RemittanceService {
     // collected, instead of just the order's grand total.
     function attachBalance(order: any): any {
       if (!order) return order;
-      const paid = (order.payments ?? []).reduce((sum: number, p: { amount: unknown }) => sum + Number(p.amount), 0);
-      const { payments, ...rest } = order;
-      return { ...rest, balanceDue: Number(order.grandTotal) - paid };
+      const { payments, shipments, ...rest } = order;
+      return { ...rest, balanceDue: orderBalanceDue(order) };
     }
     const withBalance = data.map((record) => {
       return {
@@ -908,7 +922,7 @@ export class RemittanceService {
           { customer: { phone: { contains: q } } },
         ],
       },
-      include: { customer: { select: { businessName: true, phone: true } }, payments: true },
+      include: { customer: { select: { businessName: true, phone: true } }, payments: true, shipments: { where: { dispatchType: 'COURIER' }, select: { courierChargeCollected: true } } },
       orderBy: { orderDate: 'desc' },
       take: 20,
     });
@@ -919,7 +933,7 @@ export class RemittanceService {
       customerPhone: o.customer.phone,
       grandTotal: o.grandTotal,
       paymentStatus: o.paymentStatus,
-      balanceDue: Number(o.grandTotal) - o.payments.reduce((s, p) => s + Number(p.amount), 0),
+      balanceDue: orderBalanceDue(o),
     }));
   }
 

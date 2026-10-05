@@ -84,6 +84,9 @@ model User {
   contactImportsMade   ContactImport[]         @relation("ContactImportedBy")
   importedContacts     ImportedContact[]       @relation("ImportedContactAgent")
   policiesCreated      PolicyDocument[]        @relation("PolicyDocumentCreatedBy")
+  // ── Auto dialer (Android app) ─────────────────────────────────────────────
+  dialerCalls          DialerCall[]            @relation("DialerCallAgent")
+  dialerLocks          DialerLock[]            @relation("DialerLockAgent")
 }
 
 model Customer {
@@ -1508,6 +1511,7 @@ model Lead {
   // "not contacted" contact's phone matches a Lead that already exists
   // (manually added, CSV-imported, etc). See call-compliance.service.ts.
   importedContacts ImportedContact[] @relation("ImportedContactLead")
+  dialerCalls      DialerCall[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -1636,6 +1640,7 @@ model ImportedContact {
   leadId         String?
   lead           Lead?                   @relation("ImportedContactLead", fields: [leadId], references: [id], onDelete: SetNull)
   followUps      ImportedContactFollowUp[]
+  dialerCalls    DialerCall[]
 
   import ContactImport @relation(fields: [importId], references: [id])
   agent  User?          @relation("ImportedContactAgent", fields: [agentId], references: [id])
@@ -1659,6 +1664,64 @@ model ImportedContactFollowUp {
   updatedAt   DateTime        @updatedAt
 
   @@index([contactId])
+}
+
+// ============================================================
+// AUTO DIALER — calls placed from the Android app's dialer
+// (frontend/android CallManagerPlugin + DialerService). See
+// backend/src/dialer/. Rules live in dialer.rules.ts.
+// ============================================================
+
+enum DialerOutcome {
+  INTERESTED
+  CALLBACK
+  NOT_ANSWERED
+  BUSY
+  WRONG_NUMBER
+  NOT_INTERESTED
+}
+
+// One row per call the dialer placed, with the outcome the agent picked.
+// durationSec/answered come from the phone's own call log (duration > 0 =
+// answered). Exactly one of leadId / importedContactId is the record the
+// outcome was applied to (a Not Contacted contact with a matching Lead is
+// worked through the Lead, same as the Not Contacted tab).
+model DialerCall {
+  id                String          @id @default(cuid())
+  agentId           String
+  agent             User            @relation("DialerCallAgent", fields: [agentId], references: [id])
+  leadId            String?
+  lead              Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  importedContactId String?
+  importedContact   ImportedContact? @relation(fields: [importedContactId], references: [id], onDelete: SetNull)
+  phone             String // normalized last-10-digit number that was dialed
+  startedAt         DateTime
+  durationSec       Int             @default(0)
+  answered          Boolean         @default(false)
+  outcome           DialerOutcome
+  note              String?
+  callbackAt        DateTime?
+  createdAt         DateTime        @default(now())
+
+  @@index([agentId, startedAt])
+  @@index([phone, startedAt])
+  @@index([leadId])
+  @@index([importedContactId])
+}
+
+// "This number is being dialed by this agent" — so two agents never get the
+// same phone from GET /dialer/next. One row per phone; an agent's lock is
+// released when they save the result or ask for the next lead, and any lock
+// older than DIALER_LOCK_MINUTES is treated as free.
+model DialerLock {
+  phone             String   @id // normalized last-10-digit number
+  agentId           String
+  agent             User     @relation("DialerLockAgent", fields: [agentId], references: [id], onDelete: Cascade)
+  leadId            String?
+  importedContactId String?
+  lockedAt          DateTime @default(now())
+
+  @@index([agentId])
 }
 
 // Marketing ROI: one row per calendar month ("2026-07"), holding the ad
