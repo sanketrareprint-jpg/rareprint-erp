@@ -145,10 +145,60 @@ function computeCustomLayout(widthIn: number, heightIn: number, gapXIn: number, 
   };
 }
 
+// Custom sheet: unlike CUSTOM above (fit a grid into 12x18), the sheet is built
+// outward from the grid — the user sets sticker size, gaps and an exact
+// cols x rows count; stickers start right at the grid edge (0 margin) and a
+// fixed white margin is added on every side of the exported sheet. The
+// optional branding line prints centred in the bottom margin.
+const SHEET_MARGIN_IN = 0.25;
+const SHEET_EXPORT_DPI = 600;
+const SHEET_BRANDING_FONT_PT = 7;
+
+// Pre-added branding lines for the custom sheet. heading = dropdown label,
+// text = what prints on the sheet (plain ASCII — jsPDF's built-in Helvetica
+// can't encode most non-Latin-1 characters).
+const BRANDING_LINES = [
+  { heading: 'RarePrint - Email', text: 'Printed by RarePrint | sales@rareprint.in' },
+  { heading: 'RarePrint - Instagram', text: 'Printed by RarePrint | @rareprint.in' },
+  { heading: 'RarePrint - WhatsApp', text: 'Printed by RarePrint | WhatsApp +91 8645614505' },
+];
+
+function computeSheetLayout(widthIn: number, heightIn: number, gapXIn: number, gapYIn: number, cols: number, rows: number) {
+  const cellW = widthIn * 72;
+  const cellH = heightIn * 72;
+  const gapX = Math.max(0, Number.isFinite(gapXIn) ? gapXIn : 0) * 72;
+  const gapY = Math.max(0, Number.isFinite(gapYIn) ? gapYIn : 0) * 72;
+  const valid = Number.isFinite(cellW) && Number.isFinite(cellH) && cellW > 0 && cellH > 0
+    && Number.isInteger(cols) && Number.isInteger(rows) && cols > 0 && rows > 0;
+  if (!valid) {
+    return { cols: 0, rows: 0, startX: 0, startY: 0, stepX: 0, stepY: 0, imgW: 0, imgH: 0, cutW: 0, cutH: 0, offsetX: 0, offsetY: 0, pageW: PAGE_WIDTH, pageH: PAGE_HEIGHT };
+  }
+  const margin = SHEET_MARGIN_IN * 72;
+  const stepX = cellW + gapX;
+  const stepY = cellH + gapY;
+  return {
+    cols,
+    rows,
+    startX: margin,
+    startY: margin,
+    stepX,
+    stepY,
+    imgW: cellW,
+    imgH: cellH,
+    cutW: cellW,
+    cutH: cellH,
+    offsetX: 0,
+    offsetY: 0,
+    // n stickers + (n-1) gaps, plus the margin on both sides.
+    pageW: cols * stepX - gapX + 2 * margin,
+    pageH: rows * stepY - gapY + 2 * margin,
+  };
+}
+
 function StickerSheetContent() {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175' | 'SIZE_150_075' | 'CUSTOM'>('SPARSH');
+  const [layout, setLayout] = useState<'SPARSH' | 'SIZE_150' | 'SIZE_175' | 'SIZE_150_075' | 'CUSTOM' | 'SHEET'>('SPARSH');
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
@@ -159,6 +209,13 @@ function StickerSheetContent() {
   const [borderEnabled, setBorderEnabled] = useState(false);
   const [borderWidthPt, setBorderWidthPt] = useState('1');
   const [borderColor, setBorderColor] = useState('#000000');
+  const [sheetWidthIn, setSheetWidthIn] = useState('');
+  const [sheetHeightIn, setSheetHeightIn] = useState('');
+  const [sheetGapXIn, setSheetGapXIn] = useState('0');
+  const [sheetGapYIn, setSheetGapYIn] = useState('0');
+  const [sheetCols, setSheetCols] = useState('1');
+  const [sheetRows, setSheetRows] = useState('1');
+  const [brandingIndex, setBrandingIndex] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -166,8 +223,33 @@ function StickerSheetContent() {
   // Border stroke (custom only), in pt. Drawn inside each sticker's edge so
   // it never spills into the gap or a neighbouring sticker.
   const borderPt = layout === 'CUSTOM' && borderEnabled ? Math.max(0, parseFloat(borderWidthPt) || 0) : 0;
-  const cfg = layout === 'CUSTOM' ? customCfg : layouts[layout];
-  const meta = layout === 'CUSTOM'
+  const sheetCfg = computeSheetLayout(parseFloat(sheetWidthIn), parseFloat(sheetHeightIn), parseFloat(sheetGapXIn) || 0, parseFloat(sheetGapYIn) || 0, Number(sheetCols), Number(sheetRows));
+  const isSheet = layout === 'SHEET';
+  // Custom size and custom sheet are not Toyocut die-cut: no cut lines / corner marks.
+  const isCustomLayout = layout === 'CUSTOM' || isSheet;
+  const cfg = layout === 'CUSTOM' ? customCfg : isSheet ? sheetCfg : layouts[layout];
+  const pageW = isSheet ? sheetCfg.pageW : PAGE_WIDTH;
+  const pageH = isSheet ? sheetCfg.pageH : PAGE_HEIGHT;
+  const brandingText = isSheet && brandingIndex !== '' ? BRANDING_LINES[Number(brandingIndex)]?.text ?? '' : '';
+  // Preview canvas keeps the sheet's aspect ratio, long side 600px (presets stay 400x600).
+  const previewLong = 600;
+  const canvasW = Math.max(1, Math.round(previewLong * pageW / Math.max(pageW, pageH)));
+  const canvasH = Math.max(1, Math.round(previewLong * pageH / Math.max(pageW, pageH)));
+  const sheetSizeLabel = isSheet && sheetCfg.cols > 0
+    ? `${+(pageW / 72).toFixed(3)} × ${+(pageH / 72).toFixed(3)} in`
+    : '12.25 × 18.25 in';
+  const meta = isSheet
+    ? {
+        label: sheetWidthIn && sheetHeightIn ? `${sheetWidthIn}x${sheetHeightIn} INCH` : 'CUSTOM SHEET',
+        subtitle: 'CUSTOM SHEET',
+        stickerSize: sheetWidthIn && sheetHeightIn
+          ? `${(parseFloat(sheetWidthIn) * 25.4).toFixed(1)} x ${(parseFloat(sheetHeightIn) * 25.4).toFixed(1)} mm`
+          : 'Enter size',
+        description: sheetCfg.cols > 0
+          ? `${sheetCfg.cols}x${sheetCfg.rows} grid — ${sheetCfg.cols * sheetCfg.rows} per sheet`
+          : 'Enter a size, columns and rows',
+      }
+    : layout === 'CUSTOM'
     ? {
         label: customWidthIn && customHeightIn ? `${customWidthIn}x${customHeightIn} INCH` : 'CUSTOM SIZE',
         subtitle: 'CUSTOM SIZE',
@@ -187,7 +269,7 @@ function StickerSheetContent() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const SCALE = canvas.width / PAGE_WIDTH;
+    const SCALE = canvas.width / pageW;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -208,7 +290,7 @@ function StickerSheetContent() {
 
           // Cut border — custom sizes are rarely die-cut, so skip the red
           // cut-line marking for them (still drawn for every preset size).
-          if (layout !== 'CUSTOM') {
+          if (!isCustomLayout) {
             ctx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
             ctx.lineWidth = 0.8;
             ctx.strokeRect(
@@ -243,8 +325,24 @@ function StickerSheetContent() {
         }
       }
 
+      if (brandingText) {
+        const marginPt = SHEET_MARGIN_IN * 72;
+        const maxW = (pageW - 2 * marginPt) * SCALE;
+        let fontPx = SHEET_BRANDING_FONT_PT * SCALE;
+        ctx.font = `${fontPx}px Helvetica, Arial, sans-serif`;
+        const textW = ctx.measureText(brandingText).width;
+        if (textW > maxW) {
+          fontPx *= maxW / textW;
+          ctx.font = `${fontPx}px Helvetica, Arial, sans-serif`;
+        }
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(brandingText, (pageW / 2) * SCALE, (pageH - marginPt / 2) * SCALE);
+      }
+
       // Custom sizes aren't Toyocut-cut, so no corner dots / dash for them.
-      if (layout === 'CUSTOM') return;
+      if (isCustomLayout) return;
 
       // Corner dots - 2.5mm from each edge = 7.09px, radius = 7.09px
       ctx.fillStyle = 'rgb(33, 31, 28)';
@@ -275,7 +373,7 @@ function StickerSheetContent() {
     } else {
       drawStickers();
     }
-  }, [image, layout, cfg, borderPt, borderColor]);
+  }, [image, layout, cfg, borderPt, borderColor, isCustomLayout, pageW, pageH, brandingText]);
 
   useEffect(() => {
     drawPreview();
@@ -312,26 +410,47 @@ function StickerSheetContent() {
   const buildPDF = async (imageSrc: string) => {
       const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF({
-        orientation: 'portrait',
+        // jsPDF swaps width/height to match orientation, so a wide custom
+        // sheet must be declared landscape to keep its real dimensions.
+        orientation: pageW > pageH ? 'landscape' : 'portrait',
         unit: 'pt',
-        format: [PAGE_WIDTH, PAGE_HEIGHT],
+        format: [pageW, pageH],
       });
 
       const img = new Image();
       img.src = imageSrc;
       await new Promise((res) => (img.onload = res));
 
+      // Custom sheet: resample the design to exactly SHEET_EXPORT_DPI at the
+      // sticker's physical size, encode once and reuse it for every cell.
+      let sheetImageBytes: Uint8Array | null = null;
+      if (isSheet) {
+        const resampled = document.createElement('canvas');
+        resampled.width = Math.round((cfg.imgW / 72) * SHEET_EXPORT_DPI);
+        resampled.height = Math.round((cfg.imgH / 72) * SHEET_EXPORT_DPI);
+        const rctx = resampled.getContext('2d');
+        if (!rctx) throw new Error('Canvas not available');
+        rctx.imageSmoothingQuality = 'high';
+        rctx.drawImage(img, 0, 0, resampled.width, resampled.height);
+        const base64 = resampled.toDataURL('image/png').split(',')[1];
+        sheetImageBytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0));
+      }
+
       for (let row = 0; row < cfg.rows; row++) {
         for (let col = 0; col < cfg.cols; col++) {
           const x = cfg.startX + col * cfg.stepX;
           const y = cfg.startY + row * cfg.stepY;
 
-          if (layout !== 'CUSTOM') {
+          if (!isCustomLayout) {
             pdf.setDrawColor(255, 0, 0);
             pdf.rect(x + cfg.offsetX, y + cfg.offsetY, cfg.cutW, cfg.cutH);
           }
 
-          pdf.addImage(img, 'PNG', x, y, cfg.imgW, cfg.imgH, undefined, 'FAST');
+          if (sheetImageBytes) {
+            pdf.addImage(sheetImageBytes, 'PNG', x, y, cfg.imgW, cfg.imgH, 'custom-sheet-sticker', 'FAST');
+          } else {
+            pdf.addImage(img, 'PNG', x, y, cfg.imgW, cfg.imgH, undefined, 'FAST');
+          }
 
           if (borderPt > 0) {
             pdf.setDrawColor(borderColor);
@@ -341,7 +460,18 @@ function StickerSheetContent() {
         }
       }
 
-      if (layout !== 'CUSTOM') {
+      if (brandingText) {
+        const marginPt = SHEET_MARGIN_IN * 72;
+        const maxW = pageW - 2 * marginPt;
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(SHEET_BRANDING_FONT_PT);
+        const textW = pdf.getTextWidth(brandingText);
+        if (textW > maxW) pdf.setFontSize(SHEET_BRANDING_FONT_PT * maxW / textW);
+        pdf.text(brandingText, pageW / 2, pageH - marginPt / 2, { align: 'center', baseline: 'middle' });
+      }
+
+      if (!isCustomLayout) {
         pdf.setFillColor(33, 31, 28);
         const pdfDotR = layout === 'SPARSH' ? 7.26 : 7.09;
         const pdfDots = layout === 'SPARSH'
@@ -369,7 +499,9 @@ function StickerSheetContent() {
     try {
       const pdf = await buildPDF(image);
       const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'sticker-sheet';
-      pdf.save(`${baseName} 12X18 STICKER SHEET.pdf`);
+      pdf.save(isSheet
+        ? `${baseName} ${+(pageW / 72).toFixed(2)}X${+(pageH / 72).toFixed(2)} CUSTOM STICKER SHEET.pdf`
+        : `${baseName} 12X18 STICKER SHEET.pdf`);
     } finally {
       setIsGenerating(false);
     }
@@ -429,7 +561,7 @@ function StickerSheetContent() {
             <h1 className="text-sm font-bold tracking-widest uppercase text-gray-900">
               Sticker Sheet Generator
             </h1>
-            <p className="text-xs text-gray-400 tracking-wider">300 DPI · PDF READY · PRINT ACCURATE</p>
+            <p className="text-xs text-gray-400 tracking-wider">{isSheet ? SHEET_EXPORT_DPI : 300} DPI · PDF READY · PRINT ACCURATE</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -614,6 +746,71 @@ function StickerSheetContent() {
                   <p className="text-xs text-red-500 mt-1.5">Too large to fit on a 12x18 sheet — try a smaller size.</p>
                 )}
               </div>
+
+              {/* Custom sheet — sheet size follows the grid */}
+              <div onClick={() => setLayout('SHEET')}
+                className={"col-span-2 px-2 py-1.5 rounded border cursor-pointer transition-all " + (isSheet ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:border-gray-300")}>
+                <div className="flex items-center justify-between">
+                  <div className={"text-xs font-bold tracking-wider " + (isSheet ? "text-indigo-700" : "text-gray-700")}>CUSTOM SHEET</div>
+                  {isSheet && (
+                    <div className="text-xs font-mono text-indigo-500">{sheetCfg.cols}x{sheetCfg.rows} · {sheetCfg.cols * sheetCfg.rows}</div>
+                  )}
+                </div>
+                {isSheet && (
+                  <div className="mt-1.5 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 shrink-0 w-10">Size</span>
+                      <input type="number" min="0.1" step="0.05" placeholder="W" value={sheetWidthIn}
+                        onChange={(e) => setSheetWidthIn(e.target.value)} className={inputCls} />
+                      <span className="text-xs text-gray-400">×</span>
+                      <input type="number" min="0.1" step="0.05" placeholder="H" value={sheetHeightIn}
+                        onChange={(e) => setSheetHeightIn(e.target.value)} className={inputCls} />
+                      <span className="text-xs text-gray-400 shrink-0">in</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 shrink-0 w-10">Gap</span>
+                      <input type="number" min="0" step="0.01" placeholder="H" title="Horizontal gap" value={sheetGapXIn}
+                        onChange={(e) => setSheetGapXIn(e.target.value)} className={inputCls} />
+                      <span className="text-xs text-gray-400">×</span>
+                      <input type="number" min="0" step="0.01" placeholder="V" title="Vertical gap" value={sheetGapYIn}
+                        onChange={(e) => setSheetGapYIn(e.target.value)} className={inputCls} />
+                      <span className="text-xs text-gray-400 shrink-0">in</span>
+                    </div>
+                    {([
+                      ['Cols', sheetCols, setSheetCols],
+                      ['Rows', sheetRows, setSheetRows],
+                    ] as const).map(([label, value, setValue]) => (
+                      <div key={label} className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400 shrink-0 w-10">{label}</span>
+                        <button type="button" title={`Remove one`}
+                          onClick={() => setValue(String(Math.max(1, (parseInt(value, 10) || 1) - 1)))}
+                          className="h-6 w-7 shrink-0 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100">−</button>
+                        <input type="number" min="1" step="1" value={value}
+                          onChange={(e) => setValue(e.target.value)} className={inputCls + " text-center"} />
+                        <button type="button" title={`Add one`}
+                          onClick={() => setValue(String((parseInt(value, 10) || 0) + 1))}
+                          className="h-6 w-7 shrink-0 text-xs font-bold border border-gray-300 rounded hover:bg-gray-100">+</button>
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 shrink-0 w-10">Brand</span>
+                      <select value={brandingIndex} onChange={(e) => setBrandingIndex(e.target.value)} className={inputCls}>
+                        <option value="">No branding line</option>
+                        {BRANDING_LINES.map((line, i) => (
+                          <option key={line.heading} value={String(i)}>{line.heading}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {brandingText && (
+                      <p className="text-xs text-gray-500 truncate" title={brandingText}>{brandingText}</p>
+                    )}
+                    <p className="text-xs text-gray-400">Margin 0 between grid edge and stickers · {SHEET_MARGIN_IN} in white border added on all sides</p>
+                  </div>
+                )}
+                {isSheet && sheetWidthIn && sheetHeightIn && sheetCfg.cols === 0 && (
+                  <p className="text-xs text-red-500 mt-1.5">Enter a valid size and whole-number columns / rows (min 1).</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -626,14 +823,20 @@ function StickerSheetContent() {
                 ['Grid', `${cfg.cols} cols × ${cfg.rows} rows`],
                 ['Total Stickers', `${totalStickers}`],
                 ['Sticker Size', meta.stickerSize],
-                ['Sheet Size', '12.25 × 18.25 in'],
-                ['Resolution', '300 DPI'],
-                ['Cut Border', layout === 'CUSTOM' ? 'None' : 'Red (RGB 255,0,0)'],
+                ['Sheet Size', sheetSizeLabel],
+                ...(isSheet && sheetCfg.cols > 0 ? [
+                  ['Export Pixels', `${Math.round(pageW / 72 * SHEET_EXPORT_DPI)} × ${Math.round(pageH / 72 * SHEET_EXPORT_DPI)} px`],
+                  ['Margin', `${SHEET_MARGIN_IN} in all sides`],
+                  ['Gap (H × V)', `${parseFloat(sheetGapXIn) || 0} × ${parseFloat(sheetGapYIn) || 0} in`],
+                  ['Branding', brandingText ? BRANDING_LINES[Number(brandingIndex)].heading : 'None'],
+                ] : []),
+                ['Resolution', isSheet ? `${SHEET_EXPORT_DPI} DPI` : '300 DPI'],
+                ['Cut Border', isCustomLayout ? 'None' : 'Red (RGB 255,0,0)'],
                 ...(layout === 'CUSTOM' ? [
                   ['Gap (H × V)', `${parseFloat(customGapXIn) || 0} × ${parseFloat(customGapYIn) || 0} in`],
                   ['Border Stroke', borderPt > 0 ? `${borderPt} pt ${borderColor}` : 'None'],
                 ] : []),
-                ['Corner Marks', layout === 'CUSTOM' ? 'None' : '4× Toyocut dots'],
+                ['Corner Marks', isCustomLayout ? 'None' : '4× Toyocut dots'],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between items-center py-0.5 gap-2">
                   <span className="text-xs text-gray-400 uppercase tracking-wider shrink-0">{label}</span>
@@ -657,13 +860,13 @@ function StickerSheetContent() {
             <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
               <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Live Preview</span>
               <div className="flex items-center gap-3 text-xs text-gray-400 font-mono">
-                {layout !== 'CUSTOM' && (
+                {!isCustomLayout && (
                   <span className="flex items-center gap-1">
                     <span className="inline-block w-3 h-2 border border-red-400 opacity-60"></span>
                     Cut line
                   </span>
                 )}
-                {layout !== 'CUSTOM' && (
+                {!isCustomLayout && (
                   <span className="flex items-center gap-1">
                     <span className="inline-block w-3 h-3 rounded-full bg-gray-800"></span>
                     Corner mark
@@ -680,8 +883,8 @@ function StickerSheetContent() {
             <div className="flex items-center justify-center p-3 bg-gray-100">
               <canvas
                 ref={canvasRef}
-                width={400}
-                height={600}
+                width={canvasW}
+                height={canvasH}
                 className="shadow-xl rounded"
                 style={{ display: 'block', height: 'calc(100vh - 130px)', minHeight: 360, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
               />
