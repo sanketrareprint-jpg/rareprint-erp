@@ -290,7 +290,7 @@ export class CallComplianceService {
 
     const monthFilter = month ? this.monthRange(month) : null;
 
-    const [taggedContacts, allCallRecords] = await Promise.all([
+    const [taggedContacts, allCallRecords, dialerCalled] = await Promise.all([
       this.prisma.importedContact.findMany({
         // Which tagged contacts we're reporting on is scoped to the month
         // (by when AiSensy says the contact was created) if one is given.
@@ -304,9 +304,13 @@ export class CallComplianceService {
         where: { agentId },
         select: { phone: true, calledAt: true, durationSec: true },
       }),
+      this.dialerCalledPhones({ agentId }),
     ]);
 
-    const calledPhones = new Set(allCallRecords.map((c) => c.phone));
+    // Contacted = in the carrier statement OR dialed through the app's auto
+    // dialer (no PDF needed for those). The call-count stats below stay
+    // statement-only so a dialer call isn't counted twice once the PDF arrives.
+    const calledPhones = new Set([...allCallRecords.map((c) => c.phone), ...dialerCalled.map((c) => c.phone)]);
     const notContacted = taggedContacts.filter((c) => !calledPhones.has(c.phone));
 
     // The "calls made" stats below (top 5, calling pattern) DO respect the
@@ -375,7 +379,7 @@ export class CallComplianceService {
       select: { id: true, fullName: true, aisensyTag: true },
     });
 
-    const [allContacts, allCalls] = await Promise.all([
+    const [allContacts, allCalls, dialerCalled] = await Promise.all([
       this.prisma.importedContact.findMany({
         // "tags applied this month" = contacts AiSensy says were created
         // that month. Falls back to all-time when no month is given.
@@ -385,10 +389,11 @@ export class CallComplianceService {
       // Contacted-check always uses the full call history, not month-scoped —
       // see getAgentComplianceStats for why.
       this.prisma.callLogRecord.findMany({ select: { agentId: true, phone: true } }),
+      this.dialerCalledPhones({}),
     ]);
 
     const calledSetByAgent = new Map<string, Set<string>>();
-    for (const c of allCalls) {
+    for (const c of [...allCalls, ...dialerCalled]) {
       if (!calledSetByAgent.has(c.agentId)) calledSetByAgent.set(c.agentId, new Set());
       calledSetByAgent.get(c.agentId)!.add(c.phone);
     }
@@ -535,7 +540,7 @@ export class CallComplianceService {
       ...(monthFilter ? { createdOnAt: { gte: monthFilter.start, lt: monthFilter.end } } : {}),
     };
 
-    const [contacts, calls] = await Promise.all([
+    const [contacts, calls, dialerCalled] = await Promise.all([
       this.prisma.importedContact.findMany({
         where: contactWhere,
         select: {
@@ -551,10 +556,11 @@ export class CallComplianceService {
         where: isAdmin ? {} : { agentId: requester.id },
         select: { agentId: true, phone: true },
       }),
+      this.dialerCalledPhones(isAdmin ? {} : { agentId: requester.id }),
     ]);
 
     const calledSetByAgent = new Map<string, Set<string>>();
-    for (const c of calls) {
+    for (const c of [...calls, ...dialerCalled]) {
       if (!calledSetByAgent.has(c.agentId)) calledSetByAgent.set(c.agentId, new Set());
       calledSetByAgent.get(c.agentId)!.add(c.phone);
     }
@@ -672,6 +678,20 @@ export class CallComplianceService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * (agentId, phone) pairs the agent dialed through the Android app's auto
+   * dialer (backend/src/dialer) — these count as "contacted" the same as a
+   * call found in an uploaded carrier statement, without needing the PDF.
+   * DialerCall.phone is the same normalized last-10-digit form as CallLogRecord.phone.
+   */
+  private dialerCalledPhones(where: { agentId?: string }) {
+    return this.prisma.dialerCall.findMany({
+      where,
+      select: { agentId: true, phone: true },
+      distinct: ['agentId', 'phone'],
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
   ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp,
+  PhoneOutgoing,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -54,6 +55,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Design",     href: "/design-studio",    icon: Palette },
     { label: "Reports",    href: "/reports",          icon: FileSpreadsheet },
     { label: "CRM",        href: "/crm",              icon: BarChart2 },
+    { label: "Dialer",     href: "/dialer",           icon: PhoneOutgoing },
     { label: "Call Compliance", href: "/call-compliance", icon: PhoneCall },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
     { label: "Manage Academy", href: "/admin/sales-learning", icon: BookOpen },
@@ -97,6 +99,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Design", href: "/design-studio", icon: Palette },
     { label: "CRM", href: "/crm", icon: BarChart2 },
+    { label: "Dialer", href: "/dialer", icon: PhoneOutgoing },
     { label: "Sales Academy", href: "/sales-learning", icon: BookOpen },
     { label: "Loyalty",    href: "/loyalty",          icon: Gift },
     { label: "Complaints", href: "/complaints", icon: MessageSquareWarning },
@@ -186,6 +189,7 @@ const MODULE_KEY_BY_HREF: Record<string, string> = {
   "/dispatch": "dispatch",
   "/reports": "reports",
   "/crm": "crm",
+  "/dialer": "dialer",
   "/tasks": "tasks",
   "/storefront": "storefront",
   "/marketing": "marketing",

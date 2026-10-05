@@ -52,6 +52,8 @@ export const DEFAULT_MODULES: ModuleConfig[] = [
   { key: 'dispatch', label: 'Dispatch', href: '/dispatch', fixed: true, enabled: true },
   { key: 'reports', label: 'Reports', href: '/reports', enabled: true },
   { key: 'crm', label: 'CRM', href: '/crm', enabled: true },
+  // Auto dialer — the page itself only works inside the Android app.
+  { key: 'dialer', label: 'Dialer', href: '/dialer', enabled: true },
   { key: 'tasks', label: 'Tasks', href: '/tasks', enabled: true },
   { key: 'storefront', label: 'Storefront', href: '/storefront', enabled: true },
   { key: 'marketing', label: 'Marketing', href: '/marketing', enabled: true },
@@ -90,7 +92,7 @@ export const DEFAULT_ERP_CONFIG: ErpConfig = {
   roleAccess: {
     ADMIN: DEFAULT_MODULES.map((m) => m.key),
     AGENT: ['dashboard', 'orders', 'tasks', 'storefront', 'marketing', 'customers', 'crm', 'rate-calculator'],
-    SALES_AGENT: ['dashboard', 'orders', 'tasks', 'storefront', 'marketing', 'customers', 'crm', 'rate-calculator', 'design', 'loyalty'],
+    SALES_AGENT: ['dashboard', 'orders', 'tasks', 'storefront', 'marketing', 'customers', 'crm', 'dialer', 'rate-calculator', 'design', 'loyalty'],
     ACCOUNTS: ['dashboard', 'orders', 'accounts', 'tasks', 'storefront', 'cost-table', 'bank-statement', 'remittance-import', 'reports', 'loyalty'],
     PRODUCTION: ['dashboard', 'orders', 'production', 'design', 'paper-stock', 'tasks', 'storefront', 'sticker', 'sheet-layout'],
     DISPATCH: ['dashboard', 'orders', 'dispatch', 'tasks', 'storefront'],
