@@ -1,7 +1,7 @@
 "use client";
 // Auto dialer — Android app only. Calls the agent's queue one after another:
 //   GET /dialer/next → native startCall → call ends → outcome screen →
-//   POST /dialer/result → 5 s countdown → next.
+//   POST /dialer/result → next lead dialed straight away (no countdown).
 // Native side: CallManagerPlugin.kt + DialerService.kt (lib/plugins/CallManager.ts).
 // Backend: backend/src/dialer (queue order, locks, status updates).
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,7 +20,6 @@ import {
 
 const SIM_KEY = "dialer_sim_id"; // same key as the Phase 1 test screen
 const QUEUE_AGENT_KEY = "dialer_queue_agent_id"; // admins: whose leads to dial ("" = my own)
-const COUNTDOWN_SECONDS = 5;
 
 type Outcome = "INTERESTED" | "CALLBACK" | "NOT_ANSWERED" | "BUSY" | "WRONG_NUMBER" | "NOT_INTERESTED";
 const OUTCOMES: Array<{ value: Outcome; label: string; className: string }> = [
@@ -56,7 +55,7 @@ interface QueueItem {
 interface SessionStats { callsMade: number; connected: number; talkTimeSec: number; }
 interface Seller { id: string; fullName: string; role: string; }
 
-type Phase = "idle" | "loading" | "dialing" | "onCall" | "outcome" | "saving" | "countdown" | "paused" | "empty" | "stopped";
+type Phase = "idle" | "loading" | "dialing" | "onCall" | "outcome" | "saving" | "paused" | "empty" | "stopped";
 
 const last10 = (p: string) => p.replace(/\D/g, "").slice(-10);
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -76,7 +75,6 @@ export default function DialerPage() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [note, setNote] = useState("");
   const [callbackAt, setCallbackAt] = useState("");
-  const [countdown, setCountdown] = useState(0);
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [error, setError] = useState("");
   const [afterCall, setAfterCall] = useState<"continue" | "pause" | "stop">("continue");
@@ -91,14 +89,11 @@ export default function DialerPage() {
   const itemRef = useRef<QueueItem | null>(null);
   const simIdRef = useRef("");
   const afterCallRef = useRef<"continue" | "pause" | "stop">("continue");
-  const skippedRef = useRef<string[]>([]);
-  const pendingRef = useRef(false); // item on screen has been fetched but not dialed yet
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingRef = useRef(false); // lead on screen whose call couldn't be started (Resume retries it)
 
   const setPhaseBoth = (p: Phase) => { phaseRef.current = p; setPhase(p); };
   const setItemBoth = (i: QueueItem | null) => { itemRef.current = i; setItem(i); };
   const setAfterCallBoth = (a: "continue" | "pause" | "stop") => { afterCallRef.current = a; setAfterCall(a); };
-  const clearCountdown = () => { if (countdownRef.current) clearInterval(countdownRef.current); countdownRef.current = null; };
 
   const loadStats = useCallback(async () => {
     const s = await apiFetch<SessionStats>("/dialer/session-stats");
@@ -123,7 +118,6 @@ export default function DialerPage() {
   }, []);
 
   const stopSession = useCallback((reason?: string) => {
-    clearCountdown();
     setPhaseBoth("stopped");
     setAfterCallBoth("continue");
     dialer.stopSession().catch(() => {});
@@ -133,7 +127,6 @@ export default function DialerPage() {
 
   /** Dial the lead on screen. */
   const dialItem = useCallback(async (it: QueueItem) => {
-    clearCountdown();
     pendingRef.current = false;
     setEnded(null);
     setCallStartedAt(null);
@@ -148,36 +141,12 @@ export default function DialerPage() {
     }
   }, []);
 
-  const startCountdown = useCallback(() => {
-    clearCountdown();
-    setPhaseBoth("countdown");
-    let left = COUNTDOWN_SECONDS;
-    setCountdown(left);
-    countdownRef.current = setInterval(() => {
-      left -= 1;
-      setCountdown(left);
-      if (left <= 0 && itemRef.current) dialItem(itemRef.current);
-    }, 1000);
-  }, [dialItem]);
-
-  /**
-   * Get the next lead from the queue. dialNow = call it straight away (Start /
-   * Resume); otherwise show it as "Next up" during the 5 s countdown so the
-   * agent can Skip it.
-   */
-  const queueNext = useCallback(async (dialNow: boolean) => {
-    clearCountdown();
+  /** Get the next lead from the queue and dial it straight away. */
+  const queueNext = useCallback(async () => {
     setError("");
     setPhaseBoth("loading");
-    const params = new URLSearchParams();
-    if (skippedRef.current.length) params.set("skip", skippedRef.current.join(","));
-    if (queueAgentRef.current) params.set("asAgentId", queueAgentRef.current);
-    const qs = params.toString();
-    const res = await apiFetch<{ item: QueueItem | null }>(
-      `/dialer/next${qs ? `?${qs}` : ""}`,
-      {},
-      (msg) => setError(msg),
-    );
+    const qs = queueAgentRef.current ? `?asAgentId=${encodeURIComponent(queueAgentRef.current)}` : "";
+    const res = await apiFetch<{ item: QueueItem | null }>(`/dialer/next${qs}`, {}, (msg) => setError(msg));
     if (phaseRef.current !== "loading") return; // agent pressed Stop meanwhile
     if (!res) { setPhaseBoth("paused"); return; }
     if (!res.item) {
@@ -188,10 +157,8 @@ export default function DialerPage() {
       return;
     }
     setItemBoth(res.item);
-    pendingRef.current = true;
-    if (dialNow) dialItem(res.item);
-    else startCountdown();
-  }, [loadStats, dialItem, startCountdown]);
+    dialItem(res.item);
+  }, [loadStats, dialItem]);
 
   // Load saved SIM once.
   useEffect(() => {
@@ -234,19 +201,13 @@ export default function DialerPage() {
         if (e.action === "stop") {
           if (phaseRef.current === "dialing" || phaseRef.current === "onCall" || phaseRef.current === "outcome") setAfterCallBoth("stop");
           else stopSession();
-        } else if (phaseRef.current === "countdown") {
-          clearCountdown();
-          setPhaseBoth("paused");
         } else {
-          setAfterCallBoth("pause");
+          setAfterCallBoth("pause"); // takes effect once this call's outcome is saved
         }
       }),
       dialer.onError((e) => {
         setError(e.message);
-        if (phaseRef.current === "dialing" || phaseRef.current === "countdown" || phaseRef.current === "loading") {
-          clearCountdown();
-          setPhaseBoth("paused");
-        }
+        if (phaseRef.current === "dialing" || phaseRef.current === "loading") setPhaseBoth("paused");
       }),
     ];
     const onVisible = () => { if (document.visibilityState === "visible") refreshPerms(); };
@@ -254,7 +215,6 @@ export default function DialerPage() {
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       handles.forEach((h) => h.then((x) => x.remove()).catch(() => {}));
-      clearCountdown();
       if (phaseRef.current !== "idle" && phaseRef.current !== "stopped" && phaseRef.current !== "empty") {
         dialer.stopSession().catch(() => {});
       }
@@ -271,7 +231,6 @@ export default function DialerPage() {
     setError("");
     if (!perms?.allGranted) { setError("Allow all the permissions below first."); return; }
     if (sims.length > 1 && !simIdRef.current) { setError("Choose which SIM to call from first."); return; }
-    skippedRef.current = [];
     setAfterCallBoth("continue");
     try {
       await dialer.startSession();
@@ -279,26 +238,18 @@ export default function DialerPage() {
       setError(errMsg(e));
       return;
     }
-    queueNext(true);
+    queueNext();
   };
 
   const resume = async () => {
     try { await dialer.startSession(); } catch (e) { setError(errMsg(e)); return; }
     const it = itemRef.current;
-    if (pendingRef.current && it) dialItem(it); // the lead that was "Next up" when paused
-    else queueNext(true);
+    if (pendingRef.current && it) dialItem(it); // retry the lead whose call couldn't start
+    else queueNext();
   };
 
-  const pause = () => {
-    if (phaseRef.current === "countdown") { clearCountdown(); setPhaseBoth("paused"); }
-    else setAfterCallBoth("pause"); // during a call: pause once the outcome is saved
-  };
-
-  const skip = () => {
-    // Skip the "Next up" lead shown during the countdown (it isn't called).
-    if (itemRef.current) skippedRef.current.push(last10(itemRef.current.phone));
-    queueNext(false);
-  };
+  // During a call: pause once this call's outcome is saved.
+  const pause = () => setAfterCallBoth("pause");
 
   const stop = () => {
     if (phaseRef.current === "dialing" || phaseRef.current === "onCall" || phaseRef.current === "outcome" || phaseRef.current === "saving") {
@@ -308,7 +259,12 @@ export default function DialerPage() {
     }
   };
 
-  const saveOutcome = async () => {
+  /**
+   * Save the outcome, then: "next" = dial the next lead straight away,
+   * "pause" / "stop" = don't. A Pause/Stop pressed during the call (page or
+   * notification) wins over the button tapped here.
+   */
+  const saveOutcome = async (mode: "next" | "pause" | "stop") => {
     const current = itemRef.current;
     if (!current || !ended || !outcome) return;
     if (outcome === "CALLBACK" && !callbackAt) { setError("Pick the callback date and time."); return; }
@@ -328,12 +284,12 @@ export default function DialerPage() {
     }, (msg) => setError(msg));
     if (!saved) { setPhaseBoth("outcome"); return; } // keep the screen so nothing is lost
     loadStats();
-    const next = afterCallRef.current;
+    const then = afterCallRef.current !== "continue" ? afterCallRef.current : mode;
     setAfterCallBoth("continue");
     pendingRef.current = false;
-    if (next === "stop") stopSession();
-    else if (next === "pause") setPhaseBoth("paused");
-    else queueNext(false); // shows the next lead during the countdown
+    if (then === "stop") stopSession();
+    else if (then === "pause") setPhaseBoth("paused");
+    else queueNext(); // dial the next lead now
   };
 
   if (!isNative) {
@@ -344,7 +300,7 @@ export default function DialerPage() {
     );
   }
 
-  const running = ["loading", "dialing", "onCall", "outcome", "saving", "countdown", "paused"].includes(phase);
+  const running = ["loading", "dialing", "onCall", "outcome", "saving", "paused"].includes(phase);
   const missingPerms = perms && !perms.allGranted;
 
   return (
@@ -424,9 +380,6 @@ export default function DialerPage() {
         {/* Current lead */}
         {item && running && (
           <section className="rounded-lg border p-4 space-y-2">
-            {phase === "countdown" && (
-              <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Next up</div>
-            )}
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-lg font-bold text-slate-900 break-words">{item.name || "Unnamed"}</div>
@@ -454,7 +407,6 @@ export default function DialerPage() {
             {phase === "dialing" && "Calling…"}
             {phase === "onCall" && <>On call <b className="font-mono">{mmss(elapsed)}</b></>}
             {(phase === "outcome" || phase === "saving") && "Call ended — save the outcome."}
-            {phase === "countdown" && <>Next call in <b>{countdown}s</b></>}
             {phase === "paused" && "Paused."}
             {phase === "empty" && "No more leads to call right now."}
             {phase === "stopped" && "Dialer stopped."}
@@ -469,10 +421,9 @@ export default function DialerPage() {
               </button>
             )}
             {phase === "paused" && <button className="px-4 py-2 rounded-lg bg-blue-600 text-white" onClick={resume}>Resume</button>}
-            {(phase === "countdown" || phase === "dialing" || phase === "onCall") && afterCall === "continue" && (
+            {(phase === "dialing" || phase === "onCall") && afterCall === "continue" && (
               <button className="px-4 py-2 rounded-lg border" onClick={pause}>Pause</button>
             )}
-            {phase === "countdown" && <button className="px-4 py-2 rounded-lg border" onClick={skip}>Skip</button>}
             {running && <button className="px-4 py-2 rounded-lg bg-red-600 text-white" onClick={stop}>Stop</button>}
           </div>
         </section>
@@ -511,10 +462,22 @@ export default function DialerPage() {
                 className="mt-1 w-full rounded-lg border px-3 py-2" placeholder="What did they say?" />
             </label>
             {afterCall !== "continue" && <p className="text-xs text-amber-700">The dialer will {afterCall} after you save.</p>}
-            <button type="button" onClick={saveOutcome} disabled={!outcome || phase === "saving"}
+            <button type="button" onClick={() => saveOutcome("next")} disabled={!outcome || phase === "saving"}
               className="w-full rounded-lg bg-slate-900 px-4 py-3 text-white font-medium disabled:opacity-50">
-              {phase === "saving" ? "Saving…" : afterCall === "continue" ? "Save & next" : "Save"}
+              {phase === "saving" ? "Saving…" : afterCall === "continue" ? "Save & call next" : "Save"}
             </button>
+            {afterCall === "continue" && (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => saveOutcome("pause")} disabled={!outcome || phase === "saving"}
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-50">
+                  Save & pause
+                </button>
+                <button type="button" onClick={() => saveOutcome("stop")} disabled={!outcome || phase === "saving"}
+                  className="flex-1 rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50">
+                  Save & stop
+                </button>
+              </div>
+            )}
           </div>
         </div>,
         document.body,

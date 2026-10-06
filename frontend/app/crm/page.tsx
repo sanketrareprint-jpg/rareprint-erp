@@ -180,7 +180,6 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
 function CrmPageContent() {
   const isNativeApp = useIsNativeApp();
   const router = useRouter();
-  const dialerTestTaps = useRef(0);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
@@ -463,6 +462,8 @@ function CrmPageContent() {
   }, []);
 
   useEffect(() => { if (view === "notcontacted") loadNotContacted(notContactedMonth); }, [view, notContactedMonth, loadNotContacted]);
+  // The Android app never shows the old in-page power dialer — it uses the auto dialer page.
+  useEffect(() => { if (isNativeApp && view === "dialer") router.replace("/dialer"); }, [isNativeApp, view, router]);
 
   useEffect(() => {
     if (view !== "notcontacted" || notContactedMonths.length) return;
@@ -647,7 +648,7 @@ function CrmPageContent() {
         setTimeout(() => initiateCall(next), 400);
       } else {
         setDialerActive(false);
-        alert("🎉 All leads dialed! Great work.");
+        alert("No more of your leads to dial here (only New, Contacted and Interested leads assigned to you are dialed).");
       }
     }
   };
@@ -713,13 +714,7 @@ function CrmPageContent() {
       <div className="bg-white border-b border-slate-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between gap-2">
           <div>
-            {/* Hidden entry to the Phase 1 auto-dialer test: tap the title 5 times in the Android app. */}
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900"
-              onClick={() => {
-                if (!isNativeApp) return;
-                dialerTestTaps.current += 1;
-                if (dialerTestTaps.current >= 5) { dialerTestTaps.current = 0; router.push("/dialer-test"); }
-              }}>CRM — Leads</h1>
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900">CRM — Leads</h1>
             <p className="text-xs sm:text-sm text-slate-500">Manage your sales pipeline</p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -963,9 +958,8 @@ function CrmPageContent() {
                 </div>
               ) : (
                 <div className="p-10 text-center text-slate-400">
-                  <p className="text-4xl mb-3">🎉</p>
-                  <p className="font-semibold text-slate-700">All leads dialed!</p>
-                  <p className="text-sm mt-1">Great work. Check back tomorrow.</p>
+                  <p className="font-semibold text-slate-700">No leads to dial here</p>
+                  <p className="text-sm mt-1">This dialer only calls New, Contacted and Interested leads assigned to you.</p>
                 </div>
               )}
             </div>
