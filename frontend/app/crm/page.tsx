@@ -726,7 +726,8 @@ function CrmPageContent() {
             <button onClick={() => setShowImportModal(true)} className="inline-flex items-center gap-1 border border-slate-300 text-slate-700 text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium">
               📥 <span className="hidden sm:inline">Import</span>
             </button>
-            <button onClick={() => { setDialerActive(true); setView("dialer"); loadNextDialer(); }}
+            {/* In the Android app ⚡ opens the auto dialer (/dialer); the website keeps the in-page power dialer. */}
+            <button onClick={() => { if (isNativeApp) { router.push("/dialer"); return; } setDialerActive(true); setView("dialer"); loadNextDialer(); }}
               className="inline-flex items-center gap-1 bg-orange-600 text-white text-xs sm:text-sm px-2 sm:px-3 py-1.5 rounded-lg hover:bg-orange-700 font-semibold">
               ⚡ <span className="hidden sm:inline">Dialer</span>
             </button>
