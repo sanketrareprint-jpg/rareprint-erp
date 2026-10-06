@@ -198,7 +198,7 @@ export class BillingService {
   // Same base shape/exclusions as AccountsService.getInvoices() (test orders
   // excluded, same field set) — this module reuses that data, doesn't
   // duplicate its business rules.
-  async listInvoices(filters: { from?: string; to?: string; customerId?: string; status?: string; search?: string }) {
+  async listInvoices(filters: { from?: string; to?: string; customerId?: string; status?: string; search?: string; gstType?: string; all?: boolean }) {
     const where: any = { order: { isTest: false } };
     if (filters.from || filters.to) {
       where.issueDate = {};
@@ -207,6 +207,13 @@ export class BillingService {
     }
     if (filters.customerId) where.order = { ...where.order, customerId: filters.customerId };
     if (filters.status) where.status = filters.status;
+    // GST registration of the party: registered = customer has a GSTIN
+    // (the invoice PDF prints the customer's GSTIN), unregistered = none.
+    if (filters.gstType === 'registered') {
+      where.order = { ...where.order, customer: { AND: [{ gstNumber: { not: null } }, { gstNumber: { not: '' } }] } };
+    } else if (filters.gstType === 'unregistered') {
+      where.order = { ...where.order, customer: { OR: [{ gstNumber: null }, { gstNumber: '' }] } };
+    }
 
     // search moved into the Prisma `where` (was: fetch the latest 500 by
     // issueDate, THEN filter those 500 in JS by search term) — root-caused
@@ -230,7 +237,9 @@ export class BillingService {
         items: true,
       },
       orderBy: { issueDate: 'desc' },
-      take: 500,
+      // all=true is the Excel report export: every invoice matching the
+      // filters, not just the latest 500 shown on screen.
+      take: filters.all ? undefined : 500,
     });
 
     const rows = invoices.map((inv) => ({
@@ -242,9 +251,15 @@ export class BillingService {
       customerName: inv.order.customer.businessName,
       customerPhone: inv.order.customer.phone,
       gstNumber: inv.order.customer.gstNumber,
+      customerCity: inv.order.customer.city,
+      customerState: inv.order.customer.state,
       gstTreatment: inv.gstTreatment,
       subtotal: Number(inv.subtotal),
+      discountAmount: Number(inv.discountAmount),
       taxableAmount: Number(inv.taxableAmount),
+      cgstAmount: Number(inv.cgstAmount),
+      sgstAmount: Number(inv.sgstAmount),
+      igstAmount: Number(inv.igstAmount),
       taxAmount: Number(inv.taxAmount),
       totalAmount: Number(inv.totalAmount),
       paidAmount: Number(inv.paidAmount),

@@ -42,8 +42,10 @@ export class BillingController {
     @Query('customerId') customerId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('gstType') gstType?: string,
+    @Query('all') all?: string,
   ) {
-    return this.billingService.listInvoices({ from, to, customerId, status, search });
+    return this.billingService.listInvoices({ from, to, customerId, status, search, gstType, all: all === 'true' });
   }
 
   @UseGuards(AuthGuard('jwt'))

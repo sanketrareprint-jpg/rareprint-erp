@@ -19,6 +19,8 @@ import { MobileSelect } from "@/components/MobileSelect";
 type Invoice = {
   id: string; orderId: string; customerId: string; invoiceNumber: string; issueDate: string;
   customerName: string; customerPhone: string | null; gstNumber: string | null; gstTreatment: string;
+  customerCity: string | null; customerState: string | null; discountAmount: number;
+  cgstAmount: number; sgstAmount: number; igstAmount: number;
   subtotal: number; taxableAmount: number; taxAmount: number; totalAmount: number; paidAmount: number;
   balanceAmount: number; status: string; whatsappStatus: string; whatsappSentAt: string | null;
   salesAgentName: string | null;
@@ -189,6 +191,55 @@ async function downloadStatementExcel(ledger: PartyLedger) {
   XLSXStyled.writeFile(wb, `Statement_${c.businessName.replace(/[^a-zA-Z0-9]+/g, "_")}.xlsx`);
 }
 
+// Sales register (Invoices tab "Excel Report") — one row per invoice matching
+// the tab's filters. Amounts are the invoice's own stored figures (courier
+// charge GST already included in taxable/CGST/SGST/IGST), not recomputed.
+// Registered = the customer has a GSTIN, same rule as the backend gstType filter.
+async function downloadInvoiceReportExcel(invoices: Invoice[], filename: string) {
+  type XlsxStyle = typeof import("xlsx-js-style");
+  const mod = (await import("xlsx-js-style")) as XlsxStyle & { default?: XlsxStyle };
+  const XLSXStyled = mod.default ?? mod;
+  const sum = (key: "totalAmount" | "taxableAmount" | "discountAmount" | "igstAmount" | "sgstAmount" | "cgstAmount") =>
+    Math.round(invoices.reduce((s, inv) => s + (inv[key] ?? 0), 0) * 100) / 100;
+  const rows: (string | number | Date)[][] = [
+    ["Date", "Invoice Number", "Type of Customer", "Voucher Type", "Party Name", "Phone No", "Location (City / State)",
+      "Total Amount (₹)", "Taxable Amt (₹)", "Discount (₹)", "IGST (₹)", "SGST (₹)", "CGST (₹)", "Seller Name"],
+    ...invoices.map(inv => [
+      new Date(inv.issueDate), inv.invoiceNumber, inv.gstNumber?.trim() ? "Registered" : "Unregistered", "Sales",
+      inv.customerName, inv.customerPhone ?? "", [inv.customerCity, inv.customerState].filter(Boolean).join(" / "),
+      inv.totalAmount, inv.taxableAmount, inv.discountAmount, inv.igstAmount, inv.sgstAmount, inv.cgstAmount,
+      inv.salesAgentName ?? "",
+    ]),
+    ["", "", "", "", "", "", "Total", sum("totalAmount"), sum("taxableAmount"), sum("discountAmount"),
+      sum("igstAmount"), sum("sgstAmount"), sum("cgstAmount"), ""],
+  ];
+  const totalRow = rows.length - 1;
+  const ws = XLSXStyled.utils.aoa_to_sheet(rows, { cellDates: true, dateNF: "dd-mm-yyyy" });
+
+  const thin = { style: "thin", color: { rgb: "94A3B8" } };
+  const border = { top: thin, bottom: thin, left: thin, right: thin };
+  for (let r = 0; r <= totalRow; r++) {
+    for (let col = 0; col < 14; col++) {
+      const addr = XLSXStyled.utils.encode_cell({ r, c: col });
+      const cell = ws[addr] ?? (ws[addr] = { t: "s", v: "" });
+      const isHeader = r === 0;
+      const isTotal = r === totalRow;
+      cell.s = {
+        border,
+        font: { bold: isHeader || isTotal },
+        ...(isHeader ? { fill: { fgColor: { rgb: "E2E8F0" } } } : {}),
+        ...(col >= 7 && col <= 12 && !isHeader ? { numFmt: "#,##0.00", alignment: { horizontal: "right" } } : {}),
+        ...(col === 0 && !isHeader && !isTotal ? { numFmt: "dd-mm-yyyy" } : {}),
+      };
+    }
+  }
+  ws["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 11 }, { wch: 34 }, { wch: 13 }, { wch: 26 },
+    { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 22 }];
+  const wb = XLSXStyled.utils.book_new();
+  XLSXStyled.utils.book_append_sheet(wb, ws, "Sales Register");
+  XLSXStyled.writeFile(wb, filename);
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 function BillingPageInner() {
@@ -244,13 +295,27 @@ function BillingPageInner() {
   // Refresh. Only the response for the most recently fired request is
   // applied now.
   const invoiceRequestSeq = useRef(0);
+  // Date range (yyyy-mm-dd) + GST registration filter, shared by the list and
+  // the Excel report. Dates are whole IST days: from 00:00 to 23:59:59.999.
+  const [invoiceFrom, setInvoiceFrom] = useState("");
+  const [invoiceTo, setInvoiceTo] = useState("");
+  const [invoiceGstType, setInvoiceGstType] = useState<"" | "registered" | "unregistered">("");
+  const [invoiceExporting, setInvoiceExporting] = useState(false);
+
+  const invoiceFilterParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (debouncedInvoiceSearch) params.set("search", debouncedInvoiceSearch);
+    if (invoiceFrom) params.set("from", `${invoiceFrom}T00:00:00+05:30`);
+    if (invoiceTo) params.set("to", `${invoiceTo}T23:59:59.999+05:30`);
+    if (invoiceGstType) params.set("gstType", invoiceGstType);
+    return params;
+  }, [debouncedInvoiceSearch, invoiceFrom, invoiceTo, invoiceGstType]);
 
   const loadInvoices = useCallback(async () => {
     const seq = ++invoiceRequestSeq.current;
     setInvoicesLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (debouncedInvoiceSearch) params.set("search", debouncedInvoiceSearch);
+      const params = invoiceFilterParams();
       const res = await fetch(`${API_BASE_URL}/billing/invoices?${params.toString()}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
@@ -259,9 +324,29 @@ function BillingPageInner() {
     } finally {
       if (seq === invoiceRequestSeq.current) setInvoicesLoading(false);
     }
-  }, [debouncedInvoiceSearch]);
+  }, [invoiceFilterParams]);
 
   useEffect(() => { void loadInvoices(); }, [loadInvoices]);
+
+  // Fetches with all=true so the report has every matching invoice, not just
+  // the 500 the list shows.
+  async function exportInvoiceReport() {
+    if (invoiceFrom && invoiceTo && invoiceFrom > invoiceTo) { alert("From date is after To date."); return; }
+    setInvoiceExporting(true);
+    try {
+      const params = invoiceFilterParams();
+      params.set("all", "true");
+      const res = await fetch(`${API_BASE_URL}/billing/invoices?${params.toString()}`, { headers: getAuthHeaders() });
+      if (!res.ok) { alert("Could not load invoices for the report."); return; }
+      const data: Invoice[] = await res.json();
+      if (data.length === 0) { alert("No invoices match these filters."); return; }
+      const range = invoiceFrom || invoiceTo ? `_${invoiceFrom || "start"}_to_${invoiceTo || "today"}` : "";
+      const kind = invoiceGstType ? `_${invoiceGstType === "registered" ? "Registered" : "Unregistered"}` : "";
+      await downloadInvoiceReportExcel(data, `Sales_Register${kind}${range}.xlsx`);
+    } finally {
+      setInvoiceExporting(false);
+    }
+  }
 
   async function shareWhatsapp(id: string) {
     setSharingId(id);
@@ -626,8 +711,10 @@ function BillingPageInner() {
     setGstLoading(true);
     try {
       const params = new URLSearchParams();
-      if (gstFrom) params.set("from", gstFrom);
-      if (gstTo) params.set("to", gstTo);
+      // Whole IST days — a bare "yyyy-mm-dd" To is midnight UTC, which
+      // dropped every invoice issued on the To day itself.
+      if (gstFrom) params.set("from", `${gstFrom}T00:00:00+05:30`);
+      if (gstTo) params.set("to", `${gstTo}T23:59:59.999+05:30`);
       const res = await fetch(`${API_BASE_URL}/billing/gst-summary?${params.toString()}`, { headers: getAuthHeaders() });
       if (res.ok) setGstSummary(await res.json());
     } finally {
@@ -799,8 +886,32 @@ function BillingPageInner() {
                     placeholder="Search invoice #, customer, phone…"
                     className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-blue-400" />
                 </div>
+                <label className="flex items-center gap-1 text-xs text-slate-500">From
+                  <DateInput value={invoiceFrom} onChange={e => setInvoiceFrom(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-slate-500">To
+                  <DateInput value={invoiceTo} onChange={e => setInvoiceTo(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-blue-400" />
+                </label>
+                <MobileSelect value={invoiceGstType} onChange={v => setInvoiceGstType(v as "" | "registered" | "unregistered")}
+                  placeholder="All customers"
+                  options={[
+                    { value: "", label: "All customers" },
+                    { value: "registered", label: "GST Registered" },
+                    { value: "unregistered", label: "GST Unregistered" },
+                  ]}
+                  className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs bg-white" />
+                {(invoiceFrom || invoiceTo || invoiceGstType) && (
+                  <button onClick={() => { setInvoiceFrom(""); setInvoiceTo(""); setInvoiceGstType(""); }}
+                    className="text-xs text-slate-500 underline">Clear</button>
+                )}
                 <button onClick={() => void loadInvoices()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1">
                   <Loader2 className={`h-3 w-3 ${invoicesLoading ? "animate-spin" : ""}`} /> Refresh
+                </button>
+                <button onClick={() => void exportInvoiceReport()} disabled={invoiceExporting}
+                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 flex items-center gap-1">
+                  {invoiceExporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />} Excel Report
                 </button>
                 <span className="text-xs text-slate-400">{filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? "s" : ""}</span>
               </div>
