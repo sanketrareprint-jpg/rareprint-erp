@@ -691,7 +691,7 @@ export class OrdersService {
 
   async create(
     dto: {
-      customer: { customerId?: string; name: string; phone?: string; phone2?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string; gstNumber?: string; dateOfBirth?: string };
+      customer: { customerId?: string; name: string; phone?: string; phone2?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string; gstNumber?: string; contactPerson?: string; dateOfBirth?: string };
       items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; offerCodeId?: string }>;
       notes?: string;
       leadSource?: string;
@@ -799,6 +799,7 @@ export class OrdersService {
     const customerAddressUpper = upper(dto.customer.address);
     const customerCityUpper = upper(dto.customer.city);
     const customerStateUpper = upper(dto.customer.state);
+    const customerContactPersonUpper = upper(dto.customer.contactPerson?.trim()) || undefined;
 
     const shippingParts = [
       customerAddressUpper,
@@ -863,6 +864,7 @@ export class OrdersService {
               state: customerStateUpper,
               pincode: dto.customer.pincode,
               ...(dto.customer.gstNumber ? { gstNumber: dto.customer.gstNumber } : {}),
+              ...(customerContactPersonUpper ? { contactPerson: customerContactPersonUpper } : {}),
               ...(customerDob ? { dateOfBirth: customerDob } : {}),
             },
           })
@@ -870,7 +872,7 @@ export class OrdersService {
             data: {
               customerCode,
               businessName: customerNameUpper,
-              contactPerson: customerNameUpper,
+              contactPerson: customerContactPersonUpper ?? customerNameUpper,
               phone: sanitizePhone(dto.customer.phone),
               phone2: sanitizePhone(dto.customer.phone2),
               email: dto.customer.email,

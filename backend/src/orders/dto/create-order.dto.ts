@@ -69,6 +69,12 @@ export class CreateOrderCustomerDto {
   @Matches(GSTIN_FORMAT, { message: 'GST Number must be a valid 15-character GSTIN (e.g. 27AAAAA0000A1Z5)' })
   gstNumber?: string;
 
+  // Person at the party the Date of Birth belongs to. Optional — falls back
+  // to the party name for new customers.
+  @IsOptional()
+  @IsString()
+  contactPerson?: string;
+
   // YYYY-MM-DD, optional. Real-date / not-in-future checks are in
   // OrdersService.create().
   @IsOptional()

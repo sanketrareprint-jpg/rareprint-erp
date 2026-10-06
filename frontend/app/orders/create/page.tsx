@@ -113,7 +113,7 @@ export default function CreateOrderPage() {
   // "Phone number is required" inline error so it doesn't show on a blank,
   // untouched form, only after a real submit attempt without a phone.
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "", gstNumber: "", dateOfBirth: "" });
+  const [customer, setCustomer] = useState({ customerId: "", name: "", phone: "", phone2: "", email: "", address: "", city: "", state: "", pincode: "", gstNumber: "", contactPerson: "", dateOfBirth: "" });
   const [customerMatches, setCustomerMatches] = useState<CustomerSearchRow[]>([]);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   // Which input (Name or Phone) the old-customer dropdown is anchored under.
@@ -199,6 +199,7 @@ export default function CreateOrderPage() {
         state: est.customerState ?? "",
         pincode: est.customerPincode ?? "",
         gstNumber: est.customerGstin ?? "",
+        contactPerson: "",
         dateOfBirth: "",
       });
       if (est.customerId) setSelectedCustomerLabel(est.customerName ?? "");
@@ -244,6 +245,9 @@ export default function CreateOrderPage() {
       state: row.state ?? "",
       pincode: row.pincode ?? "",
       gstNumber: row.gstNumber ?? "",
+      // Older customers have contactPerson = party name (it used to be
+      // copied); only prefill a genuinely separate person.
+      contactPerson: row.contactPerson && row.contactPerson !== row.businessName ? row.contactPerson : "",
       dateOfBirth: row.dateOfBirth ? row.dateOfBirth.slice(0, 10) : "",
     });
     setSelectedCustomerLabel(row.businessName);
@@ -646,7 +650,7 @@ export default function CreateOrderPage() {
             <p style={S.sectionTitle}>Customer Details</p>
             <div className="create-order-field-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
               <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
-                <label style={S.label}>Full Name *</label>
+                <label style={S.label}>Party Name *</label>
                 <div style={{ position: "relative" }}>
                   <input value={customer.name} onChange={e => {
                     setSelectedCustomerLabel("");
@@ -690,10 +694,15 @@ export default function CreateOrderPage() {
                   <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>Please enter a 10-digit phone number</p>
                 )}
               </div>
-              <div>
+              <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
                 <label style={S.label}>Email</label>
                 <input value={customer.email} onChange={e => setCustomer(c => ({ ...c, email: e.target.value }))}
                   placeholder="email@example.com" style={S.input} />
+              </div>
+              <div>
+                <label style={S.label}>Contact Person Name</label>
+                <input value={customer.contactPerson} onChange={e => setCustomer(c => ({ ...c, contactPerson: e.target.value }))}
+                  placeholder="Person the Date of Birth belongs to" style={S.input} />
               </div>
               <div>
                 <label style={S.label}>Date of Birth</label>
