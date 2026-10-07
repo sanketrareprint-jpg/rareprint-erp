@@ -428,8 +428,9 @@ export class FshipService {
   /** B2B CREATE FORWARD ORDER (B2B PDF §4.2). multipart/form-data. Live QC
    *  validation (2026-10-07) requires: Customer_Name, Customer_Mobile,
    *  Customer_Emailid, Customer_Address, Customer_PinCode, Customer_City,
-   *  Customer_Address_Type, b2BProductName.ProductName -- the invoice and
-   *  e-way bill files are optional as far as the API is concerned. */
+   *  Customer_Address_Type, b2BProductName.ProductName. Live production
+   *  additionally requires B2BInVoiceFile ("Invoice File is mandatory") --
+   *  bookItems() always supplies one. */
   async createB2BForwardOrder(input: {
     customerName: string;
     customerMobile: string;

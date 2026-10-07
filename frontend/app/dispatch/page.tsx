@@ -1832,7 +1832,7 @@ export default function DispatchPage() {
                             };
                             return (
                               <div className="mb-2 rounded-lg border border-purple-200 bg-purple-50/50 px-2.5 py-2">
-                                <p className="text-[11px] font-semibold text-purple-800">Fship B2B documents <span className="font-normal text-slate-500">(optional — an e-way bill is legally required for consignments over ₹50,000)</span></p>
+                                <p className="text-[11px] font-semibold text-purple-800">Fship B2B documents <span className="font-normal text-slate-500">(no invoice PDF chosen = a system dispatch invoice is attached automatically; an e-way bill is legally required for consignments over ₹50,000)</span></p>
                                 <div className="mt-1.5 grid gap-1.5 sm:grid-cols-3">
                                   <input value={docs.ewayBillNumber} onChange={e => updateDocs({ ewayBillNumber: e.target.value.replace(/\D/g, "").slice(0, 12) })}
                                     placeholder="E-way bill no." className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />

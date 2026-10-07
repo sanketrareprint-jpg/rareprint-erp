@@ -1425,8 +1425,10 @@ export class BigshipService {
 }
 
 // ── Invoice PDF generator ─────────────────────────────────────────────────────
+// Also used by Fship B2B booking (dispatch.service.ts), whose live API makes
+// the invoice file mandatory -- same fallback when no PDF is uploaded.
 
-async function generateInvoicePdf(params: {
+export async function generateInvoicePdf(params: {
   invoiceNo: string;
   orderNumber: string;
   customerName: string;

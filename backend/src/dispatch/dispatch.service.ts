@@ -8,7 +8,7 @@ import {
 import { OrderProductionStage, OrderStatus, PaymentVerificationStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
-import { BigshipService, bigshipTotalBoxCount, type BigshipPackageBox } from '../bigship/bigship.service';
+import { BigshipService, bigshipTotalBoxCount, generateInvoicePdf, type BigshipPackageBox } from '../bigship/bigship.service';
 import { FshipService, parseFshipB2BRateId, type FshipB2BDocument } from '../fship/fship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -1337,7 +1337,21 @@ export class DispatchService {
       } else {
         // Validated before calling Fship, so a bad upload never leaves a
         // half-created order behind.
-        const invoiceFile = decodePdfUpload(fshipB2BDocs?.invoicePdf, 'Invoice');
+        // Live Fship rejects B2B orders without one ("Invoice File is
+        // mandatory", 2026-10-07 -- QC accepted it missing). An uploaded PDF
+        // always wins; otherwise attach the same system dispatch invoice
+        // Bigship's place-order already falls back to.
+        const invoiceFile = decodePdfUpload(fshipB2BDocs?.invoicePdf, 'Invoice') ?? {
+          fileName: `invoice-${order.orderNumber}.pdf`.replace(/[^\w.\- ]/g, '_'),
+          content: await generateInvoicePdf({
+            invoiceNo: order.orderNumber,
+            orderNumber: order.orderNumber,
+            customerName,
+            amount: dispatchItemsValue,
+            date: new Date().toISOString().slice(0, 10),
+            notes: order.notes ?? undefined,
+          }),
+        };
         const ewayBillFile = decodePdfUpload(fshipB2BDocs?.ewayBillPdf, 'E-way bill');
         const productName = Array.from(new Set(itemsToDispatch.map((i) => i.product.name))).join(', ').slice(0, 100) || 'Printed material';
         const fsb = await this.fship.createB2BForwardOrder({
