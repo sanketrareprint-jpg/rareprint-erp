@@ -30,7 +30,7 @@ import com.getcapacitor.JSObject
  *
  *   • Runs as a foreground service with a persistent "Dialer running" notification
  *     (Pause / Stop actions), so Android doesn't kill it mid-session.
- *   • Places each call via ACTION_CALL on the chosen SIM.
+ *   • Places each call via TelecomManager.placeCall on the chosen SIM.
  *   • Watches call state (TelephonyCallback on API 31+, PhoneStateListener below):
  *     OFFHOOK → callStarted, OFFHOOK → IDLE → reads CallLog → callEnded.
  *   • After a call ends, brings MainActivity back to the front.
@@ -127,6 +127,7 @@ class DialerService : Service() {
 
     // State of the call placed by the dialer (only one at a time)
     private var activeNumber: String? = null
+    private var activeSimId: String? = null // PhoneAccountHandle.id the call was placed with (null = phone default)
     private var dialedAt = 0L
     private var offhookAt = 0L
     private var lastState = TelephonyManager.CALL_STATE_IDLE
@@ -189,6 +190,7 @@ class DialerService : Service() {
         noStartTimeout?.let { handler.removeCallbacks(it) }
         stopPolling()
         activeNumber = null
+        activeSimId = null
         isRunning = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -210,36 +212,52 @@ class DialerService : Service() {
             return
         }
 
-        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(number))).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
+        // A SIM was chosen but isn't on this phone any more (ID changed after a
+        // reboot / SIM swap): never fall back to the default SIM silently.
         val handle = findPhoneAccount(this, simId)
-        if (handle != null) {
-            intent.putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
-            // Some OEM dialers (Xiaomi/Samsung/Vivo) ignore the standard handle and
-            // read a slot index instead — pass it too so the SIM picker doesn't appear.
-            val slot = slotIndexFor(this, handle)
-            if (slot >= 0) {
-                intent.putExtra("com.android.phone.force.slot", true)
-                intent.putExtra("com.android.phone.extra.slot", slot)
-                intent.putExtra("slot", slot)
-                intent.putExtra("simSlot", slot)
-                intent.putExtra("subscription", slot)
-            }
+        if (!simId.isNullOrBlank() && handle == null) {
+            Log.w(TAG, "refused to dial $number: chosen SIM $simId not found among call-capable accounts")
+            emit("dialerError", JSObject().put("message",
+                "The SIM chosen for the dialer wasn't found on this phone — choose the SIM again."))
+            return
         }
 
         activeNumber = number
+        activeSimId = handle?.id
         dialedAt = System.currentTimeMillis()
         offhookAt = 0L
         updateNotification("Calling $number")
-        Log.i(TAG, "dialing $number (sim=${simId ?: "default"}, handle=${handle != null})")
+        Log.i(TAG, "dialing $number (sim=${handle?.id ?: "phone default"}, slot=${handle?.let { slotIndexFor(this, it) } ?: -1})")
 
+        val uri = Uri.fromParts("tel", number, null)
         try {
-            startActivity(intent)
+            // Official API: goes straight to Android's Telecom with the chosen SIM,
+            // so an OEM dialer screen (MIUI, Funtouch, ColorOS, One UI) can't swap
+            // it for its own default SIM the way it can with an ACTION_CALL intent.
+            val extras = android.os.Bundle()
+            if (handle != null) extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
+            (getSystemService(Context.TELECOM_SERVICE) as TelecomManager).placeCall(uri, extras)
         } catch (e: Exception) {
-            activeNumber = null
-            emit("dialerError", JSObject().put("message", "Could not start call: ${e.message}"))
-            return
+            // A SIM was chosen: never fall back to ACTION_CALL — OEM dialers can
+            // ignore its SIM extras and dial from their default SIM. Stop instead.
+            if (handle != null) {
+                Log.w(TAG, "placeCall failed on chosen SIM ${handle.id} (${e.javaClass.simpleName}: ${e.message}); not dialing $number")
+                activeNumber = null
+                activeSimId = null
+                emit("dialerError", JSObject().put("message",
+                    "Android refused to call on the chosen SIM (${e.javaClass.simpleName}) — not dialing $number from another SIM."))
+                return
+            }
+            // No SIM chosen (single-SIM phone): fall back to ACTION_CALL.
+            Log.w(TAG, "placeCall failed (${e.javaClass.simpleName}: ${e.message}); falling back to ACTION_CALL")
+            try {
+                startActivity(Intent(Intent.ACTION_CALL, uri).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+            } catch (e2: Exception) {
+                activeNumber = null
+                activeSimId = null
+                emit("dialerError", JSObject().put("message", "Could not start call: ${e2.message}"))
+                return
+            }
         }
         startPolling()
 
@@ -254,6 +272,7 @@ class DialerService : Service() {
                 }
                 Log.i(TAG, "no call started for $number within ${NO_START_TIMEOUT_MS}ms")
                 activeNumber = null
+                activeSimId = null
                 stopPolling()
                 emit("callEnded", JSObject()
                     .put("number", number)
@@ -295,32 +314,49 @@ class DialerService : Service() {
                 activeNumber = null
                 stopPolling()
                 val startedAt = dialedAt
+                val chosenSimId = activeSimId
+                activeSimId = null
                 updateNotification("Dialer running")
-                handler.postDelayed({ finishCall(number, startedAt, retry = true) }, CALL_LOG_DELAY_MS)
+                handler.postDelayed({ finishCall(number, startedAt, chosenSimId, retry = true) }, CALL_LOG_DELAY_MS)
             }
         }
     }
 
-    /** Reads the real duration/type from CallLog, then emits callEnded. */
-    private fun finishCall(number: String, startedAt: Long, retry: Boolean) {
+    /**
+     * Reads the real duration/type — and the SIM the call actually went out on —
+     * from CallLog, then emits callEnded. simMatched: true/false when a SIM was
+     * chosen and the log names one; null when it can't be told (no SIM chosen,
+     * or the phone doesn't record the account).
+     */
+    private fun finishCall(number: String, startedAt: Long, chosenSimId: String?, retry: Boolean) {
         val entry = readCallLog(number, startedAt)
         if (entry == null && retry) {
             // Some OEMs write the log entry later — try once more.
-            handler.postDelayed({ finishCall(number, startedAt, retry = false) }, CALL_LOG_DELAY_MS)
+            handler.postDelayed({ finishCall(number, startedAt, chosenSimId, retry = false) }, CALL_LOG_DELAY_MS)
             return
         }
-        val durationSec = entry?.first ?: 0L
-        emit("callEnded", JSObject()
+        val durationSec = entry?.durationSec ?: 0L
+        val usedSimId = entry?.accountId
+        val simMatched: Boolean? = if (chosenSimId == null || usedSimId.isNullOrBlank()) null else usedSimId == chosenSimId
+        if (simMatched == false) Log.w(TAG, "WRONG SIM: $number was chosen on $chosenSimId but went out on $usedSimId")
+        else Log.i(TAG, "call to $number ended: ${durationSec}s, sim chosen=$chosenSimId used=$usedSimId")
+        val data = JSObject()
             .put("number", number)
             .put("durationSec", durationSec)
             .put("answered", durationSec > 0)
             .put("startedAt", startedAt)
-            .put("callType", entry?.second ?: "NOT_IN_CALL_LOG"))
+            .put("callType", entry?.type ?: "NOT_IN_CALL_LOG")
+            .put("chosenSimId", chosenSimId)
+            .put("usedSimId", usedSimId)
+        if (simMatched != null) data.put("simMatched", simMatched)
+        emit("callEnded", data)
         bringAppToFront()
     }
 
-    /** Latest CallLog entry for [number] placed at/after [sinceMs]: (durationSec, type). */
-    private fun readCallLog(number: String, sinceMs: Long): Pair<Long, String>? {
+    private data class CallLogEntry(val durationSec: Long, val type: String, val accountId: String?)
+
+    /** Latest CallLog entry for [number] placed at/after [sinceMs]. */
+    private fun readCallLog(number: String, sinceMs: Long): CallLogEntry? {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG)
             != PackageManager.PERMISSION_GRANTED
         ) return null
@@ -328,7 +364,7 @@ class DialerService : Service() {
         return try {
             contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
-                arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION),
+                arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION, CallLog.Calls.PHONE_ACCOUNT_ID),
                 "${CallLog.Calls.DATE} >= ?",
                 arrayOf((sinceMs - 5000).toString()),
                 "${CallLog.Calls.DATE} DESC"
@@ -342,7 +378,7 @@ class DialerService : Service() {
                             CallLog.Calls.MISSED_TYPE -> "MISSED"
                             else -> "OTHER"
                         }
-                        return@use Pair(c.getLong(2), type)
+                        return@use CallLogEntry(c.getLong(2), type, c.getString(3))
                     }
                 }
                 null

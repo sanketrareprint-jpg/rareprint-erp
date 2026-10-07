@@ -202,6 +202,9 @@ export interface DialerCallEnded {
   answered: boolean;    // durationSec > 0
   startedAt: number;
   callType: "OUTGOING" | "INCOMING" | "MISSED" | "OTHER" | "NOT_IN_CALL_LOG" | "NOT_STARTED";
+  chosenSimId?: string | null; // SIM the dialer asked for (null = phone default)
+  usedSimId?: string | null;   // SIM the phone's call log says the call used
+  simMatched?: boolean;        // present only when both are known; false = went out on another SIM
 }
 
 export const dialer = {

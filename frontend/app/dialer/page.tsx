@@ -78,6 +78,7 @@ export default function DialerPage() {
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [error, setError] = useState("");
   const [afterCall, setAfterCall] = useState<"continue" | "pause" | "stop">("continue");
+  const [simWarning, setSimWarning] = useState(""); // set when a call went out on the wrong SIM
   // Admins only: dial a chosen seller's queue instead of their own.
   const [isAdmin, setIsAdmin] = useState(false);
   const [sellers, setSellers] = useState<Seller[]>([]);
@@ -107,6 +108,14 @@ export default function DialerPage() {
       if (p.phoneState) {
         const list = await dialer.listSims();
         setSims(list);
+        // A saved SIM whose ID isn't on the phone any more (reboot / SIM swap) is
+        // cleared — never left looking "chosen" while calls go out on the default SIM.
+        if (simIdRef.current && !list.some((s) => s.id === simIdRef.current)) {
+          simIdRef.current = "";
+          setSimId("");
+          try { localStorage.removeItem(SIM_KEY); } catch { /* ignore */ }
+          if (list.length > 1) setError("The SIM saved for the dialer isn't on this phone any more — choose the SIM again.");
+        }
         if (list.length === 1 && simIdRef.current !== list[0].id) {
           simIdRef.current = list[0].id;
           setSimId(list[0].id);
@@ -192,6 +201,12 @@ export default function DialerPage() {
         // Ignore stale events from an earlier session (they're retained until read).
         if ((phaseRef.current !== "dialing" && phaseRef.current !== "onCall") || !isCurrent(e.number)) return;
         setEnded(e);
+        // The phone's call log says this call went out on a different SIM than
+        // chosen: warn, and pause after this outcome is saved so it can't repeat.
+        if (e.simMatched === false) {
+          setSimWarning("This call went out on a different SIM than the one chosen. The dialer will pause after you save — check the SIM choice before resuming.");
+          setAfterCallBoth("pause");
+        }
         setOutcome(e.answered ? null : "NOT_ANSWERED");
         setNote("");
         setCallbackAt("");
@@ -207,6 +222,14 @@ export default function DialerPage() {
       }),
       dialer.onError((e) => {
         setError(e.message);
+        // Native side refused because the chosen SIM isn't on the phone: reload the SIM list.
+        if (/SIM chosen/.test(e.message)) {
+          simIdRef.current = "";
+          setSimId("");
+          try { localStorage.removeItem(SIM_KEY); } catch { /* ignore */ }
+          refreshPerms();
+        }
+        if (phaseRef.current === "dialing") pendingRef.current = true; // the call never went out — Resume retries this lead
         if (phaseRef.current === "dialing" || phaseRef.current === "loading") setPhaseBoth("paused");
       }),
     ];
@@ -230,7 +253,8 @@ export default function DialerPage() {
   const start = async () => {
     setError("");
     if (!perms?.allGranted) { setError("Allow all the permissions below first."); return; }
-    if (sims.length > 1 && !simIdRef.current) { setError("Choose which SIM to call from first."); return; }
+    if (sims.length > 1 && !sims.some((s) => s.id === simIdRef.current)) { setError("Choose which SIM to call from first."); return; }
+    setSimWarning("");
     setAfterCallBoth("continue");
     try {
       await dialer.startSession();
@@ -242,6 +266,8 @@ export default function DialerPage() {
   };
 
   const resume = async () => {
+    if (sims.length > 1 && !sims.some((s) => s.id === simIdRef.current)) { setError("Choose which SIM to call from first."); return; }
+    setSimWarning("");
     try { await dialer.startSession(); } catch (e) { setError(errMsg(e)); return; }
     const it = itemRef.current;
     if (pendingRef.current && it) dialItem(it); // retry the lead whose call couldn't start
@@ -310,6 +336,9 @@ export default function DialerPage() {
 
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 break-words">{error}</div>
+        )}
+        {simWarning && (
+          <div className="rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm font-medium text-red-800 break-words">⚠ {simWarning}</div>
         )}
 
         {/* Today's stats */}
@@ -441,6 +470,7 @@ export default function DialerPage() {
               {item.businessName && <div className="text-sm text-slate-600 break-words">{item.businessName}</div>}
             </div>
             {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 break-words">{error}</div>}
+            {simWarning && <div className="rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm font-medium text-red-800 break-words">⚠ {simWarning}</div>}
             <div className="grid grid-cols-2 gap-2">
               {OUTCOMES.map((o) => (
                 <button key={o.value} type="button" onClick={() => setOutcome(o.value)}
