@@ -24,6 +24,8 @@ type Invoice = {
   subtotal: number; taxableAmount: number; taxAmount: number; totalAmount: number; paidAmount: number;
   balanceAmount: number; status: string; whatsappStatus: string; whatsappSentAt: string | null;
   salesAgentName: string | null;
+  // Whole order cancelled — the PDF prints as a Cancelled Invoice with this remark.
+  cancelled: boolean; cancellationReason: string | null;
 };
 
 type ReceiptVoucher = {
@@ -361,6 +363,33 @@ function BillingPageInner() {
       }
     } finally {
       setSharingId(null);
+    }
+  }
+
+  // Cancellation remark (cancelled invoices only) — printed on the Cancelled
+  // Invoice PDF. Backend allows admin/accounts only and caps it at 250 chars.
+  const [remarkEdit, setRemarkEdit] = useState<{ invoice: Invoice; text: string } | null>(null);
+  const [remarkSaving, setRemarkSaving] = useState(false);
+  const [remarkError, setRemarkError] = useState("");
+
+  async function saveCancellationRemark() {
+    if (!remarkEdit || remarkSaving) return;
+    const text = remarkEdit.text.trim();
+    if (!text) { setRemarkError("Enter the reason for cancelling this bill."); return; }
+    setRemarkSaving(true);
+    setRemarkError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/billing/invoices/${remarkEdit.invoice.id}/cancellation-remark`, {
+        method: "PATCH", headers: getAuthHeaders(), body: JSON.stringify({ remark: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setRemarkError(data.message || "Could not save the remark."); return; }
+      setInvoices(prev => prev.map(i => i.id === remarkEdit.invoice.id ? { ...i, cancellationReason: data.cancellationReason } : i));
+      setRemarkEdit(null);
+    } catch {
+      setRemarkError("Could not reach the server. Try again.");
+    } finally {
+      setRemarkSaving(false);
     }
   }
 
@@ -941,7 +970,7 @@ function BillingPageInner() {
                     <tbody className="divide-y divide-slate-100">
                       {filteredInvoices.map(inv => (
                         <tr key={inv.id}>
-                          <td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}</td>
+                          <td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}{inv.cancelled && <div className="mt-0.5"><span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">CANCELLED</span></div>}</td>
                           <td className="px-3 py-2 text-slate-500">{fmtDate(inv.issueDate)}</td>
                           <td className="px-3 py-2">{inv.customerName}<div className="text-[10px] text-slate-400">{inv.customerPhone}</div></td>
                           <td className="px-3 py-2 text-slate-500">{inv.salesAgentName ?? "—"}</td>
@@ -973,6 +1002,14 @@ function BillingPageInner() {
                               >
                                 <Send className="h-3 w-3" /> {sharingId === inv.id ? "…" : "Share"}
                               </button>
+                              {inv.cancelled && (
+                          <button
+                            onClick={() => { setRemarkError(""); setRemarkEdit({ invoice: inv, text: inv.cancellationReason ?? "" }); }}
+                            className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700 hover:bg-red-100 flex items-center gap-1"
+                            title={inv.cancellationReason ? `Cancellation remark: ${inv.cancellationReason}` : "Add the reason this bill was cancelled"}>
+                            <Pencil className="h-3 w-3" /> Remark
+                          </button>
+                        )}
                             </div>
                           </td>
                         </tr>
@@ -1861,6 +1898,40 @@ function BillingPageInner() {
           )}
         </div>
       </div>
+
+      {/* Cancellation Remark Modal */}
+      {remarkEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !remarkSaving && setRemarkEdit(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-base font-bold text-slate-900">Cancellation remark — Invoice {remarkEdit.invoice.invoiceNumber}</h2>
+              <button onClick={() => setRemarkEdit(null)} disabled={remarkSaving} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400" title="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">Why was this bill cancelled? Printed on the Cancelled Invoice PDF.</p>
+            <textarea
+              value={remarkEdit.text}
+              onChange={e => setRemarkEdit({ ...remarkEdit, text: e.target.value })}
+              maxLength={250}
+              rows={4}
+              autoFocus
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="e.g. Customer cancelled the order before printing"
+            />
+            <div className="mt-1 text-right text-[11px] text-slate-400">{remarkEdit.text.length}/250</div>
+            {remarkError && <p className="mt-1 text-xs text-red-600">{remarkError}</p>}
+            <div className="mt-3 flex justify-end gap-2">
+              <button onClick={() => setRemarkEdit(null)} disabled={remarkSaving}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+              <button onClick={() => void saveCancellationRemark()} disabled={remarkSaving}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
+                {remarkSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invoice Preview Modal */}
       {preview && (

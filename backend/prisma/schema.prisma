@@ -651,6 +651,15 @@ model Invoice {
   whatsappSentAt   DateTime?
   whatsappError    String?
   notes            String?
+  // Set when the whole order is cancelled (AccountsService.approveCancellation,
+  // which also sets status CANCELLED). cancellationReason is the remark printed
+  // on the Cancelled Invoice PDF — copied from the cancel request, editable in
+  // Billing. cancelledSnapshot holds the items + totals just before
+  // cancellation zeroed them, so the PDF still shows what was billed.
+  // Added 2026-10-06 (migration 20261006120000_add_invoice_cancellation).
+  cancelledAt        DateTime?
+  cancellationReason String?
+  cancelledSnapshot  Json?
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   order            Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)

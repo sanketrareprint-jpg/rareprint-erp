@@ -17,6 +17,8 @@ import { OrderStatus } from '@prisma/client';
 
 // Same SUPER_ADMIN_EMAIL convention as accounts.service.ts / dashboard.service.ts.
 const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
+// Fits the two-line remark row on the Cancelled Invoice PDF.
+const CANCELLATION_REMARK_MAX_LENGTH = 250;
 
 // ── SystemConfig keys for Company Profile ───────────────────────────────────
 // Same "individual key per setting" convention as loyalty.service.ts's CFG
@@ -96,6 +98,27 @@ export interface CompanyProfile {
   logoUrl: string | null;
   signatureUrl: string | null;
   invoicePrefix: string;
+}
+
+// Invoice.cancelledSnapshot — written by AccountsService.approveCancellation
+// just before a whole-order cancellation zeroes the invoice.
+interface CancelledInvoiceSnapshot {
+  subtotal: number;
+  totalAmount: number;
+  items: {
+    productName: string;
+    sku: string | null;
+    hsnSac: string | null;
+    productionNotes: string | null;
+    quantity: number;
+    unitPrice: number;
+    taxableAmount: number;
+    gstRatePct: number;
+    cgstAmount: number;
+    sgstAmount: number;
+    igstAmount: number;
+    lineTotal: number;
+  }[];
 }
 
 // Invoice PDFs number in Indian financial years (1 Apr – 31 Mar), judged in
@@ -265,6 +288,10 @@ export class BillingService {
       paidAmount: Number(inv.paidAmount),
       balanceAmount: Number(inv.balanceAmount),
       status: inv.status,
+      // Whole order cancelled — order.status also covers invoices cancelled
+      // before Invoice.status was set on cancellation (2026-10-06).
+      cancelled: inv.status === 'CANCELLED' || inv.order.status === 'CANCELLED',
+      cancellationReason: (inv as any).cancellationReason ?? null,
       whatsappStatus: inv.whatsappStatus,
       whatsappSentAt: inv.whatsappSentAt,
       salesAgentName: inv.order.salesAgent?.fullName ?? null,
@@ -321,10 +348,20 @@ export class BillingService {
       .filter(Boolean)
       .join(', ');
 
+    // A cancelled invoice (whole order cancelled) prints as a Cancelled
+    // Invoice. Its live rows were zeroed by the cancellation, so the PDF
+    // shows the items/totals snapshotted just before that (AccountsService.
+    // approveCancellation) — invoices cancelled before the snapshot existed
+    // have none and print their (empty) live rows. order.status covers those
+    // older cancellations, whose Invoice.status was never set.
+    const isCancelled = invoice.status === 'CANCELLED' || invoice.order.status === 'CANCELLED';
+    const cancelledSnapshot = isCancelled ? ((invoice as any).cancelledSnapshot as CancelledInvoiceSnapshot | null) : null;
+    const billedItems = cancelledSnapshot?.items ?? invoice.items;
+
     // Invoices raised before Product.hsnCode existed have hsnSac = null on
     // every item; show the product's current HSN (matched by the snapshotted
     // SKU) on the PDF without rewriting the stored invoice rows.
-    const skusWithoutHsn = invoice.items.filter((i) => !i.hsnSac && i.sku).map((i) => i.sku as string);
+    const skusWithoutHsn = billedItems.filter((i) => !i.hsnSac && i.sku).map((i) => i.sku as string);
     const productHsnBySku = new Map<string, string | null>(
       skusWithoutHsn.length
         ? (await this.prisma.product.findMany({ where: { sku: { in: skusWithoutHsn } }, select: { sku: true, hsnCode: true } }))
@@ -336,8 +373,8 @@ export class BillingService {
       invoiceNumber: this.displayInvoiceNumber(company.invoicePrefix, invoice.issueDate, invoice.invoiceNumber),
       issueDate: this.formatDate(invoice.issueDate),
       gstTreatment: invoice.gstTreatment as any,
-      subtotal: Number(invoice.subtotal),
-      totalAmount: Number(invoice.totalAmount),
+      subtotal: Number(cancelledSnapshot?.subtotal ?? invoice.subtotal),
+      totalAmount: Number(cancelledSnapshot?.totalAmount ?? invoice.totalAmount),
       paidAmount: Number(invoice.paidAmount),
       balanceAmount: Number(invoice.balanceAmount),
       previousBalance,
@@ -349,7 +386,9 @@ export class BillingService {
       customerPhone: customer.phone ?? '',
       customerState: customer.state ?? '',
       customerGstin: customer.gstNumber ?? '',
-      items: invoice.items.map((item) => ({
+      cancelled: isCancelled,
+      cancellationReason: isCancelled ? ((invoice as any).cancellationReason ?? null) : null,
+      items: billedItems.map((item) => ({
         productName: item.productName,
         hsnSac: item.hsnSac || (item.sku ? productHsnBySku.get(item.sku) ?? null : null),
         productDetails: item.productionNotes ?? null,
@@ -389,7 +428,7 @@ export class BillingService {
         taxableAmount: courierGst.taxableAmount,
         lineTotal: courierCharge,
       });
-      pdfData.subtotal = Number(invoice.subtotal) + courierCharge;
+      pdfData.subtotal = Number(cancelledSnapshot?.subtotal ?? invoice.subtotal) + courierCharge;
     }
 
     const buffer = await buildInvoicePdf(pdfData);
@@ -860,6 +899,30 @@ export class BillingService {
       balanceDue: entries.reduce((sum, e) => sum + e.balanceAmount, 0),
       ...(user ? { editLock: { dispatchedOrders, canEdit: this.canEditParty(user, dispatchedOrders) } } : {}),
     };
+  }
+
+  // Billing > Invoices "Remark" on a cancelled invoice — the reason printed
+  // on the Cancelled Invoice PDF. Prefilled from the cancel request when the
+  // order was cancelled; this lets Accounts add one for invoices cancelled
+  // before that existed, or correct it. Same roles as updateParty. Only the
+  // remark changes — no amounts, items or ledger rows are touched.
+  async updateCancellationRemark(invoiceId: string, remark: string | undefined, user: { role: string; email?: string }) {
+    const isSuperAdmin = user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+    if (!isSuperAdmin && !['ADMIN', 'ACCOUNTS'].includes(user?.role)) {
+      throw new ForbiddenException('Only admin/accounts users can edit the cancellation remark');
+    }
+    const text = typeof remark === 'string' ? remark.trim() : '';
+    if (!text) throw new BadRequestException('Remark is required');
+    if (text.length > CANCELLATION_REMARK_MAX_LENGTH) {
+      throw new BadRequestException(`Remark must be at most ${CANCELLATION_REMARK_MAX_LENGTH} characters`);
+    }
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId }, include: { order: { select: { status: true } } } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (invoice.status !== 'CANCELLED' && invoice.order.status !== 'CANCELLED') {
+      throw new BadRequestException('Only a cancelled invoice can have a cancellation remark');
+    }
+    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { cancellationReason: text } as any });
+    return { id: invoiceId, cancellationReason: text };
   }
 
   // Billing > Parties "Edit". Writes the single Customer row, which every

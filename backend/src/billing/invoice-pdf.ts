@@ -92,6 +92,11 @@ export interface InvoicePdfData {
   customerState: string;
   customerGstin: string;
   items: InvoicePdfItem[];
+  // Whole order cancelled: titled "Cancelled Invoice", watermarked on every
+  // page, and cancellationReason printed in a remark row above the Total
+  // row (2026-10-06). Optional so a normal invoice needs neither.
+  cancelled?: boolean;
+  cancellationReason?: string | null;
   company: InvoicePdfCompanyProfile;
 }
 
@@ -112,6 +117,7 @@ const CONTENT_WIDTH = 529.1;
 // not black/generic grey. See docs/Invoice_PDF_Replication_Spec.md.
 const GREY = '#f4f4f4';
 const BORDER = '#3f4155';
+const CANCELLED_RED = '#c62828';
 
 // Indian-style digit grouping (last 3 digits, then groups of 2 —
 // "12,34,567.89") — the reference invoice formats every amount this way
@@ -455,12 +461,20 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // glyph's advance (T and space from GLYPH_ADVANCE_WIDTHS, a/x from ink
       // extent + left bearing), and the whole title is shifted so its ink stays
       // centred on the same x (≈298.56) the old title was centred on.
-      drawGlyphString(
-        'Tax Invoice',
-        [256.25, 266.274, 275.384, 283.694, 287.861, 292.428, 301.702, 309.713, 319.29, 323.374, 332.164],
-        y + 22.46,
-        16.8,
-      );
+      if (data.cancelled) {
+        // No reference glyph outlines exist for these letters, so this
+        // title uses the normal bold font, centred on the same line, in red.
+        doc.font('Body-Bold').fontSize(17).fillColor(CANCELLED_RED)
+          .text('CANCELLED INVOICE', PAGE_MARGIN, y + 6, { width: CONTENT_WIDTH, align: 'center', lineBreak: false });
+        doc.fillColor(BORDER);
+      } else {
+        drawGlyphString(
+          'Tax Invoice',
+          [256.25, 266.274, 275.384, 283.694, 287.861, 292.428, 301.702, 309.713, 319.29, 323.374, 332.164],
+          y + 22.46,
+          16.8,
+        );
+      }
       // 34.9 (was 34) — re-measured 2026-08-21 against the reference's actual
       // header-box rect() top edge (y=68.6, via pikepdf content-stream
       // extraction) rather than a text-based estimate; this offset is the
@@ -994,7 +1008,10 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // these, so the first data row's y (here) is the same on every page.
     drawPageHeader();
     drawItemHeaderRow();
-    const rowsPerPage = Math.max(1, Math.floor((totalRowTop - y) / itemRowH));
+    // A cancelled invoice reserves one row-height at the bottom of the item
+    // box for the cancellation remark (drawn on the last page only).
+    const remarkRowH = data.cancelled ? itemRowH : 0;
+    const rowsPerPage = Math.max(1, Math.floor((totalRowTop - remarkRowH - y) / itemRowH));
 
     // Closes the item box: an empty bordered area (with the column lines
     // continued) from the last item row down to the fixed Total row
@@ -1121,6 +1138,26 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     }
 
     // Last page: the Total row sits at its fixed position (totalRowTop).
+    if (data.cancelled) {
+      // Cancellation remark row, directly above the Total row.
+      const remarkTop = totalRowTop - remarkRowH;
+      if (remarkTop - y > 0.01) {
+        doc.rect(tableX, y, CONTENT_WIDTH, remarkTop - y).stroke(BORDER);
+        drawItemRowDividers(y, remarkTop - y);
+      }
+      doc.rect(tableX, remarkTop, CONTENT_WIDTH, remarkRowH).stroke(BORDER);
+      const remarkLabel = 'Cancellation Remark: ';
+      doc.font('Body-Bold').fontSize(8.4).fillColor(CANCELLED_RED);
+      const remarkLabelW = doc.widthOfString(remarkLabel);
+      doc.text(remarkLabel, tableX + 4, remarkTop + 4, { lineBreak: false });
+      doc.font('Body').fontSize(8.4).fillColor(BORDER)
+        .text(sanitize(data.cancellationReason) || 'Not recorded', tableX + 4 + remarkLabelW, remarkTop + 4, {
+          width: CONTENT_WIDTH - 8 - remarkLabelW,
+          height: remarkRowH - 6,
+          ellipsis: true,
+        });
+      y = remarkTop + remarkRowH;
+    }
     padItemRowsToTotalRow();
     doc.rect(tableX, y, CONTENT_WIDTH, totalRowH).fillAndStroke('#f8f8f8', BORDER);
     drawItemRowDividers(y, totalRowH);
@@ -2116,6 +2153,18 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // invoices, so a single-page invoice is unchanged. Drawn last, once the
     // page count is known (bufferPages keeps every page editable).
     const pageRange = doc.bufferedPageRange();
+    // Cancelled invoice: a large, faint diagonal watermark across every page,
+    // drawn last so no box fill covers it.
+    if (data.cancelled) {
+      for (let p = 0; p < pageRange.count; p++) {
+        doc.switchToPage(pageRange.start + p);
+        doc.save();
+        doc.rotate(-35, { origin: [PAGE_WIDTH / 2, PAGE_HEIGHT / 2] });
+        doc.font('Body-Bold').fontSize(58).fillColor(CANCELLED_RED).fillOpacity(0.13)
+          .text('CANCELLED INVOICE', -150, PAGE_HEIGHT / 2 - 35, { width: PAGE_WIDTH + 300, align: 'center', lineBreak: false });
+        doc.restore();
+      }
+    }
     if (pageRange.count > 1) {
       for (let p = 0; p < pageRange.count; p++) {
         doc.switchToPage(pageRange.start + p);

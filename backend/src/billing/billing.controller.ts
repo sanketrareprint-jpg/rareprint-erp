@@ -82,6 +82,16 @@ export class BillingController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Patch('invoices/:id/cancellation-remark')
+  updateCancellationRemark(
+    @Param('id') id: string,
+    @Body() body: { remark?: string },
+    @Req() req: Request & { user: { role: string; email: string } },
+  ) {
+    return this.billingService.updateCancellationRemark(id, body?.remark, req.user);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
   @Get('receipts')
   listReceiptVouchers(@Query('search') search?: string) {
     return this.billingService.listReceiptVouchers({ search });

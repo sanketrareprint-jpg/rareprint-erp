@@ -1006,7 +1006,38 @@ export class AccountsService {
           data: { status: OrderStatus.CANCELLED, ...clearedRequestFields },
         });
         if (invoice) {
+          // Snapshot what was billed BEFORE reconcile zeroes the invoice, so
+          // the Cancelled Invoice PDF can still list the original items. The
+          // live invoice rows/ledger are adjusted exactly as before.
+          const billedItems = await tx.invoiceItem.findMany({ where: { invoiceId: invoice.id } });
+          const cancelledSnapshot = {
+            subtotal: Number(invoice.subtotal),
+            totalAmount: Number(invoice.totalAmount),
+            items: billedItems.map((item: any) => ({
+              productName: item.productName,
+              sku: item.sku,
+              hsnSac: item.hsnSac,
+              productionNotes: item.productionNotes,
+              quantity: item.quantity,
+              unitPrice: Number(item.unitPrice),
+              taxableAmount: Number(item.taxableAmount),
+              gstRatePct: Number(item.gstRatePct),
+              cgstAmount: Number(item.cgstAmount),
+              sgstAmount: Number(item.sgstAmount),
+              igstAmount: Number(item.igstAmount),
+              lineTotal: Number(item.lineTotal),
+            })),
+          };
           await this.reconcileInvoiceToRemainingItems(tx, invoice, order, [], 'Whole order cancelled');
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: ({
+              status: 'CANCELLED',
+              cancelledAt: new Date(),
+              cancellationReason: (order as any).cancellationReason?.trim() || null,
+              cancelledSnapshot,
+            } as any),
+          });
         }
         // Reverse loyalty points earned on this order — matches rejectOrder's
         // behavior for a whole-order cancellation. Not done for the
