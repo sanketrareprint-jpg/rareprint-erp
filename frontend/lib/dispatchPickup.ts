@@ -36,5 +36,6 @@ export function sortPickupWarehouses<T extends PickupWarehouse>(data: T[]): T[] 
 // together and needs both carriers' addresses visible.
 export function pickupWarehousesForCarrier<T extends PickupWarehouse>(warehouses: T[], selectedCarrier: string, activeCarrier: string): T[] {
   const carrier = selectedCarrier || activeCarrier;
-  return carrier === "fship" ? warehouses.filter(w => w.source === "fship") : warehouses;
+  // "fship-b2b" (Dispatch page only) books against the same Fship pickup address ids.
+  return carrier === "fship" || carrier === "fship-b2b" ? warehouses.filter(w => w.source === "fship") : warehouses;
 }

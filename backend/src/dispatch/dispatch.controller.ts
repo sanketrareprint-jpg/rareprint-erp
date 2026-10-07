@@ -71,7 +71,7 @@ export class DispatchController {
   ) {
     const weightKgOverride = weightKgStr ? parseFloat(weightKgStr) : undefined;
     const itemIds = itemIdsRaw ? itemIdsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
-    const carrierOverride = carrier === 'bigship' || carrier === 'shiprocket' || carrier === 'fship' || carrier === 'compare' ? carrier : undefined;
+    const carrierOverride = carrier === 'bigship' || carrier === 'shiprocket' || carrier === 'fship' || carrier === 'fship-b2b' || carrier === 'compare' ? carrier : undefined;
     return this.dispatchService.getRates(orderId, warehouseId, weightKgOverride, {
       name: pickupName,
       pincode: pickupPincode,
@@ -117,6 +117,13 @@ export class DispatchController {
         state?: string;
         pincode?: string;
       };
+      // Fship B2B only (optional): e-way bill number and base64 PDFs of
+      // the invoice / e-way bill, forwarded to Fship's Create Forward Order.
+      fshipB2BDocs?: {
+        ewayBillNumber?: string;
+        invoicePdf?: { fileName?: string; base64?: string };
+        ewayBillPdf?: { fileName?: string; base64?: string };
+      };
     },
     @Req() req: Request & { user: JwtUser },
   ) {
@@ -138,6 +145,7 @@ export class DispatchController {
       body.packageBoxes,
       body.manualShippingCity,
       body.addressOverride,
+      body.fshipB2BDocs,
     );
   }
 
@@ -204,6 +212,11 @@ export class DispatchController {
     @Req() req: Request & { user: JwtUser },
   ) {
     return this.dispatchService.markDelivered(shipmentId, req.user.id);
+  }
+
+  @Get('shipments/:shipmentId/fship-b2b-label')
+  getFshipB2BLabel(@Param('shipmentId') shipmentId: string) {
+    return this.dispatchService.getFshipB2BLabel(shipmentId);
   }
 
   @Post('shipments/:shipmentId/sync-bigship')

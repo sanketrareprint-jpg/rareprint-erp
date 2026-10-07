@@ -9,7 +9,7 @@ import { OrderProductionStage, OrderStatus, PaymentVerificationStatus, Prisma, S
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
 import { BigshipService, bigshipTotalBoxCount, type BigshipPackageBox } from '../bigship/bigship.service';
-import { FshipService } from '../fship/fship.service';
+import { FshipService, parseFshipB2BRateId, type FshipB2BDocument } from '../fship/fship.service';
 import { CarrierConfigService } from '../carrier-config/carrier-config.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 // Reuse the already-proven Bigship "Delivered Orders Report" parsing/matching
@@ -206,6 +206,30 @@ type AddressOverride = {
   state?: string;
   pincode?: string;
 };
+
+// Optional documents for a Fship B2B booking (Book Shipment, shown only for
+// a Fship B2B rate). PDFs arrive base64-encoded inside the normal JSON
+// booking body (main.ts allows 5mb), so /dispatch/book stays JSON.
+type FshipB2BDocsInput = {
+  ewayBillNumber?: string;
+  invoicePdf?: { fileName?: string; base64?: string };
+  ewayBillPdf?: { fileName?: string; base64?: string };
+};
+
+const FSHIP_B2B_MAX_PDF_BYTES = 1.5 * 1024 * 1024;
+
+function decodePdfUpload(file: { fileName?: string; base64?: string } | undefined, label: string): FshipB2BDocument | undefined {
+  if (!file?.base64) return undefined;
+  const content = Buffer.from(file.base64.replace(/^data:[^,]*,/, ''), 'base64');
+  if (content.subarray(0, 4).toString('latin1') !== '%PDF') {
+    throw new BadRequestException(`${label} must be a PDF file.`);
+  }
+  if (content.length > FSHIP_B2B_MAX_PDF_BYTES) {
+    throw new BadRequestException(`${label} PDF is larger than 1.5 MB.`);
+  }
+  const fileName = (file.fileName?.trim() || `${label.toLowerCase().replace(/\W+/g, '-')}.pdf`).replace(/[^\w.\- ]/g, '_');
+  return { fileName, content };
+}
 
 function loadWarehouses(): Warehouse[] {
   const raw = process.env.SHIPROCKET_WAREHOUSES?.trim();
@@ -445,6 +469,18 @@ export class DispatchService {
     return warehouses[0]!;
   }
 
+  /** Fship pickup address id for a booking (B2C and B2B share it): the
+   *  explicitly selected Fship address first, then the Settings default,
+   *  then the first additional address. See the Fship booking branch in
+   *  bookItems() for the history behind this precedence. */
+  private fshipPickAddressId(warehouse: Warehouse): number | undefined {
+    const fshipCfg = this.carrierConfig.getConfig().fship;
+    return warehouse.fshipAddressId
+      ?? fshipCfg.pickupAddressId
+      ?? fshipCfg.pickupAddresses?.[0]?.id
+      ?? undefined;
+  }
+
   private computeLocalRates(weightKg: number): LocalRateQuote[] {
     const base = 120 + weightKg * 18;
     return [
@@ -677,7 +713,7 @@ export class DispatchService {
     return result;
   }
 
-  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[], carrierOverride?: 'bigship' | 'shiprocket' | 'fship' | 'compare') {
+  async getRates(orderId: string, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, packageBoxes?: DispatchPackageBox[], itemIds?: string[], carrierOverride?: 'bigship' | 'shiprocket' | 'fship' | 'fship-b2b' | 'compare') {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -785,7 +821,7 @@ export class DispatchService {
     // -- no changes needed to booking itself.
     if (activeCarrier === 'compare') {
       const isB2B = bigshipTotalBoxCount(normalizedBoxes) > 1;
-      const [bigshipResult, fshipResult] = await Promise.allSettled([
+      const [bigshipResult, fshipResult, fshipB2BResult] = await Promise.allSettled([
         this.bigship.isConfigured()
           ? (isB2B
               ? this.bigship.fetchB2BCourierRates({
@@ -835,17 +871,33 @@ export class DispatchService {
               amount: dispatchInvoiceAmount,
             })
           : Promise.resolve([]),
+        // Multi-box consignments also get Fship's B2B (freight) quotes,
+        // mirroring how Bigship switches to domestic_b2b for 2+ boxes above.
+        isB2B && normalizedBoxes && this.fship.isConfigured()
+          ? this.fship.fetchB2BRates({
+              pickupPincode: pickup || this.carrierConfig.getConfig().fship.pickupPincode,
+              deliveryPincode: delivery,
+              boxes: normalizedBoxes,
+              isCod: orderIsCod,
+              codAmount: orderCodAmt ?? 0,
+              invoiceAmount: dispatchInvoiceAmount,
+            }).then((r) => r.rates)
+          : Promise.resolve([]),
       ]);
       const bigshipRates = bigshipResult.status === 'fulfilled' ? bigshipResult.value : [];
       if (bigshipResult.status === 'rejected') this.logger.warn(`Compare: Bigship rates failed: ${bigshipResult.reason}`);
       const fshipRates = fshipResult.status === 'fulfilled' ? fshipResult.value : [];
       if (fshipResult.status === 'rejected') this.logger.warn(`Compare: Fship rates failed: ${fshipResult.reason}`);
+      const fshipB2BRates = fshipB2BResult.status === 'fulfilled' ? fshipB2BResult.value : [];
 
       const combined = [
         ...bigshipRates.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
           rateId, carrierName, amount, currency, estimatedDays, provider: 'bigship' as const,
         })),
         ...fshipRates.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
+          rateId, carrierName, amount, currency, estimatedDays, provider: 'fship' as const,
+        })),
+        ...fshipB2BRates.map(({ rateId, carrierName, amount, currency, estimatedDays }) => ({
           rateId, carrierName, amount, currency, estimatedDays, provider: 'fship' as const,
         })),
       ].sort((a, b) => a.amount - b.amount);
@@ -994,6 +1046,32 @@ export class DispatchService {
       }
     }
 
+    // ── Fship B2B (freight / LTL) ─────────────────────────────────────────
+    // Explicit carrier choice only. Fails loudly instead of falling through
+    // to the offline placeholder rates below: those can never be booked, and
+    // a B2B quote without real box dimensions would be meaningless.
+    if (activeCarrier === 'fship-b2b') {
+      if (!this.fship.isConfigured()) throw new BadRequestException('Fship is not configured (Settings > Carrier Config).');
+      if (!normalizedBoxes) throw new BadRequestException('Fship B2B needs box details — tick "Multi-box shipment" and enter each box\'s size and weight.');
+      const fsb = await this.fship.fetchB2BRates({
+        pickupPincode: pickup || this.carrierConfig.getConfig().fship.pickupPincode,
+        deliveryPincode: delivery,
+        boxes: normalizedBoxes,
+        isCod: orderIsCod,
+        codAmount: orderCodAmt ?? 0,
+        invoiceAmount: dispatchInvoiceAmount,
+      });
+      if (!fsb.rates.length) throw new BadRequestException(`Fship B2B: ${fsb.message ?? 'no rates returned'}`);
+      return {
+        orderId: order.id, orderNo: order.orderNumber,
+        destination: order.customer.businessName,
+        weightKg, deliveryPincode: delivery, pickupPincode: pickup,
+        warehouseId: warehouse.id, warehouseName: warehouse.name,
+        source: 'fship-b2b',
+        rates: fsb.rates,
+      };
+    }
+
     return {
       orderId: order.id, orderNo: order.orderNumber,
       destination: order.customer.businessName,
@@ -1004,7 +1082,7 @@ export class DispatchService {
     };
   }
 
-  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[], manualShippingCity?: string, addressOverride?: AddressOverride) {
+  async bookItems(orderId: string, itemIds: string[], rateId: string, userId: string, isCod?: boolean, codAmount?: number, warehouseId?: string, weightKgOverride?: number, pickupOverride?: PickupOverride, selectedQuote?: SelectedRateQuote, packageBoxes?: DispatchPackageBox[], manualShippingCity?: string, addressOverride?: AddressOverride, fshipB2BDocs?: FshipB2BDocsInput) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -1038,6 +1116,7 @@ export class DispatchService {
     const dispatchItemsValue = itemsToDispatch.reduce((sum, i) => sum + Number(i.lineTotal), 0);
 
     const bigshipRate = parseBigshipRateId(rateId);
+    const fshipB2BRate = parseFshipB2BRateId(rateId);
     let picked: LocalRateQuote | undefined | null;
     if (bigshipRate?.masterCustomOrderId) {
       // Try to validate the quote passed from the frontend. If it's missing or
@@ -1098,6 +1177,10 @@ export class DispatchService {
     let bigshipStatus: string | null = null;
     let fshipOrderId: string | null = null;
     let fshipStatus: string | null = null;
+    // Fship B2B only: label PDF link and any non-fatal follow-up problem
+    // (pickup/label not confirmed) to show the dispatcher right away.
+    let labelUrl: string | null = null;
+    let courierNotice: string | null = null;
     let shipmentStatus: ShipmentStatus = ShipmentStatus.PACKED;
     // Only becomes true once a carrier branch below has real, courier-side
     // confirmation that a shipment actually exists with them (a manifested
@@ -1241,6 +1324,72 @@ export class DispatchService {
           shiprocketNote = ` Shiprocket booking failed: ${sr.message ?? 'no order id returned'}.`;
         }
       }
+    } else if (fshipB2BRate && this.fship.isConfigured()) {
+      // ── Fship B2B booking ────────────────────────────────────────────────
+      // Create Forward Order -> Register Pickup -> Shipping Label, the B2B
+      // PDF's own "typical integration flow". Same courier-confirmation rule
+      // as every other branch: only real waybills count as booked.
+      const pickAddressId = this.fshipPickAddressId(warehouse);
+      if (!pickAddressId) {
+        shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
+      } else if (!normalizedBoxes) {
+        shiprocketNote = ' Fship B2B needs box details — tick "Multi-box shipment" and enter each box\'s size and weight.';
+      } else {
+        // Validated before calling Fship, so a bad upload never leaves a
+        // half-created order behind.
+        const invoiceFile = decodePdfUpload(fshipB2BDocs?.invoicePdf, 'Invoice');
+        const ewayBillFile = decodePdfUpload(fshipB2BDocs?.ewayBillPdf, 'E-way bill');
+        const productName = Array.from(new Set(itemsToDispatch.map((i) => i.product.name))).join(', ').slice(0, 100) || 'Printed material';
+        const fsb = await this.fship.createB2BForwardOrder({
+          customerName,
+          customerMobile: customerPhone,
+          customerEmail: order.customer.email ?? 'noreply@example.com',
+          address: addr.line,
+          pincode: addr.pincode,
+          city: addr.city,
+          externalOrderId: order.orderNumber,
+          invoiceNumber: order.orderNumber,
+          isCod: orderIsCod,
+          // Full amount to collect at the door -- same figure the B2C branch
+          // sends as cod_Amount (already net of any advance payment).
+          collectableAmount: orderIsCod ? (orderCodAmt ?? 0) : 0,
+          invoiceAmount: dispatchItemsValue,
+          courierId: fshipB2BRate.courierId,
+          expressType: fshipB2BRate.mode,
+          pickAddressId,
+          productName,
+          boxes: normalizedBoxes,
+          ewayBillNumber: fshipB2BDocs?.ewayBillNumber,
+          invoiceFile,
+          ewayBillFile,
+        });
+        if (fsb.waybills.length > 0) {
+          courierConfirmedBooking = true; // real waybills assigned — order exists in Fship's system
+          awbNumber    = fsb.waybills[0];
+          trackingRef  = fsb.lrNumber ?? fsb.waybills[0];
+          fshipOrderId = fsb.apiOrderId != null ? String(fsb.apiOrderId) : null;
+          const bookedNote = `Fship B2B Order: ${fshipOrderId ?? ''} — booked${fsb.lrNumber ? `, LR ${fsb.lrNumber}` : ''}, waybills ${fsb.waybills.join(', ')}`;
+          const pickup = await this.fship.registerB2BPickup(fsb.waybills);
+          if (pickup.pickupOrderId) {
+            // "Fship B2B pickup #<id>" is read back by getFshipB2BLabel() to
+            // re-fetch the label later -- keep the wording stable.
+            const label = await this.fship.getB2BLabel(pickup.pickupOrderId);
+            labelUrl = label.labelUrl ?? null;
+            if (!labelUrl) courierNotice = `Label not ready yet (${label.message ?? 'no label returned'}) — use "Label" in Dispatch History to fetch it again.`;
+            shiprocketNote = ` ${bookedNote}, Fship B2B pickup #${pickup.pickupOrderId} registered${pickup.pickupDate ? ` for ${pickup.pickupDate}` : ''}.`
+              + (label.labelUrl ? ` Label: ${label.labelUrl}` : '')
+              + (label.manifestUrl ? ` Manifest: ${label.manifestUrl}` : '');
+          } else {
+            courierNotice = `Booked, but pickup registration failed (${pickup.message ?? 'unknown error'}) — register the pickup in Fship's dashboard.`;
+            shiprocketNote = ` ${bookedNote}, pickup registration failed (${pickup.message ?? 'unknown error'}) — needs manual pickup registration in Fship dashboard.`;
+          }
+          const statusResult = await this.fship.getB2BShipmentStatus(fsb.waybills[0]);
+          fshipStatus = statusResult?.status ?? null;
+          shipmentStatus = mapBigshipStatusToShipmentStatus(fshipStatus ?? undefined) ?? ShipmentStatus.IN_TRANSIT;
+        } else {
+          shiprocketNote = ` Fship B2B booking failed: ${fsb.message ?? 'no waybills returned'}.`;
+        }
+      }
     } else if (rateId.startsWith('fs-') && this.fship.isConfigured()) {
       // ── Fship booking ────────────────────────────────────────────────────
       // rateId carries the courierId resolved at rate-quote time (fship.service.ts's
@@ -1249,7 +1398,6 @@ export class DispatchService {
       // Courier List and encoded into the rateId, same idea as Bigship's
       // "bs-<courierId>" scheme).
       const courierId = parseInt(rateId.replace(/^fs-/, ''), 10);
-      const fshipCfg = this.carrierConfig.getConfig().fship;
       // `warehouse` (resolved above via resolveWarehouse(warehouseId,
       // pickupOverride)) carries a real Fship address id (fshipAddressId)
       // when the dispatcher picked one of the addresses configured in
@@ -1270,11 +1418,7 @@ export class DispatchService {
       // booking used the global default unconditionally -- that's why
       // bookings always showed the default (Chandrapur) address in Fship's
       // own dashboard no matter what pickup was selected in the ERP.
-      const pickAddressId =
-        warehouse.fshipAddressId
-        ?? fshipCfg.pickupAddressId
-        ?? fshipCfg.pickupAddresses?.[0]?.id
-        ?? undefined;
+      const pickAddressId = this.fshipPickAddressId(warehouse);
       if (!pickAddressId) {
         shiprocketNote = ' Fship: no pickup address configured (Settings > Carrier Config) -- booking skipped.';
       } else if (Number.isFinite(courierId) && courierId > 0) {
@@ -1422,7 +1566,7 @@ export class DispatchService {
       );
     }
 
-    let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus; awbNumber: string | null; courierBookingWarning: string | null };
+    let result: { shipmentNumber: string; carrierName: string; amount: number; newStatus: OrderStatus; awbNumber: string | null; courierBookingWarning: string | null; labelUrl: string | null; courierNotice: string | null };
     try {
       result = await this.prisma.$transaction(async (tx) => {
         // The Book Shipment courier charge is ONE amount for the submission:
@@ -1540,6 +1684,8 @@ export class DispatchService {
           courierBookingWarning: awbNumber
             ? null
             : (shiprocketNote.trim() || 'Courier did not return a tracking number -- recorded in the ERP, but this shipment may not actually be booked with the courier yet.'),
+          labelUrl,
+          courierNotice,
         };
       });
     } catch (e) {
@@ -2044,6 +2190,23 @@ export class DispatchService {
    *  where the order was created but never actually shipped (still sitting in
    *  Bigship's "Unshipped" queue), so the ERP has no real AWB to sync yet. Lets a
    *  human ship it from Bigship's own dashboard and paste the resulting AWB back in. */
+  /** Re-fetches a Fship B2B shipment's label/manifest PDFs (Dispatch
+   *  History "Label" button), using the pickup order id bookItems() wrote
+   *  into the shipment notes as "Fship B2B pickup #<id>". */
+  async getFshipB2BLabel(shipmentId: string): Promise<{ labelUrl: string | null; manifestUrl: string | null; invoiceUrl: string | null }> {
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId }, select: { notes: true } });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+    const pickupOrderId = Number(/Fship B2B pickup #(\d+)/.exec(shipment.notes ?? '')?.[1]);
+    if (!pickupOrderId) {
+      throw new BadRequestException('No Fship B2B pickup is recorded for this shipment — register the pickup and download the label from Fship\'s dashboard.');
+    }
+    const label = await this.fship.getB2BLabel(pickupOrderId);
+    if (!label.labelUrl && !label.manifestUrl && !label.invoiceUrl) {
+      throw new BadRequestException(`Fship: ${label.message ?? 'no label returned'}`);
+    }
+    return { labelUrl: label.labelUrl ?? null, manifestUrl: label.manifestUrl ?? null, invoiceUrl: label.invoiceUrl ?? null };
+  }
+
   async setManualAwb(shipmentId: string, awbNumber: string): Promise<{ success: boolean }> {
     const trimmed = awbNumber.trim();
     if (!trimmed) throw new BadRequestException('AWB number is required');

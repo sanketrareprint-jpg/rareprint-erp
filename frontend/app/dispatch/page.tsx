@@ -88,6 +88,14 @@ type DispatchMethod = "COURIER" | "TRANSPORT" | "BY_HAND" | "SELF_COLLECTED";
 type TransportForm = { transportName: string; lrNumber: string; transportChargesType: "TOPAY" | "PREPAID"; transportBy: string; totalTransportCharges: string; notes: string };
 type DirectForm = { deliveryBoyName: string; collectedByName: string; collectedByPhone: string; otp: string };
 type PackageBoxForm = { noOfBoxes: string; length: string; breadth: string; height: string; weight: string };
+type PdfUpload = { fileName: string; base64: string };
+type FshipB2BDocsForm = { ewayBillNumber: string; invoicePdf?: PdfUpload; ewayBillPdf?: PdfUpload };
+const FSHIP_B2B_MAX_PDF_BYTES = 1.5 * 1024 * 1024; // must match dispatch.service.ts
+
+// Written into the shipment notes by the backend's Fship B2B booking branch.
+function isFshipB2BShipment(notes: string | null): boolean {
+  return /Fship B2B pickup #\d+/.test(notes ?? "");
+}
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -190,6 +198,12 @@ export default function DispatchPage() {
   // was added. Sanket asked for a dropdown here specifically (not a global
   // switch) so Bigship/Fship/Shiprocket can be picked per booking.
   const [selectedCarrier, setSelectedCarrier] = useState<Record<string, string>>({});
+  // Fship B2B (rateId "fsb-..."): optional e-way bill no. + invoice/e-way bill
+  // PDFs sent with the booking, and the label link of the last B2B booking
+  // (the order leaves the queue once booked, so it's shown in a banner).
+  const [fshipB2BDocs, setFshipB2BDocs] = useState<Record<string, FshipB2BDocsForm>>({});
+  const [recentB2BLabel, setRecentB2BLabel] = useState<{ orderNo: string; url: string } | null>(null);
+  const [labelLoadingId, setLabelLoadingId] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<Record<string, File | null>>({});
   const [search, setSearch] = useState("");
@@ -421,6 +435,25 @@ export default function DispatchPage() {
       alert("Failed: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setSettingAwbId(null);
+    }
+  };
+
+  const openFshipB2BLabel = async (shipmentId: string) => {
+    // Opened synchronously inside the click so popup blockers allow it,
+    // then pointed at the PDF once Fship returns the link.
+    const win = window.open("", "_blank");
+    setLabelLoadingId(shipmentId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/dispatch/shipments/${shipmentId}/fship-b2b-label`, { headers: getAuthHeaders() });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.message || "Failed");
+      const url: string = b.labelUrl || b.manifestUrl || b.invoiceUrl;
+      if (win) win.location.href = url; else window.location.href = url;
+    } catch (e) {
+      win?.close();
+      alert("Could not get label: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setLabelLoadingId(null);
     }
   };
 
@@ -745,6 +778,7 @@ export default function DispatchPage() {
           packageBoxes: sanitizedBoxes.length > 0 ? sanitizedBoxes : undefined,
           manualShippingCity: manualShippingCity || undefined,
           addressOverride: addrOverride?.address?.trim() ? addrOverride : undefined,
+          fshipB2BDocs: rateId.startsWith("fsb-") ? fshipB2BDocs[orderId] : undefined,
         }),
       });
       if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
@@ -780,8 +814,9 @@ export default function DispatchPage() {
       if (result.courierBookingWarning) {
         alert(`⚠️ Recorded in the ERP, but the courier did NOT confirm this booking:\n\n${result.courierBookingWarning}\n\nShipment ref: ${result.shipmentNumber} (this is our internal reference, not a courier tracking number). Check the courier's balance/dashboard before assuming this is actually shipped.`);
       } else {
-        alert(`✅ Dispatched! AWB: ${result.awbNumber ?? "pending"} via ${result.carrierName}\n(Shipment ref: ${result.shipmentNumber})`);
+        alert(`✅ Dispatched! AWB: ${result.awbNumber ?? "pending"} via ${result.carrierName}\n(Shipment ref: ${result.shipmentNumber})${result.courierNotice ? `\n\n⚠️ ${result.courierNotice}` : ""}`);
       }
+      if (result.labelUrl) setRecentB2BLabel({ orderNo: orderData?.orderNo ?? "", url: result.labelUrl });
       await load();
     } finally { setBookingId(null); }
   }
@@ -937,6 +972,17 @@ export default function DispatchPage() {
             </div>
           </div>
 
+          {recentB2BLabel && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+              <span>Fship B2B label ready{recentB2BLabel.orderNo ? ` for order ${recentB2BLabel.orderNo}` : ""}.</span>
+              <div className="flex items-center gap-2">
+                <a href={recentB2BLabel.url} target="_blank" rel="noopener noreferrer"
+                  className="rounded-md bg-purple-600 px-3 py-1 font-semibold text-white hover:bg-purple-700">🏷 Open label PDF</a>
+                <button onClick={() => setRecentB2BLabel(null)} title="Dismiss" className="text-purple-500 hover:text-purple-800"><X className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          )}
+
           {/* ── HISTORY / DELIVERED TABS (share one table, filtered by status) ── */}
           {(tab === "history" || tab === "delivered") && (
             <div className="space-y-4">
@@ -1023,6 +1069,13 @@ export default function DispatchPage() {
                       </div>
                       {(h.trackingNumber || h.awbNumber) && (
                         <p className="mt-1 text-[11px] font-mono text-blue-700">{h.trackingNumber ? h.trackingNumber : `AWB: ${h.awbNumber}`}</p>
+                      )}
+                      {isFshipB2BShipment(h.notes) && (
+                        <button
+                          onClick={() => void openFshipB2BLabel(h.id)}
+                          disabled={labelLoadingId === h.id}
+                          className="mt-1 rounded-lg border border-purple-300 bg-purple-50 px-2 py-1 text-[11px] font-semibold text-purple-700 disabled:opacity-50"
+                        >{labelLoadingId === h.id ? "…" : "🏷 Fship B2B Label"}</button>
                       )}
                       {h.items.length > 0 && (
                         <p className="mt-1 text-[11px] text-slate-500">{h.items.map(formatHistoryItem).join(" · ")}</p>
@@ -1163,6 +1216,14 @@ export default function DispatchPage() {
                                   title="Manually enter the real AWB number (e.g. after shipping it directly from Bigship's dashboard)"
                                   className="rounded border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
                                 >{settingAwbId === h.id ? "…" : "✏️ AWB"}</button>
+                              )}
+                              {isFshipB2BShipment(h.notes) && (
+                                <button
+                                  onClick={() => void openFshipB2BLabel(h.id)}
+                                  disabled={labelLoadingId === h.id}
+                                  title="Open the Fship B2B shipping label PDF"
+                                  className="rounded border border-purple-300 bg-purple-50 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 disabled:opacity-50 whitespace-nowrap"
+                                >{labelLoadingId === h.id ? "…" : "🏷 Label"}</button>
                               )}
                             </div>
                           </td>
@@ -1612,12 +1673,18 @@ export default function DispatchPage() {
                             // valid for the new carrier, instead of leaving a stale selection
                             // that may no longer be in the (now-filtered) dropdown options.
                             setSelectedWarehouse(prev => ({ ...prev, [o.id]: "" }));
+                            // Fship B2B can only be quoted with real box sizes.
+                            if (v === "fship-b2b" && !isMultiBox) {
+                              setMultiBoxEnabled(prev => ({ ...prev, [o.id]: true }));
+                              setPackageBoxes(prev => ({ ...prev, [o.id]: getPackageRows(o.id, selectedWeight) }));
+                            }
                           }}
                           className="min-w-[130px] rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white"
                           options={[
                             { value: "", label: "Ship via: Default" },
                             { value: "bigship", label: "Bigship" },
                             { value: "fship", label: "Fship" },
+                            { value: "fship-b2b", label: "Fship B2B (freight)" },
                             { value: "shiprocket", label: "Shiprocket" },
                             { value: "compare", label: "Compare Bigship + Fship" },
                           ]} />
@@ -1743,11 +1810,42 @@ export default function DispatchPage() {
                                         </span>
                                       )}
                                     </p>
-                                    <p className="text-xs font-bold text-blue-700">{fmt(r.amount)} <span className="text-[10px] font-normal text-slate-400">~{r.estimatedDays}d</span></p>
+                                    <p className="text-xs font-bold text-blue-700">{fmt(r.amount)} <span className="text-[10px] font-normal text-slate-400">~{r.estimatedDays}d</span>
+                                      {/* Fship B2B's totalCharges is GST-inclusive; B2C/Bigship quotes are not. */}
+                                      {r.rateId.startsWith("fsb-") && <span className="ml-1 text-[9px] font-semibold text-purple-600">incl. GST</span>}
+                                    </p>
                                   </div>
                                 </label>
                               ))}
                           </div>
+                          {selectedRate[o.id]?.startsWith("fsb-") && (() => {
+                            const docs = fshipB2BDocs[o.id] ?? { ewayBillNumber: "" };
+                            const updateDocs = (patch: Partial<FshipB2BDocsForm>) =>
+                              setFshipB2BDocs(prev => ({ ...prev, [o.id]: { ...(prev[o.id] ?? { ewayBillNumber: "" }), ...patch } }));
+                            const pickPdf = (key: "invoicePdf" | "ewayBillPdf", file: File | undefined) => {
+                              if (!file) { updateDocs({ [key]: undefined }); return; }
+                              if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) { alert("Please choose a PDF file."); return; }
+                              if (file.size > FSHIP_B2B_MAX_PDF_BYTES) { alert("PDF must be 1.5 MB or smaller."); return; }
+                              const reader = new FileReader();
+                              reader.onload = ev => updateDocs({ [key]: { fileName: file.name, base64: String(ev.target?.result ?? "") } });
+                              reader.readAsDataURL(file);
+                            };
+                            return (
+                              <div className="mb-2 rounded-lg border border-purple-200 bg-purple-50/50 px-2.5 py-2">
+                                <p className="text-[11px] font-semibold text-purple-800">Fship B2B documents <span className="font-normal text-slate-500">(optional — an e-way bill is legally required for consignments over ₹50,000)</span></p>
+                                <div className="mt-1.5 grid gap-1.5 sm:grid-cols-3">
+                                  <input value={docs.ewayBillNumber} onChange={e => updateDocs({ ewayBillNumber: e.target.value.replace(/\D/g, "").slice(0, 12) })}
+                                    placeholder="E-way bill no." className="rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                                  <label className="text-[10px] text-slate-600">Invoice PDF
+                                    <input type="file" accept="application/pdf,.pdf" onChange={e => pickPdf("invoicePdf", e.target.files?.[0])} className="block w-full text-[10px]" />
+                                  </label>
+                                  <label className="text-[10px] text-slate-600">E-way bill PDF
+                                    <input type="file" accept="application/pdf,.pdf" onChange={e => pickPdf("ewayBillPdf", e.target.files?.[0])} className="block w-full text-[10px]" />
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           <div className="flex justify-end">
                             <button onClick={() => book(o.id)} disabled={bookingId === o.id || !someSelected}
                               className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
