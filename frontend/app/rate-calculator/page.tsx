@@ -43,6 +43,12 @@ type QuoteInputParams = {
   nonWovenPrintMode?: string;
   nonWovenPlateMode?: string;
   nonWovenPerPlateRate?: number;
+  handleBagLength?: number;
+  handleBagHeight?: number;
+  handleBagGusset?: number;
+  handleBagGsm?: number;
+  handleBagWallGsm?: number;
+  handleBagPrintMode?: string;
   dotMatrixSize?: string;
   dotMatrixGsm?: number;
   carbonCopy?: boolean;
@@ -174,6 +180,8 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
                 fixedInfo: "Small = X-ray bag 10.5x16 inch. Big = CT scan bag 16x21 inch." },
   nonwovenbag: { label: "Non Woven Bag",
                 fixedInfo: "Choose bag size and single color or multicolor. Multicolor adds the master extra per bag." },
+  handlebag:  { label: "Handle Bag",
+                fixedInfo: "Enter size in inches, Gazzette (0 = no gazzette), fabric GSM and wall GSM. Fabric rate is set in the Rates tab." },
   dotmatrixbill: { label: "Dot Matrix Bill",
                 fixedInfo: "Choose size, GSM and carbon-copy option." },
   keychain:   { label: "Keychain",
@@ -310,6 +318,12 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
       details.push(`Bag Size: ${formatRawDimension(inputParams.nonWovenSize)}`);
       details.push(`Printing: ${inputParams.nonWovenPrintMode === "multicolor" ? "Multicolor" : "Single Color"}`);
       details.push(`Plate Design: ${inputParams.nonWovenPlateMode === "2" ? "Both sides different design (2 Plates)" : "Both sides same design (1 Plate)"}`);
+    } else if (inputParams.product === "handlebag") {
+      details.push(`Bag Size: ${inputParams.handleBagLength || 0}×${inputParams.handleBagHeight || 0}"`);
+      details.push(`Gazzette: ${inputParams.handleBagGusset ? `${inputParams.handleBagGusset}"` : "No"}`);
+      details.push(`GSM: ${inputParams.handleBagGsm || ""}`);
+      if (inputParams.handleBagGusset) details.push(`Wall GSM: ${inputParams.handleBagWallGsm || ""}`);
+      details.push(`Printing: ${inputParams.handleBagPrintMode === "multicolor" ? "Multicolor" : "Single Color"}`);
     } else if (inputParams.product === "dotmatrixbill") {
       details.push(`Size: ${formatRawDimension(inputParams.dotMatrixSize)}`);
       details.push(`GSM: ${inputParams.dotMatrixGsm || ""}`);
@@ -1010,6 +1024,12 @@ export default function RateCalculatorPage() {
   const [rNonWovenPrintMode, setRNonWovenPrintMode] = useState<"single" | "multicolor">("single");
   const [rNonWovenPlateMode, setRNonWovenPlateMode] = useState<"1" | "2">("1");
   const [rNonWovenPerPlateRate, setRNonWovenPerPlateRate] = useState<number | "">("");
+  const [rHandleBagLength, setRHandleBagLength] = useState(12);
+  const [rHandleBagHeight, setRHandleBagHeight] = useState(15);
+  const [rHandleBagGusset, setRHandleBagGusset] = useState(0);
+  const [rHandleBagGsm, setRHandleBagGsm] = useState(80);
+  const [rHandleBagWallGsm, setRHandleBagWallGsm] = useState(80);
+  const [rHandleBagPrintMode, setRHandleBagPrintMode] = useState<"single" | "multicolor">("single");
   const [rDotMatrixSize, setRDotMatrixSize] = useState("4x6");
   const [rDotMatrixGsm, setRDotMatrixGsm] = useState(70);
   const [rCarbonCopy, setRCarbonCopy] = useState(false);
@@ -1048,6 +1068,16 @@ export default function RateCalculatorPage() {
       setRNonWovenPrintMode("single");
       setRNonWovenPlateMode("1");
       setRNonWovenPerPlateRate("");
+      return;
+    }
+    if (rProduct === "handlebag") {
+      setRQty(1000);
+      setRHandleBagLength(12);
+      setRHandleBagHeight(15);
+      setRHandleBagGusset(0);
+      setRHandleBagGsm(80);
+      setRHandleBagWallGsm(80);
+      setRHandleBagPrintMode("single");
       return;
     }
     if (rProduct === "dotmatrixbill") {
@@ -1278,6 +1308,12 @@ export default function RateCalculatorPage() {
       nonWovenPrintMode: rNonWovenPrintMode,
       nonWovenPlateMode: rNonWovenPlateMode,
       nonWovenPerPlateRate: rNonWovenPerPlateRate !== "" ? rNonWovenPerPlateRate : undefined,
+      handleBagLength: rProduct === "handlebag" ? rHandleBagLength : undefined,
+      handleBagHeight: rProduct === "handlebag" ? rHandleBagHeight : undefined,
+      handleBagGusset: rProduct === "handlebag" ? rHandleBagGusset : undefined,
+      handleBagGsm: rProduct === "handlebag" ? rHandleBagGsm : undefined,
+      handleBagWallGsm: rProduct === "handlebag" ? rHandleBagWallGsm : undefined,
+      handleBagPrintMode: rProduct === "handlebag" ? rHandleBagPrintMode : undefined,
       dotMatrixSize: rDotMatrixSize,
       dotMatrixGsm: rDotMatrixGsm,
       carbonCopy: rCarbonCopy,
@@ -1397,6 +1433,12 @@ export default function RateCalculatorPage() {
   const nonWovenSizeSubtotal = nonWovenFabricCost + nonWovenPrintingCost + nonWovenExtraCost + nonWovenPlateCost;
   const nonWovenSizeTotal = nonWovenSizeSubtotal * nonWovenMult;
   const nonWovenPreviewPerBag = rQty > 0 ? nonWovenSizeTotal / rQty : 0;
+  // Mirrors the backend's input validation for Handle Bag (the cost formula
+  // itself lives only in the backend) so Calculate can't silently fail.
+  const handleBagInvalid = rProduct === "handlebag" && (
+    !(rQty > 0) || !(rHandleBagLength > 0) || !(rHandleBagHeight > 0) || !(rHandleBagGsm > 0) ||
+    !(rHandleBagGusset >= 0) || (rHandleBagGusset > 0 && !(rHandleBagWallGsm > 0))
+  );
   const dotMatrixRates = rates?.dotMatrixBill;
   const dotMatrixBaseRate = Number(dotMatrixRates?.sizeRates?.[rDotMatrixSize]?.[rDotMatrixGsm] ?? 0);
   const dotMatrixCarbonRate = rCarbonCopy ? Number(dotMatrixRates?.carbonCopyExtraPerBook ?? 8) : 0;
@@ -1737,6 +1779,45 @@ export default function RateCalculatorPage() {
                       {" "}→ cost <strong>{fmt(nonWovenSizeSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
                     </div>
                   </>
+                ) : rProduct === "handlebag" ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <Field label="Quantity">
+                        <Input type="number" min="1" value={rQty} onChange={e => setRQty(+e.target.value)} />
+                      </Field>
+                      <Field label="Length (in)">
+                        <Input type="number" min="0" step="0.1" value={rHandleBagLength} onChange={e => setRHandleBagLength(+e.target.value)} />
+                      </Field>
+                      <Field label="Height (in)">
+                        <Input type="number" min="0" step="0.1" value={rHandleBagHeight} onChange={e => setRHandleBagHeight(+e.target.value)} />
+                      </Field>
+                      <Field label="Gazzette (in, 0 = none)">
+                        <Input type="number" min="0" step="0.1" value={rHandleBagGusset} onChange={e => setRHandleBagGusset(+e.target.value)} />
+                      </Field>
+                      <Field label="GSM">
+                        <Input type="number" min="0" step="1" value={rHandleBagGsm} onChange={e => setRHandleBagGsm(+e.target.value)} />
+                      </Field>
+                      <Field label="Wall GSM">
+                        <Input type="number" min="0" step="1" value={rHandleBagWallGsm} disabled={!(rHandleBagGusset > 0)}
+                          onChange={e => setRHandleBagWallGsm(+e.target.value)} />
+                      </Field>
+                      <Field label="Printing">
+                        <Select value={rHandleBagPrintMode} onChange={e => setRHandleBagPrintMode(e.target.value as "single" | "multicolor")}>
+                          <option value="single">Single Color</option>
+                          <option value="multicolor">Multicolor</option>
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                      Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 120}/kg</strong> (Rates tab) · 2 sides fabric = 2 × L × H × GSM × rate ÷ 1550000
+                      {" "}+ Gazzette = (wall + 1.5) × (2H + L) × wall GSM × rate ÷ 1550000 + stitching + printing slab + cutting &amp; wastage → × multiplier. Click Calculate for the breakdown.
+                    </div>
+                    {handleBagInvalid && (
+                      <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                        Quantity, Length, Height and GSM must be greater than 0{rHandleBagGusset > 0 ? ", and Wall GSM is required when Gazzette is given" : ""}.
+                      </div>
+                    )}
+                  </>
                 ) : rProduct === "dotmatrixbill" ? (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1917,7 +1998,7 @@ export default function RateCalculatorPage() {
                         value={rMult} onChange={e => setRMult(e.target.value === "" ? "" : +e.target.value)} />
                     </Field>
                   )}
-                  <button onClick={calcReverse} disabled={loading}
+                  <button onClick={calcReverse} disabled={loading || handleBagInvalid}
                     className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
                     {loading ? "Calculating…" : "🧮 Calculate"}
                   </button>
@@ -2120,6 +2201,17 @@ export default function RateCalculatorPage() {
                     addValPlaceholder="bags/kg"
                     formatLabel={k => k + " Bag"}
                   />
+                </Card>
+                <Card title="Handle Bag">
+                  <p className="text-[10px] text-slate-400 mb-2">Fabric cost = area (sq in) × GSM × Fabric Rate ÷ 1550000. Stitching, printing slabs and cutting &amp; wastage are fixed per bag.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Field label="Handle Bag Fabric Rate (₹/kg)">
+                      <Input type="number" step="0.01" value={rates.handleBag?.fabricRatePerKg ?? 120} onChange={e => updateRate("handleBag.fabricRatePerKg", +e.target.value)} />
+                    </Field>
+                    <Field label="Selling Multiplier (×)">
+                      <Input type="number" step="0.01" value={rates.handleBag?.multiplier ?? 1.67} onChange={e => updateRate("handleBag.multiplier", +e.target.value)} />
+                    </Field>
+                  </div>
                 </Card>
                 <Card title="X-ray / CT Scan Bags">
                   <p className="text-[10px] text-slate-400 mb-2">Small = 10.5×16 X-ray · Big = 16×21 CT scan. Base costs by qty tier.</p>

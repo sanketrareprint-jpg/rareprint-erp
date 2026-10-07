@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -100,6 +100,22 @@ const DEFAULT_RATES: any = {
     ratePerKg: 120,
     printingCostPerBag: 1,
     perPlateRate: 500,
+  },
+  handleBag: {
+    multiplier: 1.67,
+    // ₹/kg — the only value edited in the Rates tab; the rest are fixed per-bag charges.
+    fabricRatePerKg: 120,
+    // 1550 sq inch per m² × 1000 g per kg: converts sq inch × GSM into kg.
+    sqInchGsmPerKg: 1550000,
+    gussetSeamAllowanceInch: 1.5,
+    stitchingWithGusset: 2.25,
+    stitchingWithoutGusset: 1.25,
+    cuttingWastagePerBag: 0.5,
+    // ₹/bag by qty slab: below 2000 → '1000' slab, 2000–4999 → '2000', 5000+ → '5000'.
+    printingPerBag: {
+      single: { 1000: 1.5, 2000: 1.25, 5000: 1 },
+      multicolor: { 1000: 3.2, 2000: 2.25, 5000: 1.75 },
+    },
   },
   dotMatrixBill: {
     multiplier: 1.67,
@@ -714,8 +730,71 @@ export class RateCalculatorService {
       };
     }
 
+    if (product === 'handlebag') {
+      const hb = rates.handleBag ?? DEFAULT_RATES.handleBag;
+      const hbDefaults = DEFAULT_RATES.handleBag;
+      const bagQty = Number(qty ?? 0);
+      const length = Number(dto.handleBagLength ?? 0);
+      const height = Number(dto.handleBagHeight ?? 0);
+      const gusset = Number(dto.handleBagGusset ?? 0);
+      const gsm = Number(dto.handleBagGsm ?? 0);
+      const wallGsm = Number(dto.handleBagWallGsm ?? 0);
+      const printMode = dto.handleBagPrintMode === 'multicolor' ? 'multicolor' : 'single';
+
+      if (!(bagQty > 0)) throw new BadRequestException('Quantity must be greater than 0');
+      if (!(length > 0) || !(height > 0)) throw new BadRequestException('Length and Height must be greater than 0');
+      if (!(gsm > 0)) throw new BadRequestException('GSM must be greater than 0');
+      if (!(gusset >= 0)) throw new BadRequestException('Gazzette cannot be negative');
+      if (gusset > 0 && !(wallGsm > 0)) throw new BadRequestException('Wall GSM must be greater than 0 when Gazzette is given');
+
+      const fabricRate = Number(hb.fabricRatePerKg ?? hbDefaults.fabricRatePerKg);
+      const divisor = Number(hb.sqInchGsmPerKg ?? hbDefaults.sqInchGsmPerKg);
+      const seam = Number(hb.gussetSeamAllowanceInch ?? hbDefaults.gussetSeamAllowanceInch);
+
+      // Per-bag costs (₹). Fabric: 2 × L × H × GSM × rate ÷ 1550000.
+      // Gazzette strip: (wall + 1.5) wide, running down both sides and across
+      // the bottom (2H + L) long, at the wall fabric's GSM.
+      const fabricPerBag = 2 * length * height * gsm * fabricRate / divisor;
+      const gussetStripLength = 2 * height + length;
+      const gussetPerBag = gusset > 0 ? (gusset + seam) * gussetStripLength * wallGsm * fabricRate / divisor : 0;
+      const stitchingPerBag = Number(gusset > 0
+        ? (hb.stitchingWithGusset ?? hbDefaults.stitchingWithGusset)
+        : (hb.stitchingWithoutGusset ?? hbDefaults.stitchingWithoutGusset));
+      const slab = bagQty >= 5000 ? 5000 : bagQty >= 2000 ? 2000 : 1000;
+      const printingPerBag = Number(hb.printingPerBag?.[printMode]?.[slab] ?? hbDefaults.printingPerBag[printMode][slab]);
+      const cuttingPerBag = Number(hb.cuttingWastagePerBag ?? hbDefaults.cuttingWastagePerBag);
+      const costPerBag = fabricPerBag + gussetPerBag + stitchingPerBag + printingPerBag + cuttingPerBag;
+
+      const subtotal = costPerBag * bagQty;
+      const multiplier = dtoMult ?? hb.multiplier ?? hbDefaults.multiplier;
+      const total = subtotal * multiplier;
+      const q = bagQty.toLocaleString();
+      const slabLabel = slab === 5000 ? '5000+' : slab === 2000 ? '2000-4999' : 'up to 1999';
+      const breakdown: any[] = [
+        { label: `2 sides fabric (2 x ${length} x ${height} in x ${gsm} GSM x Rs.${fabricRate}/kg ÷ ${divisor} = Rs.${fabricPerBag.toFixed(4)}/bag x ${q})`, amount: fabricPerBag * bagQty },
+      ];
+      if (gusset > 0) {
+        breakdown.push({ label: `Gazzette ((${gusset} + ${seam}) x (2 x ${height} + ${length}) in x ${wallGsm} GSM x Rs.${fabricRate}/kg ÷ ${divisor} = Rs.${gussetPerBag.toFixed(4)}/bag x ${q})`, amount: gussetPerBag * bagQty });
+      }
+      breakdown.push(
+        { label: `Stitching (${gusset > 0 ? 'with' : 'without'} gazzette, Rs.${stitchingPerBag}/bag x ${q})`, amount: stitchingPerBag * bagQty },
+        { label: `Printing (${printMode === 'multicolor' ? 'Multicolor' : 'Single Color'}, ${slabLabel} bags, Rs.${printingPerBag}/bag x ${q})`, amount: printingPerBag * bagQty },
+        { label: `Cutting & Wastage (Rs.${cuttingPerBag}/bag x ${q})`, amount: cuttingPerBag * bagQty },
+      );
+      return {
+        breakdown,
+        subtotal,
+        total,
+        perPiece: total / bagQty,
+        totalPieces: bagQty,
+        description: `${q} handle bags | ${length}x${height} in | gazzette ${gusset} in | ${gsm} GSM${gusset > 0 ? ` | wall ${wallGsm} GSM` : ''} | ${printMode === 'multicolor' ? 'multicolor' : 'single color'} | cost Rs.${costPerBag.toFixed(2)}/bag`,
+        multiplier,
+        customer,
+      };
+    }
+
     if (product === 'dotmatrixbill') {
-      const dm = rates.dotMatrixBill ?? DEFAULT_RATES.dotMatrixBill;
+      const dm =rates.dotMatrixBill ?? DEFAULT_RATES.dotMatrixBill;
       const billQty = Number(qty ?? 0);
       const size = String(dto.dotMatrixSize ?? '4x6');
       const gsm = Number(dto.dotMatrixGsm ?? 70);
