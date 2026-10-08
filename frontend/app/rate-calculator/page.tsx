@@ -1423,7 +1423,8 @@ export default function RateCalculatorPage() {
   const nonWovenPrintingCostPerBag = Number(nonWovenRates?.printingCostPerBag ?? 1);
   const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 2) : 0;
   const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 1.67);
-  const nonWovenPerPlateRateVal = rNonWovenPerPlateRate === "" ? Number(nonWovenRates?.perPlateRate ?? 500) : Number(rNonWovenPerPlateRate);
+  const nonWovenDefaultPlateRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorPerPlateRate ?? 1000) : Number(nonWovenRates?.perPlateRate ?? 500);
+  const nonWovenPerPlateRateVal = rNonWovenPerPlateRate === "" ? nonWovenDefaultPlateRate : Number(rNonWovenPerPlateRate);
   const nonWovenPlates = rNonWovenPlateMode === "2" ? 2 : 1;
   const nonWovenPlateCost = nonWovenPlates * nonWovenPerPlateRateVal;
   const nonWovenTotalKg = nonWovenBagsPerKg > 0 ? rQty / nonWovenBagsPerKg : 0;
@@ -1755,7 +1756,7 @@ export default function RateCalculatorPage() {
                       <Field label="Printing">
                         <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
                           <option value="single">Single Color</option>
-                          <option value="multicolor">Multicolor (+₹{nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)</option>
+                          <option value="multicolor">{`Multicolor (+₹${nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)`}</option>
                         </Select>
                       </Field>
                     </div>
@@ -1766,9 +1767,9 @@ export default function RateCalculatorPage() {
                           <option value="2">2 Plates — different design each side</option>
                         </Select>
                       </Field>
-                      <Field label={`Per Plate Rate (₹) — default ₹${nonWovenRates?.perPlateRate ?? 500}`}>
+                      <Field label={`Per Plate Rate (₹) — default ₹${nonWovenDefaultPlateRate}`}>
                         <Input type="number" value={rNonWovenPerPlateRate}
-                          onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenRates?.perPlateRate ?? 500)} />
+                          onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenDefaultPlateRate)} />
                       </Field>
                     </div>
                     <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
@@ -1834,7 +1835,7 @@ export default function RateCalculatorPage() {
                       <Field label="GSM">
                         <Select value={rDotMatrixGsm} onChange={e => setRDotMatrixGsm(+e.target.value)}>
                           {Object.keys(dotMatrixRates?.sizeRates?.[rDotMatrixSize] ?? { 60: 0, 70: 0, 80: 0, 100: 0 }).map(gsm => (
-                            <option key={gsm} value={gsm}>{gsm} GSM</option>
+                            <option key={gsm} value={gsm}>{`${gsm} GSM`}</option>
                           ))}
                         </Select>
                       </Field>
@@ -2190,6 +2191,9 @@ export default function RateCalculatorPage() {
                     </Field>
                     <Field label="Per Plate Rate (₹)">
                       <Input type="number" step="1" value={rates.nonWovenBag?.perPlateRate ?? 500} onChange={e => updateRate("nonWovenBag.perPlateRate", +e.target.value)} />
+                    </Field>
+                    <Field label="Multicolor Per Plate Rate (₹)">
+                      <Input type="number" step="1" value={rates.nonWovenBag?.multicolorPerPlateRate ?? 1000} onChange={e => updateRate("nonWovenBag.multicolorPerPlateRate", +e.target.value)} />
                     </Field>
                   </div>
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Bags per KG (qty of bags = 1kg, by size)</p>

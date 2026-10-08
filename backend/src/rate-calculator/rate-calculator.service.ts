@@ -100,6 +100,8 @@ const DEFAULT_RATES: any = {
     ratePerKg: 120,
     printingCostPerBag: 1,
     perPlateRate: 500,
+    // Multicolor printing needs a costlier plate than single color.
+    multicolorPerPlateRate: 1000,
   },
   handleBag: {
     multiplier: 1.67,
@@ -692,7 +694,10 @@ export class RateCalculatorService {
       // different design front & back, which needs a second plate made —
       // a flat one-time charge, not per-bag.
       const plates = dto.nonWovenPlateMode === '2' ? 2 : 1;
-      const perPlateRate = Number(dto.nonWovenPerPlateRate ?? nw.perPlateRate ?? DEFAULT_RATES.nonWovenBag.perPlateRate);
+      const defaultPlateRate = printMode === 'multicolor'
+        ? (nw.multicolorPerPlateRate ?? DEFAULT_RATES.nonWovenBag.multicolorPerPlateRate)
+        : (nw.perPlateRate ?? DEFAULT_RATES.nonWovenBag.perPlateRate);
+      const perPlateRate = Number(dto.nonWovenPerPlateRate ?? defaultPlateRate);
       const plateCost = plates * perPlateRate;
 
       // Weight-based fabric costing: how many bags of this size make up 1kg
