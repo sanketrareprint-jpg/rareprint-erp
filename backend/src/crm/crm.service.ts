@@ -666,11 +666,12 @@ export class CrmService {
       location: {},
     };
 
-    const res = await fetch(AISENSY_API_URL, {
+    // Through WhatsAppService so a failure shows in the Dashboard warning.
+    const res = await this.whatsapp.postToAisensy({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, AISENSY_API_URL);
 
     const responseData = await res.json().catch(() => ({}));
 

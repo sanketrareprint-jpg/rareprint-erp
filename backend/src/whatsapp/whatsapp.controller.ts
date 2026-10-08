@@ -1,6 +1,7 @@
 // backend/src/whatsapp/whatsapp.controller.ts
-import { Controller, Post, Param, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Post, Param, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -11,6 +12,19 @@ export class WhatsAppController {
     private readonly whatsapp: WhatsAppService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * GET /whatsapp/status
+   * Latest AiSensy send outcome (failing + AiSensy's reason) for the admin
+   * Dashboard warning. See WhatsAppSendStatus in whatsapp.service.ts.
+   */
+  @Get('status')
+  getStatus(@Req() req: Request & { user: { role: string } }) {
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Only an admin can view WhatsApp send status');
+    }
+    return this.whatsapp.getSendStatus();
+  }
 
   /**
    * POST /whatsapp/send/:orderId

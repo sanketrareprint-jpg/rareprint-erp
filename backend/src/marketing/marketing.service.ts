@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 const AISENSY_API_URL = process.env.AISENSY_API_URL ?? 'https://backend.aisensy.com/campaign/t1/api/v2';
 const DAILY_DEFAULT_LIMIT = 10000;
@@ -19,7 +20,10 @@ const CFG = {
 export class MarketingService {
   private readonly logger = new Logger(MarketingService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsAppService,
+  ) {}
 
   // ─── Settings ─────────────────────────────────────────────────────────────
   async getMarketingSettings() {
@@ -745,11 +749,14 @@ export class MarketingService {
     };
 
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      // Through WhatsAppService so an account-wide failure (out of credits,
+      // AiSensy unreachable) shows in the Dashboard warning; dead numbers in a
+      // broadcast list don't count.
+      const res = await this.whatsapp.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      });
+      }, AISENSY_API_URL, { accountWideFailuresOnly: true });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return { success: false, error: JSON.stringify(data), raw: data };
       return { success: true, providerMessageId: data.messageId ?? data.id ?? data.requestId ?? job.id, raw: data };

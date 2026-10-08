@@ -89,6 +89,19 @@ type ComplaintsOverview = {
 
 type ComplianceAgentRow = { agentId: string; agentName: string; tagsApplied: number; notContacted: number; contacted: number };
 type ComplianceDashboard = { agents: ComplianceAgentRow[]; totals: { tagsApplied: number; notContacted: number } };
+// Mirrors WhatsAppSendStatus in backend/src/whatsapp/whatsapp.service.ts.
+type WhatsAppSendStatus = {
+  // Backend's call: 3+ failures in a row, or AiSensy's out-of-credits error.
+  alert: boolean;
+  failing: boolean;
+  failuresSinceLastSuccess: number;
+  firstFailureAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureCampaign: string | null;
+  lastFailureReason: string | null;
+  lastFailureCode: number | null;
+  lastSuccessAt: string | null;
+};
 type NotContactedNumber = { name: string | null; phone: string; tagRaw: string | null; lastActiveAt: string | null; createdOnAt: string | null };
 type TopCalledNumber = { phone: string; count: number; totalDurationSec: number; lastCalledAt: string };
 type CallingPatternBucket = { bucket: string; count: number; pct?: number };
@@ -175,6 +188,7 @@ export default function DashboardPage() {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
   const [currentUser] = useState(() => getStoredUser());
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppSendStatus | null>(null);
   const [expandedCallAgents, setExpandedCallAgents] = useState<Set<string>>(new Set());
   const toggleCallAgent = (agentId: string) => {
     setExpandedCallAgents((prev) => {
@@ -337,6 +351,19 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, [currentUser]);
 
+  // WhatsApp send health (ADMIN only, enforced by GET /whatsapp/status).
+  // AiSensy failures — e.g. an empty credit wallet — otherwise only show up
+  // in the Railway logs while customers silently stop getting messages.
+  useEffect(() => {
+    if (currentUser?.role !== "ADMIN") return;
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/whatsapp/status`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: WhatsAppSendStatus | null) => { if (!cancelled) setWhatsappStatus(d); })
+      .catch(() => { if (!cancelled) setWhatsappStatus(null); });
+    return () => { cancelled = true; };
+  }, [currentUser]);
+
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return (
@@ -393,6 +420,24 @@ export default function DashboardPage() {
           <h1 className="text-sm font-bold text-slate-900">Dashboard</h1>
           <p className="text-xs text-slate-400">RarePrint ERP — Operations Overview</p>
         </div>
+
+        {whatsappStatus?.alert && (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+            <p className="font-bold">
+              ⚠ WhatsApp messages are failing — customers are not receiving them
+              ({whatsappStatus.failuresSinceLastSuccess} failed in a row
+              {whatsappStatus.firstFailureAt ? ` since ${new Date(whatsappStatus.firstFailureAt).toLocaleString("en-IN")}` : ""})
+            </p>
+            <p className="mt-0.5">
+              AiSensy says: <span className="font-semibold">{whatsappStatus.lastFailureReason ?? "Unknown error"}</span>
+              {whatsappStatus.lastFailureCode != null ? ` (code ${whatsappStatus.lastFailureCode})` : ""}
+              {whatsappStatus.lastFailureCampaign ? ` — last on ${whatsappStatus.lastFailureCampaign}` : ""}
+            </p>
+            {whatsappStatus.lastFailureCode === 402 && (
+              <p className="mt-0.5">Fix: recharge WhatsApp Conversation Credits in the AiSensy wallet (app.aisensy.com). Messages that failed are not resent automatically.</p>
+            )}
+          </div>
+        )}
 
         {/* ── KPI Cards ── */}
         <div className="dash-kpi-grid grid grid-cols-7 gap-2">

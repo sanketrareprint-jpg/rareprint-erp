@@ -1,6 +1,7 @@
 // backend/src/whatsapp/whatsapp.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { complaintFormUrl } from '../common/complaint-link';
+import { PrismaService } from '../prisma/prisma.service';
 
 const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
 const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
@@ -23,6 +24,87 @@ const AISENSY_AGENT_TAGS: Record<string, string> = {
   shrawani: 'shrawani',
 };
 
+// Last AiSensy send outcome, shown to admins on the Dashboard (GET
+// /whatsapp/status). Send failures used to reach only the Railway logs, so an
+// empty AiSensy wallet (ERR402 "Insufficient WhatsApp Conversation Credits",
+// 2026-10-08) silently stopped every customer message. File-level, not an
+// instance field: ProductionModule provides its own WhatsAppService instance.
+// Persisted in SystemConfig (SEND_STATUS_KEY) so a deploy/restart doesn't hide
+// an ongoing outage.
+export interface WhatsAppSendStatus {
+  failing: boolean;
+  failuresSinceLastSuccess: number;
+  firstFailureAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureCampaign: string | null;
+  lastFailureReason: string | null;
+  lastFailureCode: number | null;
+  lastSuccessAt: string | null;
+}
+
+const SEND_STATUS_KEY = 'whatsapp_send_status';
+// One failed send is usually a bad customer number, not an outage — the
+// Dashboard only warns after this many failures in a row...
+const ALERT_AFTER_CONSECUTIVE_FAILURES = 3;
+// ...or immediately for AiSensy's account-wide "out of credits" error, which
+// fails every message (seen 2026-10-08).
+const AISENSY_OUT_OF_CREDITS_CODE = 402;
+
+const sendStatus: WhatsAppSendStatus = {
+  failing: false,
+  failuresSinceLastSuccess: 0,
+  firstFailureAt: null,
+  lastFailureAt: null,
+  lastFailureCampaign: null,
+  lastFailureReason: null,
+  lastFailureCode: null,
+  lastSuccessAt: null,
+};
+// The saved status is loaded once per process. Until that succeeds (the
+// database may be briefly unreachable after a restart), memory holds only this
+// run's sends, nothing is saved, and every send retries the load.
+let sendStatusLoaded = false;
+let sendStatusLoading: Promise<void> | null = null;
+
+// Combines the saved status with this run's sends recorded before the load
+// succeeded. A success this run is newer than anything saved, so this run
+// wins; otherwise this run's failures extend the saved failure streak.
+function mergeSavedStatus(saved: Partial<WhatsAppSendStatus>) {
+  if (sendStatus.lastSuccessAt) return;
+  if (!sendStatus.failing) {
+    Object.assign(sendStatus, saved);
+    return;
+  }
+  if (saved.failing) {
+    sendStatus.failuresSinceLastSuccess += saved.failuresSinceLastSuccess ?? 0;
+    sendStatus.firstFailureAt = saved.firstFailureAt ?? sendStatus.firstFailureAt;
+  }
+  sendStatus.lastSuccessAt = saved.lastSuccessAt ?? null;
+}
+
+// Returns whether the status changed in a way worth persisting. A success
+// while nothing was failing only refreshes lastSuccessAt in memory, so normal
+// traffic doesn't write to the database on every message.
+function recordSendSuccess(): boolean {
+  const wasFailing = sendStatus.failing;
+  sendStatus.failing = false;
+  sendStatus.failuresSinceLastSuccess = 0;
+  sendStatus.firstFailureAt = null;
+  sendStatus.lastSuccessAt = new Date().toISOString();
+  return wasFailing;
+}
+
+function recordSendFailure(campaign: string, reason: string, code: number | null) {
+  const now = new Date().toISOString();
+  if (!sendStatus.failing) sendStatus.firstFailureAt = now;
+  sendStatus.failing = true;
+  sendStatus.failuresSinceLastSuccess += 1;
+  sendStatus.lastFailureAt = now;
+  sendStatus.lastFailureCampaign = campaign;
+  sendStatus.lastFailureReason = reason;
+  sendStatus.lastFailureCode = code;
+}
+
 export interface WhatsAppOrderParams {
   customerName: string;
   customerPhone: string;
@@ -35,6 +117,114 @@ export interface WhatsAppOrderParams {
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
+
+  // Optional so `new WhatsAppService()` (specs) still works — without Prisma
+  // the send status just isn't persisted.
+  constructor(@Optional() private readonly prisma?: PrismaService) {}
+
+  async getSendStatus(): Promise<WhatsAppSendStatus & { alert: boolean }> {
+    await this.ensureSendStatusLoaded();
+    return {
+      ...sendStatus,
+      alert: sendStatus.failing && (
+        sendStatus.failuresSinceLastSuccess >= ALERT_AFTER_CONSECUTIVE_FAILURES ||
+        sendStatus.lastFailureCode === AISENSY_OUT_OF_CREDITS_CODE
+      ),
+    };
+  }
+
+  // Loads the saved status so a restart mid-outage continues the same failure
+  // streak. Never throws; a failed load is retried on the next call.
+  private ensureSendStatusLoaded(): Promise<void> {
+    if (!this.prisma || sendStatusLoaded) return Promise.resolve();
+    if (!sendStatusLoading) {
+      const prisma = this.prisma;
+      sendStatusLoading = prisma.systemConfig
+        .findUnique({ where: { key: SEND_STATUS_KEY } })
+        .then(async (row) => {
+          const hadSendsThisRun = sendStatus.failing || !!sendStatus.lastSuccessAt;
+          if (row?.value) {
+            try {
+              mergeSavedStatus(JSON.parse(row.value) as Partial<WhatsAppSendStatus>);
+            } catch {
+              this.logger.error('WhatsApp send status in SystemConfig is not valid JSON — starting fresh');
+            }
+          }
+          sendStatusLoaded = true;
+          if (hadSendsThisRun) await this.saveSendStatus();
+        })
+        .catch((err) => this.logger.error(`WhatsApp send status load failed (will retry): ${err}`))
+        .finally(() => { sendStatusLoading = null; });
+    }
+    return sendStatusLoading;
+  }
+
+  // Never throws — a database problem must not affect the send itself.
+  // Skipped until the saved status has loaded, so a partial in-memory status
+  // can never overwrite it.
+  private async saveSendStatus(): Promise<void> {
+    if (!this.prisma || !sendStatusLoaded) return;
+    try {
+      const value = JSON.stringify(sendStatus);
+      await this.prisma.systemConfig.upsert({
+        where: { key: SEND_STATUS_KEY },
+        update: { value },
+        create: { key: SEND_STATUS_KEY, value },
+      });
+    } catch (err) {
+      this.logger.error(`WhatsApp send status save failed: ${err}`);
+    }
+  }
+
+  // Every AiSensy POST in the backend (this service, CrmService,
+  // MarketingService) goes through here so its outcome is recorded for the
+  // Dashboard warning. Returns the untouched Response (the failure body is read
+  // from a clone), so callers behave exactly as before. `url` exists only for
+  // MarketingService's AISENSY_API_URL env override. `accountWideFailuresOnly`
+  // is for bulk broadcasts: a list with several dead numbers in a row must not
+  // raise the outage warning, so only an out-of-credits error or AiSensy being
+  // unreachable is recorded (successes still clear the warning).
+  async postToAisensy(
+    init: RequestInit,
+    url: string = AISENSY_API_URL,
+    options: { accountWideFailuresOnly?: boolean } = {},
+  ): Promise<Response> {
+    let campaign = 'unknown';
+    try {
+      campaign = JSON.parse(String(init.body)).campaignName ?? campaign;
+    } catch {
+      // Body isn't JSON — keep 'unknown'.
+    }
+
+    await this.ensureSendStatusLoaded();
+
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      recordSendFailure(campaign, `Could not reach AiSensy: ${err instanceof Error ? err.message : String(err)}`, null);
+      await this.saveSendStatus();
+      throw err;
+    }
+
+    if (res.ok) {
+      if (recordSendSuccess()) await this.saveSendStatus();
+    } else {
+      let reason = `HTTP ${res.status}`;
+      let code: number | null = res.status;
+      try {
+        const data = await res.clone().json();
+        reason = data?.errorMessage ?? data?.message ?? reason;
+        if (typeof data?.errorCode === 'number') code = data.errorCode;
+      } catch {
+        // Unreadable body — keep the HTTP status as the reason.
+      }
+      if (options.accountWideFailuresOnly && code !== AISENSY_OUT_OF_CREDITS_CODE) return res;
+      recordSendFailure(campaign, reason, code);
+      await this.saveSendStatus();
+    }
+    return res;
+  }
 
   private async sendCampaign(params: {
     campaignName: string;
@@ -70,7 +260,7 @@ export class WhatsAppService {
     };
 
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -123,7 +313,7 @@ export class WhatsAppService {
     };
 
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -184,7 +374,7 @@ export class WhatsAppService {
     };
 
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -291,7 +481,7 @@ export class WhatsAppService {
     };
 
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -593,7 +783,7 @@ export class WhatsAppService {
       };
 
       try {
-        const res = await fetch(AISENSY_API_URL, {
+        const res = await this.postToAisensy({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -755,7 +945,7 @@ export class WhatsAppService {
     };
 
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -793,7 +983,7 @@ export class WhatsAppService {
       location: {},
     };
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -878,7 +1068,7 @@ export class WhatsAppService {
         location: {},
       };
       try {
-        const res = await fetch(AISENSY_API_URL, {
+        const res = await this.postToAisensy({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -946,7 +1136,7 @@ export class WhatsAppService {
       location: {},
     };
     try {
-      const res = await fetch(AISENSY_API_URL, {
+      const res = await this.postToAisensy({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
