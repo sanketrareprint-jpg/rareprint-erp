@@ -6,7 +6,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type Tab = "forward" | "reverse" | "rates" | "history" | "clubbing";
+type Tab = "forward" | "reverse" | "calendar" | "rates" | "history" | "clubbing";
 type LamOption = "none" | "gloss-single" | "gloss-double" | "matt-single" | "matt-double";
 type Layer = { psize: string; gsm: string; qty: number; fsize: string; colors: number; sides: string };
 type BreakdownRow = { label: string; amount: number };
@@ -54,6 +54,47 @@ type QuoteInputParams = {
   carbonCopy?: boolean;
   keychainNumber?: string;
   penNumber?: string;
+  calendarSize?: string;
+  calendarPages?: string;
+  calendarTinning?: string;
+};
+// Mirrors the `calendar` object returned by POST /rate-calculator/calendar.
+// Cost fields are sent only to roles allowed to see costs (`costsVisible`).
+type CalendarProduction = {
+  qty: number;
+  sizeLabel: string;
+  printingPaper: string;
+  paperLabel: string;
+  pages: number;
+  designs: number;
+  tinningLabel: string;
+  forms: { note: string; sheets: number; sides: number; impressions: number; printCost?: number }[];
+  totalSheets: number;
+  printedSides: number;
+  plateSets: number;
+  colors: number;
+  totalImpressions: number;
+};
+type CalendarCosts = {
+  paperReamRate: number;
+  paperRatePerSheet: number;
+  paperCost: number;
+  plateRate: number;
+  plateSetRate: number;
+  plateCost: number;
+  printFirst1k: number;
+  printNextK: number;
+  printingCost: number;
+  tinningRate: number;
+  tinningCost: number;
+  totalCost: number;
+  costPerCalendar: number;
+};
+type CalendarDetails = CalendarProduction & Partial<CalendarCosts>;
+type CalendarOptions = {
+  sizes: { value: string; label: string; printingPaper: string; papers: { value: string; label: string }[] }[];
+  pages: { value: string; label: string }[];
+  tinning: { value: string; label: string }[];
 };
 type Result = {
   breakdown: BreakdownRow[];
@@ -64,6 +105,8 @@ type Result = {
   totalQty?: number;
   multiplier?: number;
   description?: string;
+  calendar?: CalendarDetails;
+  costsVisible?: boolean;
   clubbing?: {
     vendorName: string;
     vendorCost: number;
@@ -305,6 +348,15 @@ function buildQuoteDetailLines(calcType: string, inputParams: QuoteInputParams, 
         details.push(`Area: ${sticker.area.toFixed(2)} sq inch each`);
         details.push(`Sheet Layout: ${sticker.columns} x ${sticker.rows} = ${sticker.stickersPerSheet} stickers per sheet`);
         details.push(`Sheets Required: ${sticker.sheetsNeeded.toLocaleString("en-IN")} sheets`);
+      }
+    } else if (inputParams.product === "calendar") {
+      const cal = result.calendar;
+      if (cal) {
+        details.push(`Calendar Size: ${cal.sizeLabel}`);
+        details.push(`Paper: ${cal.paperLabel}`);
+        details.push(`Pages: ${cal.pages}`);
+        details.push(`Printing: 4 color`);
+        details.push(`Tinning: ${cal.tinningLabel}`);
       }
     } else if (inputParams.product === "ppfile") {
       details.push(`Micron: ${inputParams.micron || ""}`);
@@ -602,6 +654,136 @@ function QuotationCopyCard({ quote }: { quote: QuoteCopy }) {
       </div>
       <textarea readOnly value={quoteText}
         className="h-36 w-full resize-none rounded border border-slate-200 bg-slate-50 p-2 text-xs leading-5 text-slate-700 outline-none" />
+    </div>
+  );
+}
+
+// ─── CALENDAR ESTIMATE ────────────────────────────────────────────────────────
+// Sizes, papers and costing rules all live in the backend
+// (GET /rate-calculator/calendar/options, POST /rate-calculator/calendar).
+function num(n: number) {
+  return Number(n).toLocaleString("en-IN");
+}
+
+// The server decides cost visibility per role (`costsVisible`); costs are
+// simply absent from the response for roles that may not see them.
+function calendarCosts(result: Result) {
+  return result.costsVisible ? (result.calendar as CalendarProduction & CalendarCosts) : null;
+}
+
+function buildCalendarBreakdownText(result: Result) {
+  const c = result.calendar!;
+  const k = calendarCosts(result);
+  const lines = [
+    "CALENDAR COST ESTIMATE",
+    `Quantity: ${num(c.qty)}`,
+    `Calendar Size: ${c.sizeLabel}`,
+    `Printing Paper: ${c.printingPaper}`,
+    `Paper: ${c.paperLabel}`,
+    `Pages: ${c.pages}`,
+    `Tinning: ${c.tinningLabel}`,
+    "",
+    `Physical sheets: ${num(c.totalSheets)}`,
+    `Printed sides / plates: ${c.printedSides} (${c.colors}-colour plate sets)`,
+    `Printing impressions: ${num(c.totalImpressions)}`,
+    `Tinning quantity: ${num(c.qty)} calendars`,
+    "Wastage: 0%",
+  ];
+  if (k) {
+    lines.push(
+      "",
+      `Paper: ${num(k.totalSheets)} × ${fmt(k.paperRatePerSheet)} = ${fmt(k.paperCost)}`,
+      `Plate: ${k.plateSets} × ${fmt(k.plateSetRate)} = ${fmt(k.plateCost)}`,
+      `Printing: ${k.printedSides} physical sides × 4-colour slab = ${fmt(k.printingCost)}`,
+      `Tinning: ${num(k.qty)} × ${fmt(k.tinningRate)} = ${fmt(k.tinningCost)}`,
+      "",
+      `TOTAL COST: ${fmt(k.totalCost)}`,
+      `COST PER CALENDAR: ${fmt(k.costPerCalendar)}`,
+    );
+  }
+  lines.push("", `Quote${k ? ` (×${result.multiplier})` : ""}: ${fmt(result.total)}`, `Quote per calendar: ${fmt(result.perPiece ?? 0)}`);
+  return lines.join("\n");
+}
+
+function CalendarEstimateCard({ result }: { result: Result }) {
+  const c = result.calendar!;
+  const k = calendarCosts(result);
+  const Row = ({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) => (
+    <div className="flex justify-between gap-2 text-xs py-1 border-b border-green-100">
+      <span className="text-slate-600">{label}</span>
+      <span className={strong ? "font-bold text-slate-900" : "font-semibold text-slate-800"}>{value}</span>
+    </div>
+  );
+  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="mt-3">
+      <p className="text-[11px] font-bold text-green-800 uppercase tracking-wide mb-1">{title}</p>
+      {children}
+    </div>
+  );
+  const Formula = ({ children }: { children: React.ReactNode }) => (
+    <p className="text-[11px] font-mono bg-white border border-green-100 rounded px-2 py-1 mt-1 text-slate-700">{children}</p>
+  );
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-4">
+      <p className="text-sm font-bold text-green-800 mb-2">📅 Calendar Cost Estimate</p>
+      <Row label="Quantity" value={num(c.qty)} />
+      <Row label="Calendar Size" value={c.sizeLabel} />
+      <Row label="Printing Paper" value={c.printingPaper} />
+      <Row label="Paper" value={c.paperLabel} />
+      <Row label="Pages" value={`${c.pages} (${c.designs} design${c.designs > 1 ? "s" : ""})`} />
+      <Row label="Tinning" value={c.tinningLabel} />
+
+      <Section title="Production">
+        {c.forms.map((f, i) => (
+          <Row key={i} label={f.note} value={`${num(f.sheets)} sheets × ${f.sides} side${f.sides > 1 ? "s" : ""}`} />
+        ))}
+        <Row label="Physical sheets required" value={`${num(c.totalSheets)} sheets`} strong />
+        <Row label="Physical printed sides" value={c.printedSides} strong />
+        <Row label={`Plates required (${c.colors}-colour sets)`} value={c.plateSets} strong />
+        <Row label="Total printing impressions" value={num(c.totalImpressions)} strong />
+        <Row label="Tinning quantity" value={`${num(c.qty)} calendars`} />
+        <Row label="Wastage" value="0%" />
+      </Section>
+
+      {k && (
+        <>
+          <Section title="Paper">
+            <Row label={`Paper rate (₹${num(k.paperReamRate)}/ream ÷ 500)`} value={`${fmt(k.paperRatePerSheet)}/sheet`} />
+            <Formula>Paper: {num(k.totalSheets)} × {fmt(k.paperRatePerSheet)} = {fmt(k.paperCost)}</Formula>
+          </Section>
+          <Section title="Plates">
+            <Row label={`Plate rate (${k.colors} colours × ${fmt(k.plateRate)})`} value={`${fmt(k.plateSetRate)}/side`} />
+            <Formula>Plate: {k.plateSets} × {fmt(k.plateSetRate)} = {fmt(k.plateCost)}</Formula>
+          </Section>
+          <Section title="Printing">
+            <p className="text-[11px] text-slate-500">4-colour slab per printed side: {fmt(k.printFirst1k)} first 1,000 sheets + {fmt(k.printNextK)} per next 1,000</p>
+            {k.forms.map((f, i) => (
+              <Row key={i} label={`${f.note}: ${num(f.sheets)} sheets × ${f.sides} side${f.sides > 1 ? "s" : ""}`} value={fmt(f.printCost ?? 0)} />
+            ))}
+            <Formula>Printing: {k.printedSides} physical sides × applicable slab = {fmt(k.printingCost)}</Formula>
+          </Section>
+          <Section title="Tinning">
+            <Formula>Tinning: {num(k.qty)} × {fmt(k.tinningRate)} = {fmt(k.tinningCost)}</Formula>
+          </Section>
+          <div className="bg-slate-800 text-white rounded-lg px-4 py-2.5 flex justify-between items-center mt-3">
+            <span className="font-bold text-sm">Total Cost</span>
+            <span className="font-extrabold text-lg">{fmt(k.totalCost)}</span>
+          </div>
+          <div className="bg-slate-600 text-white rounded-lg px-4 py-2 flex justify-between items-center mt-1.5">
+            <span className="font-semibold text-sm">Cost Per Calendar</span>
+            <span className="font-bold">{fmt(k.costPerCalendar)}</span>
+          </div>
+        </>
+      )}
+
+      <div className="bg-green-700 text-white rounded-lg px-4 py-2.5 flex justify-between items-center mt-3">
+        <span className="font-bold text-sm">Quote ({k ? `×${result.multiplier}, ` : ""}incl. margin + GST)</span>
+        <span className="font-extrabold text-lg">{fmt(result.total)}</span>
+      </div>
+      <div className="bg-teal-700 text-white rounded-lg px-4 py-2 flex justify-between items-center mt-1.5">
+        <span className="font-semibold text-sm">Quote Per Calendar</span>
+        <span className="font-bold">{fmt(result.perPiece ?? 0)}</span>
+      </div>
     </div>
   );
 }
@@ -1037,6 +1219,39 @@ export default function RateCalculatorPage() {
   const [rPenNumber, setRPenNumber] = useState("PEN1");
   const [rMult, setRMult] = useState<number | "">("");  // blank = use master default
 
+  // ── Calendar State ──
+  const [cCustomer, setCCustomer] = useState("");
+  const [cQty, setCQty] = useState<number | "">(1000);
+  const [cSize, setCSize] = useState("11x17");
+  const [cPaper, setCPaper] = useState("");
+  const [cPages, setCPages] = useState("6");
+  const [cTinning, setCTinning] = useState("top");
+  const [cMult, setCMult] = useState<number | "">("");  // blank = use master default
+  const [cResult, setCResult] = useState<Result | null>(null);
+  const [cError, setCError] = useState<string | null>(null);
+  const [cLoading, setCLoading] = useState(false);
+  const [cQuoting, setCQuoting] = useState(false);
+  const [cQuoted, setCQuoted] = useState(false);  // this result already saved as a quotation
+  const [cCopied, setCCopied] = useState(false);
+  const [cOptions, setCOptions] = useState<CalendarOptions | null>(null);
+  const [cOptionsError, setCOptionsError] = useState<string | null>(null);
+
+  const loadCalendarOptions = useCallback(async () => {
+    setCOptionsError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/rate-calculator/calendar/options`, { headers: getAuthHeaders() });
+      if (!res.ok) { setCOptionsError(`Failed to load calendar options (HTTP ${res.status}).`); return; }
+      setCOptions(await res.json());
+    } catch {
+      setCOptionsError("Unable to load calendar options. Please refresh.");
+    }
+  }, []);
+
+  // A shown estimate must always match the inputs — clear it on any change.
+  useEffect(() => {
+    setCResult(null); setCError(null); setCQuoted(false);
+  }, [cQty, cSize, cPaper, cPages, cTinning, cMult]);
+
 
   // Auto-set size/parent when product changes
   useEffect(() => {
@@ -1193,11 +1408,12 @@ export default function RateCalculatorPage() {
 
   useEffect(() => {
     loadRates();
+    loadCalendarOptions();
     const user = getStoredUser();
     // Only ADMIN and INHOUSE/ACCOUNTS roles see full cost breakdown
     const adminRoles = ["ADMIN", "INHOUSE", "ACCOUNTS"];
     setIsAdmin(!user || adminRoles.includes(user.role));
-  }, [loadRates]);
+  }, [loadRates, loadCalendarOptions]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -1333,6 +1549,62 @@ export default function RateCalculatorPage() {
     }
   };
 
+  const calcCalendar = async () => {
+    setCResult(null); setCError(null); setCQuoted(false); setCurrentQuote(null);
+    if (!(typeof cQty === "number" && Number.isInteger(cQty) && cQty > 0)) { setCError("Enter a whole-number quantity greater than 0."); return; }
+    if (!cPaper) { setCError("Select a paper. If none is listed, add a Maplitho/Art paper rate in the Rates tab."); return; }
+    setCLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/rate-calculator/calendar`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          qty: cQty, size: cSize, paper: cPaper, pages: cPages, tinning: cTinning,
+          multiplier: isAdmin && cMult !== "" ? cMult : undefined, customer: cCustomer,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = Array.isArray(data?.message) ? data.message.join(", ") : data?.message;
+        setCError(msg || `Calculation failed (HTTP ${res.status}).`);
+        return;
+      }
+      setCResult(data);
+    } catch {
+      setCError("Calculation failed — check your connection.");
+    } finally {
+      setCLoading(false);
+    }
+  };
+
+  const resetCalendar = () => {
+    setCCustomer(""); setCQty(1000); setCSize("11x17"); setCPages("6"); setCTinning("top"); setCMult("");
+    setCResult(null); setCError(null); setCurrentQuote(null);
+  };
+
+  const copyCalendarBreakdown = async () => {
+    if (!cResult?.calendar) return;
+    try {
+      await navigator.clipboard.writeText(buildCalendarBreakdownText(cResult));
+      setCCopied(true);
+      setTimeout(() => setCCopied(false), 1800);
+    } catch {}
+  };
+
+  const useCalendarInQuotation = async () => {
+    if (!cResult?.calendar || cQuoting || cQuoted) return;
+    setCQuoting(true);
+    setCQuoted(true);
+    try {
+      await saveToHistory("calendar", {
+        product: "calendar", qty: cResult.calendar.qty, customer: cCustomer,
+        calendarSize: cSize, paper: cPaper, calendarPages: cPages, calendarTinning: cTinning,
+        multiplier: cResult.multiplier,
+      }, cResult, "Calendar", cResult.calendar.qty);
+    } finally {
+      setCQuoting(false);
+    }
+  };
+
   const saveRates = async () => {
     if (!rates) return;
     setSaveError(null);
@@ -1342,6 +1614,7 @@ export default function RateCalculatorPage() {
         body: JSON.stringify(rates),
       });
       if (res.ok) {
+        loadCalendarOptions();  // new/removed paper rates change the calendar paper list
         setRatesSaved(true);
         setTimeout(() => setRatesSaved(false), 3000);
       } else {
@@ -1383,8 +1656,19 @@ export default function RateCalculatorPage() {
         .map(t => ({ value: t, label: formatPaperType(t) }))
     : DEFAULT_PAPER_OPTIONS;
 
+  // Calendar paper choices come from the backend (only Maplitho/Art papers
+  // with a rate for the selected size's printing sheet).
+  const calendarSizeOption = cOptions?.sizes.find(o => o.value === cSize);
+  const calendarPaperOptions = calendarSizeOption?.papers ?? [];
+  const calendarPaperKey = calendarPaperOptions.map(o => o.value).join("|");
+  useEffect(() => {
+    const values = calendarPaperKey ? calendarPaperKey.split("|") : [];
+    if (!values.includes(cPaper)) setCPaper(values[0] ?? "");
+  }, [calendarPaperKey, cPaper]);
+
   const ALL_TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
     { id: "reverse",  label: "↺ Reverse" },
+    { id: "calendar", label: "📅 Calendar" },
     { id: "rates",    label: "⚙ Rates",    adminOnly: true },
     { id: "history",  label: "📋 History" },
     { id: "clubbing", label: "🤝 Clubbing", adminOnly: true },
@@ -1465,6 +1749,7 @@ export default function RateCalculatorPage() {
               <button key={t.id} onClick={() => {
                 setTab(t.id); setResult(null); setCurrentQuote(null);
                 if (t.id === "history") loadHistory();
+                if (t.id === "calendar") loadCalendarOptions();
                 if (t.id === "clubbing") loadClubbing();
               }}
                 className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all min-w-[52px] ${tab === t.id ? "bg-white text-brand-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
@@ -2036,6 +2321,94 @@ export default function RateCalculatorPage() {
             </div>
           </div>
         )}
+        {/* ── CALENDAR ── */}
+        {tab === "calendar" && (
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(460px,2fr)] xl:grid-cols-[minmax(0,5fr)_minmax(560px,4fr)] gap-2 items-start">
+            <div>
+              <div className="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-xs text-blue-700 mb-2">
+                📌 Paper, plate and printing rates come from the Rates tab · tinning from Calendar → Tinning Rates · no wastage.
+              </div>
+              <Card title="📅 Calendar">
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Customer Name"><Input value={cCustomer} onChange={e => setCCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
+                  <Field label="Quantity">
+                    <Input type="number" min="1" step="1" value={cQty} onChange={e => setCQty(e.target.value === "" ? "" : +e.target.value)} />
+                  </Field>
+                  <Field label="Calendar Size">
+                    <Select value={cSize} onChange={e => setCSize(e.target.value)}>
+                      {(cOptions?.sizes ?? []).map(o => <option key={o.value} value={o.value}>{`${o.label} (prints on ${o.printingPaper})`}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="Paper Quality / GSM">
+                    {calendarPaperOptions.length > 0 ? (
+                      <Select value={cPaper} onChange={e => setCPaper(e.target.value)}>
+                        {calendarPaperOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </Select>
+                    ) : (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        {cOptionsError ?? (!cOptions ? "Loading options…" : "No Maplitho/Art paper rate for this sheet size. Please update the Rates module.")}
+                      </p>
+                    )}
+                  </Field>
+                  <Field label="Pages">
+                    <Select value={cPages} onChange={e => setCPages(e.target.value)}>
+                      {(cOptions?.pages ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="Tinning (compulsory)">
+                    <Select value={cTinning} onChange={e => setCTinning(e.target.value)}>
+                      {(cOptions?.tinning ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </Select>
+                  </Field>
+                  {isAdmin && (
+                    <Field label={`Multiplier (×) for quotation — ${multHint}`}>
+                      <Input type="number" step="0.01" placeholder={String(masterMult)}
+                        value={cMult} onChange={e => setCMult(e.target.value === "" ? "" : +e.target.value)} />
+                    </Field>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button onClick={calcCalendar} disabled={cLoading}
+                    className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
+                    {cLoading ? "Calculating…" : "🧮 Calculate Cost"}
+                  </button>
+                  <button onClick={resetCalendar}
+                    className="bg-slate-100 text-slate-700 rounded py-1.5 text-xs font-semibold hover:bg-slate-200">
+                    Reset
+                  </button>
+                </div>
+                {cError && (
+                  <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5">⚠ {cError}</p>
+                )}
+              </Card>
+            </div>
+
+            <div className="lg:sticky lg:top-0">
+              {cResult?.calendar ? (
+                <>
+                  <CalendarEstimateCard result={cResult} />
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button onClick={copyCalendarBreakdown}
+                      className="bg-slate-900 text-white rounded py-1.5 text-xs font-semibold hover:bg-slate-700">
+                      {cCopied ? "Copied" : "📋 Copy Cost Breakdown"}
+                    </button>
+                    <button onClick={useCalendarInQuotation} disabled={cQuoting || cQuoted}
+                      className="bg-green-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">
+                      {cQuoting ? "Saving…" : cQuoted ? "✓ Added to Quotation" : "🧾 Use in Quotation"}
+                    </button>
+                  </div>
+                  {currentQuote && <QuotationCopyCard quote={currentQuote} />}
+                </>
+              ) : (
+                <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
+                  <span className="text-2xl">📅</span>
+                  Fill details and click Calculate Cost
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── MASTER RATES ── */}
         {tab === "rates" && (
           ratesLoading ? (
@@ -2308,6 +2681,21 @@ export default function RateCalculatorPage() {
                 </Card>
               </AccordionCategory>
 
+              {/* ── CATEGORY: Calendar ── */}
+              <AccordionCategory title="Calendar" icon="📅" defaultOpen={false}>
+                <Card title="Tinning Rates (₹ per finished calendar)">
+                  <p className="text-[10px] text-blue-600 mb-2">Charged per calendar, not per sheet. Paper, plate and 4-color printing rates above are reused for calendars.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Field label="Top (₹/calendar)">
+                      <Input type="number" step="0.01" value={rates.calendarTinning?.top ?? ""} onChange={e => updateRate("calendarTinning.top", +e.target.value)} />
+                    </Field>
+                    <Field label="Top + Bottom (₹/calendar)">
+                      <Input type="number" step="0.01" value={rates.calendarTinning?.topBottom ?? ""} onChange={e => updateRate("calendarTinning.topBottom", +e.target.value)} />
+                    </Field>
+                  </div>
+                </Card>
+              </AccordionCategory>
+
               <button onClick={saveRates} className="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700">
                 Save All Rates
               </button>
@@ -2364,7 +2752,7 @@ export default function RateCalculatorPage() {
                         </div>
                         <p className="text-xs text-slate-400 mt-1">
                           {new Date(h.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                          {" · x"}{h.multiplier}
+                          {h.multiplier != null && <>{" · x"}{h.multiplier}</>}
                         </p>
                         {h.inputParams?.quotationText && (
                           <details className="mt-2">

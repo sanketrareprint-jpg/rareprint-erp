@@ -27,6 +27,76 @@ const SHEET_AREA: Record<string, number> = {
   '1520': 15 * 20,
 };
 
+// ── Calendar production rules ────────────────────────────────────────────────
+// A calendar is costed as a list of sheet "forms". A form is one imposition
+// printed as its own run: `sheetsPerCalendar` physical sheets per finished
+// calendar, printed on `sides` sides (1 = front only, 2 = front + back).
+// Every printed side is one plate set and one press run, no matter how many
+// calendar designs are imposed on it — so designs ≠ plates ≠ sheets.
+// No wastage is added anywhere (business rule: wastage = 0%).
+const CALENDAR_COLORS = 4;
+type CalendarForm = { sheetsPerCalendar: number; sides: 1 | 2; note: string };
+type CalendarPages = '1' | '3' | '6';
+
+function calendarLeafForms(leaves: number): CalendarForm[] {
+  return Array.from({ length: leaves }, (_, i) => ({ sheetsPerCalendar: 1, sides: 2 as const, note: `Leaf ${i + 1}: front + back` }));
+}
+
+const CALENDAR_SIZES: Record<string, { label: string; parent: string; parentLabel: string; forms: Record<CalendarPages, CalendarForm[]> }> = {
+  // 11×17 is imposed 2-up on 18×23: 2 designs per sheet side.
+  '11x17': {
+    label: '11×17 inch', parent: '1823', parentLabel: '18×23 inch',
+    forms: {
+      '1': [{ sheetsPerCalendar: 0.5, sides: 1, note: '2 calendars per 18×23 sheet, front only' }],
+      '3': [
+        { sheetsPerCalendar: 1, sides: 2, note: 'Leaves 1+2: 2 designs per side, front + back' },
+        { sheetsPerCalendar: 0.5, sides: 2, note: 'Leaf 3: 2-up (2 calendars per sheet), front + back' },
+      ],
+      '6': [
+        { sheetsPerCalendar: 1, sides: 2, note: 'Leaves 1+2: 2 months per side, front + back' },
+        { sheetsPerCalendar: 1, sides: 2, note: 'Leaves 3+4: 2 months per side, front + back' },
+        { sheetsPerCalendar: 1, sides: 2, note: 'Leaves 5+6: 2 months per side, front + back' },
+      ],
+    },
+  },
+  '15x20': {
+    label: '15×20 inch', parent: '1520', parentLabel: '15×20 inch',
+    forms: {
+      '1': [{ sheetsPerCalendar: 1, sides: 1, note: '1 calendar per sheet, front only' }],
+      '3': calendarLeafForms(3),
+      '6': calendarLeafForms(6),
+    },
+  },
+  '18x23': {
+    label: '18×23 inch', parent: '1823', parentLabel: '18×23 inch',
+    forms: {
+      '1': [{ sheetsPerCalendar: 1, sides: 1, note: '1 calendar per sheet, front only' }],
+      '3': calendarLeafForms(3),
+      '6': calendarLeafForms(6),
+    },
+  },
+};
+
+// Unique calendar designs per page option (1 page = all 12 months on one design).
+const CALENDAR_DESIGNS: Record<CalendarPages, number> = { '1': 1, '3': 6, '6': 12 };
+
+const CALENDAR_TINNING: Record<string, string> = { top: 'Top', topBottom: 'Top + Bottom' };
+
+// Calendar paper must be Maplitho ("map") or Art ("art") — e.g. map100, art170.
+const CALENDAR_PAPER_TYPE = /^(map|art)(\d+(?:\.\d+)?)$/i;
+
+function calendarPaperLabel(type: string): string {
+  const m = type.match(CALENDAR_PAPER_TYPE);
+  return m ? `${m[2]} GSM ${m[1].toLowerCase() === 'map' ? 'Maplitho' : 'Art Paper'}` : type;
+}
+
+// Roles allowed to see Rate Calc costs/rates and edit master rates — the same
+// roles the frontend treats as admin (rate-calculator/page.tsx `adminRoles`).
+export const RATE_COST_ROLES = ['ADMIN', 'INHOUSE', 'ACCOUNTS'];
+export function canSeeRateCosts(role?: string | null): boolean {
+  return !!role && RATE_COST_ROLES.includes(role);
+}
+
 const DEFAULT_RATES: any = {
   paper: {
     '1823-bond70': 850, '1823-bond80': 950,
@@ -195,6 +265,15 @@ export class RateCalculatorService {
     return DEFAULT_RATES;
   }
 
+  // GET /rates for the UI. Calendar tinning rates are only used by the
+  // server-side calendar calc, so roles that can't see costs don't get them.
+  async getRatesForRole(role?: string): Promise<any> {
+    const rates = await this.getRates();
+    if (canSeeRateCosts(role)) return rates;
+    const { calendarTinning: _t, ...rest } = rates;
+    return rest;
+  }
+
   async saveRates(rates: any): Promise<{ success: boolean }> {
     const json = JSON.stringify(rates);
     try {
@@ -248,7 +327,18 @@ export class RateCalculatorService {
   }
 
   // ── Quote History ────────────────────────────────────────────────────────
-  async saveHistory(dto: any): Promise<{ success: boolean; id: string }> {
+  async saveHistory(dto: any, role?: string): Promise<{ success: boolean; id: string }> {
+    if (dto?.calcType === 'calendar') {
+      // Never trust client-sent amounts for calendar quotes: recompute from
+      // the saved inputs so history cost/total are always authoritative (and
+      // a non-cost role can't record a custom multiplier).
+      const p = dto.inputParams ?? {};
+      const full = await this.computeCalendar(
+        { qty: p.qty, size: p.calendarSize, paper: p.paper, pages: p.calendarPages, tinning: p.calendarTinning, multiplier: p.multiplier },
+        canSeeRateCosts(role),
+      );
+      dto = { ...dto, qty: full.totalPieces, breakdown: full.breakdown, subtotal: full.subtotal, total: full.total, perPiece: full.perPiece, multiplier: full.multiplier };
+    }
     try {
       const rec = await (this.prisma as any).quoteHistory.create({
         data: {
@@ -272,11 +362,18 @@ export class RateCalculatorService {
     }
   }
 
-  async listHistory(limit = 100): Promise<any[]> {
+  async listHistory(limit = 100, role?: string): Promise<any[]> {
     try {
-      return await (this.prisma as any).quoteHistory.findMany({
+      const rows = await (this.prisma as any).quoteHistory.findMany({
         orderBy: { createdAt: 'desc' },
         take: limit,
+      });
+      if (canSeeRateCosts(role)) return rows;
+      // Calendar quotes: strip cost data for roles that may only see the price.
+      return rows.map((h: any) => {
+        if (h.calcType !== 'calendar') return h;
+        const { multiplier: _m, ...inputParams } = h.inputParams ?? {};
+        return { ...h, breakdown: [], subtotal: null, multiplier: null, inputParams };
       });
     } catch (e: any) {
       console.error('listHistory error', e?.message);
@@ -973,6 +1070,172 @@ export class RateCalculatorService {
 
     const total = subtotal * multiplier;
     return { breakdown, subtotal, total, perPiece: qty > 0 ? total / qty : 0, totalPieces, totalParentSheets, cutsPerSheet, description, multiplier, customer, clubbing };
+  }
+
+  // ── Calendar Cost Calculator ─────────────────────────────────────────────
+  // Cost = Paper + Plate + Printing + Tinning only. Every rate comes from the
+  // master rates; a missing/zero rate is an error, never a silent ₹0.
+
+  // Single source of truth for the calculator's dropdowns: sizes (with their
+  // printing sheet) and the Maplitho/Art papers that have a rate for that
+  // sheet. Returns names only — no rates — so it is safe for every role.
+  async getCalendarOptions() {
+    const rates = await this.getRates();
+    const paperKeys = Object.keys(rates.paper ?? {}).filter(k => Number(rates.paper[k]) > 0);
+    const gsm = (t: string) => parseFloat(t.replace(/^\D+/, ''));
+    const sizes = Object.entries(CALENDAR_SIZES).map(([value, cfg]) => {
+      const seen = new Set<string>();
+      const papers = paperKeys
+        .filter(k => k.startsWith(cfg.parent + '-'))
+        .map(k => k.slice(cfg.parent.length + 1))
+        .filter(t => CALENDAR_PAPER_TYPE.test(t) && !seen.has(t.toLowerCase()) && !!seen.add(t.toLowerCase()))
+        .sort((a, b) => a.replace(/\d.*/, '').toLowerCase().localeCompare(b.replace(/\d.*/, '').toLowerCase()) || gsm(a) - gsm(b))
+        .map(t => ({ value: t, label: calendarPaperLabel(t) }));
+      return { value, label: cfg.label, printingPaper: cfg.parentLabel, papers };
+    });
+    return {
+      sizes,
+      pages: (Object.keys(CALENDAR_DESIGNS) as CalendarPages[]).map(p => ({ value: p, label: `${p} Page${p === '1' ? '' : 's'}` })),
+      tinning: Object.entries(CALENDAR_TINNING).map(([value, label]) => ({ value, label })),
+    };
+  }
+
+  // Role-aware entry point for POST /rate-calculator/calendar. Roles that may
+  // not see costs get production quantities + the quote price only, and can't
+  // override the multiplier (otherwise ×1 would reveal the exact cost).
+  async calcCalendar(dto: any, role?: string) {
+    const showCosts = canSeeRateCosts(role);
+    const full = await this.computeCalendar(dto, showCosts);
+    if (showCosts) return { ...full, costsVisible: true };
+    const c = full.calendar;
+    return {
+      breakdown: [],
+      total: full.total,
+      perPiece: full.perPiece,
+      totalPieces: full.totalPieces,
+      customer: full.customer,
+      description: full.description,
+      costsVisible: false,
+      calendar: {
+        qty: c.qty, size: c.size, sizeLabel: c.sizeLabel, printingPaper: c.printingPaper, paper: c.paper, paperLabel: c.paperLabel,
+        pages: c.pages, designs: c.designs, tinning: c.tinning, tinningLabel: c.tinningLabel,
+        forms: c.forms.map(f => ({ note: f.note, sheets: f.sheets, sides: f.sides, impressions: f.impressions })),
+        totalSheets: c.totalSheets, printedSides: c.printedSides, plateSets: c.plateSets, colors: c.colors,
+        totalImpressions: c.totalImpressions, wastagePct: c.wastagePct,
+      },
+    };
+  }
+
+  private async computeCalendar(dto: any, allowMultiplierOverride: boolean) {
+    const rates = await this.getRates();
+    const qty = Number(dto.qty);
+    const size = String(dto.size ?? '');
+    const pages = String(dto.pages ?? '') as CalendarPages;
+    const paper = String(dto.paper ?? '').trim();
+    const tinning = String(dto.tinning ?? '');
+
+    if (!Number.isInteger(qty) || qty <= 0) throw new BadRequestException('Quantity must be a whole number greater than 0');
+    const sizeCfg = CALENDAR_SIZES[size];
+    if (!sizeCfg) throw new BadRequestException('Select a valid calendar size');
+    const forms = sizeCfg.forms[pages];
+    if (!forms) throw new BadRequestException('Select 1, 3 or 6 pages');
+    const paperMatch = paper.match(CALENDAR_PAPER_TYPE);
+    if (!paperMatch) throw new BadRequestException('Select a Maplitho or Art paper');
+    if (!CALENDAR_TINNING[tinning]) throw new BadRequestException('Select a tinning option');
+
+    const isRate = (v: any) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+    const paperLabel = calendarPaperLabel(paper);
+
+    // Paper keys are "<parent>-<type>"; match case-insensitively (e.g. "1823-ART90").
+    const wantedKey = `${sizeCfg.parent}-${paper}`.toLowerCase();
+    const paperKey = Object.keys(rates.paper ?? {}).find(k => k.toLowerCase() === wantedKey);
+    const paperReamRate = paperKey ? rates.paper[paperKey] : undefined;
+    if (!isRate(paperReamRate)) {
+      throw new BadRequestException(`Paper rate not configured for ${sizeCfg.parentLabel.replace(' inch', '')} / ${paperLabel}. Please update the Rates module.`);
+    }
+    if (!isRate(rates.plate)) throw new BadRequestException('Plate rate not configured. Please update the Rates module.');
+    const print4 = rates.printing?.['4color'];
+    if (!isRate(print4?.first1k) || !isRate(print4?.nextK)) {
+      throw new BadRequestException('Printing rate not configured for this paper size/impression quantity.');
+    }
+    const tinningRate = rates.calendarTinning?.[tinning];
+    if (!isRate(tinningRate)) throw new BadRequestException('Tinning rate not configured. Please update the Tinning Rates in the Rates module.');
+    const override = allowMultiplierOverride && dto.multiplier !== undefined && dto.multiplier !== null && dto.multiplier !== '' ? dto.multiplier : undefined;
+    const multiplier = Number(override ?? rates.multiplier ?? DEFAULT_RATES.multiplier);
+    if (!(multiplier > 0)) throw new BadRequestException('Multiplier must be greater than 0');
+
+    // 1) Imposition → physical sheets, printed sides, impressions per form.
+    const paperRatePerSheet = Number(paperReamRate) / 500;
+    const formRows = forms.map(f => {
+      const sheets = Math.ceil(qty * f.sheetsPerCalendar);
+      // Existing 4-colour slab, charged once per printed side of this run.
+      const printCost = this.getPrintCost(rates, CALENDAR_COLORS, sheets, 1, f.sides);
+      return { note: f.note, sheets, sides: f.sides, impressions: sheets * f.sides, printCost };
+    });
+    const totalSheets = formRows.reduce((s, f) => s + f.sheets, 0);
+    const printedSides = formRows.reduce((s, f) => s + f.sides, 0);
+    const totalImpressions = formRows.reduce((s, f) => s + f.impressions, 0);
+
+    // 2) Costs.
+    const paperCost = totalSheets * paperRatePerSheet;
+    const plateRate = Number(rates.plate);
+    const plateSetRate = CALENDAR_COLORS * plateRate;
+    const plateCost = this.getPlateCost(rates, CALENDAR_COLORS, printedSides); // 1 plate set per printed side
+    const printingCost = formRows.reduce((s, f) => s + f.printCost, 0);
+    const tinningCost = qty * Number(tinningRate); // per finished calendar, never per sheet
+    const subtotal = paperCost + plateCost + printingCost + tinningCost;
+    const total = subtotal * multiplier;
+
+    const q = qty.toLocaleString('en-IN');
+    const breakdown = [
+      { label: `Paper (${totalSheets.toLocaleString('en-IN')} sheets x Rs.${paperRatePerSheet.toFixed(2)})`, amount: paperCost },
+      { label: `Plates (${printedSides} printed side${printedSides > 1 ? 's' : ''} x Rs.${plateSetRate} = ${CALENDAR_COLORS} colours x Rs.${plateRate})`, amount: plateCost },
+      { label: `Printing (${printedSides} printed side${printedSides > 1 ? 's' : ''}, ${totalImpressions.toLocaleString('en-IN')} impressions, 4-colour slab)`, amount: printingCost },
+      { label: `Tinning ${CALENDAR_TINNING[tinning]} (${q} calendars x Rs.${Number(tinningRate)})`, amount: tinningCost },
+    ];
+
+    return {
+      breakdown,
+      subtotal,
+      total,
+      perPiece: total / qty,
+      totalPieces: qty,
+      multiplier,
+      customer: dto.customer,
+      description: `${q} calendars | ${sizeCfg.label} | ${paperLabel} | ${pages} page${pages === '1' ? '' : 's'} | Tinning ${CALENDAR_TINNING[tinning]}`,
+      calendar: {
+        qty,
+        size,
+        sizeLabel: sizeCfg.label,
+        printingPaper: sizeCfg.parentLabel,
+        paper: paperKey,
+        paperLabel,
+        pages: Number(pages),
+        designs: CALENDAR_DESIGNS[pages],
+        tinning,
+        tinningLabel: CALENDAR_TINNING[tinning],
+        forms: formRows,
+        totalSheets,
+        printedSides,
+        plateSets: printedSides,
+        colors: CALENDAR_COLORS,
+        totalImpressions,
+        paperReamRate: Number(paperReamRate),
+        paperRatePerSheet,
+        paperCost,
+        plateRate,
+        plateSetRate,
+        plateCost,
+        printFirst1k: Number(print4.first1k),
+        printNextK: Number(print4.nextK),
+        printingCost,
+        tinningRate: Number(tinningRate),
+        tinningCost,
+        totalCost: subtotal,
+        costPerCalendar: subtotal / qty,
+        wastagePct: 0,
+      },
+    };
   }
 
   async calcSticker(dto: any) {
